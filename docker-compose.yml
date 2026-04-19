@@ -1,0 +1,83 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: ch-observability-clickhouse
+    restart: unless-stopped
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      CLICKHOUSE_DB: observability
+      CLICKHOUSE_USER: otel
+      CLICKHOUSE_PASSWORD: otel
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
+      - ./sql/clickhouse/init:/docker-entrypoint-initdb.d:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.123.0
+    container_name: ch-observability-otel-collector
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8888:8888"
+      - "13133:13133"
+    volumes:
+      - ./otel/otelcol-contrib.yaml:/etc/otelcol-contrib/config.yaml:ro
+
+  grafana:
+    image: grafana/grafana:11.5.2
+    container_name: ch-observability-grafana
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_PLUGINS_PREINSTALL: grafana-clickhouse-datasource
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+
+  cloudbeaver:
+    image: dbeaver/cloudbeaver:latest
+    container_name: ch-observability-cloudbeaver
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - "8978:8978"
+    environment:
+      CB_SERVER_NAME: ch-observability-cloudbeaver
+      CB_SERVER_URL: http://localhost:8978/
+      CB_ADMIN_NAME: cbadmin
+      CB_ADMIN_PASSWORD: admin
+    volumes:
+      - cloudbeaver-data:/opt/cloudbeaver/workspace
+      - ./cloudbeaver/config:/opt/cloudbeaver/workspace/GlobalConfiguration/.dbeaver
+
+volumes:
+  clickhouse-data:
+  clickhouse-logs:
+  grafana-data:
+  cloudbeaver-data:

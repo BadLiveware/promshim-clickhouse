@@ -1,0 +1,11 @@
+@ChObservability.ApiSimulator_HostAddress = http://localhost:5273
+
+GET {{ChObservability.ApiSimulator_HostAddress}}/openapi/v1.json
+Accept: application/json
+
+###
+
+GET {{ChObservability.ApiSimulator_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

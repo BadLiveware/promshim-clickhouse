@@ -1,0 +1,19 @@
+{
+  "folders": {},
+  "connections": {
+    "observability-clickhouse": {
+      "provider": "clickhouse",
+      "driver": "com_clickhouse",
+      "name": "Local ClickHouse (observability)",
+      "description": "Local ClickHouse database for telemetry data",
+      "save-password": true,
+      "show-system-objects": true,
+      "configuration": {
+        "type": "dev",
+        "url": "jdbc:clickhouse://clickhouse:8123/observability?user=otel&password=otel",
+        "configurationType": "URL",
+        "closeIdleConnection": true
+      }
+    }
+  }
+}

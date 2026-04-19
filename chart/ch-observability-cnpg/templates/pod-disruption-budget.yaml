@@ -1,0 +1,18 @@
+{{- if and .Values.operator.enabled .Values.operator.podDisruptionBudget }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cloudnativepg
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+{{- toYaml .Values.operator.podDisruptionBudget | nindent 2 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudnative-pg
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+

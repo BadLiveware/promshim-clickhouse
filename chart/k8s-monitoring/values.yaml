@@ -1,0 +1,90 @@
+# Core Kubernetes monitoring export workload defaults.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Use kube-prometheus-stack as the single source for:
+# 1) Kubernetes dashboards (ConfigMap-only mode)
+# 2) kube-state-metrics + node-exporter
+#
+# This keeps the chart focused on compatibility with upstream dashboard expectations
+# while avoiding a second Grafana deployment in this chart.
+kubePrometheusStack:
+  enabled: true
+  # Force a short lowercase base name for kube-prometheus-stack-managed resources.
+  nameOverride: kps
+  fullnameOverride: kps
+
+  # Keep Prometheus/alerting/operator off by default.
+  prometheusOperator:
+    enabled: false
+  prometheus:
+    enabled: false
+  alertmanager:
+    enabled: false
+
+  # Keep built-in node/kube-api component scrapers off by default to remain lightweight.
+  kubernetesServiceMonitors:
+    enabled: true
+  kubeApiServer:
+    enabled: true
+  kubelet:
+    enabled: true
+  kubeControllerManager:
+    enabled: true
+  coreDns:
+    enabled: true
+  kubeDns:
+    enabled: true
+  kubeEtcd:
+    enabled: false
+  kubeScheduler:
+    enabled: true
+  kubeProxy:
+    enabled: true
+
+  # Exporters from the stack configuration.
+  kubeStateMetrics:
+    enabled: true
+  kube-state-metrics:
+    # This is the subchart config block for kube-state-metrics.
+    enabled: true
+    nameOverride: kube-state-metrics
+    fullnameOverride: kube-state-metrics
+    # Avoid creating ServiceMonitor CRs by default.
+    prometheus:
+      monitor:
+        enabled: false
+  nodeExporter:
+    enabled: true
+  prometheus-node-exporter:
+    # This is the subchart config block for the node-exporter chart.
+    enabled: true
+    nameOverride: prometheus-node-exporter
+    fullnameOverride: prometheus-node-exporter
+    # Avoid creating ServiceMonitor CRs by default.
+    prometheus:
+      monitor:
+        enabled: false
+
+  # Disable alerting and CRD overhead unless explicitly enabled.
+  defaultRules:
+    create: false
+  crds:
+    enabled: false
+
+  # Use kube-prometheus-stack's shorter resource naming mode.
+  cleanPrometheusOperatorObjectNames: true
+
+  # Dashboard-only behavior: emit bundled Kubernetes dashboards but do not deploy Grafana.
+  grafana:
+    # Deploy only dashboard ConfigMaps.
+    enabled: false
+    # Keep dashboard objects even when Grafana is disabled.
+    forceDeployDashboards: true
+    defaultDashboardsEnabled: true
+    sidecar:
+      dashboards:
+        enabled: true
+      datasources:
+        enabled: false

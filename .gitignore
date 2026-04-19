@@ -7,10 +7,10 @@
 .idea/
 .vscode/
 
-# CloudBeaver runtime/config directories mounted in compose
-# Keep only the committed seed config under cloudbeaver/config
-cloudbeaver/*
-!cloudbeaver/config/
-cloudbeaver/config/*
-!cloudbeaver/config/data-sources.json
-!cloudbeaver/config/data-sources-permissions.json
+# Legacy root assets moved under chart/ch-observability-poc/files
+cloudbeaver/
+grafana/
+otel/
+sql/
+
+scratch/**/*

@@ -1,0 +1,31 @@
+{{- if .Values.clickhouse.enabled -}}
+{{- $root := . -}}
+{{- if and ($root.Capabilities.APIVersions.Has "gateway.networking.k8s.io/v1/HTTPRoute") (gt (len (default (list) $root.Values.clickhouse.expose)) 0) -}}
+{{- $gatewayNamespace := $root.Values.expose.gatewayNamespace | default "envoy-gateway-system" -}}
+{{- $docs := list -}}
+{{- range $exp := $root.Values.clickhouse.expose }}
+{{- $expHosts := default (list) $exp.hosts -}}
+{{- $expScopes := default (list) $exp.scopes -}}
+{{- if and (gt (len $expHosts) 0) (gt (len $expScopes) 0) -}}
+{{- $routeName := default (printf "%s-route" $root.Values.clickhouse.serviceName) (dig "name" "" $exp) -}}
+{{- $doc := include "ch-observability-poc.httpRoute.base" (dict
+  "global" $root
+  "serviceName" (include "ch-observability-poc.renderValue" (dict "value" $root.Values.clickhouse.serviceName "context" $root))
+  "routeName" (include "ch-observability-poc.renderValue" (dict "value" $routeName "context" $root))
+  "backendPort" (default $root.Values.clickhouse.service.httpPort (dig "backendPort" nil $exp))
+  "gatewayNamespace" $gatewayNamespace
+  "expose" $exp)
+}}
+{{- $doc = include "ch-observability-poc.applyMerge" (dict "base" $doc "global" $root "context" $root.Values.clickhouse) }}
+{{- $docs = append $docs $doc -}}
+{{- end }}
+{{- end }}
+
+{{- range $i, $doc := $docs }}
+{{- if gt $i 0 }}
+---
+{{- end }}
+{{- $doc }}
+{{- end }}
+{{- end }}
+{{- end }}

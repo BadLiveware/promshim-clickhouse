@@ -1,0 +1,13 @@
+apiVersion: v2
+name: ch-observability-cnpg
+description: Helper chart to provision a PostgreSQL instance for Grafana via CloudNativePG.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+dependencies:
+  - name: cloudnative-pg
+    alias: cloudnativepg
+    version: "0.27.1"
+    repository: "https://cloudnative-pg.github.io/charts"
+    condition: operator.enabled

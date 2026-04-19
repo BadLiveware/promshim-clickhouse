@@ -1,0 +1,67 @@
+{{- if and .Values.cloudbeaver.enabled .Values.cloudbeaver.podDisruptionBudget }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cloudbeaver
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ch-observability-poc.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cloudbeaver
+spec:
+{{- toYaml .Values.cloudbeaver.podDisruptionBudget | nindent 2 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "ch-observability-poc.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: cloudbeaver
+{{- end }}
+
+{{- if and .Values.grafana.enabled .Values.grafana.podDisruptionBudget }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: grafana
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ch-observability-poc.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+{{- toYaml .Values.grafana.podDisruptionBudget | nindent 2 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "ch-observability-poc.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: grafana
+{{- end }}
+
+{{- if and .Values.clickhouseoperator.enabled (hasKey .Values.clickhouseoperator "podDisruptionBudget") }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: clickhouseoperator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ch-observability-poc.labels" . | nindent 4 }}
+spec:
+{{- toYaml .Values.clickhouseoperator.podDisruptionBudget | nindent 2 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clickhouseoperator
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{- if and .Values.grafanaoperator.enabled (hasKey .Values.grafanaoperator "podDisruptionBudget") }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: grafanaoperator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ch-observability-poc.labels" . | nindent 4 }}
+spec:
+{{- toYaml .Values.grafanaoperator.podDisruptionBudget | nindent 2 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grafanaoperator
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

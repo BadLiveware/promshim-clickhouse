@@ -1,0 +1,498 @@
+# Working observability PoC defaults for local Kubernetes via this chart.
+# Override these values as needed per environment.
+
+# Keep generated Kubernetes names short by default for local namespace-local resources.
+nameOverride: monitoring
+fullnameOverride: monitoring
+
+# Generic patch points for advanced customization.
+# Patches are applied by matching Kubernetes kind and optional metadata.name.
+# Use when you need to tweak generated objects without adding one-off chart values.
+merge: []
+
+# Optional route exposure via Gateway API HTTPRoute objects.
+expose:
+  gatewayNamespace: envoy-gateway-system
+
+# ClickHouse is now managed by the ClickHouse Operator.
+# The Operator CRs create keeper + clickhouse cluster resources.
+clickhouse:
+  enabled: true
+  merge: []
+  # Used as the base name for operator resources.
+  clusterName: monitoring
+  # Keep an easy-to-remember service name for existing local wiring.
+  serviceName: clickhouse
+  # Optional hostname override used by datasource/connectors. Supports tpl.
+  host: "clickhouse"
+  endpoints:
+    native: "clickhouse:{{ .Values.clickhouse.service.port }}"
+    http: "clickhouse:{{ .Values.clickhouse.service.httpPort }}"
+  # Optional declarative resources and VPA defaults.
+  vpa:
+    enabled: false
+    updateMode: Auto
+    target:
+      name: ""
+      kind: StatefulSet
+      apiVersion: apps/v1
+  # Optional HTTP exposure entries using Gateway API scopes (gateway names).
+  expose: []
+  replicas: 3
+  # image is intentionally left empty so clickhouse-operator defaults can be used.
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+  env:
+    # Keep the same service credentials as the chart defaults.
+    database: observability
+    user: default
+    password: otel
+  # Optional storage tuning.
+  data:
+    size: 8Gi
+    storageClassName: ""
+
+  # Sizing defaults for the HA stack:
+  #   - keep memory roughly in line with data volume (1:1 memory:storage is acceptable here)
+  #   - keep memory request moderate to allow scheduling; enforce ceiling via limits
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "12Gi"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  podDisruptionBudget:
+    minAvailable: 1
+
+  keeper:
+    enabled: true
+    name: keeper
+    replicas: 3
+    data:
+      size: 1Gi
+      storageClassName: ""
+
+  # Keep compatibility service port names for provisioning and quickstart docs.
+  service:
+    type: ClusterIP
+    port: 9000
+    httpPort: 8123
+
+  # ClickHouse built-in Prometheus exporter for internal health/operational metrics.
+  monitoring:
+    # If false, no ClickHouse /metrics endpoint is enabled and no metrics Service port is added.
+    enabled: true
+    # Port/name exposed by the built-in exporter and included in the generated Service.
+    servicePortName: metrics
+    servicePort: 9363
+    # Keep Prometheus listener configuration off by default to avoid duplicate 9363 bindings.
+    # The ClickHouse operator's built-in `protocols.prometheus` block already exposes this
+    # port by default; set this block explicitly only if you need a custom protocol section.
+    prometheus: null
+
+  # ClickHouse bootstrap SQL injected into operator settings as server config `<startup_scripts>`.
+  # This is chart-level plumbing and maps to `spec.settings.extraConfig.startup_scripts`.
+  bootstrap:
+    # Toggle schema bootstrap execution.
+    enabled: true
+    # If true, startup script execution errors prevent ClickHouse readiness.
+    throwOnError: false
+    # SQL file name relative to files/clickhouse/init/.
+    # Defaults to the HA script in `replicated/`.
+    file: replicated/001-observability-bootstrap.sql
+    # Optional ClickHouse cluster name used by replicated bootstrap SQL.
+    # This chart defaults to HA mode, so set `file` explicitly to
+    # `single/001-observability-bootstrap.sql` if you need non-HA single-node behavior.
+    clusterName: ""
+
+# Settings passed to the ClickHouse Operator chart dependency.
+clickhouseoperator:
+  enabled: true
+  webhook:
+    enable: false
+  certManager:
+    enable: false
+  crd:
+    enable: true
+  # Scheduling and resilience policy for the ClickHouse Operator deployment.
+  manager:
+    nodeSelector: {}
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 1
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: clickhouseoperator
+              topologyKey: kubernetes.io/hostname
+    tolerations: []
+  podDisruptionBudget:
+    minAvailable: 1
+
+# Install OpenTelemetry Operator as a dependency subchart for OpenTelemetryCollector CR support.
+opentelemetryoperator:
+  enabled: true
+  namespaceOverride: ""
+  manager:
+    # Use contrib collector image so clickhouse exporter in otel config is available.
+    collectorImage:
+      repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+    env:
+      ENABLE_WEBHOOKS: "false"
+    createRbacPermissions: true
+  admissionWebhooks:
+    create: false
+    autoGenerateCert:
+      enabled: false
+    certManager:
+      enabled: false
+  crds:
+    create: true
+  pdb:
+    create: true
+    minAvailable: 1
+    maxUnavailable: ""
+  # Scheduling and resilience policy for OpenTelemetry operator pods.
+  affinity: {}
+  nodeSelector:
+    kubernetes.io/os: linux
+  tolerations: []
+  topologySpreadConstraints: []
+
+# Optional Prometheus Operator CRDs needed for scrape-based discovery.
+# This chart only uses ServiceMonitor / PodMonitor (no alerting/recording CRDs are required).
+prometheusoperatorcrds:
+  enabled: true
+  crds:
+    alertmanagerconfigs:
+      enabled: false
+    alertmanagers:
+      enabled: false
+    probes:
+      enabled: false
+    prometheusagents:
+      enabled: false
+    prometheuses:
+      enabled: false
+    prometheusrules:
+      enabled: false
+    scrapeconfigs:
+      enabled: false
+    thanosrulers:
+      enabled: false
+    podmonitors:
+      enabled: true
+    servicemonitors:
+      enabled: true
+
+otel:
+  enabled: true
+  merge: []
+  # Push-based OpenTelemetry collector (OTLP ingest + ClickHouse export).
+  # Leave empty to use files/otel/otelcol-contrib.yaml.
+  config: ""
+  service:
+    name: otel-ingest
+  telemetry:
+    # Collector self-telemetry endpoint for /metrics scraping.
+    metricsAddress: 0.0.0.0:8888
+  resources: {}
+  vpa:
+    enabled: false
+    updateMode: Auto
+  expose: []
+  # Keep explicit since current operator schema requires enum value for this field.
+  operator:
+    # Default to Deployment-based HA.
+    mode: deployment
+    # HA default replica count; override via environment tuning.
+    replicas: 2
+    podAnnotations: {}
+    serviceAccount: ""
+    # Leave empty to use OpenTelemetry Operator defaults.
+    image: ""
+    # The operator creates the collector Service. For predictable DNS + manual checks,
+    # this name is typically aligned with spec.serviceName.
+    serviceName: ""
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 1
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: otel-ingest
+              topologyKey: kubernetes.io/hostname
+    tolerations: []
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: otel-ingest
+    podDisruptionBudget:
+      minAvailable: 1
+    # Keep service ports explicit so metric ports are always exposed for scraping in this chart.
+    ports:
+      - name: otlp-grpc
+        port: 4317
+        targetPort: 4317
+        protocol: TCP
+      - name: otlp-http
+        port: 4318
+        targetPort: 4318
+        protocol: TCP
+      - name: health
+        port: 13133
+        targetPort: 13133
+        protocol: TCP
+      - name: metrics
+        port: 8888
+        targetPort: 8888
+        protocol: TCP
+    # Enable operator-native ServiceMonitor creation for the collector service when using target allocator.
+    observability:
+      metrics:
+        enableMetrics: true
+        disablePrometheusAnnotations: false
+    # Use rolling updates by default.
+    upgradeStrategy: "automatic"
+
+# Optional dedicated scrape collector for Prometheus Operator discovery.
+# Enabled by default to support scrape-style monitoring paths for first-party components.
+otelScrape:
+  enabled: true
+  merge: []
+  service:
+    name: otel-scrape
+  telemetry:
+    # Collector self-telemetry endpoint for /metrics scraping.
+    metricsAddress: 0.0.0.0:8888
+  config: ""
+  resources: {}
+  vpa:
+    enabled: false
+    updateMode: Auto
+  expose: []
+  operator:
+    # Default to Deployment mode to avoid one pod per node (better for small nodes).
+    mode: deployment
+    # HA default replica count; users can override.
+    replicas: 2
+    podAnnotations: {}
+    serviceAccount: ""
+    # Leave empty to use OpenTelemetry Operator defaults.
+    image: ""
+    # The operator creates the collector Service. For predictable DNS + manual checks,
+    serviceName: ""
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 1
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: otel-scrape
+              topologyKey: kubernetes.io/hostname
+    tolerations: []
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: otel-scrape
+    podDisruptionBudget:
+      minAvailable: 1
+    # Keep service ports explicit so the scrape collector metrics/health port is available.
+    ports:
+      - name: health
+        port: 13133
+        targetPort: 13133
+        protocol: TCP
+      - name: metrics
+        port: 8888
+        targetPort: 8888
+        protocol: TCP
+    # Enable operator-native ServiceMonitor creation for the collector service when using target allocator.
+    observability:
+      metrics:
+        enableMetrics: true
+        disablePrometheusAnnotations: false
+    # Use rolling updates by default.
+    upgradeStrategy: "automatic"
+  targetAllocator:
+    enabled: true
+    serviceAccount: ""
+    allocationStrategy: "consistent-hashing"
+    filterStrategy: "relabel-config"
+    prometheusCR:
+      enabled: true
+      # Empty selectors scrape all ServiceMonitors/PodMonitors in scoped namespaces.
+      serviceMonitorSelector: {}
+      podMonitorSelector: {}
+
+grafanaoperator:
+  enabled: true
+  # Scheduling and resilience policy for the Grafana Operator deployment.
+  affinity: {}
+  nodeSelector: {}
+  tolerations: []
+  podDisruptionBudget:
+    minAvailable: 1
+
+
+# Optional chart-managed meta-monitoring for first-party components.
+# Enabled by default. This chart can emit ServiceMonitor resources for a subset of services.
+metaMonitoring:
+  enabled: true
+  # Render ServiceMonitor resources (enabled by default; requires prometheusoperatorcrds.enabled).
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s
+    # Extra labels applied to the generated ServiceMonitor metadata.
+    labels: {}
+  clickhouse:
+    enabled: true
+    # Defaults to clickhouse.serviceName.
+    serviceName: ""
+    servicePortName: metrics
+    path: /metrics
+    interval: ""
+    scrapeTimeout: ""
+  grafana:
+    enabled: true
+    # Defaults to grafana.service.name.
+    serviceName: ""
+    servicePortName: http
+    path: /metrics
+    interval: ""
+    scrapeTimeout: ""
+
+grafana:
+  enabled: true
+  merge: []
+  # Grafana runs as a CR managed by the grafana-operator dependency.
+  image:
+    # Keep upstream image tag semantics by leaving tag unset (no override). This can be set explicitly when needed.
+    repository: grafana/grafana
+    tag: ""
+    pullPolicy: IfNotPresent
+  adminUser: admin
+  adminPassword: admin
+  service:
+    name: grafana
+    type: ClusterIP
+    port: 3000
+  # Deliver this chart's dashboards and datasources via Grafana Operator CRDs.
+  nativeResources:
+    enabled: true
+
+  # Native plugin requirements for Grafana operator-managed resources.
+  # These are rendered into GrafanaDatasource.spec.plugins.
+  plugins:
+    - name: grafana-clickhouse-datasource
+      version: latest
+  observability:
+    metrics:
+      enabled: true
+  resources: {}
+  # Scheduling and resilience policy for Grafana pods (operator-created deployment).
+  affinity: {}
+  nodeSelector: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  # PDB for the Grafana Deployment is rendered from the operator-managed pods.
+  podDisruptionBudget:
+    minAvailable: 1
+  sidecar:
+    # Deploy k8s-sidecar containers so third-party charts can contribute dashboards
+    # and datasources via labeled ConfigMaps.
+    # This chart itself still provisions its own Grafana content via native CRDs.
+    enabled: true
+    image:
+      repository: ghcr.io/kiwigrid/k8s-sidecar
+      tag: "1.27.2"
+      pullPolicy: IfNotPresent
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      folder: /etc/grafana/provisioning/dashboards/json
+      folderAnnotation: grafana_folder
+      resource: configmap
+      resources: {}
+    datasources:
+      enabled: true
+      label: grafana_datasource
+      labelValue: "1"
+      folder: /etc/grafana/provisioning/datasources
+      resource: configmap
+      resources: {}
+  # Service account used by the Grafana workload and, when sidecars are enabled, by sidecar containers.
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+    automountServiceAccountToken: true
+  # Optional PostgreSQL-backed storage via helper CNPG chart (external install).
+  db:
+    enabled: true
+    host: grafana-db-rw
+    port: 5432
+    name: grafana
+    user: grafana
+    password: grafana
+  expose: []
+
+cloudbeaver:
+  enabled: true
+  merge: []
+  image:
+    # Keep upstream image tag semantics by leaving tag unset (no override). This can be set explicitly when needed.
+    repository: dbeaver/cloudbeaver
+    tag: ""
+    pullPolicy: IfNotPresent
+  adminUser: cbadmin
+  adminPassword: admin
+  service:
+    name: cloudbeaver
+    type: ClusterIP
+    port: 8978
+  resources: {}
+  # Scheduling and resilience policy for CloudBeaver.
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  podDisruptionBudget:
+    minAvailable: 1
+  vpa:
+    enabled: false
+    updateMode: Auto
+  expose: []
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClassName: ""
+
+# Optional local GCS simulation for future retention experiments.
+# Kept off until we add a separate hardened manifest + credentials flow.
+garage:
+  enabled: false
+  image:
+    repository: dxflrs/garage
+    # Keep tag unset to avoid pinned/default-latest behavior.
+    tag: ""
+  service:
+    name: garage

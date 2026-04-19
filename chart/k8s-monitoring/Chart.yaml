@@ -1,0 +1,25 @@
+apiVersion: v2
+name: k8s-monitoring
+description: Meta monitoring chart for core Kubernetes observability components.
+home: https://github.com/open-telemetry/ch-observability
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+keywords:
+  - kubernetes
+  - monitoring
+  - node-exporter
+  - kube-state-metrics
+  - kube-prometheus-stack
+
+maintainers:
+  - name: ch-observability
+
+# Aggregate chart to install core Kubernetes exporters that are usually provisioned together.
+dependencies:
+  - name: kube-prometheus-stack
+    alias: kubePrometheusStack
+    version: "83.6.0"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: kubePrometheusStack.enabled

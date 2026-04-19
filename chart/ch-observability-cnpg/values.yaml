@@ -1,0 +1,77 @@
+# CNPG helper chart for local/namespace-scoped Grafana DB usage.
+# Keeps operator installation and one Cluster resource in one release.
+
+operator:
+  enabled: true
+  # Keep the operator-level PodDisruptionBudget explicit since operator chart has no built-in policy.
+  podDisruptionBudget:
+    minAvailable: 1
+
+# Pass-through values for the CloudNativePG operator chart.
+# Keep defaults intentionally lightweight for local dev.
+cloudnativepg:
+  replicaCount: 1
+  fullnameOverride: cloudnativepg
+  # Keep operator labels aligned with the subchart schema expected by
+  # CloudNativePG internals (`app.kubernetes.io/name: cloudnative-pg`).
+  nameOverride: cloudnative-pg
+  resources:
+    requests:
+      cpu: 10m
+      memory: 100Mi
+    limits:
+      memory: 100Mi
+  service:
+    type: ClusterIP
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 1
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: cloudnative-pg
+            topologyKey: kubernetes.io/hostname
+
+cluster:
+  name: grafana-db
+  instances: 1
+  storage:
+    size: 1Gi
+    storageClassName: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  database: grafana
+  owner: grafana
+  user: grafana
+  password: grafana
+  # Secret referenced by CNPG managed roles.
+  secretName: grafana-db
+  # Keep PostgreSQL scheduling behavior aligned with high-availability defaults.
+  # CNPG v0.27.1 exposes scheduling via affinity/topologySpreadConstraints.
+  # We also use inherited labels to make the selectors deterministic.
+  inheritedMetadata:
+    labels:
+      app.kubernetes.io/component: postgresql
+  affinity:
+    enablePodAntiAffinity: true
+    additionalPodAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 1
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/component: postgresql
+            topologyKey: kubernetes.io/hostname
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/component: postgresql

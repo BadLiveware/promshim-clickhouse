@@ -1,0 +1,181 @@
+{{- if .Values.clickhouse.enabled -}}
+{{- $base := include "ch-observability-poc.clickhouse.cluster.base" . -}}
+{{- include "ch-observability-poc.applyMerge" (dict "base" $base "global" . "context" .Values.clickhouse) }}
+{{- if .Capabilities.APIVersions.Has "autoscaling.k8s.io/v1/VerticalPodAutoscaler" -}}
+{{- $vpa := include "ch-observability-poc.normalizedVPA" (dict "context" .Values.clickhouse) | fromYaml -}}
+{{- $targetName := trim (default "" .Values.clickhouse.vpa.target.name) -}}
+{{- $targetKind := default "StatefulSet" .Values.clickhouse.vpa.target.kind -}}
+{{- $targetApiVersion := default "apps/v1" .Values.clickhouse.vpa.target.apiVersion -}}
+{{- if and (dig "enabled" false $vpa) $targetName }}
+{{- $doc := include "ch-observability-poc.vpa.base" (dict
+  "global" .
+  "name" "clickhouse-vpa"
+  "targetApiVersion" $targetApiVersion
+  "targetKind" $targetKind
+  "targetName" (include "ch-observability-poc.renderValue" (dict "value" $targetName "context" .))
+  "updateMode" (dig "updateMode" "Auto" $vpa)
+  "minAllowed" (dig "minAllowed" dict $vpa)
+  "maxAllowed" (dig "maxAllowed" dict $vpa))
+}}
+{{- $doc = include "ch-observability-poc.applyMerge" (dict "base" $doc "global" . "context" .Values.clickhouse) | trim -}}
+{{- if ne $doc "" }}
+---
+{{- $doc }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- define "ch-observability-poc.clickhouse.cluster.base" -}}
+{{- $startupCfg := dig "bootstrap" dict .Values.clickhouse -}}
+{{- $startupEnabled := dig "enabled" true $startupCfg -}}
+{{- $startupThrowOnError := dig "throwOnError" false $startupCfg -}}
+{{- $startupScriptsPath := printf "files/clickhouse/init/%s" (dig "file" "single/001-observability-bootstrap.sql" $startupCfg) -}}
+{{- $startupSql := include "ch-observability-poc.renderValue" (dict "value" (.Files.Get $startupScriptsPath) "context" .) | trim -}}
+{{- $startupScriptEntries := list (dict "query" $startupSql) -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: clickhouse-default-password
+  labels:
+    {{- include "ch-observability-poc.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+type: Opaque
+stringData:
+  password: {{ .Values.clickhouse.env.password | quote }}
+---
+apiVersion: clickhouse.com/v1alpha1
+kind: KeeperCluster
+metadata:
+  name: {{ include "ch-observability-poc.renderValue" (dict "value" .Values.clickhouse.keeper.name "context" .) }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ch-observability-poc.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse-keeper
+spec:
+  replicas: {{ .Values.clickhouse.keeper.replicas }}
+{{- if .Values.clickhouse.podDisruptionBudget }}
+  podDisruptionBudget:
+{{- toYaml .Values.clickhouse.podDisruptionBudget | nindent 4 }}
+{{- end }}
+{{- if or .Values.clickhouse.nodeSelector .Values.clickhouse.affinity .Values.clickhouse.tolerations .Values.clickhouse.topologySpreadConstraints }}
+  podTemplate:
+    spec:
+{{- if .Values.clickhouse.nodeSelector }}
+      nodeSelector:
+{{- toYaml .Values.clickhouse.nodeSelector | nindent 8 }}
+{{- end }}
+{{- if .Values.clickhouse.affinity }}
+      affinity:
+{{- toYaml .Values.clickhouse.affinity | nindent 8 }}
+{{- end }}
+{{- if .Values.clickhouse.tolerations }}
+      tolerations:
+{{- toYaml .Values.clickhouse.tolerations | nindent 8 }}
+{{- end }}
+{{- if .Values.clickhouse.topologySpreadConstraints }}
+      topologySpreadConstraints:
+{{- toYaml .Values.clickhouse.topologySpreadConstraints | nindent 8 }}
+{{- end }}
+{{- end }}
+  dataVolumeClaimSpec:
+{{- if .Values.clickhouse.keeper.data.storageClassName }}
+    storageClassName: {{ .Values.clickhouse.keeper.data.storageClassName | quote }}
+{{- end }}
+    resources:
+      requests:
+        storage: {{ .Values.clickhouse.keeper.data.size }}
+---
+apiVersion: clickhouse.com/v1alpha1
+kind: ClickHouseCluster
+metadata:
+  name: {{ include "ch-observability-poc.renderValue" (dict "value" .Values.clickhouse.clusterName "context" .) }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ch-observability-poc.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+spec:
+  replicas: {{ .Values.clickhouse.replicas }}
+  {{- if .Values.clickhouse.podDisruptionBudget }}
+  podDisruptionBudget:
+{{- toYaml .Values.clickhouse.podDisruptionBudget | nindent 4 }}
+{{- end }}
+{{- if or .Values.clickhouse.nodeSelector .Values.clickhouse.affinity .Values.clickhouse.topologySpreadConstraints .Values.clickhouse.tolerations }}
+  podTemplate:
+    spec:
+{{- if .Values.clickhouse.nodeSelector }}
+      nodeSelector:
+{{- toYaml .Values.clickhouse.nodeSelector | nindent 8 }}
+{{- end }}
+{{- if .Values.clickhouse.affinity }}
+      affinity:
+{{- toYaml .Values.clickhouse.affinity | nindent 8 }}
+{{- end }}
+{{- if .Values.clickhouse.tolerations }}
+      tolerations:
+{{- toYaml .Values.clickhouse.tolerations | nindent 8 }}
+{{- end }}
+{{- if .Values.clickhouse.topologySpreadConstraints }}
+      topologySpreadConstraints:
+{{- toYaml .Values.clickhouse.topologySpreadConstraints | nindent 8 }}
+{{- end }}
+{{- end }}
+  dataVolumeClaimSpec:
+{{- if .Values.clickhouse.data.storageClassName }}
+    storageClassName: {{ .Values.clickhouse.data.storageClassName | quote }}
+{{- end }}
+    resources:
+      requests:
+        storage: {{ .Values.clickhouse.data.size }}
+  keeperClusterRef:
+    name: {{ include "ch-observability-poc.renderValue" (dict "value" .Values.clickhouse.keeper.name "context" .) }}
+  containerTemplate:
+{{- if or .Values.clickhouse.image.repository .Values.clickhouse.image.tag }}
+    image:
+{{- if .Values.clickhouse.image.repository }}
+      repository: {{ .Values.clickhouse.image.repository }}
+{{- end }}
+{{- if .Values.clickhouse.image.tag }}
+      tag: {{ .Values.clickhouse.image.tag | quote }}
+{{- end }}
+{{- end }}
+{{- if .Values.clickhouse.image.pullPolicy }}
+    imagePullPolicy: {{ .Values.clickhouse.image.pullPolicy }}
+{{- end }}
+{{- $resources := include "ch-observability-poc.normalizedResources" (dict "context" .Values.clickhouse) | fromYaml -}}
+{{- if $resources }}
+    resources:
+{{- toYaml $resources | nindent 6 }}
+{{- end }}
+    env:
+      - name: CLICKHOUSE_DB
+        value: {{ .Values.clickhouse.env.database | quote }}
+      - name: CLICKHOUSE_USER
+        value: {{ .Values.clickhouse.env.user | quote }}
+      - name: CLICKHOUSE_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: clickhouse-default-password
+            key: password
+  settings:
+    defaultUserPassword:
+      secret:
+        key: password
+        name: clickhouse-default-password
+    extraConfig:
+      listen_host: "0.0.0.0"
+{{- if and $startupEnabled (ne $startupSql "") }}
+      startup_scripts:
+        throw_on_error: {{ $startupThrowOnError }}
+        scripts:
+{{- toYaml $startupScriptEntries | nindent 10 }}
+{{- end }}
+{{- $prometheusConfig := .Values.clickhouse.monitoring.prometheus | default dict -}}
+{{- if and .Values.clickhouse.monitoring.enabled (kindIs "map" $prometheusConfig) (gt (len $prometheusConfig) 0) }}
+      prometheus:
+{{- toYaml $prometheusConfig | nindent 8 }}
+{{- end }}
+{{- if and $startupEnabled (eq $startupSql "") }}
+{{- fail (printf "missing ClickHouse startup SQL file: %s" $startupScriptsPath) -}}
+{{- end }}
+{{- end -}}

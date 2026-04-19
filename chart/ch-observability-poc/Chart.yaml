@@ -1,0 +1,29 @@
+apiVersion: v2
+name: ch-observability-poc
+description: Local Kubernetes PoC chart for ClickHouse + OTel + Grafana + CloudBeaver (replacement path for monitoring)
+type: application
+version: 0.2.0
+appVersion: "1.0.0"
+
+# Deploy operators needed for CR-backed components.
+dependencies:
+  - name: clickhouse-operator-helm
+    alias: clickhouseoperator
+    version: "0.0.4"
+    repository: "oci://ghcr.io/clickhouse"
+    condition: clickhouseoperator.enabled
+  - name: opentelemetry-operator
+    alias: opentelemetryoperator
+    version: "0.104.0"
+    repository: "https://open-telemetry.github.io/opentelemetry-helm-charts"
+    condition: opentelemetryoperator.enabled
+  - name: grafana-operator
+    alias: grafanaoperator
+    version: "5.22.2"
+    repository: "oci://ghcr.io/grafana/helm-charts"
+    condition: grafanaoperator.enabled
+  - name: prometheus-operator-crds
+    alias: prometheusoperatorcrds
+    version: "28.0.1"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: prometheusoperatorcrds.enabled

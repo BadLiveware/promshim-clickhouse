@@ -1,0 +1,34 @@
+{{- if .Values.clickhouse.enabled -}}
+{{- $base := include "ch-observability-poc.clickhouse.service.base" . -}}
+{{- include "ch-observability-poc.applyMerge" (dict "base" $base "global" . "context" .Values.clickhouse) }}
+{{- end }}
+
+{{- define "ch-observability-poc.clickhouse.service.base" -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ch-observability-poc.renderValue" (dict "value" .Values.clickhouse.serviceName "context" .) }}
+  labels:
+    {{- include "ch-observability-poc.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+    clickhouse-operator-compat: "true"
+spec:
+  type: {{ .Values.clickhouse.service.type }}
+  selector:
+    app: {{ include "ch-observability-poc.renderValue" (dict "value" (printf "%s-clickhouse" .Values.clickhouse.clusterName) "context" .) }}
+  ports:
+    - name: native
+      port: {{ .Values.clickhouse.service.port }}
+      targetPort: 9000
+      protocol: TCP
+    - name: http
+      port: {{ .Values.clickhouse.service.httpPort }}
+      targetPort: 8123
+      protocol: TCP
+{{- if .Values.clickhouse.monitoring.enabled }}
+    - name: {{ .Values.clickhouse.monitoring.servicePortName }}
+      port: {{ .Values.clickhouse.monitoring.servicePort }}
+      targetPort: {{ .Values.clickhouse.monitoring.servicePort }}
+      protocol: TCP
+{{- end }}
+{{- end }}

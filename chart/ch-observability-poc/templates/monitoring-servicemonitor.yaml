@@ -1,0 +1,73 @@
+{{- $metaEnabled := dig "enabled" true .Values.metaMonitoring -}}
+{{- $smEnabled := dig "serviceMonitor" "enabled" true .Values.metaMonitoring -}}
+{{- $caEnabled := and (dig "enabled" true .Values.clickhouse) (dig "clickhouse" "enabled" true .Values.metaMonitoring) -}}
+{{- $gEnabled := and (dig "enabled" true .Values.grafana) (dig "grafana" "enabled" true .Values.metaMonitoring) -}}
+{{- $prometheusCrdsEnabled := dig "enabled" false .Values.prometheusoperatorcrds -}}
+{{- $serviceMonitorCrdsEnabled := dig "crds" "servicemonitors" "enabled" true .Values.prometheusoperatorcrds -}}
+{{- $render := and $metaEnabled $smEnabled (or $caEnabled $gEnabled) $prometheusCrdsEnabled $serviceMonitorCrdsEnabled -}}
+{{- if $render }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "ch-observability-poc.fullname" . }}-meta
+  labels:
+    {{- include "ch-observability-poc.labels" . | nindent 4 }}
+    app.kubernetes.io/component: meta-monitoring
+{{- if .Values.metaMonitoring.serviceMonitor.labels }}
+{{- toYaml .Values.metaMonitoring.serviceMonitor.labels | nindent 4 }}
+{{- end }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace | quote }}
+  selector: {}
+  endpoints:
+{{- if $caEnabled }}
+    {{- $caName := .Values.metaMonitoring.clickhouse.serviceName | default .Values.clickhouse.serviceName }}
+    {{- $caInterval := default .Values.metaMonitoring.serviceMonitor.interval .Values.metaMonitoring.clickhouse.interval }}
+    {{- $caTimeout := default .Values.metaMonitoring.serviceMonitor.scrapeTimeout .Values.metaMonitoring.clickhouse.scrapeTimeout }}
+    - port: {{ .Values.metaMonitoring.clickhouse.servicePortName | quote }}
+      path: {{ .Values.metaMonitoring.clickhouse.path | quote }}
+      interval: {{ $caInterval | quote }}
+      scrapeTimeout: {{ $caTimeout | quote }}
+      relabelings:
+        - action: keep
+          sourceLabels:
+            - __meta_kubernetes_namespace
+          regex: {{ .Release.Namespace | quote }}
+        - action: keep
+          sourceLabels:
+            - __meta_kubernetes_service_name
+          regex: {{ printf "^%s$" $caName | quote }}
+        - action: replace
+          sourceLabels:
+            - __meta_kubernetes_service_name
+          targetLabel: component
+          regex: .*
+          replacement: clickhouse
+{{- end }}
+{{- if $gEnabled }}
+    {{- $grafanaName := .Values.metaMonitoring.grafana.serviceName | default .Values.grafana.service.name }}
+    {{- $gInterval := default .Values.metaMonitoring.serviceMonitor.interval .Values.metaMonitoring.grafana.interval }}
+    {{- $gTimeout := default .Values.metaMonitoring.serviceMonitor.scrapeTimeout .Values.metaMonitoring.grafana.scrapeTimeout }}
+    - port: {{ .Values.metaMonitoring.grafana.servicePortName | quote }}
+      path: {{ .Values.metaMonitoring.grafana.path | quote }}
+      interval: {{ $gInterval | quote }}
+      scrapeTimeout: {{ $gTimeout | quote }}
+      relabelings:
+        - action: keep
+          sourceLabels:
+            - __meta_kubernetes_namespace
+          regex: {{ .Release.Namespace | quote }}
+        - action: keep
+          sourceLabels:
+            - __meta_kubernetes_service_name
+          regex: {{ printf "^%s$" $grafanaName | quote }}
+        - action: replace
+          sourceLabels:
+            - __meta_kubernetes_service_name
+          targetLabel: component
+          regex: .*
+          replacement: grafana
+{{- end }}
+{{- end -}}

@@ -1,0 +1,58 @@
+{{- if .Values.operator.enabled -}}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ required "ch-observability-cnpg: cluster.name is required" .Values.cluster.name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  instances: {{ .Values.cluster.instances | default 1 }}
+  enableSuperuserAccess: false
+{{- if .Values.cluster.affinity }}
+  affinity:
+{{- toYaml .Values.cluster.affinity | nindent 4 }}
+{{- end }}
+{{- if .Values.cluster.topologySpreadConstraints }}
+  topologySpreadConstraints:
+{{- toYaml .Values.cluster.topologySpreadConstraints | nindent 4 }}
+{{- end }}
+{{- if .Values.cluster.inheritedMetadata }}
+  inheritedMetadata:
+{{- toYaml .Values.cluster.inheritedMetadata | nindent 4 }}
+{{- end }}
+  storage:
+    size: {{ .Values.cluster.storage.size | default "1Gi" }}
+  {{- with .Values.cluster.storage.storageClassName }}
+    storageClass: {{ . }}
+  {{- end }}
+  bootstrap:
+    initdb:
+      database: {{ .Values.cluster.database | default "grafana" }}
+      owner: {{ .Values.cluster.owner | default "grafana" }}
+  managed:
+    roles:
+      - name: {{ .Values.cluster.user | default "grafana" }}
+        ensure: present
+        login: true
+        inherit: true
+        createdb: true
+        superuser: false
+        passwordSecret:
+          name: {{ .Values.cluster.secretName | default "grafana-db" }}
+  resources:
+{{- if .Values.cluster.resources }}
+{{- toYaml .Values.cluster.resources | nindent 4 }}
+{{- else }}
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+{{- end }}
+  {{- if hasKey .Values.cluster "postgresql" }}
+{{- with .Values.cluster.postgresql }}
+  postgresql:
+{{- toYaml . | nindent 4 }}
+{{- end }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,15 @@
+dependencies:
+- name: clickhouse-operator-helm
+  repository: oci://ghcr.io/clickhouse
+  version: 0.0.4
+- name: opentelemetry-operator
+  repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+  version: 0.104.0
+- name: grafana-operator
+  repository: oci://ghcr.io/grafana/helm-charts
+  version: 5.22.2
+- name: prometheus-operator-crds
+  repository: https://prometheus-community.github.io/helm-charts
+  version: 28.0.1
+digest: sha256:22190638191563cc68c0b8e426c7b11c7b1e5b410c4dd14d97df1c6cdaaeede0
+generated: "2026-04-19T19:55:47.751062159+02:00"

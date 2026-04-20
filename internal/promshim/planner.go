@@ -616,17 +616,50 @@ func (e *evaluator) evaluate(ctx context.Context, plan queryPlan, params evalPar
 	return value, nil
 }
 
-func resolveDelegatedPromQL(expr parser.Expr, params evalParams) (string, error) {
-	if !containsStartEndAtModifier(expr) {
-		return expr.String(), nil
-	}
+// clickHouseRangePadding compensates for ClickHouse's (t-range, t] range selector
+// semantics versus Prometheus's [t-range, t]: padding every matrix/subquery range
+// by 1ms pulls the left-boundary sample back into the window without perturbing
+// aligned scrapes on the right. See harness P1 findings for the root cause.
+const clickHouseRangePadding = time.Millisecond
 
+func resolveDelegatedPromQL(expr parser.Expr, params evalParams) (string, error) {
 	parsed, err := planpkg.ParseExpression(expr.String())
 	if err != nil {
-		return "", newExecutionErrorf("re-parsing expression for @ start()/end() resolution: %v", err)
+		return "", newExecutionErrorf("re-parsing expression for delegation rewrite: %v", err)
 	}
-	resolveStartEndAtModifierRecursive(parsed, params)
+	if containsStartEndAtModifier(parsed) {
+		resolveStartEndAtModifierRecursive(parsed, params)
+	}
+	padDelegatedRanges(parsed, clickHouseRangePadding)
 	return parsed.String(), nil
+}
+
+func padDelegatedRanges(expr parser.Expr, delta time.Duration) {
+	switch node := expr.(type) {
+	case *parser.MatrixSelector:
+		node.Range += delta
+	case *parser.SubqueryExpr:
+		node.Range += delta
+		padDelegatedRanges(node.Expr, delta)
+	case *parser.Call:
+		for _, arg := range node.Args {
+			padDelegatedRanges(arg, delta)
+		}
+	case *parser.AggregateExpr:
+		if node.Param != nil {
+			padDelegatedRanges(node.Param, delta)
+		}
+		padDelegatedRanges(node.Expr, delta)
+	case *parser.BinaryExpr:
+		padDelegatedRanges(node.LHS, delta)
+		padDelegatedRanges(node.RHS, delta)
+	case *parser.UnaryExpr:
+		padDelegatedRanges(node.Expr, delta)
+	case *parser.ParenExpr:
+		padDelegatedRanges(node.Expr, delta)
+	case *parser.StepInvariantExpr:
+		padDelegatedRanges(node.Expr, delta)
+	}
 }
 
 func containsStartEndAtModifier(expr parser.Expr) bool {

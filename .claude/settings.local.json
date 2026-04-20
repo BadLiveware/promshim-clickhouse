@@ -4,7 +4,12 @@
       "Bash(./scripts/run-harness.sh *)",
       "Bash(go build *)",
       "Bash(go test *)",
-      "Bash(docker compose *)"
+      "Bash(docker compose *)",
+      "Bash(mkdir -p /tmp/harness-baseline)",
+      "Bash(cp /home/fl/code/personal/ch-observability/harness/artifacts/compare-report-*.json /tmp/harness-baseline/)",
+      "Read(//tmp/**)",
+      "Bash(/home/fl/code/personal/ch-observability/scripts/run-harness.sh --all-themes --no-build)",
+      "Bash(jq *)"
     ]
   }
 }

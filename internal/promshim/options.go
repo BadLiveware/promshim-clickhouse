@@ -11,6 +11,8 @@ import (
 const (
 	defaultMaxRangePointsPerSeries   int64 = 50000
 	defaultRangeChunkPointsPerSeries int64 = 5000
+	defaultMaxResponseSeries         int64 = 5000
+	defaultMaxResponsePoints         int64 = 500000
 )
 
 type Options struct {
@@ -22,6 +24,8 @@ type Options struct {
 	RequestTimeout            time.Duration
 	MaxRangePointsPerSeries   int64
 	RangeChunkPointsPerSeries int64
+	MaxResponseSeries         int64
+	MaxResponsePoints         int64
 }
 
 func LoadOptionsFromEnv() (Options, error) {
@@ -34,6 +38,8 @@ func LoadOptionsFromEnv() (Options, error) {
 		RequestTimeout:            time.Second * time.Duration(getenvInt("PROM_SHIM_REQUEST_TIMEOUT_SECONDS", 30)),
 		MaxRangePointsPerSeries:   getenvInt64("PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES", defaultMaxRangePointsPerSeries),
 		RangeChunkPointsPerSeries: getenvInt64("PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES", defaultRangeChunkPointsPerSeries),
+		MaxResponseSeries:         getenvInt64("PROM_SHIM_MAX_RESPONSE_SERIES", defaultMaxResponseSeries),
+		MaxResponsePoints:         getenvInt64("PROM_SHIM_MAX_RESPONSE_POINTS", defaultMaxResponsePoints),
 	}
 
 	opts = normalizeOptions(opts)
@@ -82,6 +88,12 @@ func normalizeOptions(opts Options) Options {
 	}
 	if opts.RangeChunkPointsPerSeries <= 0 {
 		opts.RangeChunkPointsPerSeries = defaultRangeChunkPointsPerSeries
+	}
+	if opts.MaxResponseSeries <= 0 {
+		opts.MaxResponseSeries = defaultMaxResponseSeries
+	}
+	if opts.MaxResponsePoints <= 0 {
+		opts.MaxResponsePoints = defaultMaxResponsePoints
 	}
 	return opts
 }

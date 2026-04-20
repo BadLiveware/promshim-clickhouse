@@ -6,11 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BadLiveware/promshim-ch/internal/promshim/plan"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
 func TestBuildPlanCreatesDelegatedLeafPlan(t *testing.T) {
-	expr, err := ParseExpression("up")
+	expr, err := plan.ParseExpression("up")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +26,7 @@ func TestBuildPlanCreatesDelegatedLeafPlan(t *testing.T) {
 }
 
 func TestBuildPlanCreatesSumAggregationPlan(t *testing.T) {
-	expr, err := ParseExpression("sum by (job) (up)")
+	expr, err := plan.ParseExpression("sum by (job) (up)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +55,7 @@ func TestBuildPlanCreatesSumAggregationPlan(t *testing.T) {
 }
 
 func TestBuildPlanCreatesAvgAggregationPlan(t *testing.T) {
-	expr, err := ParseExpression("avg(up)")
+	expr, err := plan.ParseExpression("avg(up)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,8 +74,27 @@ func TestBuildPlanCreatesAvgAggregationPlan(t *testing.T) {
 	}
 }
 
+func TestDecideNativeAggregationPushdownAllowsDelegatedLeaf(t *testing.T) {
+	logical, err := buildLogicalPlan(mustParseExpr(t, "sum by (job) (up)"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	agg, ok := logical.(*logicalAggregationPlan)
+	if !ok {
+		t.Fatalf("expected logicalAggregationPlan, got %T", logical)
+	}
+
+	decision := decideNativeAggregationPushdown(agg, planContext{PreferNativeAggregationPushdown: true})
+	if !decision.Eligible {
+		t.Fatalf("expected pushdown eligibility, got %#v", decision)
+	}
+	if decision.Source.PromQLLeaf.String() != "up" {
+		t.Fatalf("expected delegated leaf source, got %#v", decision.Source)
+	}
+}
+
 func TestBuildPlanWithContextCreatesNativeAggregationPlanForRangeDelegatedLeaf(t *testing.T) {
-	expr, err := ParseExpression("sum by (job) (up)")
+	expr, err := plan.ParseExpression("sum by (job) (up)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,8 +114,98 @@ func TestBuildPlanWithContextCreatesNativeAggregationPlanForRangeDelegatedLeaf(t
 	}
 }
 
+func TestBuildPlanWithContextCreatesNativeAggregationPlanForUnaryTransformedLeaf(t *testing.T) {
+	expr, err := plan.ParseExpression("avg by (job) (-up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := buildPlanWithContext(expr, planContext{
+		Mode:                            evalModeRange,
+		Start:                           time.Unix(0, 0).UTC(),
+		End:                             time.Unix(300, 0).UTC(),
+		Step:                            30 * time.Second,
+		PreferNativeAggregationPushdown: true,
+	})
+	if err != nil {
+		t.Fatalf("expected native aggregation plan, got error: %v", err)
+	}
+	native, ok := plan.(*nativeAggregationPlan)
+	if !ok {
+		t.Fatalf("expected nativeAggregationPlan, got %T", plan)
+	}
+	if !strings.Contains(native.Source.ValueExpr, "-") {
+		t.Fatalf("expected unary value transform in native source, got %#v", native.Source)
+	}
+	if !strings.Contains(native.Source.TagsExpr, "__name__") {
+		t.Fatalf("expected metric-name dropping tags transform, got %#v", native.Source)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeAggregationPlanForVectorScalarLeaf(t *testing.T) {
+	expr, err := plan.ParseExpression("sum by (job) (up * 100)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := buildPlanWithContext(expr, planContext{
+		Mode:                            evalModeRange,
+		Start:                           time.Unix(0, 0).UTC(),
+		End:                             time.Unix(300, 0).UTC(),
+		Step:                            30 * time.Second,
+		PreferNativeAggregationPushdown: true,
+	})
+	if err != nil {
+		t.Fatalf("expected native aggregation plan, got error: %v", err)
+	}
+	native, ok := plan.(*nativeAggregationPlan)
+	if !ok {
+		t.Fatalf("expected nativeAggregationPlan, got %T", plan)
+	}
+	if !strings.Contains(native.Source.ValueExpr, "100") || !strings.Contains(native.Source.ValueExpr, "*") {
+		t.Fatalf("expected vector-scalar arithmetic in native source, got %#v", native.Source)
+	}
+	if !strings.Contains(native.Source.TagsExpr, "__name__") {
+		t.Fatalf("expected metric-name dropping tags transform, got %#v", native.Source)
+	}
+}
+
+func TestDecideNativeAggregationPushdownRejectsNonPushdownSafeChild(t *testing.T) {
+	logical, err := buildLogicalPlan(mustParseExpr(t, `sum by (job) (label_join(up, "joined", "/", "job", "namespace"))`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	agg, ok := logical.(*logicalAggregationPlan)
+	if !ok {
+		t.Fatalf("expected logicalAggregationPlan, got %T", logical)
+	}
+
+	decision := decideNativeAggregationPushdown(agg, planContext{PreferNativeAggregationPushdown: true})
+	if decision.Eligible {
+		t.Fatalf("expected non-eligible pushdown, got %#v", decision)
+	}
+	if !strings.Contains(decision.Reason, "pushdown-safe") {
+		t.Fatalf("expected explicit fallback reason, got %#v", decision)
+	}
+}
+
+func TestDecideNativeAggregationPushdownRejectsWhenDisabled(t *testing.T) {
+	logical, err := buildLogicalPlan(mustParseExpr(t, "sum by (job) (up)"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	agg := logical.(*logicalAggregationPlan)
+	decision := decideNativeAggregationPushdown(agg, planContext{PreferNativeAggregationPushdown: false})
+	if decision.Eligible {
+		t.Fatalf("expected disabled pushdown to be rejected, got %#v", decision)
+	}
+	if !strings.Contains(decision.Reason, "disabled") {
+		t.Fatalf("expected disabled reason, got %#v", decision)
+	}
+}
+
 func TestBuildPlanWithContextFallsBackToLocalAggregationForNonLeafChild(t *testing.T) {
-	expr, err := ParseExpression(`sum by (job) (label_join(up, "joined", "/", "job", "namespace"))`)
+	expr, err := plan.ParseExpression(`sum by (job) (label_join(up, "joined", "/", "job", "namespace"))`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +226,7 @@ func TestBuildPlanWithContextFallsBackToLocalAggregationForNonLeafChild(t *testi
 }
 
 func TestExplainPlanDescribesNativeAggregationStrategy(t *testing.T) {
-	expr, err := ParseExpression("sum by (job) (up)")
+	expr, err := plan.ParseExpression("sum by (job) (up)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,8 +256,87 @@ func TestExplainPlanDescribesNativeAggregationStrategy(t *testing.T) {
 	}
 }
 
+func TestExplainPlanDescribesNativeTransformedAggregationStrategy(t *testing.T) {
+	expr, err := plan.ParseExpression("sum by (job) (up * 100)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := buildPlanWithContext(expr, planContext{
+		Mode:                            evalModeRange,
+		Start:                           time.Unix(0, 0).UTC(),
+		End:                             time.Unix(300, 0).UTC(),
+		Step:                            30 * time.Second,
+		PreferNativeAggregationPushdown: true,
+	})
+	if err != nil {
+		t.Fatalf("expected native aggregation plan, got error: %v", err)
+	}
+	explain := explainPlan(plan)
+	if explain.Strategy != "native_sql" {
+		t.Fatalf("expected native_sql strategy, got %#v", explain)
+	}
+	if len(explain.Children) != 1 || explain.Children[0].Strategy != "native_sql_expression" {
+		t.Fatalf("expected native transformed child explain, got %#v", explain.Children)
+	}
+	if len(explain.Children[0].Children) != 1 || explain.Children[0].Children[0].Strategy != "delegated_promql" {
+		t.Fatalf("expected delegated leaf under native transform explain, got %#v", explain.Children)
+	}
+}
+
+func TestExplainPlanDescribesLocalAggregationFallbackReasonWhenPushdownDisabled(t *testing.T) {
+	expr, err := plan.ParseExpression("sum by (job) (up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := buildPlanWithContext(expr, planContext{
+		Mode:                            evalModeInstant,
+		EvaluationTime:                  time.Unix(300, 0).UTC(),
+		PreferNativeAggregationPushdown: false,
+	})
+	if err != nil {
+		t.Fatalf("expected local aggregation plan, got error: %v", err)
+	}
+	explain := explainPlan(plan)
+	if explain.Strategy != "local" {
+		t.Fatalf("expected local strategy, got %#v", explain)
+	}
+	if !strings.Contains(explain.Reason, "disabled") {
+		t.Fatalf("expected disabled fallback reason, got %#v", explain)
+	}
+}
+
+func TestExplainPlanDescribesLocalAggregationFallbackReasonWhenChildIsNotPushdownSafe(t *testing.T) {
+	expr, err := plan.ParseExpression(`sum by (job) (label_join(up, "joined", "/", "job", "namespace"))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := buildPlanWithContext(expr, planContext{
+		Mode:                            evalModeRange,
+		Start:                           time.Unix(0, 0).UTC(),
+		End:                             time.Unix(300, 0).UTC(),
+		Step:                            30 * time.Second,
+		PreferNativeAggregationPushdown: true,
+	})
+	if err != nil {
+		t.Fatalf("expected local aggregation plan, got error: %v", err)
+	}
+	explain := explainPlan(plan)
+	if explain.Strategy != "local" {
+		t.Fatalf("expected local strategy, got %#v", explain)
+	}
+	if !strings.Contains(explain.Reason, "pushdown-safe") {
+		t.Fatalf("expected pushdown-safe fallback reason, got %#v", explain)
+	}
+	if len(explain.Children) != 1 || explain.Children[0].Strategy != "local" {
+		t.Fatalf("expected local child explain for label_join fallback, got %#v", explain.Children)
+	}
+}
+
 func TestBuildPlanCreatesScalarBinaryPlan(t *testing.T) {
-	expr, err := ParseExpression("1 + 2")
+	expr, err := plan.ParseExpression("1 + 2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +351,7 @@ func TestBuildPlanCreatesScalarBinaryPlan(t *testing.T) {
 }
 
 func TestBuildPlanCreatesUnaryPlan(t *testing.T) {
-	expr, err := ParseExpression("-up")
+	expr, err := plan.ParseExpression("-up")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +366,7 @@ func TestBuildPlanCreatesUnaryPlan(t *testing.T) {
 }
 
 func TestBuildPlanCreatesLabelReplacePlan(t *testing.T) {
-	expr, err := ParseExpression(`label_replace(up, "job_copy", "$1", "job", "(.*)")`)
+	expr, err := plan.ParseExpression(`label_replace(up, "job_copy", "$1", "job", "(.*)")`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +381,7 @@ func TestBuildPlanCreatesLabelReplacePlan(t *testing.T) {
 }
 
 func TestBuildPlanCreatesLabelJoinPlan(t *testing.T) {
-	expr, err := ParseExpression(`label_join(up, "joined", "/", "job", "namespace")`)
+	expr, err := plan.ParseExpression(`label_join(up, "joined", "/", "job", "namespace")`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +396,7 @@ func TestBuildPlanCreatesLabelJoinPlan(t *testing.T) {
 }
 
 func TestBuildPlanRejectsInvalidLabelReplaceRegex(t *testing.T) {
-	expr, err := ParseExpression(`label_replace(up, "job_copy", "$1", "job", "[")`)
+	expr, err := plan.ParseExpression(`label_replace(up, "job_copy", "$1", "job", "[")`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +414,7 @@ func TestBuildPlanRejectsInvalidLabelReplaceRegex(t *testing.T) {
 }
 
 func TestBuildPlanRejectsInvalidLabelJoinDestination(t *testing.T) {
-	expr, err := ParseExpression(`label_join(up, "", "/", "job")`)
+	expr, err := plan.ParseExpression(`label_join(up, "", "/", "job")`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +432,7 @@ func TestBuildPlanRejectsInvalidLabelJoinDestination(t *testing.T) {
 }
 
 func TestBuildPlanRejectsUnsupportedAggregation(t *testing.T) {
-	expr, err := ParseExpression("topk(3, up)")
+	expr, err := plan.ParseExpression("topk(3, up)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +448,7 @@ func TestBuildPlanRejectsUnsupportedAggregation(t *testing.T) {
 	if buildErr.Support.Supported {
 		t.Fatalf("expected unsupported support result, got %#v", buildErr.Support)
 	}
-	if buildErr.Support.Difficulty != DifficultyMedium {
+	if buildErr.Support.Difficulty != plan.DifficultyMedium {
 		t.Fatalf("expected medium difficulty, got %s", buildErr.Support.Difficulty)
 	}
 	if buildErr.Expr == nil || buildErr.Expr.String() != "topk(3, up)" {
@@ -273,32 +462,6 @@ func TestBuildPlanRejectsUnsupportedAggregation(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "aggregate planning") || !strings.Contains(err.Error(), "topk(3, up)") {
 		t.Fatalf("expected planner error to include stage and expression context, got %q", err.Error())
-	}
-}
-
-func TestRenderInstantQueryValueForVector(t *testing.T) {
-	resultType, result, err := renderInstantQueryValue(vectorValue{Samples: []instantSample{{
-		Metric:    map[string]string{"job": "clickhouse"},
-		Timestamp: 123.5,
-		Value:     1,
-	}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resultType != "vector" {
-		t.Fatalf("expected vector result type, got %q", resultType)
-	}
-	rows := result.([]map[string]any)
-	if len(rows) != 1 {
-		t.Fatalf("expected one row, got %d", len(rows))
-	}
-	metric := rows[0]["metric"].(map[string]string)
-	if metric["job"] != "clickhouse" {
-		t.Fatalf("unexpected metric: %#v", metric)
-	}
-	value := rows[0]["value"].([]any)
-	if value[1] != "1" {
-		t.Fatalf("unexpected value payload: %#v", value)
 	}
 }
 

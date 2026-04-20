@@ -19,3 +19,7 @@ otel/
 sql/
 
 scratch/**/*
+
+# Harness artifacts
+harness/artifacts/*
+!harness/artifacts/.gitkeep

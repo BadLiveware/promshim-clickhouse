@@ -1,0 +1,128 @@
+[
+  {
+    "name": "selector_instant",
+    "endpoint": "query",
+    "query": "harness_up",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "selector_matcher_instant",
+    "endpoint": "query",
+    "query": "harness_up{job=\"api\"}",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "regex_matcher_instant",
+    "endpoint": "query",
+    "query": "harness_up{job=~\"api|worker\"}",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "scalar_instant",
+    "endpoint": "query",
+    "query": "1 + 2",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "sum_by_job_instant",
+    "endpoint": "query",
+    "query": "sum by (job) (harness_up)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "count_by_job_instant",
+    "endpoint": "query",
+    "query": "count by (job) (harness_up)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "avg_by_job_instant",
+    "endpoint": "query",
+    "query": "avg by (job) (harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "sum_by_job_scaled_instant",
+    "endpoint": "query",
+    "query": "sum by (job) (harness_up * 100)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "avg_by_job_negated_instant",
+    "endpoint": "query",
+    "query": "avg by (job) (-harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "vector_scalar_instant",
+    "endpoint": "query",
+    "query": "harness_up * 100",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "vector_scalar_bool_instant",
+    "endpoint": "query",
+    "query": "harness_up == bool 1",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "label_join_instant",
+    "endpoint": "query",
+    "query": "label_join(harness_up, \"job_instance\", \"/\", \"job\", \"instance\")",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "label_replace_instant",
+    "endpoint": "query",
+    "query": "label_replace(harness_up, \"job_copy\", \"$1\", \"job\", \"(.*)\")",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "selector_range",
+    "endpoint": "query_range",
+    "query": "harness_up{job=\"api\"}",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "sum_by_job_range",
+    "endpoint": "query_range",
+    "query": "sum by (job) (harness_up)",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "sum_by_job_scaled_range",
+    "endpoint": "query_range",
+    "query": "sum by (job) (harness_up * 100)",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "avg_by_job_negated_range",
+    "endpoint": "query_range",
+    "query": "avg by (job) (-harness_queue_depth)",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "vector_scalar_range",
+    "endpoint": "query_range",
+    "query": "harness_up * 100",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "label_join_range",
+    "endpoint": "query_range",
+    "query": "label_join(harness_up, \"job_instance\", \"/\", \"job\", \"instance\")",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  }
+]

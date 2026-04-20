@@ -5,16 +5,19 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/plan"
 )
 
 type syntheticRangePlan struct{}
 
-func (syntheticRangePlan) execute(_ context.Context, _ *evaluator, params evalParams) (runtimeValue, error) {
-	values := make([]rangePoint, 0)
+func (syntheticRangePlan) execute(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+	values := make([]model.RangePoint, 0)
 	for current := params.Start; !current.After(params.End); current = current.Add(params.Step) {
-		values = append(values, rangePoint{Timestamp: float64(current.Unix()), Value: float64(current.Unix())})
+		values = append(values, model.RangePoint{Timestamp: float64(current.Unix()), Value: float64(current.Unix())})
 	}
-	return matrixValue{Series: []rangeSeries{{Metric: map[string]string{"job": "synthetic"}, Values: values}}}, nil
+	return model.MatrixValue{Series: []model.RangeSeries{{Metric: map[string]string{"job": "synthetic"}, Values: values}}}, nil
 }
 
 func (syntheticRangePlan) explain() ExplainNode {
@@ -22,7 +25,7 @@ func (syntheticRangePlan) explain() ExplainNode {
 }
 
 func TestBuildPlanWithContextRejectsRangeQueryOverGuardrail(t *testing.T) {
-	expr, err := ParseExpression("up")
+	expr, err := plan.ParseExpression("up")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +50,7 @@ func TestBuildPlanWithContextRejectsRangeQueryOverGuardrail(t *testing.T) {
 }
 
 func TestBuildPlanWithContextWrapsLargeLocalRangePlanInChunkedRangePlan(t *testing.T) {
-	expr, err := ParseExpression(`label_join(up, "joined", "/", "job", "namespace")`)
+	expr, err := plan.ParseExpression(`label_join(up, "joined", "/", "job", "namespace")`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,9 +92,9 @@ func TestChunkedRangePlanExecutesAndMergesChunks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected merged chunked result, got error: %v", err)
 	}
-	matrix, ok := value.(matrixValue)
+	matrix, ok := value.(model.MatrixValue)
 	if !ok {
-		t.Fatalf("expected matrixValue, got %T", value)
+		t.Fatalf("expected model.MatrixValue, got %T", value)
 	}
 	if len(matrix.Series) != 1 {
 		t.Fatalf("expected one series, got %#v", matrix.Series)

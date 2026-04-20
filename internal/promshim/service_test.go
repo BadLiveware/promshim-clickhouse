@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -105,6 +106,98 @@ func TestQueryExplainRejectsMissingQuery(t *testing.T) {
 	}
 }
 
+func TestQueryRejectsUnsupportedSubqueryRateWithCleanUserFacingError(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=rate(up%5B5m%3A30s%5D)", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status    string `json:"status"`
+		ErrorType string `json:"errorType"`
+		Error     string `json:"error"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.ErrorType != "unsupported" {
+		t.Fatalf("expected unsupported error type, got %#v", body)
+	}
+	if body.Error != `unsupported PromQL (difficulty=hard): function "rate" with subquery arguments is not implemented yet` {
+		t.Fatalf("unexpected unsupported message: %#v", body)
+	}
+	if strings.Contains(body.Error, "planner cannot build plan") || strings.Contains(body.Error, "call planning") {
+		t.Fatalf("did not expect internal planner context in response: %#v", body)
+	}
+}
+
+func TestQueryRejectsUnsupportedHistogramFractionWithCleanUserFacingError(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=histogram_fraction(0,1,sum%20by%20(le,job)%20(up))", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status    string `json:"status"`
+		ErrorType string `json:"errorType"`
+		Error     string `json:"error"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.ErrorType != "unsupported" {
+		t.Fatalf("expected unsupported error type, got %#v", body)
+	}
+	if !strings.Contains(body.Error, "histogram_fraction") {
+		t.Fatalf("expected histogram_fraction in unsupported message, got %#v", body)
+	}
+}
+
+func TestQueryRejectsParseFailureAsBadData(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=sum(", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		ErrorType string `json:"errorType"`
+		Error     string `json:"error"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.ErrorType != "bad_data" {
+		t.Fatalf("expected bad_data parse failure, got %#v", body)
+	}
+	if body.Error == "" {
+		t.Fatal("expected parse error message")
+	}
+}
+
 func TestQueryWithExplainIncludesPlanAndNormalResult(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
@@ -177,5 +270,72 @@ func TestQueryRangeWithExplainIncludesPlanAndNormalResult(t *testing.T) {
 	}
 	if body.Plan.Strategy != "local" {
 		t.Fatalf("expected local plan, got %#v", body.Plan)
+	}
+}
+
+func TestQueryRangeScalarQueryReturnsConstantMatrix(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range?query=1%20%2B%202&start=0&end=120&step=60", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			ResultType string `json:"resultType"`
+			Result     []struct {
+				Metric map[string]string `json:"metric"`
+				Values [][]any           `json:"values"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "success" {
+		t.Fatalf("expected success payload, got %#v", body)
+	}
+	if body.Data.ResultType != "matrix" {
+		t.Fatalf("expected matrix result type, got %#v", body.Data)
+	}
+	if len(body.Data.Result) != 1 {
+		t.Fatalf("expected one scalar range series, got %#v", body.Data.Result)
+	}
+	if len(body.Data.Result[0].Metric) != 0 {
+		t.Fatalf("expected empty metric for scalar range result, got %#v", body.Data.Result[0].Metric)
+	}
+	if len(body.Data.Result[0].Values) != 3 {
+		t.Fatalf("expected three step-aligned points, got %#v", body.Data.Result[0].Values)
+	}
+	for _, point := range body.Data.Result[0].Values {
+		if point[1] != "3" {
+			t.Fatalf("expected scalar range value 3, got %#v", body.Data.Result[0].Values)
+		}
+	}
+}
+
+func TestQueryRangeRejectsMatrixExpressionType(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range?query=(up%20*%20100)%5B5m%3A30s%5D&start=0&end=120&step=60", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for matrix expression range query, got %d: %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "invalid expression type") || !strings.Contains(res.Body.String(), "range query") {
+		t.Fatalf("expected invalid expression type message, got %s", res.Body.String())
 	}
 }

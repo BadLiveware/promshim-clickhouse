@@ -2,6 +2,7 @@ package exec
 
 import (
 	"math"
+	"sort"
 	"time"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
@@ -35,15 +36,23 @@ func ApplyUnaryRuntimeValue(op parser.ItemType, value model.RuntimeValue, params
 		}
 		return model.ScalarValue{Timestamp: typed.Timestamp, Value: applyUnaryScalar(op, typed.Value)}, nil
 	case model.VectorValue:
-		return model.VectorValue{Samples: applyUnaryToSamples(op, typed.Samples)}, nil
+		samples := applyUnaryToSamples(op, typed.Samples)
+		if err := ensureUniqueInstantLabelsets(samples); err != nil {
+			return nil, err
+		}
+		return model.VectorValue{Samples: samples}, nil
 	case model.MatrixValue:
-		return model.MatrixValue{Series: applyUnaryToSeries(op, typed.Series)}, nil
+		series, err := ensureUniqueRangeLabelsets(applyUnaryToSeries(op, typed.Series))
+		if err != nil {
+			return nil, err
+		}
+		return model.MatrixValue{Series: series}, nil
 	default:
 		return nil, executionf("unary operator %q requires scalar, vector, or matrix input, got %T", op.String(), value)
 	}
 }
 
-func ApplyBinaryRuntimeValue(op parser.ItemType, lhs, rhs model.RuntimeValue, returnBool bool, params EvalParams) (model.RuntimeValue, error) {
+func ApplyBinaryRuntimeValue(op parser.ItemType, lhs, rhs model.RuntimeValue, vectorMatching *parser.VectorMatching, returnBool bool, params EvalParams) (model.RuntimeValue, error) {
 	switch left := lhs.(type) {
 	case model.ScalarValue:
 		switch right := rhs.(type) {
@@ -57,23 +66,51 @@ func ApplyBinaryRuntimeValue(op parser.ItemType, lhs, rhs model.RuntimeValue, re
 			}
 			return model.ScalarValue{Timestamp: scalarEvalTimestamp(params), Value: applyScalarBinary(op, left.Value, right.Value)}, nil
 		case model.VectorValue:
-			return model.VectorValue{Samples: applyVectorScalarBinaryInstant(op, right.Samples, left.Value, true, returnBool)}, nil
+			samples := applyVectorScalarBinaryInstant(op, right.Samples, left.Value, true, returnBool)
+			if err := ensureUniqueInstantLabelsets(samples); err != nil {
+				return nil, err
+			}
+			return model.VectorValue{Samples: samples}, nil
 		case model.MatrixValue:
-			return model.MatrixValue{Series: applyVectorScalarBinaryRange(op, right.Series, left.Value, true, returnBool)}, nil
+			series, err := ensureUniqueRangeLabelsets(applyVectorScalarBinaryRange(op, right.Series, left.Value, true, returnBool))
+			if err != nil {
+				return nil, err
+			}
+			return model.MatrixValue{Series: series}, nil
 		default:
 			return nil, executionf("binary operator %q does not support operand types %T and %T", op.String(), lhs, rhs)
 		}
 	case model.VectorValue:
 		switch right := rhs.(type) {
 		case model.ScalarValue:
-			return model.VectorValue{Samples: applyVectorScalarBinaryInstant(op, left.Samples, right.Value, false, returnBool)}, nil
+			samples := applyVectorScalarBinaryInstant(op, left.Samples, right.Value, false, returnBool)
+			if err := ensureUniqueInstantLabelsets(samples); err != nil {
+				return nil, err
+			}
+			return model.VectorValue{Samples: samples}, nil
+		case model.VectorValue:
+			samples, err := applyVectorVectorBinaryInstant(op, left.Samples, right.Samples, vectorMatching, returnBool)
+			if err != nil {
+				return nil, err
+			}
+			return model.VectorValue{Samples: samples}, nil
 		default:
 			return nil, executionf("binary operator %q does not support operand types %T and %T", op.String(), lhs, rhs)
 		}
 	case model.MatrixValue:
 		switch right := rhs.(type) {
 		case model.ScalarValue:
-			return model.MatrixValue{Series: applyVectorScalarBinaryRange(op, left.Series, right.Value, false, returnBool)}, nil
+			series, err := ensureUniqueRangeLabelsets(applyVectorScalarBinaryRange(op, left.Series, right.Value, false, returnBool))
+			if err != nil {
+				return nil, err
+			}
+			return model.MatrixValue{Series: series}, nil
+		case model.MatrixValue:
+			series, err := applyVectorVectorBinaryRange(op, left.Series, right.Series, vectorMatching, returnBool)
+			if err != nil {
+				return nil, err
+			}
+			return model.MatrixValue{Series: series}, nil
 		default:
 			return nil, executionf("binary operator %q does not support operand types %T and %T", op.String(), lhs, rhs)
 		}
@@ -215,6 +252,54 @@ func applyVectorScalarBinaryRange(op parser.ItemType, series []model.RangeSeries
 		result = append(result, model.RangeSeries{Metric: metric, Values: values})
 	}
 	return result
+}
+
+func ensureUniqueInstantLabelsets(samples []model.InstantSample) error {
+	if len(samples) <= 1 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(samples))
+	for _, sample := range samples {
+		key := model.LabelsKey(sample.Metric)
+		if _, ok := seen[key]; ok {
+			return badDataf("%s", model.ErrDuplicateLabelsetTimestamps.Error())
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func ensureUniqueRangeLabelsets(series []model.RangeSeries) ([]model.RangeSeries, error) {
+	if len(series) <= 1 {
+		return series, nil
+	}
+	grouped := make(map[string]model.RangeSeries, len(series))
+	order := make([]string, 0, len(series))
+	for _, item := range series {
+		key := model.LabelsKey(item.Metric)
+		group, ok := grouped[key]
+		if !ok {
+			grouped[key] = model.RangeSeries{Metric: model.CloneMetric(item.Metric), Values: model.CloneRangePoints(item.Values)}
+			order = append(order, key)
+			continue
+		}
+		group.Values = append(group.Values, model.CloneRangePoints(item.Values)...)
+		grouped[key] = group
+	}
+	result := make([]model.RangeSeries, 0, len(order))
+	for _, key := range order {
+		group := grouped[key]
+		sort.Slice(group.Values, func(i, j int) bool {
+			return group.Values[i].Timestamp < group.Values[j].Timestamp
+		})
+		for i := 1; i < len(group.Values); i++ {
+			if group.Values[i].Timestamp == group.Values[i-1].Timestamp {
+				return nil, badDataf("%s", model.ErrDuplicateLabelsetTimestamps.Error())
+			}
+		}
+		result = append(result, group)
+	}
+	return result, nil
 }
 
 func scalarValueToRangeMatrix(value float64, params EvalParams) (model.MatrixValue, error) {

@@ -1,6 +1,7 @@
 package promshim_test
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -27,6 +28,54 @@ func TestMediumCountQuery(t *testing.T) {
 	assertEqual(t, len(rows), 1)
 	metric := rows[0].(map[string]any)["metric"].(map[string]any)
 	assertEqual(t, len(metric), 0)
+}
+
+func TestMediumAbsentQueryForMissingSeriesDerivesExactMatchLabels(t *testing.T) {
+	f := requireFixture(t)
+	payload, err := f.getJSON(`/api/v1/query?query=absent(nonexistent_metric%7Bjob%3D%22clickhouse%22%2Cinstance%3D~%22.*%22%7D)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := requireVectorRows(t, payload)
+	assertEqual(t, len(rows), 1)
+	metric := rows[0].(map[string]any)["metric"].(map[string]any)
+	assertEqual(t, len(metric), 1)
+	assertEqual(t, metric["job"], "clickhouse")
+}
+
+func TestMediumAbsentQueryForPresentSeriesReturnsEmptyVector(t *testing.T) {
+	f := requireFixture(t)
+	payload, err := f.getJSON(`/api/v1/query?query=absent(up)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := requireVectorRows(t, payload)
+	assertEqual(t, len(rows), 0)
+}
+
+func TestMediumAbsentOverTimeQueryForMissingSeriesReturnsDerivedLabels(t *testing.T) {
+	f := requireFixture(t)
+	payload, err := f.getJSON(`/api/v1/query?query=absent_over_time(nonexistent_metric%7Bjob%3D%22clickhouse%22%7D%5B5m%5D)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := requireVectorRows(t, payload)
+	assertEqual(t, len(rows), 1)
+	metric := rows[0].(map[string]any)["metric"].(map[string]any)
+	assertEqual(t, len(metric), 1)
+	assertEqual(t, metric["job"], "clickhouse")
+}
+
+func TestMediumAbsentOverTimeRangeQueryForMissingSeriesReturnsMatrix(t *testing.T) {
+	f := requireFixture(t)
+	payload, err := f.getJSON(`/api/v1/query_range?query=absent_over_time(nonexistent_metric%7Bjob%3D%22clickhouse%22%7D%5B5m%5D)&start=2026-04-20T11:33:00Z&end=2026-04-20T11:35:00Z&step=30s`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := requireMatrixRows(t, payload)
+	assertEqual(t, len(rows), 1)
+	metric := rows[0].(map[string]any)["metric"].(map[string]any)
+	assertEqual(t, metric["job"], "clickhouse")
 }
 
 func TestMediumGroupedAggregationsOnUp(t *testing.T) {
@@ -245,22 +294,76 @@ func TestMediumVectorScalarArithmeticRangeQuery(t *testing.T) {
 	}
 }
 
-func TestMediumTopkQueryUnsupported(t *testing.T) {
+func TestMediumTopkQuery(t *testing.T) {
 	f := requireFixture(t)
 	payload, err := f.getJSON("/api/v1/query?query=topk(3,%20up)")
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertUnsupportedContains(t, payload, "difficulty=medium", "aggregation operator", "topk")
+	rows := requireVectorRows(t, payload)
+	if len(rows) != 3 {
+		t.Fatalf("expected exactly three topk rows, got %#v", rows)
+	}
+	for _, row := range rows {
+		value := row.(map[string]any)["value"].([]any)[1].(string)
+		assertEqual(t, value, "1")
+	}
 }
 
-func TestMediumVectorVectorBinaryQueryUnsupported(t *testing.T) {
+func TestMediumBottomkQuery(t *testing.T) {
 	f := requireFixture(t)
-	payload, err := f.getJSON("/api/v1/query?query=up%20%2B%20up")
+	payload, err := f.getJSON("/api/v1/query?query=bottomk(3,%20up)")
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertUnsupportedContains(t, payload, "difficulty=hard", "vector matching")
+	rows := requireVectorRows(t, payload)
+	if len(rows) != 3 {
+		t.Fatalf("expected exactly three bottomk rows, got %#v", rows)
+	}
+	for _, row := range rows {
+		value := row.(map[string]any)["value"].([]any)[1].(string)
+		assertEqual(t, value, "1")
+	}
+}
+
+func TestMediumCountValuesQuery(t *testing.T) {
+	f := requireFixture(t)
+	payload, err := f.getJSON(`/api/v1/query?query=count_values(%22sample_value%22,%20up)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := requireVectorRows(t, payload)
+	if len(rows) == 0 {
+		t.Fatal("expected count_values rows")
+	}
+	total := 0.0
+	for _, row := range rows {
+		metric := row.(map[string]any)["metric"].(map[string]any)
+		if _, ok := metric["sample_value"]; !ok {
+			t.Fatalf("expected sample_value label, got %#v", metric)
+		}
+		if _, ok := metric["__name__"]; ok {
+			t.Fatalf("did not expect __name__ label, got %#v", metric)
+		}
+		parsed, err := strconv.ParseFloat(row.(map[string]any)["value"].([]any)[1].(string), 64)
+		if err != nil {
+			t.Fatalf("failed to parse count_values row %#v: %v", row, err)
+		}
+		total += parsed
+	}
+	countPayload, err := f.getJSON("/api/v1/query?query=count(up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	countRows := requireVectorRows(t, countPayload)
+	if len(countRows) != 1 {
+		t.Fatalf("expected one count row, got %#v", countRows)
+	}
+	expectedCount, err := strconv.ParseFloat(countRows[0].(map[string]any)["value"].([]any)[1].(string), 64)
+	if err != nil {
+		t.Fatalf("failed to parse count row %#v: %v", countRows[0], err)
+	}
+	assertEqual(t, total, expectedCount)
 }
 
 func TestMediumLabelReplaceQuery(t *testing.T) {

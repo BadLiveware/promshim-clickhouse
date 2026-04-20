@@ -13,7 +13,7 @@ func TestAggregateRuntimeValueSumsVectorSamples(t *testing.T) {
 	value, err := AggregateRuntimeValue(parser.SUM, model.VectorValue{Samples: []model.InstantSample{
 		{Metric: map[string]string{"__name__": "up", "job": "clickhouse", "instance": "a"}, Value: 1},
 		{Metric: map[string]string{"__name__": "up", "job": "clickhouse", "instance": "b"}, Value: 0},
-	}}, []string{"job"}, false, time.Unix(42, 0).UTC())
+	}}, AggregationOptions{Grouping: []string{"job"}, EvaluationTime: time.Unix(42, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestAggregateRuntimeValueCountsVectorSamples(t *testing.T) {
 	value, err := AggregateRuntimeValue(parser.COUNT, model.VectorValue{Samples: []model.InstantSample{
 		{Metric: map[string]string{"__name__": "up", "job": "clickhouse", "instance": "a"}, Value: 1},
 		{Metric: map[string]string{"__name__": "up", "job": "clickhouse", "instance": "b"}, Value: math.NaN()},
-	}}, []string{"job"}, false, time.Unix(42, 0).UTC())
+	}}, AggregationOptions{Grouping: []string{"job"}, EvaluationTime: time.Unix(42, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestAggregateRuntimeValueAvgVectorSamples(t *testing.T) {
 	value, err := AggregateRuntimeValue(parser.AVG, model.VectorValue{Samples: []model.InstantSample{
 		{Metric: map[string]string{"__name__": "up", "job": "clickhouse", "instance": "a"}, Value: 1},
 		{Metric: map[string]string{"__name__": "up", "job": "clickhouse", "instance": "b"}, Value: 0},
-	}}, []string{"job"}, false, time.Unix(42, 0).UTC())
+	}}, AggregationOptions{Grouping: []string{"job"}, EvaluationTime: time.Unix(42, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,11 +73,11 @@ func TestAggregateRuntimeValueMinMaxIgnoreTrailingNaN(t *testing.T) {
 		{Metric: map[string]string{"__name__": "up", "job": "clickhouse", "instance": "c"}, Value: 0},
 	}}
 
-	minValue, err := AggregateRuntimeValue(parser.MIN, samples, []string{"job"}, false, time.Unix(42, 0).UTC())
+	minValue, err := AggregateRuntimeValue(parser.MIN, samples, AggregationOptions{Grouping: []string{"job"}, EvaluationTime: time.Unix(42, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	maxValue, err := AggregateRuntimeValue(parser.MAX, samples, []string{"job"}, false, time.Unix(42, 0).UTC())
+	maxValue, err := AggregateRuntimeValue(parser.MAX, samples, AggregationOptions{Grouping: []string{"job"}, EvaluationTime: time.Unix(42, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,16 +92,126 @@ func TestAggregateRuntimeValueMinMaxIgnoreTrailingNaN(t *testing.T) {
 	}
 }
 
-func TestAggregateRuntimeValueRejectsUnsupportedReducer(t *testing.T) {
-	_, err := AggregateRuntimeValue(parser.TOPK, model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "clickhouse"}, Value: 1}}}, nil, false, time.Unix(42, 0).UTC())
+func TestAggregateRuntimeValueTopKReturnsHighestSamplesPerGroup(t *testing.T) {
+	k := 2.0
+	value, err := AggregateRuntimeValue(parser.TOPK, model.VectorValue{Samples: []model.InstantSample{
+		{Metric: map[string]string{"job": "api", "instance": "a"}, Timestamp: 42, Value: 1},
+		{Metric: map[string]string{"job": "api", "instance": "b"}, Timestamp: 42, Value: 3},
+		{Metric: map[string]string{"job": "api", "instance": "c"}, Timestamp: 42, Value: 2},
+		{Metric: map[string]string{"job": "worker", "instance": "d"}, Timestamp: 42, Value: 9},
+	}}, AggregationOptions{Grouping: []string{"job"}, ParamNumber: &k, EvaluationTime: time.Unix(42, 0).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vector := value.(model.VectorValue)
+	if len(vector.Samples) != 3 {
+		t.Fatalf("expected three topk samples across groups, got %#v", vector.Samples)
+	}
+	if vector.Samples[0].Metric["instance"] != "b" || vector.Samples[0].Value != 3 {
+		t.Fatalf("expected highest api sample first, got %#v", vector.Samples)
+	}
+	if vector.Samples[1].Metric["instance"] != "c" || vector.Samples[1].Value != 2 {
+		t.Fatalf("expected second api sample next, got %#v", vector.Samples)
+	}
+	if vector.Samples[2].Metric["instance"] != "d" || vector.Samples[2].Value != 9 {
+		t.Fatalf("expected worker sample to be preserved, got %#v", vector.Samples)
+	}
+}
+
+func TestAggregateRuntimeValueBottomKReturnsLowestSamples(t *testing.T) {
+	k := 2.0
+	value, err := AggregateRuntimeValue(parser.BOTTOMK, model.VectorValue{Samples: []model.InstantSample{
+		{Metric: map[string]string{"instance": "a"}, Timestamp: 42, Value: 5},
+		{Metric: map[string]string{"instance": "b"}, Timestamp: 42, Value: 1},
+		{Metric: map[string]string{"instance": "c"}, Timestamp: 42, Value: 3},
+	}}, AggregationOptions{ParamNumber: &k, EvaluationTime: time.Unix(42, 0).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vector := value.(model.VectorValue)
+	if len(vector.Samples) != 2 {
+		t.Fatalf("expected two bottomk samples, got %#v", vector.Samples)
+	}
+	if vector.Samples[0].Metric["instance"] != "b" || vector.Samples[0].Value != 1 {
+		t.Fatalf("expected lowest sample first, got %#v", vector.Samples)
+	}
+	if vector.Samples[1].Metric["instance"] != "c" || vector.Samples[1].Value != 3 {
+		t.Fatalf("expected second-lowest sample second, got %#v", vector.Samples)
+	}
+}
+
+func TestAggregateRuntimeValueCountValuesAddsValueLabelAndCountsOccurrences(t *testing.T) {
+	value, err := AggregateRuntimeValue(parser.COUNT_VALUES, model.VectorValue{Samples: []model.InstantSample{
+		{Metric: map[string]string{"job": "api", "instance": "a"}, Timestamp: 42, Value: 1},
+		{Metric: map[string]string{"job": "api", "instance": "b"}, Timestamp: 42, Value: 1},
+		{Metric: map[string]string{"job": "api", "instance": "c"}, Timestamp: 42, Value: 2},
+	}}, AggregationOptions{Grouping: []string{"job"}, ParamString: "sample_value", EvaluationTime: time.Unix(42, 0).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vector := value.(model.VectorValue)
+	if len(vector.Samples) != 2 {
+		t.Fatalf("expected two count_values rows, got %#v", vector.Samples)
+	}
+	if vector.Samples[0].Metric["job"] != "api" || vector.Samples[0].Metric["sample_value"] != "1" || vector.Samples[0].Value != 2 {
+		t.Fatalf("unexpected count_values first row: %#v", vector.Samples)
+	}
+	if vector.Samples[1].Metric["job"] != "api" || vector.Samples[1].Metric["sample_value"] != "2" || vector.Samples[1].Value != 1 {
+		t.Fatalf("unexpected count_values second row: %#v", vector.Samples)
+	}
+}
+
+func TestAggregateRuntimeValueTopKRangeSelectsPerTimestampAndMergesSeries(t *testing.T) {
+	k := 1.0
+	value, err := AggregateRuntimeValue(parser.TOPK, model.MatrixValue{Series: []model.RangeSeries{
+		{Metric: map[string]string{"instance": "a"}, Values: []model.RangePoint{{Timestamp: 10, Value: 1}, {Timestamp: 20, Value: 4}}},
+		{Metric: map[string]string{"instance": "b"}, Values: []model.RangePoint{{Timestamp: 10, Value: 3}, {Timestamp: 20, Value: 2}}},
+	}}, AggregationOptions{ParamNumber: &k, EvaluationTime: time.Unix(42, 0).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	matrix := value.(model.MatrixValue)
+	if len(matrix.Series) != 2 {
+		t.Fatalf("expected merged topk matrix with two sparse series, got %#v", matrix.Series)
+	}
+	if matrix.Series[0].Metric["instance"] != "a" || len(matrix.Series[0].Values) != 1 || matrix.Series[0].Values[0].Timestamp != 20 {
+		t.Fatalf("expected instance a only at second step, got %#v", matrix.Series)
+	}
+	if matrix.Series[1].Metric["instance"] != "b" || len(matrix.Series[1].Values) != 1 || matrix.Series[1].Values[0].Timestamp != 10 {
+		t.Fatalf("expected instance b only at first step, got %#v", matrix.Series)
+	}
+}
+
+func TestAggregateRuntimeValueCountValuesRangeCountsPerTimestamp(t *testing.T) {
+	value, err := AggregateRuntimeValue(parser.COUNT_VALUES, model.MatrixValue{Series: []model.RangeSeries{
+		{Metric: map[string]string{"job": "api", "instance": "a"}, Values: []model.RangePoint{{Timestamp: 10, Value: 1}, {Timestamp: 20, Value: 2}}},
+		{Metric: map[string]string{"job": "api", "instance": "b"}, Values: []model.RangePoint{{Timestamp: 10, Value: 1}, {Timestamp: 20, Value: 1}}},
+	}}, AggregationOptions{Grouping: []string{"job"}, ParamString: "sample_value", EvaluationTime: time.Unix(42, 0).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	matrix := value.(model.MatrixValue)
+	if len(matrix.Series) != 2 {
+		t.Fatalf("expected two count_values series across timestamps, got %#v", matrix.Series)
+	}
+	if matrix.Series[0].Metric["sample_value"] != "1" || len(matrix.Series[0].Values) != 2 || matrix.Series[0].Values[0].Value != 2 || matrix.Series[0].Values[1].Value != 1 {
+		t.Fatalf("unexpected count_values series for sample_value=1: %#v", matrix.Series)
+	}
+	if matrix.Series[1].Metric["sample_value"] != "2" || len(matrix.Series[1].Values) != 1 || matrix.Series[1].Values[0].Value != 1 {
+		t.Fatalf("unexpected count_values series for sample_value=2: %#v", matrix.Series)
+	}
+}
+
+func TestAggregateRuntimeValueRejectsMissingTopKParameter(t *testing.T) {
+	_, err := AggregateRuntimeValue(parser.TOPK, model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "clickhouse"}, Value: 1}}}, AggregationOptions{EvaluationTime: time.Unix(42, 0).UTC()})
 	if err == nil {
-		t.Fatal("expected unsupported reducer error")
+		t.Fatal("expected missing parameter error")
 	}
 	execErr, ok := err.(*Error)
 	if !ok {
 		t.Fatalf("expected exec.Error, got %T (%v)", err, err)
 	}
-	if execErr.Kind != ErrorKindUnsupported {
+	if execErr.Kind != ErrorKindBadData {
 		t.Fatalf("unexpected error kind: %v (%v)", execErr.Kind, err)
 	}
 }

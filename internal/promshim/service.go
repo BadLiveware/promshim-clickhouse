@@ -2,6 +2,7 @@ package promshim
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/plan"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
+	"github.com/prometheus/prometheus/promql/parser"
 )
 
 type queryService struct {
@@ -236,6 +238,9 @@ func (h *queryService) buildRangePlan(req httpapi.RangeQueryRequest) (string, ti
 	expr, err := plan.ParseExpression(query)
 	if err != nil {
 		return "", time.Time{}, time.Time{}, 0, nil, badRequestHTTPError(err.Error())
+	}
+	if expr.Type() != parser.ValueTypeScalar && expr.Type() != parser.ValueTypeVector {
+		return "", time.Time{}, time.Time{}, 0, nil, badRequestHTTPError(fmt.Sprintf("invalid expression type %q for range query, must be scalar or instant vector", expr.Type()))
 	}
 	start, err := model.ParsePrometheusTimestamp(req.Start)
 	if err != nil {

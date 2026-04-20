@@ -31,6 +31,7 @@ services:
       - --web.enable-remote-write-receiver
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=24h
+      - --enable-feature=promql-binop-fill-modifiers
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
 

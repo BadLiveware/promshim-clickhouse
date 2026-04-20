@@ -1,6 +1,7 @@
 package promshim
 
 import (
+	"errors"
 	"net/http"
 
 	httpapi "github.com/BadLiveware/promshim-ch/internal/promshim/httpapi"
@@ -25,7 +26,27 @@ func apiErrorFromInternal(err error) apiError {
 	case internalErrorKindExecution:
 		statusCode = http.StatusBadGateway
 	}
-	return apiError{StatusCode: statusCode, ErrorType: string(kind), Error: err.Error()}
+	return apiError{StatusCode: statusCode, ErrorType: string(kind), Error: userFacingErrorMessage(err)}
+}
+
+func userFacingErrorMessage(err error) string {
+	err = normalizeInternalError(err)
+	if internalErrorKindOf(err) == internalErrorKindExecution {
+		return err.Error()
+	}
+	var buildErr *planBuildError
+	if errors.As(err, &buildErr) {
+		return buildErr.UserMessage()
+	}
+	root := err
+	for {
+		next := errors.Unwrap(root)
+		if next == nil {
+			break
+		}
+		root = next
+	}
+	return root.Error()
 }
 
 func asQueryError(err error, target **storage.QueryError) bool {

@@ -2,10 +2,12 @@ package promshim
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/exec"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -66,9 +68,14 @@ type nativeAggregationPlan struct {
 }
 
 func (p *nativeAggregationPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	sourcePromQL, err := resolveDelegatedPromQL(p.Source.PromQLLeaf, params)
+	if err != nil {
+		return nil, withInternalContext(err, "resolving native aggregation source PromQL for %q", p.Expr)
+	}
+
 	switch params.Mode {
 	case evalModeInstant:
-		sql, queryParams, err := storage.BuildInstantAggregationQuerySQL(storage.QueryConfig{Database: evaluator.opts.Database, Table: evaluator.opts.Table}, storage.AggregationSource{PromQLLeaf: p.Source.PromQLLeaf.String(), ValueExpr: p.Source.ValueExpr, TagsExpr: p.Source.TagsExpr}, params.EvaluationTime.UnixMilli(), p.Op, p.Grouping, p.Without)
+		sql, queryParams, err := storage.BuildInstantAggregationQuerySQL(storage.QueryConfig{Database: evaluator.opts.Database, Table: evaluator.opts.Table}, storage.AggregationSource{PromQLLeaf: sourcePromQL, ValueExpr: p.Source.ValueExpr, TagsExpr: p.Source.TagsExpr}, params.EvaluationTime.UnixMilli(), p.Op, p.Grouping, p.Without)
 		if err != nil {
 			return nil, withInternalContext(err, "building native aggregation instant SQL for %q", p.Expr)
 		}
@@ -83,7 +90,7 @@ func (p *nativeAggregationPlan) execute(ctx context.Context, evaluator *evaluato
 		}
 		return model.VectorValue{Samples: samples}, nil
 	case evalModeRange:
-		sql, queryParams, err := storage.BuildRangeAggregationQuerySQL(storage.QueryConfig{Database: evaluator.opts.Database, Table: evaluator.opts.Table}, storage.AggregationSource{PromQLLeaf: p.Source.PromQLLeaf.String(), ValueExpr: p.Source.ValueExpr, TagsExpr: p.Source.TagsExpr}, params.Start.UnixMilli(), params.End.UnixMilli(), params.Step.Milliseconds(), p.Op, p.Grouping, p.Without)
+		sql, queryParams, err := storage.BuildRangeAggregationQuerySQL(storage.QueryConfig{Database: evaluator.opts.Database, Table: evaluator.opts.Table}, storage.AggregationSource{PromQLLeaf: sourcePromQL, ValueExpr: p.Source.ValueExpr, TagsExpr: p.Source.TagsExpr}, params.Start.UnixMilli(), params.End.UnixMilli(), params.Step.Milliseconds(), p.Op, p.Grouping, p.Without)
 		if err != nil {
 			return nil, withInternalContext(err, "building native aggregation range SQL for %q", p.Expr)
 		}
@@ -160,11 +167,12 @@ func (p *localUnaryPlan) explain() ExplainNode {
 }
 
 type localBinaryPlan struct {
-	Expr       string
-	Op         parser.ItemType
-	ReturnBool bool
-	LHS        queryPlan
-	RHS        queryPlan
+	Expr           string
+	Op             parser.ItemType
+	VectorMatching *parser.VectorMatching
+	ReturnBool     bool
+	LHS            queryPlan
+	RHS            queryPlan
 }
 
 func (p *localBinaryPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
@@ -176,7 +184,7 @@ func (p *localBinaryPlan) execute(ctx context.Context, evaluator *evaluator, par
 	if err != nil {
 		return nil, withInternalContext(err, "evaluating right operand for binary op=%s", p.Op.String())
 	}
-	result, err := exec.ApplyBinaryRuntimeValue(p.Op, lhsValue, rhsValue, p.ReturnBool, exec.EvalParams{
+	result, err := exec.ApplyBinaryRuntimeValue(p.Op, lhsValue, rhsValue, p.VectorMatching, p.ReturnBool, exec.EvalParams{
 		Mode:           toExecEvalMode(params.Mode),
 		EvaluationTime: params.EvaluationTime,
 		Start:          params.Start,
@@ -194,12 +202,14 @@ func (p *localBinaryPlan) explain() ExplainNode {
 }
 
 type localAggregationPlan struct {
-	Expr     string
-	Op       parser.ItemType
-	Grouping []string
-	Without  bool
-	Reason   string
-	Child    queryPlan
+	Expr        string
+	Op          parser.ItemType
+	Grouping    []string
+	Without     bool
+	ParamNumber *float64
+	ParamString string
+	Reason      string
+	Child       queryPlan
 }
 
 func (p *localAggregationPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
@@ -207,7 +217,13 @@ func (p *localAggregationPlan) execute(ctx context.Context, evaluator *evaluator
 	if err != nil {
 		return nil, withInternalContext(err, "evaluating local aggregation op=%s grouping=%v without=%t", p.Op.String(), p.Grouping, p.Without)
 	}
-	result, err := exec.AggregateRuntimeValue(p.Op, childValue, p.Grouping, p.Without, params.EvaluationTime)
+	result, err := exec.AggregateRuntimeValue(p.Op, childValue, exec.AggregationOptions{
+		Grouping:       p.Grouping,
+		Without:        p.Without,
+		EvaluationTime: params.EvaluationTime,
+		ParamNumber:    p.ParamNumber,
+		ParamString:    p.ParamString,
+	})
 	if err != nil {
 		return nil, withInternalContext(fromExecError(err), "aggregating local result op=%s grouping=%v without=%t", p.Op.String(), p.Grouping, p.Without)
 	}
@@ -216,6 +232,327 @@ func (p *localAggregationPlan) execute(ctx context.Context, evaluator *evaluator
 
 func (p *localAggregationPlan) explain() ExplainNode {
 	return ExplainNode{Kind: "aggregation", Strategy: "local", Expr: p.Expr, Reason: p.Reason, Children: []ExplainNode{p.Child.explain()}}
+}
+
+type localHistogramQuantilePlan struct {
+	Expr     string
+	Quantile float64
+	Child    queryPlan
+}
+
+func (p *localHistogramQuantilePlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	childValue, err := p.Child.execute(ctx, evaluator, params)
+	if err != nil {
+		return nil, withInternalContext(err, "evaluating histogram_quantile child quantile=%v", p.Quantile)
+	}
+	result, err := exec.ApplyHistogramQuantileRuntimeValue(p.Quantile, childValue)
+	if err != nil {
+		return nil, withInternalContext(fromExecError(err), "applying histogram_quantile quantile=%v", p.Quantile)
+	}
+	return result, nil
+}
+
+func (p *localHistogramQuantilePlan) explain() ExplainNode {
+	return ExplainNode{Kind: "histogram_quantile", Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
+}
+
+type localHistogramProjectionPlan struct {
+	Expr  string
+	Func  string
+	Child queryPlan
+}
+
+func (p *localHistogramProjectionPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	childValue, err := p.Child.execute(ctx, evaluator, params)
+	if err != nil {
+		return nil, withInternalContext(err, "evaluating %s child", p.Func)
+	}
+	var result model.RuntimeValue
+	switch p.Func {
+	case "histogram_count":
+		result, err = exec.ApplyHistogramCountRuntimeValue(childValue)
+	case "histogram_sum":
+		result, err = exec.ApplyHistogramSumRuntimeValue(childValue)
+	case "histogram_avg":
+		result, err = exec.ApplyHistogramAvgRuntimeValue(childValue)
+	default:
+		return nil, newExecutionErrorf("unknown histogram projection function %q", p.Func)
+	}
+	if err != nil {
+		return nil, withInternalContext(fromExecError(err), "applying %s", p.Func)
+	}
+	return result, nil
+}
+
+func (p *localHistogramProjectionPlan) explain() ExplainNode {
+	return ExplainNode{Kind: p.Func, Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
+}
+
+type localRangeFunctionPlan struct {
+	Expr  string
+	Func  string
+	Child queryPlan
+}
+
+func (p *localRangeFunctionPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	switch params.Mode {
+	case evalModeInstant:
+		childValue, err := p.Child.execute(ctx, evaluator, params)
+		if err != nil {
+			return nil, withInternalContext(err, "evaluating %s child in instant mode", p.Func)
+		}
+		vector, err := exec.ApplyRangeFunctionInstant(p.Func, childValue)
+		if err != nil {
+			return nil, withInternalContext(fromExecError(err), "applying %s in instant mode", p.Func)
+		}
+		return vector, nil
+	case evalModeRange:
+		return executeRangeVectorPlan(ctx, evaluator, params, p.Func, p.execute)
+	default:
+		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+	}
+}
+
+func (p *localRangeFunctionPlan) explain() ExplainNode {
+	return ExplainNode{Kind: p.Func, Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
+}
+
+type localQuantileOverTimePlan struct {
+	Expr     string
+	Quantile float64
+	Child    queryPlan
+}
+
+func (p *localQuantileOverTimePlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	switch params.Mode {
+	case evalModeInstant:
+		childValue, err := p.Child.execute(ctx, evaluator, params)
+		if err != nil {
+			return nil, withInternalContext(err, "evaluating quantile_over_time child in instant mode")
+		}
+		vector, err := exec.ApplyQuantileOverTime(p.Quantile, childValue)
+		if err != nil {
+			return nil, withInternalContext(fromExecError(err), "applying quantile_over_time in instant mode")
+		}
+		return vector, nil
+	case evalModeRange:
+		return executeRangeVectorPlan(ctx, evaluator, params, "quantile_over_time", p.execute)
+	default:
+		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+	}
+}
+
+func (p *localQuantileOverTimePlan) explain() ExplainNode {
+	return ExplainNode{Kind: "quantile_over_time", Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
+}
+
+type localAbsentPlan struct {
+	Expr         string
+	OutputMetric map[string]string
+	Child        queryPlan
+}
+
+func (p *localAbsentPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	switch params.Mode {
+	case evalModeInstant:
+		childValue, err := p.Child.execute(ctx, evaluator, params)
+		if err != nil {
+			return nil, withInternalContext(err, "evaluating absent child in instant mode")
+		}
+		vector, err := exec.ApplyAbsent(childValue, p.OutputMetric, float64(params.EvaluationTime.UnixNano())/float64(time.Second))
+		if err != nil {
+			return nil, withInternalContext(fromExecError(err), "applying absent in instant mode")
+		}
+		return vector, nil
+	case evalModeRange:
+		return executeRangeVectorPlan(ctx, evaluator, params, "absent", p.execute)
+	default:
+		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+	}
+}
+
+func (p *localAbsentPlan) explain() ExplainNode {
+	return ExplainNode{Kind: "absent", Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
+}
+
+type localAbsentOverTimePlan struct {
+	Expr               string
+	OutputMetric       map[string]string
+	BoundaryProbeExpr  parser.Expr
+	BoundaryProbeRange time.Duration
+	Child              queryPlan
+}
+
+func (p *localAbsentOverTimePlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	switch params.Mode {
+	case evalModeInstant:
+		childValue, err := p.Child.execute(ctx, evaluator, params)
+		if err != nil {
+			return nil, withInternalContext(err, "evaluating absent_over_time child in instant mode")
+		}
+		vector, err := exec.ApplyAbsentOverTime(childValue, p.OutputMetric, float64(params.EvaluationTime.UnixNano())/float64(time.Second))
+		if err != nil {
+			return nil, withInternalContext(fromExecError(err), "applying absent_over_time in instant mode")
+		}
+		if len(vector.Samples) > 0 && p.BoundaryProbeExpr != nil && p.BoundaryProbeRange > 0 {
+			boundaryTime := params.EvaluationTime.Add(-p.BoundaryProbeRange)
+			boundaryValue, err := evaluator.executeDelegated(ctx, p.BoundaryProbeExpr, evalParams{Mode: evalModeInstant, EvaluationTime: boundaryTime})
+			if err != nil {
+				return nil, withInternalContext(err, "probing absent_over_time left boundary at %s", boundaryTime.UTC().Format(time.RFC3339Nano))
+			}
+			probeMatrix, ok := boundaryValue.(model.MatrixValue)
+			if !ok {
+				return nil, newExecutionErrorf("absent_over_time boundary probe returned %T, expected matrix", boundaryValue)
+			}
+			for _, series := range probeMatrix.Series {
+				if len(series.Values) > 0 {
+					return model.VectorValue{}, nil
+				}
+			}
+		}
+		return vector, nil
+	case evalModeRange:
+		return executeRangeVectorPlan(ctx, evaluator, params, "absent_over_time", p.execute)
+	default:
+		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+	}
+}
+
+func (p *localAbsentOverTimePlan) explain() ExplainNode {
+	return ExplainNode{Kind: "absent_over_time", Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
+}
+
+func executeRangeVectorPlan(ctx context.Context, evaluator *evaluator, params evalParams, kind string, executeInstant func(context.Context, *evaluator, evalParams) (model.RuntimeValue, error)) (model.RuntimeValue, error) {
+	if params.Step <= 0 {
+		return nil, newBadDataErrorf("step must be greater than zero for %q", kind)
+	}
+	seriesByKey := map[string]*model.RangeSeries{}
+	seriesOrder := make([]string, 0)
+	for ts := params.Start; !ts.After(params.End); ts = ts.Add(params.Step) {
+		instantValue, err := executeInstant(ctx, evaluator, evalParams{Mode: evalModeInstant, EvaluationTime: ts})
+		if err != nil {
+			return nil, withInternalContext(err, "evaluating %s at range step %s", kind, ts.UTC().Format(time.RFC3339Nano))
+		}
+		vector, ok := instantValue.(model.VectorValue)
+		if !ok {
+			return nil, newExecutionErrorf("%s instant step returned %T, expected vector", kind, instantValue)
+		}
+		stepTimestamp := float64(ts.UnixNano()) / float64(time.Second)
+		for _, sample := range vector.Samples {
+			key := model.LabelsKey(sample.Metric)
+			item, ok := seriesByKey[key]
+			if !ok {
+				item = &model.RangeSeries{Metric: model.CloneMetric(sample.Metric), Values: make([]model.RangePoint, 0, 16)}
+				seriesByKey[key] = item
+				seriesOrder = append(seriesOrder, key)
+			}
+			item.Values = append(item.Values, model.RangePoint{Timestamp: stepTimestamp, Value: sample.Value})
+		}
+	}
+	sort.Strings(seriesOrder)
+	result := make([]model.RangeSeries, 0, len(seriesOrder))
+	for _, key := range seriesOrder {
+		item := seriesByKey[key]
+		result = append(result, model.RangeSeries{Metric: model.CloneMetric(item.Metric), Values: model.CloneRangePoints(item.Values)})
+	}
+	return model.MatrixValue{Series: result}, nil
+}
+
+type localSubqueryPlan struct {
+	Expr                    parser.Expr
+	Range                   time.Duration
+	Step                    time.Duration
+	Offset                  time.Duration
+	Timestamp               *int64
+	StartOrEnd              parser.ItemType
+	DelegatedLeafCompatible bool
+	Child                   queryPlan
+}
+
+func (p *localSubqueryPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	useDelegatedPath := p.DelegatedLeafCompatible && !(params.Mode == evalModeInstant && p.Expr != nil && p.Expr.Type() == parser.ValueTypeMatrix)
+	if useDelegatedPath {
+		value, err := evaluator.executeDelegated(ctx, p.Expr, params)
+		if err != nil {
+			return nil, withInternalContext(err, "executing delegated subquery expression %q", p.Expr.String())
+		}
+		return value, nil
+	}
+	if params.Mode != evalModeInstant {
+		return nil, newUnsupportedErrorf("local subquery execution in %s mode is not implemented yet for %q", params.Mode, p.Expr.String())
+	}
+
+	end := params.EvaluationTime
+	if p.Timestamp != nil {
+		end = time.UnixMilli(*p.Timestamp).UTC()
+	} else if resolved := resolveStartEndMillis(p.StartOrEnd, params); resolved != nil {
+		end = time.UnixMilli(*resolved).UTC()
+	}
+	if p.Offset != 0 {
+		end = end.Add(-p.Offset)
+	}
+	if p.Range <= 0 {
+		return nil, newBadDataErrorf("subquery range must be greater than zero in %q", p.Expr.String())
+	}
+	step := p.Step
+	if step <= 0 {
+		step = defaultSubqueryStep(params)
+	}
+	if step <= 0 {
+		return nil, newBadDataErrorf("subquery step must be greater than zero in %q", p.Expr.String())
+	}
+
+	start := end.Add(-p.Range)
+	seriesByKey := map[string]*model.RangeSeries{}
+	seriesOrder := make([]string, 0)
+
+	for ts := start; !ts.After(end); ts = ts.Add(step) {
+		childValue, err := p.Child.execute(ctx, evaluator, evalParams{Mode: evalModeInstant, EvaluationTime: ts})
+		if err != nil {
+			return nil, withInternalContext(err, "evaluating local subquery child at %s for %q", ts.UTC().Format(time.RFC3339Nano), p.Expr.String())
+		}
+		vector, ok := childValue.(model.VectorValue)
+		if !ok {
+			return nil, newExecutionErrorf("subquery child must evaluate to vector at %s for %q, got %T", ts.UTC().Format(time.RFC3339Nano), p.Expr.String(), childValue)
+		}
+		for _, sample := range vector.Samples {
+			key := model.LabelsKey(sample.Metric)
+			item, ok := seriesByKey[key]
+			if !ok {
+				item = &model.RangeSeries{Metric: model.CloneMetric(sample.Metric), Values: make([]model.RangePoint, 0, 16)}
+				seriesByKey[key] = item
+				seriesOrder = append(seriesOrder, key)
+			}
+			item.Values = append(item.Values, model.RangePoint{Timestamp: sample.Timestamp, Value: sample.Value})
+		}
+	}
+
+	sort.Strings(seriesOrder)
+	result := make([]model.RangeSeries, 0, len(seriesOrder))
+	for _, key := range seriesOrder {
+		item := seriesByKey[key]
+		sort.Slice(item.Values, func(i, j int) bool { return item.Values[i].Timestamp < item.Values[j].Timestamp })
+		result = append(result, model.RangeSeries{Metric: model.CloneMetric(item.Metric), Values: model.CloneRangePoints(item.Values)})
+	}
+	return model.MatrixValue{Series: result}, nil
+}
+
+func (p *localSubqueryPlan) explain() ExplainNode {
+	strategy := "local"
+	reason := "subquery requires local execution"
+	if p.DelegatedLeafCompatible {
+		strategy = "delegated_promql"
+		reason = "subquery is delegated because child expression is delegated-leaf-compatible"
+		if p.Expr != nil && p.Expr.Type() == parser.ValueTypeMatrix {
+			strategy = "local"
+			reason = "matrix-root subquery is evaluated locally for compatibility"
+		}
+	}
+	children := []ExplainNode{}
+	if p.Child != nil {
+		children = append(children, p.Child.explain())
+	}
+	return ExplainNode{Kind: "subquery", Strategy: strategy, Expr: p.Expr.String(), Reason: reason, Children: children}
 }
 
 type localLabelReplacePlan struct {
@@ -279,10 +616,158 @@ func (e *evaluator) evaluate(ctx context.Context, plan queryPlan, params evalPar
 	return value, nil
 }
 
+func resolveDelegatedPromQL(expr parser.Expr, params evalParams) (string, error) {
+	if !containsStartEndAtModifier(expr) {
+		return expr.String(), nil
+	}
+
+	parsed, err := planpkg.ParseExpression(expr.String())
+	if err != nil {
+		return "", newExecutionErrorf("re-parsing expression for @ start()/end() resolution: %v", err)
+	}
+	resolveStartEndAtModifierRecursive(parsed, params)
+	return parsed.String(), nil
+}
+
+func containsStartEndAtModifier(expr parser.Expr) bool {
+	switch node := expr.(type) {
+	case *parser.VectorSelector:
+		return node.StartOrEnd == parser.START || node.StartOrEnd == parser.END
+	case *parser.MatrixSelector:
+		return containsStartEndAtModifier(node.VectorSelector)
+	case *parser.SubqueryExpr:
+		if node.StartOrEnd == parser.START || node.StartOrEnd == parser.END {
+			return true
+		}
+		return containsStartEndAtModifier(node.Expr)
+	case *parser.Call:
+		for _, arg := range node.Args {
+			if containsStartEndAtModifier(arg) {
+				return true
+			}
+		}
+		return false
+	case *parser.AggregateExpr:
+		if node.Param != nil && containsStartEndAtModifier(node.Param) {
+			return true
+		}
+		return containsStartEndAtModifier(node.Expr)
+	case *parser.BinaryExpr:
+		return containsStartEndAtModifier(node.LHS) || containsStartEndAtModifier(node.RHS)
+	case *parser.UnaryExpr:
+		return containsStartEndAtModifier(node.Expr)
+	case *parser.ParenExpr:
+		return containsStartEndAtModifier(node.Expr)
+	case *parser.StepInvariantExpr:
+		return containsStartEndAtModifier(node.Expr)
+	default:
+		return false
+	}
+}
+
+func resolveStartEndAtModifierRecursive(expr parser.Expr, params evalParams) {
+	switch node := expr.(type) {
+	case *parser.VectorSelector:
+		resolveSelectorStartEndAtModifier(node, params)
+	case *parser.MatrixSelector:
+		if selector, ok := node.VectorSelector.(*parser.VectorSelector); ok {
+			resolveSelectorStartEndAtModifier(selector, params)
+		}
+		resolveStartEndAtModifierRecursive(node.VectorSelector, params)
+	case *parser.SubqueryExpr:
+		resolveSubqueryStartEndAtModifier(node, params)
+		resolveStartEndAtModifierRecursive(node.Expr, params)
+	case *parser.Call:
+		for _, arg := range node.Args {
+			resolveStartEndAtModifierRecursive(arg, params)
+		}
+	case *parser.AggregateExpr:
+		if node.Param != nil {
+			resolveStartEndAtModifierRecursive(node.Param, params)
+		}
+		resolveStartEndAtModifierRecursive(node.Expr, params)
+	case *parser.BinaryExpr:
+		resolveStartEndAtModifierRecursive(node.LHS, params)
+		resolveStartEndAtModifierRecursive(node.RHS, params)
+	case *parser.UnaryExpr:
+		resolveStartEndAtModifierRecursive(node.Expr, params)
+	case *parser.ParenExpr:
+		resolveStartEndAtModifierRecursive(node.Expr, params)
+	case *parser.StepInvariantExpr:
+		resolveStartEndAtModifierRecursive(node.Expr, params)
+	}
+}
+
+func resolveSelectorStartEndAtModifier(selector *parser.VectorSelector, params evalParams) {
+	if selector == nil {
+		return
+	}
+	resolved := resolveStartEndMillis(selector.StartOrEnd, params)
+	if resolved == nil {
+		return
+	}
+	selector.Timestamp = resolved
+	selector.StartOrEnd = 0
+}
+
+func resolveSubqueryStartEndAtModifier(subquery *parser.SubqueryExpr, params evalParams) {
+	if subquery == nil {
+		return
+	}
+	resolved := resolveStartEndMillis(subquery.StartOrEnd, params)
+	if resolved == nil {
+		return
+	}
+	subquery.Timestamp = resolved
+	subquery.StartOrEnd = 0
+}
+
+func resolveStartEndMillis(token parser.ItemType, params evalParams) *int64 {
+	var resolved int64
+	switch token {
+	case parser.START:
+		if params.Mode == evalModeRange {
+			resolved = params.Start.UnixMilli()
+		} else {
+			resolved = params.EvaluationTime.UnixMilli()
+		}
+	case parser.END:
+		if params.Mode == evalModeRange {
+			resolved = params.End.UnixMilli()
+		} else {
+			resolved = params.EvaluationTime.UnixMilli()
+		}
+	default:
+		return nil
+	}
+	value := resolved
+	return &value
+}
+
+func cloneInt64Pointer(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func defaultSubqueryStep(params evalParams) time.Duration {
+	if params.Step > 0 {
+		return params.Step
+	}
+	return time.Minute
+}
+
 func (e *evaluator) executeDelegated(ctx context.Context, expr parser.Expr, params evalParams) (model.RuntimeValue, error) {
+	promQL, err := resolveDelegatedPromQL(expr, params)
+	if err != nil {
+		return nil, withInternalContext(err, "resolving delegated PromQL for %q", expr.String())
+	}
+
 	switch params.Mode {
 	case evalModeInstant:
-		sql, queryParams := storage.BuildInstantQuerySQL(storage.QueryConfig{Database: e.opts.Database, Table: e.opts.Table}, expr.String(), params.EvaluationTime.UnixMilli())
+		sql, queryParams := storage.BuildInstantQuerySQL(storage.QueryConfig{Database: e.opts.Database, Table: e.opts.Table}, promQL, params.EvaluationTime.UnixMilli())
 		response, err := e.client.Execute(ctx, sql, queryParams)
 		if err != nil {
 			return nil, withInternalContext(normalizeInternalError(err), "executing delegated ClickHouse instant query for %q", expr.String())
@@ -306,7 +791,7 @@ func (e *evaluator) executeDelegated(ctx context.Context, expr parser.Expr, para
 			return nil, newUnsupportedErrorf("delegated instant result type %q for %q is not implemented yet", expr.Type(), expr.String())
 		}
 	case evalModeRange:
-		sql, queryParams := storage.BuildRangeQuerySQL(storage.QueryConfig{Database: e.opts.Database, Table: e.opts.Table}, expr.String(), params.Start.UnixMilli(), params.End.UnixMilli(), params.Step.Milliseconds())
+		sql, queryParams := storage.BuildRangeQuerySQL(storage.QueryConfig{Database: e.opts.Database, Table: e.opts.Table}, promQL, params.Start.UnixMilli(), params.End.UnixMilli(), params.Step.Milliseconds())
 		response, err := e.client.Execute(ctx, sql, queryParams)
 		if err != nil {
 			return nil, withInternalContext(normalizeInternalError(err), "executing delegated ClickHouse range query for %q", expr.String())
@@ -368,7 +853,7 @@ func buildExecPlanWithContext(plan logicalPlan, ctx planContext) (queryPlan, err
 		if err != nil {
 			return nil, withInternalContext(err, "building execution right operand plan for binary expression %q", node.ExprString())
 		}
-		return &localBinaryPlan{Expr: node.ExprString(), Op: node.Op, ReturnBool: node.ReturnBool, LHS: lhs, RHS: rhs}, nil
+		return &localBinaryPlan{Expr: node.ExprString(), Op: node.Op, VectorMatching: cloneVectorMatching(node.VectorMatching), ReturnBool: node.ReturnBool, LHS: lhs, RHS: rhs}, nil
 	case *logicalAggregationPlan:
 		if pushdownPlan, ok := maybeBuildNativeAggregationPlan(node, ctx); ok {
 			return pushdownPlan, nil
@@ -379,13 +864,66 @@ func buildExecPlanWithContext(plan logicalPlan, ctx planContext) (queryPlan, err
 		}
 		decision := decideNativeAggregationPushdown(node, ctx)
 		return &localAggregationPlan{
-			Expr:     node.ExprString(),
-			Op:       node.Op,
-			Grouping: append([]string(nil), node.Grouping...),
-			Without:  node.Without,
-			Reason:   decision.Reason,
-			Child:    child,
+			Expr:        node.ExprString(),
+			Op:          node.Op,
+			Grouping:    append([]string(nil), node.Grouping...),
+			Without:     node.Without,
+			ParamNumber: node.ParamNumber,
+			ParamString: node.ParamString,
+			Reason:      decision.Reason,
+			Child:       child,
 		}, nil
+	case *logicalHistogramQuantilePlan:
+		child, err := buildExecPlanWithContext(node.Child, ctx)
+		if err != nil {
+			return nil, withInternalContext(err, "building execution child plan for histogram_quantile %q", node.ExprString())
+		}
+		return &localHistogramQuantilePlan{Expr: node.ExprString(), Quantile: node.Quantile, Child: child}, nil
+	case *logicalHistogramProjectionPlan:
+		child, err := buildExecPlanWithContext(node.Child, ctx)
+		if err != nil {
+			return nil, withInternalContext(err, "building execution child plan for %s %q", node.Func, node.ExprString())
+		}
+		return &localHistogramProjectionPlan{Expr: node.ExprString(), Func: node.Func, Child: child}, nil
+	case *logicalRangeFunctionPlan:
+		child, err := buildExecPlanWithContext(node.Child, ctx)
+		if err != nil {
+			return nil, withInternalContext(err, "building execution child plan for %s %q", node.Func, node.ExprString())
+		}
+		return &localRangeFunctionPlan{Expr: node.ExprString(), Func: node.Func, Child: child}, nil
+	case *logicalQuantileOverTimePlan:
+		child, err := buildExecPlanWithContext(node.Child, ctx)
+		if err != nil {
+			return nil, withInternalContext(err, "building execution child plan for quantile_over_time %q", node.ExprString())
+		}
+		return &localQuantileOverTimePlan{Expr: node.ExprString(), Quantile: node.Quantile, Child: child}, nil
+	case *logicalAbsentPlan:
+		child, err := buildExecPlanWithContext(node.Child, ctx)
+		if err != nil {
+			return nil, withInternalContext(err, "building execution child plan for absent %q", node.ExprString())
+		}
+		return &localAbsentPlan{Expr: node.ExprString(), OutputMetric: model.CloneMetric(node.OutputMetric), Child: child}, nil
+	case *logicalAbsentOverTimePlan:
+		child, err := buildExecPlanWithContext(node.Child, ctx)
+		if err != nil {
+			return nil, withInternalContext(err, "building execution child plan for absent_over_time %q", node.ExprString())
+		}
+		plan := &localAbsentOverTimePlan{Expr: node.ExprString(), OutputMetric: model.CloneMetric(node.OutputMetric), Child: child}
+		if leaf, ok := node.Child.(*logicalLeafExprPlan); ok {
+			if matrixSelector, ok := leaf.Expr.(*parser.MatrixSelector); ok {
+				if vectorSelector, ok := matrixSelector.VectorSelector.(*parser.VectorSelector); ok {
+					plan.BoundaryProbeExpr = &parser.MatrixSelector{VectorSelector: vectorSelector, Range: time.Millisecond}
+					plan.BoundaryProbeRange = matrixSelector.Range
+				}
+			}
+		}
+		return plan, nil
+	case *logicalSubqueryPlan:
+		child, err := buildExecPlanWithContext(node.Child, ctx)
+		if err != nil {
+			return nil, withInternalContext(err, "building execution child plan for subquery %q", node.ExprString())
+		}
+		return &localSubqueryPlan{Expr: node.Expr, Range: node.Range, Step: node.Step, Offset: node.Offset, Timestamp: cloneInt64Pointer(node.Timestamp), StartOrEnd: node.StartOrEnd, DelegatedLeafCompatible: node.DelegatedLeafCompatible, Child: child}, nil
 	case *logicalLabelReplacePlan:
 		child, err := buildExecPlanWithContext(node.Child, ctx)
 		if err != nil {

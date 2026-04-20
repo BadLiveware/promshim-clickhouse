@@ -1,6 +1,7 @@
 package promshim
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"math"
@@ -24,7 +25,7 @@ func decodeInstantSamples(body io.Reader) ([]model.InstantSample, error) {
 		}
 		value, err := rawPromValueToFloat64(row.Value)
 		if err != nil {
-			return nil, newExecutionErrorf("failed to parse instant row value %s: %v", string(row.Value), err)
+			return nil, withInternalContext(err, "failed to parse instant row value %q", string(row.Value))
 		}
 		samples = append(samples, model.InstantSample{Metric: tagsToObject(row.Tags), Timestamp: timestamp, Value: value})
 	}
@@ -57,7 +58,7 @@ func decodeRangeSeries(body io.Reader) ([]model.RangeSeries, error) {
 			}
 			value, err := rawPromValueToFloat64(sample[1])
 			if err != nil {
-				return nil, newExecutionErrorf("failed to parse range sample value %s: %v", string(sample[1]), err)
+				return nil, withInternalContext(err, "failed to parse range sample value %q", string(sample[1]))
 			}
 			values = append(values, model.RangePoint{Timestamp: timestamp, Value: value})
 		}
@@ -70,6 +71,7 @@ func decodeRangeSeries(body io.Reader) ([]model.RangeSeries, error) {
 }
 
 func rawPromValueToFloat64(raw json.RawMessage) (float64, error) {
+	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || string(raw) == "null" {
 		return math.NaN(), nil
 	}
@@ -82,6 +84,9 @@ func rawPromValueToFloat64(raw json.RawMessage) (float64, error) {
 			return math.NaN(), nil
 		}
 		return strconv.ParseFloat(text, 64)
+	}
+	if raw[0] == '{' || raw[0] == '[' {
+		return 0, newUnsupportedErrorf("native histogram values are not supported yet")
 	}
 	var value float64
 	if err := json.Unmarshal(raw, &value); err != nil {

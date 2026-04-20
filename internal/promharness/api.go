@@ -22,6 +22,13 @@ type apiEnvelope struct {
 	} `json:"data"`
 }
 
+type queryResult struct {
+	Status    string
+	ErrorType string
+	Error     string
+	Data      normalizedResult
+}
+
 type normalizedResult struct {
 	ResultType string
 	Scalar     *normalizedScalar
@@ -51,23 +58,38 @@ type normalizedPoint struct {
 }
 
 func QueryAndNormalize(client *http.Client, baseURL string, manifest Manifest, spec QuerySpec) (normalizedResult, error) {
-	endpoint, err := buildQueryURL(baseURL, manifest, spec)
+	result, err := QueryAndFetch(client, baseURL, manifest, spec)
 	if err != nil {
 		return normalizedResult{}, err
 	}
+	if result.Status != "success" {
+		return normalizedResult{}, fmt.Errorf("query %q failed: %s: %s", spec.Name, result.ErrorType, result.Error)
+	}
+	return result.Data, nil
+}
+
+func QueryAndFetch(client *http.Client, baseURL string, manifest Manifest, spec QuerySpec) (queryResult, error) {
+	endpoint, err := buildQueryURL(baseURL, manifest, spec)
+	if err != nil {
+		return queryResult{}, err
+	}
 	response, err := client.Get(endpoint)
 	if err != nil {
-		return normalizedResult{}, err
+		return queryResult{}, err
 	}
 	defer response.Body.Close()
 	var envelope apiEnvelope
 	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
-		return normalizedResult{}, err
+		return queryResult{}, err
 	}
 	if envelope.Status != "success" {
-		return normalizedResult{}, fmt.Errorf("query %q failed: %s: %s", spec.Name, envelope.ErrorType, envelope.Error)
+		return queryResult{Status: "error", ErrorType: envelope.ErrorType, Error: envelope.Error}, nil
 	}
-	return normalizeAPIResult(envelope.Data.ResultType, envelope.Data.Result)
+	normalized, err := normalizeAPIResult(envelope.Data.ResultType, envelope.Data.Result)
+	if err != nil {
+		return queryResult{}, err
+	}
+	return queryResult{Status: "success", Data: normalized}, nil
 }
 
 func buildQueryURL(baseURL string, manifest Manifest, spec QuerySpec) (string, error) {

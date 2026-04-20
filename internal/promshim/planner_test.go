@@ -1,11 +1,14 @@
 package promshim
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/plan"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -54,6 +57,128 @@ func TestBuildPlanCreatesSumAggregationPlan(t *testing.T) {
 	}
 }
 
+func TestBuildPlanCreatesDelegatedTimeModifierLeafPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("up @ 1710000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected delegated time-modifier plan, got error: %v", err)
+	}
+	leaf, ok := execPlan.(*delegatedExprPlan)
+	if !ok {
+		t.Fatalf("expected delegatedExprPlan, got %T", execPlan)
+	}
+	if !strings.Contains(leaf.Expr.String(), "up @") {
+		t.Fatalf("expected @ expression to be preserved, got %q", leaf.Expr.String())
+	}
+}
+
+func TestBuildPlanCreatesSubqueryPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("(up * 100)[5m:30s]")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected subquery plan, got error: %v", err)
+	}
+	subquery, ok := execPlan.(*localSubqueryPlan)
+	if !ok {
+		t.Fatalf("expected localSubqueryPlan, got %T", execPlan)
+	}
+	if subquery.Expr.String() != "(up * 100)[5m:30s]" {
+		t.Fatalf("expected subquery expression to be preserved, got %q", subquery.Expr.String())
+	}
+	if subquery.DelegatedLeafCompatible {
+		t.Fatalf("expected non-delegated-compatible subquery for (up * 100)[5m:30s], got %#v", subquery)
+	}
+}
+
+func TestBuildPlanCreatesSubqueryWithLocalAggregationChildPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("sum(up)[5m:30s]")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected subquery plan, got error: %v", err)
+	}
+	subquery, ok := execPlan.(*localSubqueryPlan)
+	if !ok {
+		t.Fatalf("expected localSubqueryPlan, got %T", execPlan)
+	}
+	if subquery.DelegatedLeafCompatible {
+		t.Fatalf("expected non-delegated-compatible subquery for sum(up)[5m:30s], got %#v", subquery)
+	}
+	if _, ok := subquery.Child.(*localAggregationPlan); !ok {
+		t.Fatalf("expected local aggregation child inside subquery, got %T", subquery.Child)
+	}
+}
+
+func TestResolveDelegatedPromQLRewritesAtStartEndForRange(t *testing.T) {
+	expr, err := plan.ParseExpression("up @ start() + up @ end()")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	promQL, err := resolveDelegatedPromQL(expr, evalParams{
+		Mode:  evalModeRange,
+		Start: time.Unix(100, 0).UTC(),
+		End:   time.Unix(200, 0).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("expected @ start()/end() rewrite, got error: %v", err)
+	}
+	if strings.Contains(promQL, "start()") || strings.Contains(promQL, "end()") {
+		t.Fatalf("expected start()/end() to be rewritten to numeric timestamps, got %q", promQL)
+	}
+	if !strings.Contains(promQL, "100") || !strings.Contains(promQL, "200") {
+		t.Fatalf("expected rewritten query to contain start/end unix seconds, got %q", promQL)
+	}
+}
+
+func TestResolveDelegatedPromQLRewritesAtStartEndForInstantToEvaluationTime(t *testing.T) {
+	expr, err := plan.ParseExpression("up @ start()")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	evalTime := time.Unix(321, 0).UTC()
+	promQL, err := resolveDelegatedPromQL(expr, evalParams{Mode: evalModeInstant, EvaluationTime: evalTime})
+	if err != nil {
+		t.Fatalf("expected @ start() rewrite for instant mode, got error: %v", err)
+	}
+	if strings.Contains(promQL, "start()") {
+		t.Fatalf("expected start() to be rewritten to numeric timestamp, got %q", promQL)
+	}
+	if !strings.Contains(promQL, "321") {
+		t.Fatalf("expected rewritten query to contain evaluation unix seconds, got %q", promQL)
+	}
+}
+
+func TestResolveDelegatedPromQLRewritesSubqueryAtStartForRange(t *testing.T) {
+	expr, err := plan.ParseExpression("up[5m:1m] @ start()")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	promQL, err := resolveDelegatedPromQL(expr, evalParams{Mode: evalModeRange, Start: time.Unix(100, 0).UTC(), End: time.Unix(200, 0).UTC(), Step: time.Minute})
+	if err != nil {
+		t.Fatalf("expected subquery @ start() rewrite, got error: %v", err)
+	}
+	if strings.Contains(promQL, "start()") {
+		t.Fatalf("expected subquery start() to be rewritten to numeric timestamp, got %q", promQL)
+	}
+	if !strings.Contains(promQL, "100") {
+		t.Fatalf("expected rewritten subquery to contain start unix seconds, got %q", promQL)
+	}
+}
+
 func TestBuildPlanCreatesAvgAggregationPlan(t *testing.T) {
 	expr, err := plan.ParseExpression("avg(up)")
 	if err != nil {
@@ -71,6 +196,324 @@ func TestBuildPlanCreatesAvgAggregationPlan(t *testing.T) {
 	}
 	if agg.Op != parser.AVG {
 		t.Fatalf("expected avg op, got %v", agg.Op)
+	}
+}
+
+func TestBuildPlanCreatesTopKAggregationPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("topk(3, up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected topk aggregation plan, got error: %v", err)
+	}
+	agg, ok := execPlan.(*localAggregationPlan)
+	if !ok {
+		t.Fatalf("expected localAggregationPlan, got %T", execPlan)
+	}
+	if agg.Op != parser.TOPK {
+		t.Fatalf("expected topk op, got %v", agg.Op)
+	}
+	if agg.ParamNumber == nil || *agg.ParamNumber != 3 {
+		t.Fatalf("expected topk parameter 3, got %#v", agg.ParamNumber)
+	}
+}
+
+func TestBuildPlanCreatesHistogramQuantilePlan(t *testing.T) {
+	expr, err := plan.ParseExpression("histogram_quantile(0.9, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected histogram_quantile plan, got error: %v", err)
+	}
+	histogramPlan, ok := execPlan.(*localHistogramQuantilePlan)
+	if !ok {
+		t.Fatalf("expected localHistogramQuantilePlan, got %T", execPlan)
+	}
+	if histogramPlan.Quantile != 0.9 {
+		t.Fatalf("expected quantile 0.9, got %#v", histogramPlan.Quantile)
+	}
+	if _, ok := histogramPlan.Child.(*localAggregationPlan); !ok {
+		t.Fatalf("expected local aggregation child, got %T", histogramPlan.Child)
+	}
+}
+
+func TestBuildPlanCreatesHistogramProjectionPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("histogram_count(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected histogram projection plan, got error: %v", err)
+	}
+	histogramPlan, ok := execPlan.(*localHistogramProjectionPlan)
+	if !ok {
+		t.Fatalf("expected localHistogramProjectionPlan, got %T", execPlan)
+	}
+	if histogramPlan.Func != "histogram_count" {
+		t.Fatalf("expected histogram_count function, got %#v", histogramPlan.Func)
+	}
+	if _, ok := histogramPlan.Child.(*localAggregationPlan); !ok {
+		t.Fatalf("expected local aggregation child, got %T", histogramPlan.Child)
+	}
+}
+
+func TestBuildPlanCreatesLastOverTimePlan(t *testing.T) {
+	expr, err := plan.ParseExpression("last_over_time(up[5m])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected last_over_time plan, got error: %v", err)
+	}
+	rangeFn, ok := execPlan.(*localRangeFunctionPlan)
+	if !ok {
+		t.Fatalf("expected localRangeFunctionPlan, got %T", execPlan)
+	}
+	if rangeFn.Func != "last_over_time" {
+		t.Fatalf("expected last_over_time function, got %#v", rangeFn.Func)
+	}
+}
+
+func TestBuildPlanCreatesSumOverTimePlan(t *testing.T) {
+	expr, err := plan.ParseExpression("sum_over_time(up[5m])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected sum_over_time plan, got error: %v", err)
+	}
+	rangeFn, ok := execPlan.(*localRangeFunctionPlan)
+	if !ok {
+		t.Fatalf("expected localRangeFunctionPlan, got %T", execPlan)
+	}
+	if rangeFn.Func != "sum_over_time" {
+		t.Fatalf("expected sum_over_time function, got %#v", rangeFn.Func)
+	}
+}
+
+func TestBuildPlanCreatesAvgOverTimePlan(t *testing.T) {
+	expr, err := plan.ParseExpression("avg_over_time(up[5m])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected avg_over_time plan, got error: %v", err)
+	}
+	rangeFn, ok := execPlan.(*localRangeFunctionPlan)
+	if !ok {
+		t.Fatalf("expected localRangeFunctionPlan, got %T", execPlan)
+	}
+	if rangeFn.Func != "avg_over_time" {
+		t.Fatalf("expected avg_over_time function, got %#v", rangeFn.Func)
+	}
+}
+
+func TestBuildPlanCreatesMaxOverTimePlan(t *testing.T) {
+	expr, err := plan.ParseExpression("max_over_time(up[5m])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected max_over_time plan, got error: %v", err)
+	}
+	rangeFn, ok := execPlan.(*localRangeFunctionPlan)
+	if !ok {
+		t.Fatalf("expected localRangeFunctionPlan, got %T", execPlan)
+	}
+	if rangeFn.Func != "max_over_time" {
+		t.Fatalf("expected max_over_time function, got %#v", rangeFn.Func)
+	}
+}
+
+func TestBuildPlanCreatesMinOverTimePlan(t *testing.T) {
+	expr, err := plan.ParseExpression("min_over_time(up[5m])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected min_over_time plan, got error: %v", err)
+	}
+	rangeFn, ok := execPlan.(*localRangeFunctionPlan)
+	if !ok {
+		t.Fatalf("expected localRangeFunctionPlan, got %T", execPlan)
+	}
+	if rangeFn.Func != "min_over_time" {
+		t.Fatalf("expected min_over_time function, got %#v", rangeFn.Func)
+	}
+}
+
+func TestBuildPlanCreatesCountOverTimePlan(t *testing.T) {
+	expr, err := plan.ParseExpression("count_over_time(up[5m])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected count_over_time plan, got error: %v", err)
+	}
+	rangeFn, ok := execPlan.(*localRangeFunctionPlan)
+	if !ok {
+		t.Fatalf("expected localRangeFunctionPlan, got %T", execPlan)
+	}
+	if rangeFn.Func != "count_over_time" {
+		t.Fatalf("expected count_over_time function, got %#v", rangeFn.Func)
+	}
+}
+
+func TestBuildPlanCreatesQuantileOverTimePlan(t *testing.T) {
+	expr, err := plan.ParseExpression("quantile_over_time(0.95, (up * 100)[5m:30s])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected quantile_over_time plan, got error: %v", err)
+	}
+	quantilePlan, ok := execPlan.(*localQuantileOverTimePlan)
+	if !ok {
+		t.Fatalf("expected localQuantileOverTimePlan, got %T", execPlan)
+	}
+	if quantilePlan.Quantile != 0.95 {
+		t.Fatalf("expected quantile 0.95, got %#v", quantilePlan.Quantile)
+	}
+	if _, ok := quantilePlan.Child.(*localSubqueryPlan); !ok {
+		t.Fatalf("expected localSubquery child, got %T", quantilePlan.Child)
+	}
+}
+
+func TestBuildPlanCreatesAbsentPlan(t *testing.T) {
+	expr, err := plan.ParseExpression(`absent(nonexistent{job="api",instance=~".*"})`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected absent plan, got error: %v", err)
+	}
+	absentPlan, ok := execPlan.(*localAbsentPlan)
+	if !ok {
+		t.Fatalf("expected localAbsentPlan, got %T", execPlan)
+	}
+	if len(absentPlan.OutputMetric) != 1 || absentPlan.OutputMetric["job"] != "api" {
+		t.Fatalf("unexpected absent output metric: %#v", absentPlan.OutputMetric)
+	}
+}
+
+func TestBuildPlanCreatesAbsentOverTimePlan(t *testing.T) {
+	expr, err := plan.ParseExpression(`absent_over_time(nonexistent{job="api"}[5m])`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected absent_over_time plan, got error: %v", err)
+	}
+	absentPlan, ok := execPlan.(*localAbsentOverTimePlan)
+	if !ok {
+		t.Fatalf("expected localAbsentOverTimePlan, got %T", execPlan)
+	}
+	if len(absentPlan.OutputMetric) != 1 || absentPlan.OutputMetric["job"] != "api" {
+		t.Fatalf("unexpected absent_over_time output metric: %#v", absentPlan.OutputMetric)
+	}
+	if absentPlan.BoundaryProbeExpr == nil || absentPlan.BoundaryProbeRange != 5*time.Minute {
+		t.Fatalf("expected absent_over_time boundary probe for matrix selector, got expr=%T range=%s", absentPlan.BoundaryProbeExpr, absentPlan.BoundaryProbeRange)
+	}
+}
+
+func TestBuildPlanCreatesNestedMatrixFunctionBinaryPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("sum_over_time((up * 100)[5m:30s]) + count_over_time((up * 100)[5m:30s])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected nested matrix binary local plan, got error: %v", err)
+	}
+	if _, ok := execPlan.(*localBinaryPlan); !ok {
+		t.Fatalf("expected localBinaryPlan, got %T", execPlan)
+	}
+}
+
+func TestBuildPlanCreatesNestedSubqueryRangeFunctionPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("last_over_time(last_over_time((up * 100)[5m:30s])[10m:1m])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected nested subquery/range-function plan, got error: %v", err)
+	}
+	outer, ok := execPlan.(*localRangeFunctionPlan)
+	if !ok {
+		t.Fatalf("expected outer localRangeFunctionPlan, got %T", execPlan)
+	}
+	if _, ok := outer.Child.(*localSubqueryPlan); !ok {
+		t.Fatalf("expected outer child localSubqueryPlan, got %T", outer.Child)
+	}
+}
+
+func TestBuildPlanRejectsNonLiteralHistogramQuantileParameter(t *testing.T) {
+	expr, err := plan.ParseExpression("histogram_quantile(1 / 2, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = buildPlan(expr)
+	if err == nil {
+		t.Fatal("expected unsupported plan build error")
+	}
+	var buildErr *planBuildError
+	if !errors.As(err, &buildErr) {
+		t.Fatalf("expected planBuildError, got %T (%v)", err, err)
+	}
+	if !strings.Contains(buildErr.Support.Reason, "literal scalar quantile") {
+		t.Fatalf("expected quantile parameter reason, got %#v", buildErr.Support)
+	}
+}
+
+func TestBuildPlanRejectsHistogramFractionUnsupported(t *testing.T) {
+	expr, err := plan.ParseExpression("histogram_fraction(0, 1, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = buildPlan(expr)
+	if err == nil {
+		t.Fatal("expected unsupported plan build error")
+	}
+	var buildErr *planBuildError
+	if !errors.As(err, &buildErr) {
+		t.Fatalf("expected planBuildError, got %T (%v)", err, err)
+	}
+	if buildErr.Support.Supported {
+		t.Fatalf("expected unsupported histogram_fraction")
+	}
+	if !strings.Contains(buildErr.Support.Reason, "histogram_fraction") {
+		t.Fatalf("unexpected unsupported reason for histogram_fraction: %#v", buildErr.Support)
 	}
 }
 
@@ -350,6 +793,53 @@ func TestBuildPlanCreatesScalarBinaryPlan(t *testing.T) {
 	}
 }
 
+func TestBuildPlanCreatesVectorMatchingBinaryPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("up * on(job) group_left sum by (job) (up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected vector matching binary plan, got error: %v", err)
+	}
+	binaryPlan, ok := execPlan.(*localBinaryPlan)
+	if !ok {
+		t.Fatalf("expected localBinaryPlan, got %T", execPlan)
+	}
+	if binaryPlan.VectorMatching == nil {
+		t.Fatalf("expected vector matching metadata, got %#v", binaryPlan)
+	}
+	if binaryPlan.VectorMatching.Card != parser.CardManyToOne {
+		t.Fatalf("expected many-to-one vector matching card, got %#v", binaryPlan.VectorMatching)
+	}
+	if !binaryPlan.VectorMatching.On || !sameStrings(binaryPlan.VectorMatching.MatchingLabels, []string{"job"}) {
+		t.Fatalf("unexpected vector matching labels: %#v", binaryPlan.VectorMatching)
+	}
+}
+
+func TestBuildPlanCreatesSetOperatorPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("up and on(job) up")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected set-operator plan, got error: %v", err)
+	}
+	binaryPlan, ok := execPlan.(*localBinaryPlan)
+	if !ok {
+		t.Fatalf("expected localBinaryPlan, got %T", execPlan)
+	}
+	if binaryPlan.Op != parser.LAND {
+		t.Fatalf("expected LAND operator, got %v", binaryPlan.Op)
+	}
+	if binaryPlan.VectorMatching == nil || binaryPlan.VectorMatching.Card != parser.CardManyToMany {
+		t.Fatalf("expected many-to-many vector matching for set operator, got %#v", binaryPlan.VectorMatching)
+	}
+}
+
 func TestBuildPlanCreatesUnaryPlan(t *testing.T) {
 	expr, err := plan.ParseExpression("-up")
 	if err != nil {
@@ -431,8 +921,26 @@ func TestBuildPlanRejectsInvalidLabelJoinDestination(t *testing.T) {
 	}
 }
 
-func TestBuildPlanRejectsUnsupportedAggregation(t *testing.T) {
-	expr, err := plan.ParseExpression("topk(3, up)")
+func TestBuildPlanRejectsInvalidCountValuesLabel(t *testing.T) {
+	expr, err := plan.ParseExpression(`count_values("", up)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = buildPlan(expr)
+	if err == nil {
+		t.Fatal("expected bad data build error")
+	}
+	if internalErrorKindOf(err) != internalErrorKindBadData {
+		t.Fatalf("expected bad_data error kind, got %v (%v)", internalErrorKindOf(err), err)
+	}
+	if !strings.Contains(err.Error(), "invalid destination label name in count_values") {
+		t.Fatalf("expected count_values label validation context in error, got %q", err.Error())
+	}
+}
+
+func TestBuildPlanRejectsUnsupportedAggregationParameterExpression(t *testing.T) {
+	expr, err := plan.ParseExpression("topk(1 + 2, up)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -451,7 +959,7 @@ func TestBuildPlanRejectsUnsupportedAggregation(t *testing.T) {
 	if buildErr.Support.Difficulty != plan.DifficultyMedium {
 		t.Fatalf("expected medium difficulty, got %s", buildErr.Support.Difficulty)
 	}
-	if buildErr.Expr == nil || buildErr.Expr.String() != "topk(3, up)" {
+	if buildErr.Expr == nil || buildErr.Expr.String() != "topk(1 + 2, up)" {
 		t.Fatalf("expected planner error to keep expression context, got %#v", buildErr)
 	}
 	if buildErr.Stage == "" {
@@ -460,9 +968,324 @@ func TestBuildPlanRejectsUnsupportedAggregation(t *testing.T) {
 	if err.Error() == "" {
 		t.Fatal("expected planner error message")
 	}
-	if !strings.Contains(err.Error(), "aggregate planning") || !strings.Contains(err.Error(), "topk(3, up)") {
+	if !strings.Contains(err.Error(), "aggregate planning") || !strings.Contains(err.Error(), "topk(1 + 2, up)") {
 		t.Fatalf("expected planner error to include stage and expression context, got %q", err.Error())
 	}
+}
+
+func TestBuildPlanRejectsRateFamilySubqueryArgs(t *testing.T) {
+	for _, fn := range []string{"rate", "irate", "increase", "delta", "idelta", "deriv", "changes"} {
+		exprText := fmt.Sprintf("%s(up[5m:30s])", fn)
+		expr, err := plan.ParseExpression(exprText)
+		if err != nil {
+			t.Fatalf("parse %q failed: %v", exprText, err)
+		}
+		_, err = buildPlan(expr)
+		if err == nil {
+			t.Fatalf("expected unsupported build error for %q", exprText)
+		}
+		var buildErr *planBuildError
+		if !errors.As(err, &buildErr) {
+			t.Fatalf("expected planBuildError for %q, got %T (%v)", exprText, err, err)
+		}
+		if buildErr.Support.Difficulty != plan.DifficultyHard {
+			t.Fatalf("expected hard difficulty for %q, got %s", exprText, buildErr.Support.Difficulty)
+		}
+		if !strings.Contains(buildErr.Support.Reason, "subquery arguments") || !strings.Contains(buildErr.Support.Reason, fn) {
+			t.Fatalf("unexpected reason for %q: %q", exprText, buildErr.Support.Reason)
+		}
+	}
+}
+
+func TestBuildPlanRejectsRateFamilySubqueryArgsInsideAggregate(t *testing.T) {
+	for _, fn := range []string{"rate", "irate", "increase", "delta", "idelta", "deriv", "changes"} {
+		exprText := fmt.Sprintf("sum(%s(up[5m:30s]))", fn)
+		expr, err := plan.ParseExpression(exprText)
+		if err != nil {
+			t.Fatalf("parse %q failed: %v", exprText, err)
+		}
+		_, err = buildPlan(expr)
+		if err == nil {
+			t.Fatalf("expected unsupported build error for %q", exprText)
+		}
+		var buildErr *planBuildError
+		if !errors.As(err, &buildErr) {
+			t.Fatalf("expected planBuildError for %q, got %T (%v)", exprText, err, err)
+		}
+		if buildErr.Support.Difficulty != plan.DifficultyHard {
+			t.Fatalf("expected hard difficulty for %q, got %s", exprText, buildErr.Support.Difficulty)
+		}
+		if !strings.Contains(buildErr.Support.Reason, "subquery arguments") || !strings.Contains(buildErr.Support.Reason, fn) {
+			t.Fatalf("unexpected reason for %q: %q", exprText, buildErr.Support.Reason)
+		}
+	}
+}
+
+func TestLocalSubqueryPlanExecutesChildAcrossInstantWindow(t *testing.T) {
+	expr := mustParseExpr(t, "(up * 100)[2m:1m]")
+	calls := make([]time.Time, 0)
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+		calls = append(calls, params.EvaluationTime.UTC())
+		ts := float64(params.EvaluationTime.Unix())
+		return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: ts, Value: ts}}}, nil
+	}}
+	plan := &localSubqueryPlan{Expr: expr, Range: 2 * time.Minute, Step: time.Minute, Child: child}
+
+	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeInstant, EvaluationTime: time.Unix(180, 0).UTC()})
+	if err != nil {
+		t.Fatalf("expected successful local subquery execution, got error: %v", err)
+	}
+	matrix, ok := value.(model.MatrixValue)
+	if !ok {
+		t.Fatalf("expected matrix result, got %T", value)
+	}
+	if len(matrix.Series) != 1 {
+		t.Fatalf("expected one output series, got %#v", matrix.Series)
+	}
+	if len(matrix.Series[0].Values) != 3 {
+		t.Fatalf("expected three subquery points, got %#v", matrix.Series[0].Values)
+	}
+	if matrix.Series[0].Values[0].Timestamp != 60 || matrix.Series[0].Values[1].Timestamp != 120 || matrix.Series[0].Values[2].Timestamp != 180 {
+		t.Fatalf("unexpected subquery timestamps: %#v", matrix.Series[0].Values)
+	}
+	if len(calls) != 3 {
+		t.Fatalf("expected three child evaluations, got %d", len(calls))
+	}
+}
+
+func TestLocalRangeFunctionPlanLastOverTimeInRangeMode(t *testing.T) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+		t0 := float64(params.EvaluationTime.Add(-time.Minute).Unix())
+		t1 := float64(params.EvaluationTime.Unix())
+		return model.MatrixValue{Series: []model.RangeSeries{{Metric: map[string]string{"job": "api"}, Values: []model.RangePoint{{Timestamp: t0, Value: t0}, {Timestamp: t1, Value: t1}}}}}, nil
+	}}
+	plan := &localRangeFunctionPlan{Expr: "last_over_time((up * 100)[5m:1m])", Func: "last_over_time", Child: child}
+
+	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("expected successful range-mode last_over_time execution, got error: %v", err)
+	}
+	matrix, ok := value.(model.MatrixValue)
+	if !ok {
+		t.Fatalf("expected matrix result, got %T", value)
+	}
+	if len(matrix.Series) != 1 {
+		t.Fatalf("expected one output series, got %#v", matrix.Series)
+	}
+	if len(matrix.Series[0].Values) != 3 {
+		t.Fatalf("expected three output points (120,150,180), got %#v", matrix.Series[0].Values)
+	}
+	if matrix.Series[0].Values[0].Timestamp != 120 || matrix.Series[0].Values[1].Timestamp != 150 || matrix.Series[0].Values[2].Timestamp != 180 {
+		t.Fatalf("unexpected output timestamps: %#v", matrix.Series[0].Values)
+	}
+}
+
+func TestLocalQuantileOverTimePlanInstant(t *testing.T) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+		return model.MatrixValue{Series: []model.RangeSeries{
+			{Metric: map[string]string{"job": "api", "instance": "a"}, Values: []model.RangePoint{{Timestamp: float64(params.EvaluationTime.Add(-10 * time.Second).Unix()), Value: 2}, {Timestamp: float64(params.EvaluationTime.Add(-5 * time.Second).Unix()), Value: 1}, {Timestamp: float64(params.EvaluationTime.Unix()), Value: 3}}},
+			{Metric: map[string]string{"job": "api", "instance": "b"}, Values: []model.RangePoint{{Timestamp: float64(params.EvaluationTime.Add(-10 * time.Second).Unix()), Value: 7}, {Timestamp: float64(params.EvaluationTime.Unix()), Value: 5}}},
+		}}, nil
+	}}
+	plan := &localQuantileOverTimePlan{Expr: "quantile_over_time(0.5, (up*100)[5m:30s])", Quantile: 0.5, Child: child}
+
+	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeInstant, EvaluationTime: time.Unix(180, 0).UTC()})
+	if err != nil {
+		t.Fatalf("expected successful instant quantile_over_time execution, got error: %v", err)
+	}
+	vector, ok := value.(model.VectorValue)
+	if !ok {
+		t.Fatalf("expected vector result, got %T", value)
+	}
+	if len(vector.Samples) != 2 {
+		t.Fatalf("expected two quantile outputs, got %#v", vector.Samples)
+	}
+	if vector.Samples[0].Value != 2 || vector.Samples[1].Value != 6 {
+		t.Fatalf("unexpected quantile outputs: %#v", vector.Samples)
+	}
+}
+
+func TestLocalQuantileOverTimePlanRangeMode(t *testing.T) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+		return model.MatrixValue{Series: []model.RangeSeries{
+			{Metric: map[string]string{"job": "api", "instance": "a"}, Values: []model.RangePoint{{Timestamp: float64(params.EvaluationTime.Add(-10 * time.Second).Unix()), Value: 2}, {Timestamp: float64(params.EvaluationTime.Unix()), Value: 10}}},
+		}}, nil
+	}}
+	plan := &localQuantileOverTimePlan{Expr: "quantile_over_time(0.5, (up*100)[5m:30s])", Quantile: 0.5, Child: child}
+
+	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("expected successful range-mode quantile_over_time execution, got error: %v", err)
+	}
+	matrix, ok := value.(model.MatrixValue)
+	if !ok {
+		t.Fatalf("expected matrix result, got %T", value)
+	}
+	if len(matrix.Series) != 1 {
+		t.Fatalf("expected one output series, got %#v", matrix.Series)
+	}
+	if len(matrix.Series[0].Values) != 3 {
+		t.Fatalf("expected three output points, got %#v", matrix.Series[0].Values)
+	}
+	if matrix.Series[0].Values[0].Timestamp != 120 || matrix.Series[0].Values[1].Timestamp != 150 || matrix.Series[0].Values[2].Timestamp != 180 {
+		t.Fatalf("expected outer-step timestamps, got %#v", matrix.Series[0].Values)
+	}
+	for _, point := range matrix.Series[0].Values {
+		if point.Value != 6 {
+			t.Fatalf("expected quantile 0.5 to be 6 at each step, got %#v", matrix.Series[0].Values)
+		}
+	}
+}
+
+func TestLocalRangeFunctionPlanRangeModeNormalizesToOuterStepTimestamps(t *testing.T) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+		shifted := float64(params.EvaluationTime.Add(-10 * time.Second).Unix())
+		return model.MatrixValue{Series: []model.RangeSeries{{Metric: map[string]string{"job": "api"}, Values: []model.RangePoint{{Timestamp: shifted, Value: 1}}}}}, nil
+	}}
+	plan := &localRangeFunctionPlan{Expr: "last_over_time((up * 100)[5m:1m])", Func: "last_over_time", Child: child}
+
+	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("expected successful range-mode execution, got error: %v", err)
+	}
+	matrix := value.(model.MatrixValue)
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
+		t.Fatalf("unexpected range-function output: %#v", matrix.Series)
+	}
+	if matrix.Series[0].Values[0].Timestamp != 120 || matrix.Series[0].Values[1].Timestamp != 150 || matrix.Series[0].Values[2].Timestamp != 180 {
+		t.Fatalf("expected outer-step timestamps, got %#v", matrix.Series[0].Values)
+	}
+}
+
+func TestLocalAbsentPlanRangeModeProducesMatrixForMissingSeries(t *testing.T) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, _ evalParams) (model.RuntimeValue, error) {
+		return model.VectorValue{}, nil
+	}}
+	plan := &localAbsentPlan{Expr: `absent(nonexistent{job="api"})`, OutputMetric: map[string]string{"job": "api"}, Child: child}
+
+	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("expected successful absent range execution, got error: %v", err)
+	}
+	matrix, ok := value.(model.MatrixValue)
+	if !ok {
+		t.Fatalf("expected matrix result, got %T", value)
+	}
+	if len(matrix.Series) != 1 || matrix.Series[0].Metric["job"] != "api" {
+		t.Fatalf("unexpected absent range output: %#v", matrix.Series)
+	}
+	if len(matrix.Series[0].Values) != 3 {
+		t.Fatalf("expected three absent range points, got %#v", matrix.Series[0].Values)
+	}
+}
+
+func TestLocalAbsentOverTimePlanRangeModeProducesMatrixForMissingSeries(t *testing.T) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, _ evalParams) (model.RuntimeValue, error) {
+		return model.MatrixValue{}, nil
+	}}
+	plan := &localAbsentOverTimePlan{Expr: `absent_over_time(nonexistent{job="api"}[5m])`, OutputMetric: map[string]string{"job": "api"}, Child: child}
+
+	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("expected successful absent_over_time range execution, got error: %v", err)
+	}
+	matrix, ok := value.(model.MatrixValue)
+	if !ok {
+		t.Fatalf("expected matrix result, got %T", value)
+	}
+	if len(matrix.Series) != 1 || matrix.Series[0].Metric["job"] != "api" {
+		t.Fatalf("unexpected absent_over_time range output: %#v", matrix.Series)
+	}
+	if len(matrix.Series[0].Values) != 3 {
+		t.Fatalf("expected three absent_over_time range points, got %#v", matrix.Series[0].Values)
+	}
+}
+
+func TestLocalSubqueryPlanUsesLocalPathForDelegatedMatrixRootInInstantMode(t *testing.T) {
+	expr := mustParseExpr(t, "up[2m:1m]")
+	calls := 0
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+		calls++
+		ts := float64(params.EvaluationTime.Unix())
+		return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: ts, Value: ts}}}, nil
+	}}
+	plan := &localSubqueryPlan{Expr: expr, Range: 2 * time.Minute, Step: time.Minute, DelegatedLeafCompatible: true, Child: child}
+
+	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeInstant, EvaluationTime: time.Unix(180, 0).UTC()})
+	if err != nil {
+		t.Fatalf("expected local matrix-root subquery execution, got error: %v", err)
+	}
+	matrix, ok := value.(model.MatrixValue)
+	if !ok {
+		t.Fatalf("expected matrix result, got %T", value)
+	}
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
+		t.Fatalf("expected local matrix-root points, got %#v", matrix.Series)
+	}
+	if calls != 3 {
+		t.Fatalf("expected local child to be called per subquery step, got %d", calls)
+	}
+}
+
+func TestLocalSubqueryPlanAppliesTimestampAndOffset(t *testing.T) {
+	expr := mustParseExpr(t, "(up * 100)[2m:1m] @ 300 offset 1m")
+	subquery, ok := expr.(*parser.SubqueryExpr)
+	if !ok {
+		t.Fatalf("expected subquery expression, got %T", expr)
+	}
+	calls := make([]int64, 0)
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+		calls = append(calls, params.EvaluationTime.Unix())
+		ts := float64(params.EvaluationTime.Unix())
+		return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: ts, Value: ts}}}, nil
+	}}
+	plan := &localSubqueryPlan{Expr: expr, Range: subquery.Range, Step: subquery.Step, Offset: subquery.OriginalOffset, Timestamp: cloneInt64Pointer(subquery.Timestamp), StartOrEnd: subquery.StartOrEnd, Child: child}
+
+	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeInstant, EvaluationTime: time.Unix(999, 0).UTC()})
+	if err != nil {
+		t.Fatalf("expected successful timestamp+offset subquery execution, got error: %v", err)
+	}
+	matrix := value.(model.MatrixValue)
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
+		t.Fatalf("expected one series with three points, got %#v", matrix.Series)
+	}
+	expected := []int64{120, 180, 240}
+	if len(calls) != len(expected) {
+		t.Fatalf("expected %d child evaluations, got %d", len(expected), len(calls))
+	}
+	for i := range expected {
+		if calls[i] != expected[i] {
+			t.Fatalf("expected child call %d at %d, got %d", i, expected[i], calls[i])
+		}
+	}
+}
+
+func TestLocalSubqueryPlanRejectsLocalRangeMode(t *testing.T) {
+	expr := mustParseExpr(t, "(up * 100)[2m:1m]")
+	plan := &localSubqueryPlan{Expr: expr, Range: 2 * time.Minute, Step: time.Minute, Child: testQueryPlan{}}
+
+	_, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: time.Minute})
+	if err == nil {
+		t.Fatal("expected unsupported local range-mode subquery execution")
+	}
+	if !strings.Contains(err.Error(), "not implemented") {
+		t.Fatalf("expected not-implemented error, got %v", err)
+	}
+}
+
+type testQueryPlan struct {
+	executeFn func(context.Context, *evaluator, evalParams) (model.RuntimeValue, error)
+}
+
+func (p testQueryPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	if p.executeFn == nil {
+		return model.VectorValue{}, nil
+	}
+	return p.executeFn(ctx, evaluator, params)
+}
+
+func (p testQueryPlan) explain() ExplainNode {
+	return ExplainNode{Kind: "test", Strategy: "local", Expr: "test"}
 }
 
 func sameStrings(left, right []string) bool {

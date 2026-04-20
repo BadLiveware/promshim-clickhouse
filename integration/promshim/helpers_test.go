@@ -2,6 +2,7 @@ package promshim_test
 
 import (
 	"fmt"
+	"strconv"
 	"testing"
 )
 
@@ -61,6 +62,55 @@ func toStringSet(items []any) map[string]struct{} {
 		if value, ok := item.(string); ok {
 			result[value] = struct{}{}
 		}
+	}
+	return result
+}
+
+func requireVectorRows(t *testing.T, payload map[string]any) []any {
+	t.Helper()
+	assertEqual(t, payload["status"], "success")
+	data := payload["data"].(map[string]any)
+	assertEqual(t, data["resultType"], "vector")
+	return data["result"].([]any)
+}
+
+func requireMatrixRows(t *testing.T, payload map[string]any) []any {
+	t.Helper()
+	assertEqual(t, payload["status"], "success")
+	data := payload["data"].(map[string]any)
+	assertEqual(t, data["resultType"], "matrix")
+	return data["result"].([]any)
+}
+
+func requireScalarValue(t *testing.T, payload map[string]any) float64 {
+	t.Helper()
+	assertEqual(t, payload["status"], "success")
+	data := payload["data"].(map[string]any)
+	assertEqual(t, data["resultType"], "scalar")
+	result := data["result"].([]any)
+	parsed, err := strconv.ParseFloat(result[1].(string), 64)
+	if err != nil {
+		t.Fatalf("failed to parse scalar result %#v: %v", result, err)
+	}
+	return parsed
+}
+
+func vectorValuesByLabel(t *testing.T, rows []any, label string) map[string]float64 {
+	t.Helper()
+	result := make(map[string]float64, len(rows))
+	for _, row := range rows {
+		rowMap := row.(map[string]any)
+		metric := rowMap["metric"].(map[string]any)
+		labelValue, ok := metric[label].(string)
+		if !ok || labelValue == "" {
+			t.Fatalf("expected label %q in metric %#v", label, metric)
+		}
+		value := rowMap["value"].([]any)
+		parsed, err := strconv.ParseFloat(value[1].(string), 64)
+		if err != nil {
+			t.Fatalf("failed to parse vector value %#v: %v", value, err)
+		}
+		result[labelValue] = parsed
 	}
 	return result
 }

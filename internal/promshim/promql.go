@@ -41,16 +41,13 @@ func AnalyzeExpression(expr parser.Expr) SupportResult {
 	case *parser.AggregateExpr:
 		return analyzeAggregateExpression(e)
 	case *parser.BinaryExpr:
-		if e.VectorMatching != nil || isSetOperator(e.Op.String()) {
-			return unsupported(DifficultyHard, "vector matching and set operators are not implemented yet")
-		}
-		return unsupported(DifficultyMedium, "binary operators are not implemented yet")
+		return analyzeBinaryExpression(e)
 	case *parser.SubqueryExpr:
 		return unsupported(DifficultyHard, "subqueries are not implemented yet")
 	case *parser.UnaryExpr:
-		return unsupported(DifficultyMedium, "unary operators are not implemented yet")
+		return analyzeUnaryExpression(e)
 	case *parser.NumberLiteral:
-		return unsupported(DifficultyMedium, "scalar-only expressions are not implemented yet")
+		return SupportResult{Supported: true, Difficulty: DifficultyMedium}
 	case *parser.StringLiteral:
 		return unsupported(DifficultyMedium, "string-only expressions are not implemented yet")
 	default:
@@ -73,16 +70,13 @@ func analyzeDelegatableExpression(expr parser.Expr) SupportResult {
 	case *parser.AggregateExpr:
 		return unsupported(DifficultyMedium, "nested aggregation operators are not implemented yet")
 	case *parser.BinaryExpr:
-		if e.VectorMatching != nil || isSetOperator(e.Op.String()) {
-			return unsupported(DifficultyHard, "vector matching and set operators are not implemented yet")
-		}
-		return unsupported(DifficultyMedium, "binary operators are not implemented yet")
+		return analyzeBinaryExpression(e)
 	case *parser.SubqueryExpr:
 		return unsupported(DifficultyHard, "subqueries are not implemented yet")
 	case *parser.UnaryExpr:
-		return unsupported(DifficultyMedium, "unary operators are not implemented yet")
+		return analyzeUnaryExpression(e)
 	case *parser.NumberLiteral:
-		return unsupported(DifficultyMedium, "scalar-only expressions are not implemented yet")
+		return SupportResult{Supported: true, Difficulty: DifficultyMedium}
 	case *parser.StringLiteral:
 		return unsupported(DifficultyMedium, "string-only expressions are not implemented yet")
 	default:
@@ -103,8 +97,10 @@ func analyzeCallExpression(call *parser.Call, recurse func(parser.Expr) SupportR
 	}
 
 	switch name {
-	case "label_replace", "label_join":
-		return unsupported(DifficultyMedium, "label mutation helpers are not implemented yet")
+	case "label_replace":
+		return analyzeLabelReplaceCall(call)
+	case "label_join":
+		return analyzeLabelJoinCall(call)
 	case "histogram_quantile", "histogram_fraction", "histogram_avg", "histogram_count", "histogram_sum":
 		return unsupported(DifficultyHard, fmt.Sprintf("function %q is not implemented yet", name))
 	default:
@@ -112,9 +108,47 @@ func analyzeCallExpression(call *parser.Call, recurse func(parser.Expr) SupportR
 	}
 }
 
+func analyzeLabelReplaceCall(call *parser.Call) SupportResult {
+	if len(call.Args) != 5 {
+		return unsupported(DifficultyMedium, "label_replace requires five arguments")
+	}
+	if call.Args[0].Type() != parser.ValueTypeVector {
+		return unsupported(DifficultyMedium, "label_replace requires a vector argument")
+	}
+	result := AnalyzeExpression(call.Args[0])
+	if !result.Supported {
+		return result
+	}
+	for _, arg := range call.Args[1:] {
+		if arg.Type() != parser.ValueTypeString {
+			return unsupported(DifficultyMedium, "label_replace string arguments are not implemented yet")
+		}
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyMedium}
+}
+
+func analyzeLabelJoinCall(call *parser.Call) SupportResult {
+	if len(call.Args) < 4 {
+		return unsupported(DifficultyMedium, "label_join requires at least four arguments")
+	}
+	if call.Args[0].Type() != parser.ValueTypeVector {
+		return unsupported(DifficultyMedium, "label_join requires a vector argument")
+	}
+	result := AnalyzeExpression(call.Args[0])
+	if !result.Supported {
+		return result
+	}
+	for _, arg := range call.Args[1:] {
+		if arg.Type() != parser.ValueTypeString {
+			return unsupported(DifficultyMedium, "label_join string arguments are not implemented yet")
+		}
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyMedium}
+}
+
 func analyzeAggregateExpression(expr *parser.AggregateExpr) SupportResult {
 	op := strings.ToLower(expr.Op.String())
-	if expr.Op != parser.SUM {
+	if !isSupportedLocalAggregation(expr.Op) {
 		return unsupported(DifficultyMedium, fmt.Sprintf("aggregation operator %q is not implemented yet", op))
 	}
 	if expr.Param != nil {
@@ -127,8 +161,65 @@ func analyzeAggregateExpression(expr *parser.AggregateExpr) SupportResult {
 	return SupportResult{Supported: true, Difficulty: DifficultyMedium}
 }
 
-func isSupportedSumAggregation(expr *parser.AggregateExpr) bool {
-	return analyzeAggregateExpression(expr).Supported
+func isSupportedLocalAggregation(op parser.ItemType) bool {
+	switch op {
+	case parser.SUM, parser.COUNT, parser.MIN, parser.MAX, parser.AVG:
+		return true
+	default:
+		return false
+	}
+}
+
+func analyzeBinaryExpression(expr *parser.BinaryExpr) SupportResult {
+	if expr.VectorMatching != nil || isSetOperator(expr.Op.String()) {
+		return unsupported(DifficultyHard, "vector matching and set operators are not implemented yet")
+	}
+	if !isSupportedLocalBinaryOperator(expr.Op) {
+		return unsupported(DifficultyMedium, fmt.Sprintf("binary operator %q is not implemented yet", expr.Op.String()))
+	}
+
+	lhsType, rhsType := expr.LHS.Type(), expr.RHS.Type()
+	supportedShape := (lhsType == parser.ValueTypeScalar && rhsType == parser.ValueTypeScalar) ||
+		(lhsType == parser.ValueTypeVector && rhsType == parser.ValueTypeScalar) ||
+		(lhsType == parser.ValueTypeScalar && rhsType == parser.ValueTypeVector)
+	if !supportedShape {
+		return unsupported(DifficultyMedium, "only scalar-scalar and vector-scalar binary expressions are implemented yet")
+	}
+
+	lhs := AnalyzeExpression(expr.LHS)
+	if !lhs.Supported {
+		return lhs
+	}
+	rhs := AnalyzeExpression(expr.RHS)
+	if !rhs.Supported {
+		return rhs
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyMedium}
+}
+
+func analyzeUnaryExpression(expr *parser.UnaryExpr) SupportResult {
+	if expr.Op != parser.ADD && expr.Op != parser.SUB {
+		return unsupported(DifficultyMedium, fmt.Sprintf("unary operator %q is not implemented yet", expr.Op.String()))
+	}
+	typeOf := expr.Expr.Type()
+	if typeOf != parser.ValueTypeScalar && typeOf != parser.ValueTypeVector {
+		return unsupported(DifficultyMedium, fmt.Sprintf("unary expression only allowed on scalar or instant vector, got %q", typeOf))
+	}
+	child := AnalyzeExpression(expr.Expr)
+	if !child.Supported {
+		return child
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyMedium}
+}
+
+func isSupportedLocalBinaryOperator(op parser.ItemType) bool {
+	switch op {
+	case parser.ADD, parser.SUB, parser.MUL, parser.DIV, parser.MOD, parser.POW,
+		parser.EQLC, parser.NEQ, parser.GTR, parser.LSS, parser.GTE, parser.LTE:
+		return true
+	default:
+		return false
+	}
 }
 
 func unsupported(d Difficulty, reason string) SupportResult {

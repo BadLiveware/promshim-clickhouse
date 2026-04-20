@@ -1,0 +1,623 @@
+{
+  "entries": [
+    {
+      "candidateId": "cand-0329",
+      "dashboardCount": 1,
+      "draftQuery": "sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 25,
+          "panel_path": [
+            "Errors Rate"
+          ],
+          "panel_title": "Errors Rate",
+          "ref_id": "4XX"
+        },
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 25,
+          "panel_path": [
+            "Errors Rate"
+          ],
+          "panel_title": "Errors Rate",
+          "ref_id": "5XX"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "set_operator"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "http_client_duration_milliseconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0329_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 2,
+      "originalRepresentativeQuery": "sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\", http_status_code=~\"4..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval]))",
+      "rank": 71,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 105.597,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "net_peer_name"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "http_status_code"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "net_peer_name"
+        }
+      ],
+      "shapeFingerprint": "sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = <str> , <id> = ~ <str> } [ <var> ] ) or vector ( <num> ) ) / sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = <str> } [ <var> ] ) )",
+      "sourceCount": 2,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\", http_status_code=~\"4..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval]))"
+        },
+        {
+          "count": 1,
+          "query": "sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\", http_status_code=~\"5..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "http_client_peer_name"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "http_client_peer_name"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0622",
+      "dashboardCount": 1,
+      "draftQuery": "sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 25,
+          "panel_path": [
+            "Errors Rate"
+          ],
+          "panel_title": "Errors Rate",
+          "ref_id": "All"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "set_operator"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "http_client_duration_milliseconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0622_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\", http_status_code!~\"2..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval]))",
+      "rank": 77,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 103.4,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "net_peer_name"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "http_status_code"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "net_peer_name"
+        }
+      ],
+      "shapeFingerprint": "sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = <str> , <id> ! ~ <str> } [ <var> ] ) or vector ( <num> ) ) / sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = <str> } [ <var> ] ) )",
+      "sourceCount": 1,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\", http_status_code!~\"2..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "http_client_peer_name"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "http_client_peer_name"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0151",
+      "dashboardCount": 1,
+      "draftQuery": "# receivers -> processor label_join(label_replace(label_join((sum(rate(harness_requests_total{job=\"api\"}[5m])) by(service)) ,\"source\", \"-rcv-\", \"transport\", \"receiver\") ,\"target\", \"processor\", \"\", \"\") , \"id\", \"-\", \"source\", \"target\") # processor -> exporters or label_join(label_replace(label_join((sum(rate(harness_requests_total{job=\"api\"}[5m])) by(service)) , \"target\", \"-exp-\", \"transport\", \"exporter\") , \"source\", \"processor\", \"\", \"\") , \"id\", \"-\", \"source\", \"target\")",
+      "exampleSources": [
+        {
+          "dashboard_title": "OpenTelemetry Collector",
+          "dashboard_uid": "BKf2sowmj",
+          "file_path": "scratch/grafana-dashboards/Monitoring meta/BKf2sowmj-OpenTelemetry Collector.json",
+          "kind": "panel_target",
+          "panel_id": 58,
+          "panel_path": [
+            "Spans Flow"
+          ],
+          "panel_title": "Spans Flow",
+          "ref_id": "edges"
+        },
+        {
+          "dashboard_title": "OpenTelemetry Collector",
+          "dashboard_uid": "BKf2sowmj",
+          "file_path": "scratch/grafana-dashboards/Monitoring meta/BKf2sowmj-OpenTelemetry Collector.json",
+          "kind": "panel_target",
+          "panel_id": 60,
+          "panel_path": [
+            "Metric Points Flow"
+          ],
+          "panel_title": "Metric Points Flow",
+          "ref_id": "edges"
+        },
+        {
+          "dashboard_title": "OpenTelemetry Collector",
+          "dashboard_uid": "BKf2sowmj",
+          "file_path": "scratch/grafana-dashboards/Monitoring meta/BKf2sowmj-OpenTelemetry Collector.json",
+          "kind": "panel_target",
+          "panel_id": 61,
+          "panel_path": [
+            "Log Records Flow"
+          ],
+          "panel_title": "Log Records Flow",
+          "ref_id": "edges"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "comparison",
+        "label_mutation",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "set_operator"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "mapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "receiver",
+          "target": "service"
+        },
+        {
+          "action": "mapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "exporter",
+          "target": "service"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.65,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.65,
+          "reasons": [
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "otelcol_receiver_accepted_spans"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.65,
+          "reasons": [
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "otelcol_exporter_sent_spans"
+        }
+      ],
+      "name": "draft_cand_0151_rate_family_aggregation_selector",
+      "occurrenceCount": 3,
+      "originalRepresentativeQuery": "# receivers -> processor label_join( label_replace( label_join( (sum(rate(otelcol_receiver_accepted_spans${suffix_total}{job=\"$job\"}[$__rate_interval])) by (receiver)) ,\"source\", \"-rcv-\", \"transport\", \"receiver\" ) ,\"target\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" ) # processor -> exporters or label_join( label_replace( label_join( (sum(rate(otelcol_exporter_sent_spans${suffix_total}{job=\"$job\"}[$__rate_interval])) by (exporter)) , \"target\", \"-exp-\", \"transport\", \"exporter\" ) , \"source\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" )",
+      "rank": 93,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "metric_mapping_is_lossy_many_source_metrics_to_one_harness_metric"
+      ],
+      "score": 99.2,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "# <id> - > <id> label_join ( label_replace ( label_join ( ( sum ( rate ( <id> <var> { <id> = <str> } [ <var> ] ) ) by ( <id> ) ) , <str> , <str> , <str> , <str> ) , <str> , <str> , <str> , <str> ) , <str> , <str> , <str> , <str> ) # <id> - > <id> or label_join ( label_replace ( label_join ( ( sum ( rate ( <id> <var> { <id> = <str> } [ <var> ] ) ) by ( <id> ) ) , <str> , <str> , <str> , <str> ) , <str> , <str> , <str> , <str> ) , <str> , <str> , <str> , <str> )",
+      "sourceCount": 3,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "# receivers -> processor label_join( label_replace( label_join( (sum(rate(otelcol_receiver_accepted_spans${suffix_total}{job=\"$job\"}[$__rate_interval])) by (receiver)) ,\"source\", \"-rcv-\", \"transport\", \"receiver\" ) ,\"target\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" ) # processor -> exporters or label_join( label_replace( label_join( (sum(rate(otelcol_exporter_sent_spans${suffix_total}{job=\"$job\"}[$__rate_interval])) by (exporter)) , \"target\", \"-exp-\", \"transport\", \"exporter\" ) , \"source\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" )"
+        },
+        {
+          "count": 1,
+          "query": "# receivers -> processor label_join( label_replace( label_join( (sum(rate(otelcol_receiver_accepted_metric_points${suffix_total}{job=\"$job\"}[$__rate_interval])) by (receiver)) , \"source\", \"-rcv-\", \"transport\", \"receiver\" ) , \"target\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" ) # processor -> exporters or label_join( label_replace( label_join( (sum(rate(otelcol_exporter_sent_metric_points${suffix_total}{job=\"$job\"}[$__rate_interval])) by (exporter)) , \"target\", \"-exp-\", \"transport\", \"exporter\" ) , \"source\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" )"
+        },
+        {
+          "count": 1,
+          "query": "# receivers -> processor label_join( label_replace( label_join( (sum(rate(otelcol_receiver_accepted_log_records${suffix_total}{job=\"$job\"}[$__rate_interval])) by (receiver)) , \"source\", \"-rcv-\", \"transport\", \"receiver\" ) , \"target\", \"processor\", \"\", \"\" ) , \"id\", \"-edg-\", \"source\", \"target\" ) # processor -> exporters or label_join( label_replace( label_join( (sum(rate(otelcol_exporter_sent_log_records${suffix_total}{job=\"$job\"}[$__rate_interval])) by (exporter)) ,\"target\",\"-exp-\",\"transport\",\"exporter\" ) ,\"source\",\"processor\",\"\",\"\" ) ,\"id\",\"-edg-\",\"source\",\"target\" )"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "",
+          "variable": "suffix_total"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "",
+          "variable": "suffix_total"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0330",
+      "dashboardCount": 1,
+      "draftQuery": "sum(rate(harness_request_duration_seconds_count{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_count{job=\"api\",instance=\"a\"}[5m]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 47,
+          "panel_path": [
+            "Errors Rate"
+          ],
+          "panel_title": "Errors Rate",
+          "ref_id": "4XX"
+        },
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 47,
+          "panel_path": [
+            "Errors Rate"
+          ],
+          "panel_title": "Errors Rate",
+          "ref_id": "5XX"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "set_operator"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_has_count_suffix",
+                "source_metric_looks_like_duration_count"
+              ],
+              "score": 11.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_looks_like_duration_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum"
+              ],
+              "score": 4.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_count",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_count_suffix",
+            "source_metric_looks_like_duration_count"
+          ],
+          "sourceMetric": "http_server_duration_milliseconds_count"
+        }
+      ],
+      "name": "draft_cand_0330_rate_family_aggregation_selector",
+      "occurrenceCount": 2,
+      "originalRepresentativeQuery": "sum(rate(http_server_duration_milliseconds_count{job=\"$job\", instance=\"$instance\", http_status_code=~\"4..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_server_duration_milliseconds_count{job=\"$job\", instance=\"$instance\"}[$__rate_interval]))",
+      "rank": 94,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 98.597,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "http_status_code"
+        }
+      ],
+      "shapeFingerprint": "sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = ~ <str> } [ <var> ] ) or vector ( <num> ) ) / sum ( rate ( <id> { <id> = <str> , <id> = <str> } [ <var> ] ) )",
+      "sourceCount": 2,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum(rate(http_server_duration_milliseconds_count{job=\"$job\", instance=\"$instance\", http_status_code=~\"4..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_server_duration_milliseconds_count{job=\"$job\", instance=\"$instance\"}[$__rate_interval]))"
+        },
+        {
+          "count": 1,
+          "query": "sum(rate(http_server_duration_milliseconds_count{job=\"$job\", instance=\"$instance\", http_status_code=~\"5..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_server_duration_milliseconds_count{job=\"$job\", instance=\"$instance\"}[$__rate_interval]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    }
+  ],
+  "queryCount": 4,
+  "theme": "set_operator"
+}

@@ -1,0 +1,34 @@
+[
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0329_histogram_rate_family_aggregation_selector",
+    "query": "sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0622_histogram_rate_family_aggregation_selector",
+    "query": "sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0151_rate_family_aggregation_selector",
+    "query": "# receivers -> processor label_join(label_replace(label_join((sum(rate(harness_requests_total{job=\"api\"}[5m])) by(service)) ,\"source\", \"-rcv-\", \"transport\", \"receiver\") ,\"target\", \"processor\", \"\", \"\") , \"id\", \"-\", \"source\", \"target\") # processor -> exporters or label_join(label_replace(label_join((sum(rate(harness_requests_total{job=\"api\"}[5m])) by(service)) , \"target\", \"-exp-\", \"transport\", \"exporter\") , \"source\", \"processor\", \"\", \"\") , \"id\", \"-\", \"source\", \"target\")",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0330_rate_family_aggregation_selector",
+    "query": "sum(rate(harness_request_duration_seconds_count{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_count{job=\"api\",instance=\"a\"}[5m]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  }
+]

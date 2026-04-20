@@ -1,0 +1,408 @@
+{
+  "entries": [
+    {
+      "candidateId": "cand-0416",
+      "dashboardCount": 1,
+      "draftQuery": "avg_over_time(sum(irate(harness_requests_total{job=\"es-search\"}[5m]))[5m:])",
+      "exampleSources": [
+        {
+          "dashboard_title": "Tradera overview",
+          "dashboard_uid": "ae251cdanfzeof",
+          "file_path": "scratch/grafana-dashboards/WIP/ae251cdanfzeof-Tradera overview.json",
+          "kind": "panel_target",
+          "panel_id": 11,
+          "panel_path": [
+            "Search rate"
+          ],
+          "panel_title": "Search rate",
+          "ref_id": "B"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "panel_query",
+        "range_function",
+        "rate_family",
+        "selector",
+        "subquery"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "source_metric_looks_like_counter",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 15.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "source_metric_looks_like_counter",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "elasticsearch_indices_search_query_total"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.65,
+          "reasons": [
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": ":"
+        }
+      ],
+      "name": "draft_cand_0416_rate_family_range_function_subquery_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "avg_over_time(sum(irate(elasticsearch_indices_search_query_total{cluster=\"es-search\"}[$__rate_interval]))[$__rate_interval:])",
+      "rank": 62,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "metric_mapping_is_lossy_many_source_metrics_to_one_harness_metric"
+      ],
+      "score": 111.4,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        }
+      ],
+      "shapeFingerprint": "avg_over_time ( sum ( irate ( <id> { <id> = <str> } [ <var> ] ) ) [ <var> <id> ] )",
+      "sourceCount": 1,
+      "tier": "promote_next",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "avg_over_time(sum(irate(elasticsearch_indices_search_query_total{cluster=\"es-search\"}[$__rate_interval]))[$__rate_interval:])"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0225",
+      "dashboardCount": 1,
+      "draftQuery": "irate(sum by(pod) (harness_requests_total{namespace=~\"blue\",job=~\"api\"})[5m:])",
+      "exampleSources": [
+        {
+          "dashboard_title": "Valkey/Redis",
+          "dashboard_uid": "xDLNRKUWz2",
+          "file_path": "scratch/grafana-dashboards/WIP/xDLNRKUWz2-Valkey_Redis.json",
+          "kind": "panel_target",
+          "panel_id": 1,
+          "panel_path": [
+            "Hits / Misses "
+          ],
+          "panel_title": "Hits / Misses ",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "Valkey/Redis",
+          "dashboard_uid": "xDLNRKUWz2",
+          "file_path": "scratch/grafana-dashboards/WIP/xDLNRKUWz2-Valkey_Redis.json",
+          "kind": "panel_target",
+          "panel_id": 1,
+          "panel_path": [
+            "Hits / Misses "
+          ],
+          "panel_title": "Hits / Misses ",
+          "ref_id": "B"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "panel_query",
+        "rate_family",
+        "selector",
+        "subquery"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "redis_keyspace_hits_total"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.65,
+          "reasons": [
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "m:"
+        }
+      ],
+      "name": "draft_cand_0225_rate_family_subquery_aggregation_selector",
+      "occurrenceCount": 2,
+      "originalRepresentativeQuery": "irate(sum by (pod) (redis_keyspace_hits_total{namespace=~\"$namespace\", job=~\"$redis_job\"})[5m:])",
+      "rank": 64,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "metric_mapping_is_lossy_many_source_metrics_to_one_harness_metric"
+      ],
+      "score": 107.597,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "irate ( sum by ( <id> ) ( <id> { <id> = ~ <str> , <id> = ~ <str> } ) [ <dur> <id> ] )",
+      "sourceCount": 2,
+      "tier": "promote_next",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "irate(sum by (pod) (redis_keyspace_hits_total{namespace=~\"$namespace\", job=~\"$redis_job\"})[5m:])"
+        },
+        {
+          "count": 1,
+          "query": "irate(sum by (pod) (redis_keyspace_misses_total{namespace=~\"$namespace\", job=~\"$redis_job\"})[5m:])"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "blue",
+          "variable": "namespace"
+        },
+        {
+          "replacement": "api",
+          "variable": "redis_job"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0242",
+      "dashboardCount": 1,
+      "draftQuery": "rate(sum(harness_requests_total{job=~\"api\",namespace=~\"blue\"})[5m:])",
+      "exampleSources": [
+        {
+          "dashboard_title": "Valkey/Redis",
+          "dashboard_uid": "xDLNRKUWz2",
+          "file_path": "scratch/grafana-dashboards/WIP/xDLNRKUWz2-Valkey_Redis.json",
+          "kind": "panel_target",
+          "panel_id": 68,
+          "panel_path": [
+            "Network In & Out"
+          ],
+          "panel_title": "Network In & Out",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "Valkey/Redis",
+          "dashboard_uid": "xDLNRKUWz2",
+          "file_path": "scratch/grafana-dashboards/WIP/xDLNRKUWz2-Valkey_Redis.json",
+          "kind": "panel_target",
+          "panel_id": 68,
+          "panel_path": [
+            "Network In & Out"
+          ],
+          "panel_title": "Network In & Out",
+          "ref_id": "B"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "panel_query",
+        "rate_family",
+        "selector",
+        "subquery"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "redis_net_input_bytes_total"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.65,
+          "reasons": [
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "m:"
+        }
+      ],
+      "name": "draft_cand_0242_rate_family_subquery_aggregation_selector",
+      "occurrenceCount": 2,
+      "originalRepresentativeQuery": "rate(sum(redis_net_input_bytes_total{job=~\"$redis_job\", namespace=~\"$namespace\"})[5m:])",
+      "rank": 65,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "metric_mapping_is_lossy_many_source_metrics_to_one_harness_metric"
+      ],
+      "score": 107.597,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "rate ( sum ( <id> { <id> = ~ <str> , <id> = ~ <str> } ) [ <dur> <id> ] )",
+      "sourceCount": 2,
+      "tier": "promote_next",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "rate(sum(redis_net_input_bytes_total{job=~\"$redis_job\", namespace=~\"$namespace\"})[5m:])"
+        },
+        {
+          "count": 1,
+          "query": "rate(sum(redis_net_output_bytes_total{job=~\"$redis_job\", namespace=~\"$namespace\"})[5m:])"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "redis_job"
+        },
+        {
+          "replacement": "blue",
+          "variable": "namespace"
+        }
+      ]
+    }
+  ],
+  "queryCount": 3,
+  "theme": "subquery"
+}

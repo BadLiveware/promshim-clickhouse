@@ -1,0 +1,454 @@
+{
+  "entries": [
+    {
+      "candidateId": "cand-0011",
+      "dashboardCount": 3,
+      "draftQuery": "max_over_time(harness_queue_depth{job=\"api\",instance=\"a\"}[5m])",
+      "exampleSources": [
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 16,
+          "panel_path": [
+            "Memory Usage"
+          ],
+          "panel_title": "Memory Usage",
+          "ref_id": "Memory Usage"
+        },
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 12,
+          "panel_path": [
+            "Threads"
+          ],
+          "panel_title": "Threads",
+          "ref_id": "Threads"
+        },
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 6,
+          "panel_path": [
+            "General Memory Usage"
+          ],
+          "panel_title": "General Memory Usage",
+          "ref_id": "Committed Memory Size"
+        },
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 6,
+          "panel_path": [
+            "General Memory Usage"
+          ],
+          "panel_title": "General Memory Usage",
+          "ref_id": "Objects Size"
+        },
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 8,
+          "panel_path": [
+            "Heap Generations (bytes)"
+          ],
+          "panel_title": "Heap Generations (bytes)",
+          "ref_id": "Heap Size"
+        }
+      ],
+      "families": [
+        "panel_query",
+        "range_function",
+        "range_selector",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.75,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "source_metric_looks_like_gauge",
+                "generic_gauge_fallback"
+              ],
+              "score": 6.0
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_queue_depth",
+          "confidence": 0.75,
+          "reasons": [
+            "source_metric_looks_like_gauge",
+            "generic_gauge_fallback"
+          ],
+          "sourceMetric": "process_threads"
+        }
+      ],
+      "name": "draft_cand_0011_range_function_selector",
+      "occurrenceCount": 30,
+      "originalRepresentativeQuery": "max_over_time(process_threads{job=\"$job\", instance=\"$instance\"}[$__rate_interval])",
+      "rank": 54,
+      "retargetingHint": "requires_range_fixture",
+      "reviewNotes": [],
+      "score": 117.09,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "max_over_time ( <id> { <id> = <str> , <id> = <str> } [ <var> ] )",
+      "sourceCount": 30,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "max_over_time(process_memory_usage_bytes{job=\"$job\", instance=\"$instance\"}[$__rate_interval])"
+        },
+        {
+          "count": 1,
+          "query": "max_over_time(process_threads{job=\"$job\", instance=\"$instance\"}[$__rate_interval])"
+        },
+        {
+          "count": 1,
+          "query": "max_over_time(process_runtime_dotnet_gc_committed_memory_size_bytes{job=\"$job\", instance=\"$instance\"}[$__rate_interval])"
+        },
+        {
+          "count": 1,
+          "query": "max_over_time(process_runtime_dotnet_gc_objects_size_bytes{job=\"$job\", instance=\"$instance\"}[$__rate_interval])"
+        },
+        {
+          "count": 1,
+          "query": "max_over_time(process_runtime_dotnet_gc_heap_size_bytes{job=\"$job\", instance=\"$instance\"}[$__rate_interval])"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0416",
+      "dashboardCount": 1,
+      "draftQuery": "avg_over_time(sum(irate(harness_requests_total{job=\"es-search\"}[5m]))[5m:])",
+      "exampleSources": [
+        {
+          "dashboard_title": "Tradera overview",
+          "dashboard_uid": "ae251cdanfzeof",
+          "file_path": "scratch/grafana-dashboards/WIP/ae251cdanfzeof-Tradera overview.json",
+          "kind": "panel_target",
+          "panel_id": 11,
+          "panel_path": [
+            "Search rate"
+          ],
+          "panel_title": "Search rate",
+          "ref_id": "B"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "panel_query",
+        "range_function",
+        "rate_family",
+        "selector",
+        "subquery"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "source_metric_looks_like_counter",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 15.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "source_metric_looks_like_counter",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "elasticsearch_indices_search_query_total"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.65,
+          "reasons": [
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": ":"
+        }
+      ],
+      "name": "draft_cand_0416_rate_family_range_function_subquery_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "avg_over_time(sum(irate(elasticsearch_indices_search_query_total{cluster=\"es-search\"}[$__rate_interval]))[$__rate_interval:])",
+      "rank": 62,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "metric_mapping_is_lossy_many_source_metrics_to_one_harness_metric"
+      ],
+      "score": 111.4,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        }
+      ],
+      "shapeFingerprint": "avg_over_time ( sum ( irate ( <id> { <id> = <str> } [ <var> ] ) ) [ <var> <id> ] )",
+      "sourceCount": 1,
+      "tier": "promote_next",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "avg_over_time(sum(irate(elasticsearch_indices_search_query_total{cluster=\"es-search\"}[$__rate_interval]))[$__rate_interval:])"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0419",
+      "dashboardCount": 1,
+      "draftQuery": "avg_over_time(harness_up{job=\"prometheus-localhost\",instance=\"localhost:9090\"}[5m])",
+      "exampleSources": [
+        {
+          "dashboard_title": "Prometheus Alerts",
+          "dashboard_uid": "000000306",
+          "file_path": "scratch/grafana-dashboards/imported/000000306-Prometheus Alerts.json",
+          "kind": "panel_target",
+          "panel_id": 17,
+          "panel_path": [
+            "[24h] Prometheus unhealthy"
+          ],
+          "panel_title": "[24h] Prometheus unhealthy",
+          "ref_id": "A"
+        }
+      ],
+      "families": [
+        "panel_query",
+        "range_function",
+        "range_selector",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.85,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_up",
+              "reasons": [
+                "source_metric_is_up"
+              ],
+              "score": 8.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 1.0
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_up",
+          "confidence": 0.85,
+          "reasons": [
+            "source_metric_is_up"
+          ],
+          "sourceMetric": "up"
+        }
+      ],
+      "name": "draft_cand_0419_range_function_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "avg_over_time(up{job=\"prometheus-localhost\",instance=\"localhost:9090\"}[5m])",
+      "rank": 66,
+      "retargetingHint": "requires_range_fixture",
+      "reviewNotes": [],
+      "score": 107.4,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "avg_over_time ( <id> { <id> = <str> , <id> = <str> } [ <dur> ] )",
+      "sourceCount": 1,
+      "tier": "promote_next",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "avg_over_time(up{job=\"prometheus-localhost\",instance=\"localhost:9090\"}[5m])"
+        }
+      ],
+      "variableReplacements": []
+    },
+    {
+      "candidateId": "cand-0477",
+      "dashboardCount": 1,
+      "draftQuery": "max(max_over_time(harness_up{instance=~\"a\"}[60s]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Redis Dashboard for Prometheus Redis Exporter 1.x",
+          "dashboard_uid": "e008bc3f-81a2-40f9-baf2-a33fd8dec7ec",
+          "file_path": "scratch/grafana-dashboards/General/e008bc3f-81a2-40f9-baf2-a33fd8dec7ec-Redis Dashboard for Prometheus Redis Exporter 1.x.json",
+          "kind": "panel_target",
+          "panel_id": 9,
+          "panel_path": [
+            "Max Uptime"
+          ],
+          "panel_title": "Max Uptime",
+          "ref_id": "A"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "panel_query",
+        "range_function",
+        "range_selector",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.75,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_up",
+              "reasons": [
+                "source_metric_looks_like_health_or_info_gauge"
+              ],
+              "score": 6.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 1.0
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_up",
+          "confidence": 0.75,
+          "reasons": [
+            "source_metric_looks_like_health_or_info_gauge"
+          ],
+          "sourceMetric": "redis_uptime_in_seconds"
+        }
+      ],
+      "name": "draft_cand_0477_range_function_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "max(max_over_time(redis_uptime_in_seconds{instance=~\"$instance\"}[$__interval]))",
+      "rank": 72,
+      "retargetingHint": "requires_range_fixture",
+      "reviewNotes": [],
+      "score": 105.4,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "max ( max_over_time ( <id> { <id> = ~ <str> } [ <var> ] ) )",
+      "sourceCount": 1,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "max(max_over_time(redis_uptime_in_seconds{instance=~\"$instance\"}[$__interval]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "60s",
+          "variable": "__interval"
+        }
+      ]
+    }
+  ],
+  "queryCount": 4,
+  "theme": "range_function"
+}

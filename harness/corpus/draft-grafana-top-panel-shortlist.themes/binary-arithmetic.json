@@ -1,0 +1,234 @@
+[
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0160_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.50, sum by(job, le) (rate(harness_request_duration_seconds_bucket{job=~\"api\"}[60s]))) * 1",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0219_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.50, sum(irate(harness_request_duration_seconds_bucket{instance=~\"a\",job=~\"api\"}[5m])) by(le)) * 1",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0090_rate_family_aggregation_selector",
+    "query": "- sum(rate(harness_requests_total{job=\"api\"}[5m]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0106_rate_family_aggregation_selector",
+    "query": "- sum(rate(harness_requests_total{namespace=\"blue\",pod=~\"api-a\",job=\"api\"}[5m]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0107_rate_family_aggregation_selector",
+    "query": "- sum(rate(harness_requests_total{pod=~\"api-a\",job=~\"api\"}[5m])) by(pod)",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0284_rate_family_aggregation_selector",
+    "query": "sum((8 * rate(harness_requests_total{job=\"api\",namespace=\"blue\"}[5m]))) by(pod)",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0285_rate_family_aggregation_selector",
+    "query": "sum((8 * rate(harness_requests_total{job=\"api\",namespace=~\"blue\",pod=~\"api-a\"}[5m])))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0286_rate_family_aggregation_selector",
+    "query": "sum((8 * rate(harness_requests_total{job=\"api\",namespace=~\"blue\",pod=~\"api-a\"}[5m]))) by(pod)",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0369_rate_family_aggregation_selector",
+    "query": "- sum(rate(harness_requests_total{job=\"api\"}[5m])) by(instance)",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0372_rate_family_aggregation_selector",
+    "query": "- sum(rate(harness_requests_total{job=\"api\"}[5m]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0594_rate_family_aggregation_selector",
+    "query": "sum(irate(harness_request_duration_seconds_sum{instance=~\"a\",job=~\"api\"}[5m])) * 1 / sum(irate(harness_request_duration_seconds_count{instance=~\"a\",job=~\"api\"}[5m]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0105_rate_family_aggregation_selector",
+    "query": "(sum(rate(harness_requests_total{instance=~\"a\"}[5m])) - sum(rate(harness_requests_total{instance=~\"a\"}[5m]))) / sum(rate(harness_requests_total{instance=~\"a\"}[5m]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0149_rate_family_aggregation_selector",
+    "query": "sum(rate(harness_requests_total{instance=~\"a\"}[5m])) / sum(rate(harness_requests_total{instance=~\"a\"}[5m]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0203_rate_family_aggregation_selector",
+    "query": "avg(irate(harness_requests_total{namespace=~\"blue\",job=~\"api\"}[5m]) / (irate(harness_requests_total{namespace=~\"blue\",job=~\"api\"}[5m]) + irate(harness_requests_total{namespace=~\"blue\",job=~\"api\"}[5m]))) by(pod)",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0534_histogram_rate_family_aggregation_selector",
+    "query": "sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s])) / sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0513_rate_family_aggregation_selector",
+    "query": "round(sum(rate(harness_request_duration_seconds_sum{pod=~\"api-a\",job=~\"api\"}[5m]) / rate(harness_request_duration_seconds_count{pod=~\"api-a\",job=~\"api\"}[5m])) by(pod))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0408_aggregation_selector",
+    "query": "avg(harness_up{namespace=~\"blue\"}) by(namespace) / avg(harness_requests_total{namespace=~\"blue\"}) by(namespace)",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0505_rate_family_selector",
+    "query": "rate(harness_request_duration_seconds_sum{job=~\"api\",instance=~\"a\"}[5m]) / rate(harness_request_duration_seconds_count{job=~\"api\",instance=~\"a\"}[5m]) * 1e3",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0554_aggregation_selector",
+    "query": "sum by(namespace) (harness_requests_total{namespace=~\"blue\"}) - sum by(namespace) (harness_up{namespace=~\"blue\"})",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0073_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.50, sum by(job, le) (rate(harness_request_duration_seconds_bucket{job=~\"api\"}[60s]))) * 1",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0329_histogram_rate_family_aggregation_selector",
+    "query": "sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0622_histogram_rate_family_aggregation_selector",
+    "query": "sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0152_rate_family_vector_matching_aggregation_selector",
+    "query": "((1 - sum (rate(harness_requests_total{job=\"node-exporter\",instance=\"a\"}[5m]))) / group_left count (harness_requests_total{job=\"node-exporter\",instance=\"a\"}))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0023_rate_family_vector_matching_aggregation_selector",
+    "query": "sum(rate(harness_requests_total[60s]) * on(instance, job) group_left harness_up{namespace=\"blue\"})",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0474_aggregation_selector",
+    "query": "max(harness_queue_depth{namespace=~\"blue\",pod=~\"a\"} - harness_up{namespace=~\"blue\",pod=~\"a\"})",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0257_rate_family_vector_matching_aggregation_selector",
+    "query": "sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s])) / group_left sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0151_rate_family_aggregation_selector",
+    "query": "# receivers -> processor label_join(label_replace(label_join((sum(rate(harness_requests_total{job=\"api\"}[5m])) by(service)) ,\"source\", \"-rcv-\", \"transport\", \"receiver\") ,\"target\", \"processor\", \"\", \"\") , \"id\", \"-\", \"source\", \"target\") # processor -> exporters or label_join(label_replace(label_join((sum(rate(harness_requests_total{job=\"api\"}[5m])) by(service)) , \"target\", \"-exp-\", \"transport\", \"exporter\") , \"source\", \"processor\", \"\", \"\") , \"id\", \"-\", \"source\", \"target\")",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0330_rate_family_aggregation_selector",
+    "query": "sum(rate(harness_request_duration_seconds_count{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_count{job=\"api\",instance=\"a\"}[5m]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0053_rate_family_vector_matching_aggregation_selector",
+    "query": "sum by(namespace) (rate(harness_requests_total{job=\"api\",namespace!=\"\"}[5m]) * on(job, namespace, pod) group_left topk by(job, namespace, pod) (1, max by(job, namespace, pod) (harness_up{job=\"api\"})))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  }
+]

@@ -1,0 +1,4318 @@
+{
+  "entries": [
+    {
+      "candidateId": "cand-0160",
+      "dashboardCount": 1,
+      "draftQuery": "histogram_quantile(0.50, sum by(job, le) (rate(harness_request_duration_seconds_bucket{job=~\"api\"}[60s]))) * 1",
+      "exampleSources": [
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 10,
+          "panel_path": [
+            "Duration"
+          ],
+          "panel_title": "Duration",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 10,
+          "panel_path": [
+            "Duration"
+          ],
+          "panel_title": "Duration",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 10,
+          "panel_path": [
+            "Duration"
+          ],
+          "panel_title": "Duration",
+          "ref_id": "C"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "thanos_objstore_bucket_operation_duration_seconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0160_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 3,
+      "originalRepresentativeQuery": "histogram_quantile(0.50, sum by (job, le) (rate(thanos_objstore_bucket_operation_duration_seconds_bucket{job=~\"$job\"}[$interval]))) * 1",
+      "rank": 6,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [],
+      "score": 140.2,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum by ( <id> , <id> ) ( rate ( <id> { <id> = ~ <str> } [ <var> ] ) ) ) * <num>",
+      "sourceCount": 3,
+      "tier": "promote_now",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.50, sum by (job, le) (rate(thanos_objstore_bucket_operation_duration_seconds_bucket{job=~\"$job\"}[$interval]))) * 1"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.90, sum by (job, le) (rate(thanos_objstore_bucket_operation_duration_seconds_bucket{job=~\"$job\"}[$interval]))) * 1"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.99, sum by (job, le) (rate(thanos_objstore_bucket_operation_duration_seconds_bucket{job=~\"$job\"}[$interval]))) * 1"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "60s",
+          "variable": "interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0219",
+      "dashboardCount": 1,
+      "draftQuery": "histogram_quantile(0.50, sum(irate(harness_request_duration_seconds_bucket{instance=~\"a\",job=~\"api\"}[5m])) by(le)) * 1",
+      "exampleSources": [
+        {
+          "dashboard_title": "Grafana Overview",
+          "dashboard_uid": "6be0s85Mk",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/6be0s85Mk-Grafana Overview.json",
+          "kind": "panel_target",
+          "panel_id": 4,
+          "panel_path": [
+            "Request Latency"
+          ],
+          "panel_title": "Request Latency",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "Grafana Overview",
+          "dashboard_uid": "6be0s85Mk",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/6be0s85Mk-Grafana Overview.json",
+          "kind": "panel_target",
+          "panel_id": 4,
+          "panel_path": [
+            "Request Latency"
+          ],
+          "panel_title": "Request Latency",
+          "ref_id": "B"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "grafana_http_request_duration_seconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0219_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 2,
+      "originalRepresentativeQuery": "histogram_quantile(0.50, sum(irate(grafana_http_request_duration_seconds_bucket{instance=~\"$instance\", job=~\"$job\"}[$__rate_interval])) by (le)) * 1",
+      "rank": 7,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [],
+      "score": 138.597,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum ( irate ( <id> { <id> = ~ <str> , <id> = ~ <str> } [ <var> ] ) ) by ( <id> ) ) * <num>",
+      "sourceCount": 2,
+      "tier": "promote_now",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.99, sum(irate(grafana_http_request_duration_seconds_bucket{instance=~\"$instance\", job=~\"$job\"}[$__rate_interval])) by (le)) * 1"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.50, sum(irate(grafana_http_request_duration_seconds_bucket{instance=~\"$instance\", job=~\"$job\"}[$__rate_interval])) by (le)) * 1"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0090",
+      "dashboardCount": 2,
+      "draftQuery": "- sum(rate(harness_requests_total{job=\"api\"}[5m]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Kubernetes / Views / Global",
+          "dashboard_uid": "k8s_views_global",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_views_global-Kubernetes _ Views _ Global.json",
+          "kind": "panel_target",
+          "panel_id": 53,
+          "panel_path": [
+            "Network Saturation - Packets dropped"
+          ],
+          "panel_title": "Network Saturation - Packets dropped",
+          "ref_id": "Linux Packets dropped (transmit)"
+        },
+        {
+          "dashboard_title": "Kubernetes / Views / Nodes",
+          "dashboard_uid": "k8s_views_nodes",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_views_nodes-Kubernetes _ Views _ Nodes.json",
+          "kind": "panel_target",
+          "panel_id": 20,
+          "panel_path": [
+            "Network usage (bytes)"
+          ],
+          "panel_title": "Network usage (bytes)",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "Kubernetes / Views / Nodes",
+          "dashboard_uid": "k8s_views_nodes",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_views_nodes-Kubernetes _ Views _ Nodes.json",
+          "kind": "panel_target",
+          "panel_id": 61,
+          "panel_path": [
+            "Network errors"
+          ],
+          "panel_title": "Network errors",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "Kubernetes / Views / Nodes",
+          "dashboard_uid": "k8s_views_nodes",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_views_nodes-Kubernetes _ Views _ Nodes.json",
+          "kind": "panel_target",
+          "panel_id": 62,
+          "panel_path": [
+            "Network usage (packet/s)"
+          ],
+          "panel_title": "Network usage (packet/s)",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "Kubernetes / Views / Nodes",
+          "dashboard_uid": "k8s_views_nodes",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_views_nodes-Kubernetes _ Views _ Nodes.json",
+          "kind": "panel_target",
+          "panel_id": 64,
+          "panel_path": [
+            "Network total drops"
+          ],
+          "panel_title": "Network total drops",
+          "ref_id": "B"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "node_network_transmit_drop_total"
+        }
+      ],
+      "name": "draft_cand_0090_rate_family_aggregation_selector",
+      "occurrenceCount": 5,
+      "originalRepresentativeQuery": "- sum(rate(node_network_transmit_drop_total{cluster=\"$cluster\", job=\"$job\"}[$__rate_interval]))",
+      "rank": 10,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [],
+      "score": 136.297,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "conflict_dropped",
+          "dropped": {
+            "operator": "=",
+            "value": "\"$job\""
+          },
+          "kept": {
+            "operator": "=",
+            "value": "\"$cluster\""
+          },
+          "kind": "selector_label",
+          "source": "job",
+          "target": "job"
+        }
+      ],
+      "shapeFingerprint": "- sum ( rate ( <id> { <id> = <str> , <id> = <str> } [ <var> ] ) )",
+      "sourceCount": 5,
+      "tier": "promote_now",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "- sum(rate(node_network_transmit_drop_total{cluster=\"$cluster\", job=\"$job\"}[$__rate_interval]))"
+        },
+        {
+          "count": 1,
+          "query": "- sum(rate(node_network_transmit_bytes_total{instance=\"$instance\", cluster=\"$cluster\"}[$__rate_interval]))"
+        },
+        {
+          "count": 1,
+          "query": "- sum(rate(node_network_transmit_errs_total{instance=\"$instance\", cluster=\"$cluster\"}[$__rate_interval]))"
+        },
+        {
+          "count": 1,
+          "query": "- sum(rate(node_network_transmit_packets_total{instance=\"$instance\", cluster=\"$cluster\"}[$__rate_interval]))"
+        },
+        {
+          "count": 1,
+          "query": "- sum(rate(node_network_transmit_drop_total{instance=\"$instance\", cluster=\"$cluster\"}[$__rate_interval]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0106",
+      "dashboardCount": 1,
+      "draftQuery": "- sum(rate(harness_requests_total{namespace=\"blue\",pod=~\"api-a\",job=\"api\"}[5m]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Kubernetes / Views / Pods",
+          "dashboard_uid": "k8s_views_pods",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_views_pods-Kubernetes _ Views _ Pods.json",
+          "kind": "panel_target",
+          "panel_id": 31,
+          "panel_path": [
+            "Network - Bandwidth"
+          ],
+          "panel_title": "Network - Bandwidth",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "Kubernetes / Views / Pods",
+          "dashboard_uid": "k8s_views_pods",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_views_pods-Kubernetes _ Views _ Pods.json",
+          "kind": "panel_target",
+          "panel_id": 34,
+          "panel_path": [
+            "Network - Packets Rate"
+          ],
+          "panel_title": "Network - Packets Rate",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "Kubernetes / Views / Pods",
+          "dashboard_uid": "k8s_views_pods",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_views_pods-Kubernetes _ Views _ Pods.json",
+          "kind": "panel_target",
+          "panel_id": 36,
+          "panel_path": [
+            "Network - Packets Dropped"
+          ],
+          "panel_title": "Network - Packets Dropped",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "Kubernetes / Views / Pods",
+          "dashboard_uid": "k8s_views_pods",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_views_pods-Kubernetes _ Views _ Pods.json",
+          "kind": "panel_target",
+          "panel_id": 37,
+          "panel_path": [
+            "Network - Errors"
+          ],
+          "panel_title": "Network - Errors",
+          "ref_id": "B"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "container_network_transmit_bytes_total"
+        }
+      ],
+      "name": "draft_cand_0106_rate_family_aggregation_selector",
+      "occurrenceCount": 4,
+      "originalRepresentativeQuery": "- sum(rate(container_network_transmit_bytes_total{namespace=\"$namespace\", pod=~\"$pod\", cluster=\"$cluster\"}[$__rate_interval]))",
+      "rank": 14,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [],
+      "score": 134.477,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        }
+      ],
+      "shapeFingerprint": "- sum ( rate ( <id> { <id> = <str> , <id> = ~ <str> , <id> = <str> } [ <var> ] ) )",
+      "sourceCount": 4,
+      "tier": "promote_now",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "- sum(rate(container_network_transmit_bytes_total{namespace=\"$namespace\", pod=~\"$pod\", cluster=\"$cluster\"}[$__rate_interval]))"
+        },
+        {
+          "count": 1,
+          "query": "- sum(rate(container_network_transmit_packets_total{namespace=\"$namespace\", pod=~\"$pod\", cluster=\"$cluster\"}[$__rate_interval]))"
+        },
+        {
+          "count": 1,
+          "query": "- sum(rate(container_network_transmit_packets_dropped_total{namespace=\"$namespace\", pod=~\"$pod\", cluster=\"$cluster\"}[$__rate_interval]))"
+        },
+        {
+          "count": 1,
+          "query": "- sum(rate(container_network_transmit_errors_total{namespace=\"$namespace\", pod=~\"$pod\", cluster=\"$cluster\"}[$__rate_interval]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "blue",
+          "variable": "namespace"
+        },
+        {
+          "replacement": "api-a",
+          "variable": "pod"
+        },
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0107",
+      "dashboardCount": 1,
+      "draftQuery": "- sum(rate(harness_requests_total{pod=~\"api-a\",job=~\"api\"}[5m])) by(pod)",
+      "exampleSources": [
+        {
+          "dashboard_title": "Prometheus",
+          "dashboard_uid": "k8s_addons_prometheus",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_addons_prometheus-Prometheus.json",
+          "kind": "panel_target",
+          "panel_id": 31,
+          "panel_path": [
+            "Network - Bandwidth by pod"
+          ],
+          "panel_title": "Network - Bandwidth by pod",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "Prometheus",
+          "dashboard_uid": "k8s_addons_prometheus",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_addons_prometheus-Prometheus.json",
+          "kind": "panel_target",
+          "panel_id": 34,
+          "panel_path": [
+            "Network - Packets rate by pod"
+          ],
+          "panel_title": "Network - Packets rate by pod",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "Prometheus",
+          "dashboard_uid": "k8s_addons_prometheus",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_addons_prometheus-Prometheus.json",
+          "kind": "panel_target",
+          "panel_id": 36,
+          "panel_path": [
+            "Network - Packets Dropped by pod"
+          ],
+          "panel_title": "Network - Packets Dropped by pod",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "Prometheus",
+          "dashboard_uid": "k8s_addons_prometheus",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_addons_prometheus-Prometheus.json",
+          "kind": "panel_target",
+          "panel_id": 37,
+          "panel_path": [
+            "Network - Errors by pod"
+          ],
+          "panel_title": "Network - Errors by pod",
+          "ref_id": "B"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "container_network_transmit_bytes_total"
+        }
+      ],
+      "name": "draft_cand_0107_rate_family_aggregation_selector",
+      "occurrenceCount": 4,
+      "originalRepresentativeQuery": "- sum(rate(container_network_transmit_bytes_total{pod=~\"$pod\", cluster=~\"$cluster\"}[$__rate_interval])) by (pod)",
+      "rank": 15,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [],
+      "score": 134.477,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        }
+      ],
+      "shapeFingerprint": "- sum ( rate ( <id> { <id> = ~ <str> , <id> = ~ <str> } [ <var> ] ) ) by ( <id> )",
+      "sourceCount": 4,
+      "tier": "promote_now",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "- sum(rate(container_network_transmit_bytes_total{pod=~\"$pod\", cluster=~\"$cluster\"}[$__rate_interval])) by (pod)"
+        },
+        {
+          "count": 1,
+          "query": "- sum(rate(container_network_transmit_packets_total{pod=~\"$pod\", cluster=~\"$cluster\"}[$__rate_interval])) by (pod)"
+        },
+        {
+          "count": 1,
+          "query": "- sum(rate(container_network_transmit_packets_dropped_total{pod=~\"$pod\", cluster=~\"$cluster\"}[$__rate_interval])) by (pod)"
+        },
+        {
+          "count": 1,
+          "query": "- sum(rate(container_network_transmit_errors_total{pod=~\"$pod\", cluster=~\"$cluster\"}[$__rate_interval])) by (pod)"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api-a",
+          "variable": "pod"
+        },
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0284",
+      "dashboardCount": 1,
+      "draftQuery": "sum((8 * rate(harness_requests_total{job=\"api\",namespace=\"blue\"}[5m]))) by(pod)",
+      "exampleSources": [
+        {
+          "dashboard_title": "Kubernetes / Compute Resources / Namespace (Pods)",
+          "dashboard_uid": "85a562078cdf77779eaa1add43ccec1e",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/85a562078cdf77779eaa1add43ccec1e-Kubernetes _ Compute Resources _ Namespace Pods.json",
+          "kind": "panel_target",
+          "panel_id": 10,
+          "panel_path": [
+            "Receive Bandwidth"
+          ],
+          "panel_title": "Receive Bandwidth",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Kubernetes / Compute Resources / Namespace (Pods)",
+          "dashboard_uid": "85a562078cdf77779eaa1add43ccec1e",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/85a562078cdf77779eaa1add43ccec1e-Kubernetes _ Compute Resources _ Namespace Pods.json",
+          "kind": "panel_target",
+          "panel_id": 11,
+          "panel_path": [
+            "Transmit Bandwidth"
+          ],
+          "panel_title": "Transmit Bandwidth",
+          "ref_id": null
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "container_network_receive_bytes_total"
+        }
+      ],
+      "name": "draft_cand_0284_rate_family_aggregation_selector",
+      "occurrenceCount": 2,
+      "originalRepresentativeQuery": "sum((8 * rate(container_network_receive_bytes_total{cluster=\"$cluster\", namespace=\"$namespace\"}[$__rate_interval]))) by (pod)",
+      "rank": 22,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [],
+      "score": 131.597,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        }
+      ],
+      "shapeFingerprint": "sum ( ( <num> * rate ( <id> { <id> = <str> , <id> = <str> } [ <var> ] ) ) ) by ( <id> )",
+      "sourceCount": 2,
+      "tier": "promote_now",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum((8 * rate(container_network_receive_bytes_total{cluster=\"$cluster\", namespace=\"$namespace\"}[$__rate_interval]))) by (pod)"
+        },
+        {
+          "count": 1,
+          "query": "sum((8 * rate(container_network_transmit_bytes_total{cluster=\"$cluster\", namespace=\"$namespace\"}[$__rate_interval]))) by (pod)"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        },
+        {
+          "replacement": "blue",
+          "variable": "namespace"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0285",
+      "dashboardCount": 1,
+      "draftQuery": "sum((8 * rate(harness_requests_total{job=\"api\",namespace=~\"blue\",pod=~\"api-a\"}[5m])))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Kubernetes / Networking / Pod",
+          "dashboard_uid": "7a18067ce943a40ae25454675c19ff5c",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/7a18067ce943a40ae25454675c19ff5c-Kubernetes _ Networking _ Pod.json",
+          "kind": "panel_target",
+          "panel_id": 1,
+          "panel_path": [
+            "Current Rate of Bits Received"
+          ],
+          "panel_title": "Current Rate of Bits Received",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Kubernetes / Networking / Pod",
+          "dashboard_uid": "7a18067ce943a40ae25454675c19ff5c",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/7a18067ce943a40ae25454675c19ff5c-Kubernetes _ Networking _ Pod.json",
+          "kind": "panel_target",
+          "panel_id": 2,
+          "panel_path": [
+            "Current Rate of Bits Transmitted"
+          ],
+          "panel_title": "Current Rate of Bits Transmitted",
+          "ref_id": null
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "container_network_receive_bytes_total"
+        }
+      ],
+      "name": "draft_cand_0285_rate_family_aggregation_selector",
+      "occurrenceCount": 2,
+      "originalRepresentativeQuery": "sum((8 * rate(container_network_receive_bytes_total{cluster=\"$cluster\",namespace=~\"$namespace\", pod=~\"$pod\"}[$__rate_interval])))",
+      "rank": 23,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [],
+      "score": 131.597,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        }
+      ],
+      "shapeFingerprint": "sum ( ( <num> * rate ( <id> { <id> = <str> , <id> = ~ <str> , <id> = ~ <str> } [ <var> ] ) ) )",
+      "sourceCount": 2,
+      "tier": "promote_now",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum((8 * rate(container_network_receive_bytes_total{cluster=\"$cluster\",namespace=~\"$namespace\", pod=~\"$pod\"}[$__rate_interval])))"
+        },
+        {
+          "count": 1,
+          "query": "sum((8 * rate(container_network_transmit_bytes_total{cluster=\"$cluster\",namespace=~\"$namespace\", pod=~\"$pod\"}[$__rate_interval])))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        },
+        {
+          "replacement": "blue",
+          "variable": "namespace"
+        },
+        {
+          "replacement": "api-a",
+          "variable": "pod"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0286",
+      "dashboardCount": 1,
+      "draftQuery": "sum((8 * rate(harness_requests_total{job=\"api\",namespace=~\"blue\",pod=~\"api-a\"}[5m]))) by(pod)",
+      "exampleSources": [
+        {
+          "dashboard_title": "Kubernetes / Networking / Pod",
+          "dashboard_uid": "7a18067ce943a40ae25454675c19ff5c",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/7a18067ce943a40ae25454675c19ff5c-Kubernetes _ Networking _ Pod.json",
+          "kind": "panel_target",
+          "panel_id": 3,
+          "panel_path": [
+            "Receive Bandwidth"
+          ],
+          "panel_title": "Receive Bandwidth",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Kubernetes / Networking / Pod",
+          "dashboard_uid": "7a18067ce943a40ae25454675c19ff5c",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/7a18067ce943a40ae25454675c19ff5c-Kubernetes _ Networking _ Pod.json",
+          "kind": "panel_target",
+          "panel_id": 4,
+          "panel_path": [
+            "Transmit Bandwidth"
+          ],
+          "panel_title": "Transmit Bandwidth",
+          "ref_id": null
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "container_network_receive_bytes_total"
+        }
+      ],
+      "name": "draft_cand_0286_rate_family_aggregation_selector",
+      "occurrenceCount": 2,
+      "originalRepresentativeQuery": "sum((8 * rate(container_network_receive_bytes_total{cluster=\"$cluster\",namespace=~\"$namespace\", pod=~\"$pod\"}[$__rate_interval]))) by (pod)",
+      "rank": 24,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [],
+      "score": 131.597,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        }
+      ],
+      "shapeFingerprint": "sum ( ( <num> * rate ( <id> { <id> = <str> , <id> = ~ <str> , <id> = ~ <str> } [ <var> ] ) ) ) by ( <id> )",
+      "sourceCount": 2,
+      "tier": "promote_now",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum((8 * rate(container_network_receive_bytes_total{cluster=\"$cluster\",namespace=~\"$namespace\", pod=~\"$pod\"}[$__rate_interval]))) by (pod)"
+        },
+        {
+          "count": 1,
+          "query": "sum((8 * rate(container_network_transmit_bytes_total{cluster=\"$cluster\",namespace=~\"$namespace\", pod=~\"$pod\"}[$__rate_interval]))) by (pod)"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        },
+        {
+          "replacement": "blue",
+          "variable": "namespace"
+        },
+        {
+          "replacement": "api-a",
+          "variable": "pod"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0369",
+      "dashboardCount": 1,
+      "draftQuery": "- sum(rate(harness_requests_total{job=\"api\"}[5m])) by(instance)",
+      "exampleSources": [
+        {
+          "dashboard_title": "Kubernetes / Views / Global",
+          "dashboard_uid": "k8s_views_global",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_views_global-Kubernetes _ Views _ Global.json",
+          "kind": "panel_target",
+          "panel_id": 80,
+          "panel_path": [
+            "Total Network Received (with all virtual devices) by instance"
+          ],
+          "panel_title": "Total Network Received (with all virtual devices) by instance",
+          "ref_id": "Linux Transmitted bytes"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "node_network_transmit_bytes_total"
+        }
+      ],
+      "name": "draft_cand_0369_rate_family_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "- sum(rate(node_network_transmit_bytes_total{cluster=\"$cluster\", job=\"$job\"}[$__rate_interval])) by (instance)",
+      "rank": 29,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [],
+      "score": 129.4,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "conflict_dropped",
+          "dropped": {
+            "operator": "=",
+            "value": "\"$job\""
+          },
+          "kept": {
+            "operator": "=",
+            "value": "\"$cluster\""
+          },
+          "kind": "selector_label",
+          "source": "job",
+          "target": "job"
+        }
+      ],
+      "shapeFingerprint": "- sum ( rate ( <id> { <id> = <str> , <id> = <str> } [ <var> ] ) ) by ( <id> )",
+      "sourceCount": 1,
+      "tier": "promote_now",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "- sum(rate(node_network_transmit_bytes_total{cluster=\"$cluster\", job=\"$job\"}[$__rate_interval])) by (instance)"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0372",
+      "dashboardCount": 1,
+      "draftQuery": "- sum(rate(harness_requests_total{job=\"api\"}[5m]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Kubernetes / Views / Global",
+          "dashboard_uid": "k8s_views_global",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_views_global-Kubernetes _ Views _ Global.json",
+          "kind": "panel_target",
+          "panel_id": 53,
+          "panel_path": [
+            "Network Saturation - Packets dropped"
+          ],
+          "panel_title": "Network Saturation - Packets dropped",
+          "ref_id": "Windows Packets dropped (transmit)"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "windows_net_packets_outbound_discarded_total"
+        }
+      ],
+      "name": "draft_cand_0372_rate_family_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "- sum(rate(windows_net_packets_outbound_discarded_total{cluster=\"$cluster\"}[$__rate_interval]))",
+      "rank": 30,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [],
+      "score": 129.4,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        }
+      ],
+      "shapeFingerprint": "- sum ( rate ( <id> { <id> = <str> } [ <var> ] ) )",
+      "sourceCount": 1,
+      "tier": "promote_now",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "- sum(rate(windows_net_packets_outbound_discarded_total{cluster=\"$cluster\"}[$__rate_interval]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0594",
+      "dashboardCount": 1,
+      "draftQuery": "sum(irate(harness_request_duration_seconds_sum{instance=~\"a\",job=~\"api\"}[5m])) * 1 / sum(irate(harness_request_duration_seconds_count{instance=~\"a\",job=~\"api\"}[5m]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Grafana Overview",
+          "dashboard_uid": "6be0s85Mk",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/6be0s85Mk-Grafana Overview.json",
+          "kind": "panel_target",
+          "panel_id": 4,
+          "panel_path": [
+            "Request Latency"
+          ],
+          "panel_title": "Request Latency",
+          "ref_id": "C"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_has_sum_suffix",
+                "source_metric_looks_like_duration_sum"
+              ],
+              "score": 13.0
+            },
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_looks_like_counter",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_looks_like_duration_histogram"
+              ],
+              "score": 4.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_sum",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_sum_suffix",
+            "source_metric_looks_like_duration_sum"
+          ],
+          "sourceMetric": "grafana_http_request_duration_seconds_sum"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_has_count_suffix",
+                "source_metric_looks_like_duration_count"
+              ],
+              "score": 11.0
+            },
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_looks_like_counter",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_looks_like_duration_histogram"
+              ],
+              "score": 4.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_count",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_count_suffix",
+            "source_metric_looks_like_duration_count"
+          ],
+          "sourceMetric": "grafana_http_request_duration_seconds_count"
+        }
+      ],
+      "name": "draft_cand_0594_rate_family_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "sum(irate(grafana_http_request_duration_seconds_sum{instance=~\"$instance\", job=~\"$job\"}[$__rate_interval])) * 1 / sum(irate(grafana_http_request_duration_seconds_count{instance=~\"$instance\", job=~\"$job\"}[$__rate_interval]))",
+      "rank": 31,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [],
+      "score": 129.4,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "sum ( irate ( <id> { <id> = ~ <str> , <id> = ~ <str> } [ <var> ] ) ) * <num> / sum ( irate ( <id> { <id> = ~ <str> , <id> = ~ <str> } [ <var> ] ) )",
+      "sourceCount": 1,
+      "tier": "promote_now",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum(irate(grafana_http_request_duration_seconds_sum{instance=~\"$instance\", job=~\"$job\"}[$__rate_interval])) * 1 / sum(irate(grafana_http_request_duration_seconds_count{instance=~\"$instance\", job=~\"$job\"}[$__rate_interval]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0105",
+      "dashboardCount": 2,
+      "draftQuery": "(sum(rate(harness_requests_total{instance=~\"a\"}[5m])) - sum(rate(harness_requests_total{instance=~\"a\"}[5m]))) / sum(rate(harness_requests_total{instance=~\"a\"}[5m]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "CoreDNS Copy",
+          "dashboard_uid": "adwakhla8t24gf",
+          "file_path": "scratch/grafana-dashboards/imported/adwakhla8t24gf-CoreDNS Copy.json",
+          "kind": "panel_target",
+          "panel_id": 24,
+          "panel_path": [
+            "Cache (hitrate)"
+          ],
+          "panel_title": "Cache (hitrate)",
+          "ref_id": "E"
+        },
+        {
+          "dashboard_title": "CoreDNS Copy",
+          "dashboard_uid": "adwakhla8t24gf",
+          "file_path": "scratch/grafana-dashboards/imported/adwakhla8t24gf-CoreDNS Copy.json",
+          "kind": "panel_target",
+          "panel_id": 38,
+          "panel_path": [
+            "Cache (hitrate)"
+          ],
+          "panel_title": "Cache (hitrate)",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "CoreDNS",
+          "dashboard_uid": "wY4blRMGz",
+          "file_path": "scratch/grafana-dashboards/imported/wY4blRMGz-CoreDNS.json",
+          "kind": "panel_target",
+          "panel_id": 24,
+          "panel_path": [
+            "Cache (hitrate)"
+          ],
+          "panel_title": "Cache (hitrate)",
+          "ref_id": "E"
+        },
+        {
+          "dashboard_title": "CoreDNS",
+          "dashboard_uid": "wY4blRMGz",
+          "file_path": "scratch/grafana-dashboards/imported/wY4blRMGz-CoreDNS.json",
+          "kind": "panel_target",
+          "panel_id": 38,
+          "panel_path": [
+            "Cache (hitrate)"
+          ],
+          "panel_title": "Cache (hitrate)",
+          "ref_id": "B"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "source_metric_looks_like_counter",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 15.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "source_metric_looks_like_counter",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "coredns_cache_requests_total"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "coredns_dnssec_cache_hits_total"
+        }
+      ],
+      "name": "draft_cand_0105_rate_family_aggregation_selector",
+      "occurrenceCount": 4,
+      "originalRepresentativeQuery": "(sum(rate(coredns_cache_requests_total{instance=~\"$instance\"}[5m])) - sum(rate(coredns_dnssec_cache_hits_total{instance=~\"$instance\"}[5m]))) / sum(rate(coredns_cache_requests_total{instance=~\"$instance\"}[5m]))",
+      "rank": 40,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "metric_mapping_is_lossy_many_source_metrics_to_one_harness_metric"
+      ],
+      "score": 125.227,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "( sum ( rate ( <id> { <id> = ~ <str> } [ <dur> ] ) ) - sum ( rate ( <id> { <id> = ~ <str> } [ <dur> ] ) ) ) / sum ( rate ( <id> { <id> = ~ <str> } [ <dur> ] ) )",
+      "sourceCount": 4,
+      "tier": "promote_next",
+      "topQueryVariants": [
+        {
+          "count": 2,
+          "query": "(sum(rate(coredns_cache_requests_total{instance=~\"$instance\"}[5m])) - sum(rate(coredns_dnssec_cache_hits_total{instance=~\"$instance\"}[5m]))) / sum(rate(coredns_cache_requests_total{instance=~\"$instance\"}[5m]))"
+        },
+        {
+          "count": 2,
+          "query": "(sum(rate(coredns_forward_requests_total{instance=~\"$instance\"}[5m])) - sum(rate(coredns_forward_conn_cache_hits_total{instance=~\"$instance\"}[5m]))) / sum(rate(coredns_forward_requests_total{instance=~\"$instance\"}[5m]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0149",
+      "dashboardCount": 2,
+      "draftQuery": "sum(rate(harness_requests_total{instance=~\"a\"}[5m])) / sum(rate(harness_requests_total{instance=~\"a\"}[5m]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "CoreDNS Copy",
+          "dashboard_uid": "adwakhla8t24gf",
+          "file_path": "scratch/grafana-dashboards/imported/adwakhla8t24gf-CoreDNS Copy.json",
+          "kind": "panel_target",
+          "panel_id": 24,
+          "panel_path": [
+            "Cache (hitrate)"
+          ],
+          "panel_title": "Cache (hitrate)",
+          "ref_id": "D"
+        },
+        {
+          "dashboard_title": "CoreDNS Copy",
+          "dashboard_uid": "adwakhla8t24gf",
+          "file_path": "scratch/grafana-dashboards/imported/adwakhla8t24gf-CoreDNS Copy.json",
+          "kind": "panel_target",
+          "panel_id": 38,
+          "panel_path": [
+            "Cache (hitrate)"
+          ],
+          "panel_title": "Cache (hitrate)",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "CoreDNS",
+          "dashboard_uid": "wY4blRMGz",
+          "file_path": "scratch/grafana-dashboards/imported/wY4blRMGz-CoreDNS.json",
+          "kind": "panel_target",
+          "panel_id": 24,
+          "panel_path": [
+            "Cache (hitrate)"
+          ],
+          "panel_title": "Cache (hitrate)",
+          "ref_id": "D"
+        },
+        {
+          "dashboard_title": "CoreDNS",
+          "dashboard_uid": "wY4blRMGz",
+          "file_path": "scratch/grafana-dashboards/imported/wY4blRMGz-CoreDNS.json",
+          "kind": "panel_target",
+          "panel_id": 38,
+          "panel_path": [
+            "Cache (hitrate)"
+          ],
+          "panel_title": "Cache (hitrate)",
+          "ref_id": "A"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "coredns_dnssec_cache_hits_total"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "source_metric_looks_like_counter",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 15.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "source_metric_looks_like_counter",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "coredns_cache_requests_total"
+        }
+      ],
+      "name": "draft_cand_0149_rate_family_aggregation_selector",
+      "occurrenceCount": 4,
+      "originalRepresentativeQuery": "sum(rate(coredns_dnssec_cache_hits_total{instance=~\"$instance\"}[5m])) / sum(rate(coredns_cache_requests_total{instance=~\"$instance\"}[5m]))",
+      "rank": 41,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "metric_mapping_is_lossy_many_source_metrics_to_one_harness_metric"
+      ],
+      "score": 125.227,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "sum ( rate ( <id> { <id> = ~ <str> } [ <dur> ] ) ) / sum ( rate ( <id> { <id> = ~ <str> } [ <dur> ] ) )",
+      "sourceCount": 4,
+      "tier": "promote_next",
+      "topQueryVariants": [
+        {
+          "count": 2,
+          "query": "sum(rate(coredns_dnssec_cache_hits_total{instance=~\"$instance\"}[5m])) / sum(rate(coredns_cache_requests_total{instance=~\"$instance\"}[5m]))"
+        },
+        {
+          "count": 2,
+          "query": "sum(rate(coredns_forward_conn_cache_hits_total{instance=~\"$instance\"}[5m])) / sum(rate(coredns_forward_requests_total{instance=~\"$instance\"}[5m]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0203",
+      "dashboardCount": 1,
+      "draftQuery": "avg(irate(harness_requests_total{namespace=~\"blue\",job=~\"api\"}[5m]) / (irate(harness_requests_total{namespace=~\"blue\",job=~\"api\"}[5m]) + irate(harness_requests_total{namespace=~\"blue\",job=~\"api\"}[5m]))) by(pod)",
+      "exampleSources": [
+        {
+          "dashboard_title": "Valkey/Redis",
+          "dashboard_uid": "xDLNRKUWz2",
+          "file_path": "scratch/grafana-dashboards/WIP/xDLNRKUWz2-Valkey_Redis.json",
+          "kind": "panel_target",
+          "panel_id": 56,
+          "panel_path": [
+            "Hit ratio per instance"
+          ],
+          "panel_title": "Hit ratio per instance",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "Valkey/Redis",
+          "dashboard_uid": "xDLNRKUWz2",
+          "file_path": "scratch/grafana-dashboards/WIP/xDLNRKUWz2-Valkey_Redis.json",
+          "kind": "panel_target",
+          "panel_id": 40,
+          "panel_path": [
+            "Miss ratio per instance"
+          ],
+          "panel_title": "Miss ratio per instance",
+          "ref_id": "A"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "redis_keyspace_misses_total"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "redis_keyspace_hits_total"
+        }
+      ],
+      "name": "draft_cand_0203_rate_family_aggregation_selector",
+      "occurrenceCount": 2,
+      "originalRepresentativeQuery": "avg(irate(redis_keyspace_misses_total{namespace=~\"$namespace\", job=~\"$redis_job\"}[$__rate_interval]) / (irate(redis_keyspace_hits_total{namespace=~\"$namespace\", job=~\"$redis_job\"}[$__rate_interval]) + irate(redis_keyspace_misses_total{namespace=~\"$namespace\", job=~\"$redis_job\"}[$__rate_interval]))) by (pod)",
+      "rank": 43,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "metric_mapping_is_lossy_many_source_metrics_to_one_harness_metric"
+      ],
+      "score": 121.597,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "avg ( irate ( <id> { <id> = ~ <str> , <id> = ~ <str> } [ <var> ] ) / ( irate ( <id> { <id> = ~ <str> , <id> = ~ <str> } [ <var> ] ) + irate ( <id> { <id> = ~ <str> , <id> = ~ <str> } [ <var> ] ) ) ) by ( <id> )",
+      "sourceCount": 2,
+      "tier": "promote_next",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "avg( irate(redis_keyspace_hits_total{namespace=~\"$namespace\", job=~\"$redis_job\"}[$__rate_interval]) / ( irate(redis_keyspace_hits_total{namespace=~\"$namespace\", job=~\"$redis_job\"}[$__rate_interval]) + irate(redis_keyspace_misses_total{namespace=~\"$namespace\", job=~\"$redis_job\"}[$__rate_interval]) )) by (pod)"
+        },
+        {
+          "count": 1,
+          "query": "avg(irate(redis_keyspace_misses_total{namespace=~\"$namespace\", job=~\"$redis_job\"}[$__rate_interval]) / (irate(redis_keyspace_hits_total{namespace=~\"$namespace\", job=~\"$redis_job\"}[$__rate_interval]) + irate(redis_keyspace_misses_total{namespace=~\"$namespace\", job=~\"$redis_job\"}[$__rate_interval]))) by (pod)"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "blue",
+          "variable": "namespace"
+        },
+        {
+          "replacement": "api",
+          "variable": "redis_job"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "blue",
+          "variable": "namespace"
+        },
+        {
+          "replacement": "api",
+          "variable": "redis_job"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "blue",
+          "variable": "namespace"
+        },
+        {
+          "replacement": "api",
+          "variable": "redis_job"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0534",
+      "dashboardCount": 1,
+      "draftQuery": "sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s])) / sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 9,
+          "panel_path": [
+            "Errors"
+          ],
+          "panel_title": "Errors",
+          "ref_id": "A"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.85,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix"
+              ],
+              "score": 8.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 3.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.85,
+          "reasons": [
+            "source_metric_has_total_suffix"
+          ],
+          "sourceMetric": "thanos_objstore_bucket_operation_failures_total"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix"
+              ],
+              "score": 8.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 3.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.85,
+          "reasons": [
+            "source_metric_has_total_suffix"
+          ],
+          "sourceMetric": "thanos_objstore_bucket_operations_total"
+        }
+      ],
+      "name": "draft_cand_0534_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "sum by (job) (rate(thanos_objstore_bucket_operation_failures_total{job=~\"$job\"}[$interval])) / sum by (job) (rate(thanos_objstore_bucket_operations_total{job=~\"$job\"}[$interval]))",
+      "rank": 55,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "metric_mapping_is_lossy_many_source_metrics_to_one_harness_metric"
+      ],
+      "score": 116.4,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "sum by ( <id> ) ( rate ( <id> { <id> = ~ <str> } [ <var> ] ) ) / sum by ( <id> ) ( rate ( <id> { <id> = ~ <str> } [ <var> ] ) )",
+      "sourceCount": 1,
+      "tier": "promote_next",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum by (job) (rate(thanos_objstore_bucket_operation_failures_total{job=~\"$job\"}[$interval])) / sum by (job) (rate(thanos_objstore_bucket_operations_total{job=~\"$job\"}[$interval]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "60s",
+          "variable": "interval"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "60s",
+          "variable": "interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0513",
+      "dashboardCount": 1,
+      "draftQuery": "round(sum(rate(harness_request_duration_seconds_sum{pod=~\"api-a\",job=~\"api\"}[5m]) / rate(harness_request_duration_seconds_count{pod=~\"api-a\",job=~\"api\"}[5m])) by(pod))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Prometheus",
+          "dashboard_uid": "k8s_addons_prometheus",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_addons_prometheus-Prometheus.json",
+          "kind": "panel_target",
+          "panel_id": 85,
+          "panel_path": [
+            "Average Scrape Interval by pod"
+          ],
+          "panel_title": "Average Scrape Interval by pod",
+          "ref_id": "A"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_has_sum_suffix"
+              ],
+              "score": 9.0
+            },
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_sum",
+          "confidence": 0.85,
+          "reasons": [
+            "source_metric_has_sum_suffix"
+          ],
+          "sourceMetric": "prometheus_target_interval_length_seconds_sum"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_has_count_suffix"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_count",
+          "confidence": 0.75,
+          "reasons": [
+            "source_metric_has_count_suffix"
+          ],
+          "sourceMetric": "prometheus_target_interval_length_seconds_count"
+        }
+      ],
+      "name": "draft_cand_0513_rate_family_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "round(sum(rate(prometheus_target_interval_length_seconds_sum{pod=~\"$pod\", cluster=~\"$cluster\"}[$__rate_interval]) / rate(prometheus_target_interval_length_seconds_count{pod=~\"$pod\", cluster=~\"$cluster\"}[$__rate_interval])) by (pod))",
+      "rank": 56,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [],
+      "score": 114.4,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        }
+      ],
+      "shapeFingerprint": "<id> ( sum ( rate ( <id> { <id> = ~ <str> , <id> = ~ <str> } [ <var> ] ) / rate ( <id> { <id> = ~ <str> , <id> = ~ <str> } [ <var> ] ) ) by ( <id> ) )",
+      "sourceCount": 1,
+      "tier": "promote_next",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "round(sum(rate(prometheus_target_interval_length_seconds_sum{pod=~\"$pod\", cluster=~\"$cluster\"}[$__rate_interval]) / rate(prometheus_target_interval_length_seconds_count{pod=~\"$pod\", cluster=~\"$cluster\"}[$__rate_interval])) by (pod))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api-a",
+          "variable": "pod"
+        },
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "api-a",
+          "variable": "pod"
+        },
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0408",
+      "dashboardCount": 1,
+      "draftQuery": "avg(harness_up{namespace=~\"blue\"}) by(namespace) / avg(harness_requests_total{namespace=~\"blue\"}) by(namespace)",
+      "exampleSources": [
+        {
+          "dashboard_title": "Envoy Global",
+          "dashboard_uid": "heHhNSFf6Na8vIZWRs8H",
+          "file_path": "scratch/grafana-dashboards/Networking/heHhNSFf6Na8vIZWRs8H-Envoy Global.json",
+          "kind": "panel_target",
+          "panel_id": 17,
+          "panel_path": [
+            "Endpoint Percentage Health"
+          ],
+          "panel_title": "Endpoint Percentage Health",
+          "ref_id": "A"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_up",
+              "reasons": [
+                "source_metric_looks_like_health_or_info_gauge"
+              ],
+              "score": 6.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 1.0
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_up",
+          "confidence": 0.75,
+          "reasons": [
+            "source_metric_looks_like_health_or_info_gauge"
+          ],
+          "sourceMetric": "envoy_cluster_membership_healthy"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix"
+              ],
+              "score": 8.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 1.0
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.85,
+          "reasons": [
+            "source_metric_has_total_suffix"
+          ],
+          "sourceMetric": "envoy_cluster_membership_total"
+        }
+      ],
+      "name": "draft_cand_0408_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "avg(envoy_cluster_membership_healthy{namespace=~\"$Namespace\"}) by (namespace) / avg(envoy_cluster_membership_total{namespace=~\"$Namespace\"}) by (namespace)",
+      "rank": 67,
+      "retargetingHint": "simple_metric_substitution_candidate",
+      "reviewNotes": [],
+      "score": 106.4,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "avg ( <id> { <id> = ~ <str> } ) by ( <id> ) / avg ( <id> { <id> = ~ <str> } ) by ( <id> )",
+      "sourceCount": 1,
+      "tier": "promote_next",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "avg(envoy_cluster_membership_healthy{namespace=~\"$Namespace\"}) by (namespace) / avg(envoy_cluster_membership_total{namespace=~\"$Namespace\"}) by (namespace)"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "blue",
+          "variable": "Namespace"
+        },
+        {
+          "replacement": "blue",
+          "variable": "Namespace"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0505",
+      "dashboardCount": 1,
+      "draftQuery": "rate(harness_request_duration_seconds_sum{job=~\"api\",instance=~\"a\"}[5m]) / rate(harness_request_duration_seconds_count{job=~\"api\",instance=~\"a\"}[5m]) * 1e3",
+      "exampleSources": [
+        {
+          "dashboard_title": "Prometheus / Overview",
+          "dashboard_uid": "9fa0d141-d019-4ad7-8bc5-42196ee308bd",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/9fa0d141-d019-4ad7-8bc5-42196ee308bd-Prometheus _ Overview.json",
+          "kind": "panel_target",
+          "panel_id": 7,
+          "panel_path": [
+            "Average Scrape Interval Duration"
+          ],
+          "panel_title": "Average Scrape Interval Duration",
+          "ref_id": null
+        }
+      ],
+      "families": [
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_has_sum_suffix"
+              ],
+              "score": 9.0
+            },
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_sum",
+          "confidence": 0.85,
+          "reasons": [
+            "source_metric_has_sum_suffix"
+          ],
+          "sourceMetric": "prometheus_target_interval_length_seconds_sum"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_has_count_suffix"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_count",
+          "confidence": 0.75,
+          "reasons": [
+            "source_metric_has_count_suffix"
+          ],
+          "sourceMetric": "prometheus_target_interval_length_seconds_count"
+        }
+      ],
+      "name": "draft_cand_0505_rate_family_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "rate(prometheus_target_interval_length_seconds_sum{cluster=~\"$cluster\", job=~\"$job\",instance=~\"$instance\"}[5m]) / rate(prometheus_target_interval_length_seconds_count{cluster=~\"$cluster\", job=~\"$job\",instance=~\"$instance\"}[5m]) * 1e3",
+      "rank": 68,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [],
+      "score": 106.4,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "conflict_dropped",
+          "dropped": {
+            "operator": "=~",
+            "value": "\"$job\""
+          },
+          "kept": {
+            "operator": "=~",
+            "value": "\"$cluster\""
+          },
+          "kind": "selector_label",
+          "source": "job",
+          "target": "job"
+        },
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "conflict_dropped",
+          "dropped": {
+            "operator": "=~",
+            "value": "\"$job\""
+          },
+          "kept": {
+            "operator": "=~",
+            "value": "\"$cluster\""
+          },
+          "kind": "selector_label",
+          "source": "job",
+          "target": "job"
+        }
+      ],
+      "shapeFingerprint": "rate ( <id> { <id> = ~ <str> , <id> = ~ <str> , <id> = ~ <str> } [ <dur> ] ) / rate ( <id> { <id> = ~ <str> , <id> = ~ <str> , <id> = ~ <str> } [ <dur> ] ) * 1 <id>",
+      "sourceCount": 1,
+      "tier": "promote_next",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "rate(prometheus_target_interval_length_seconds_sum{cluster=~\"$cluster\", job=~\"$job\",instance=~\"$instance\"}[5m]) / rate(prometheus_target_interval_length_seconds_count{cluster=~\"$cluster\", job=~\"$job\",instance=~\"$instance\"}[5m]) * 1e3"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0554",
+      "dashboardCount": 1,
+      "draftQuery": "sum by(namespace) (harness_requests_total{namespace=~\"blue\"}) - sum by(namespace) (harness_up{namespace=~\"blue\"})",
+      "exampleSources": [
+        {
+          "dashboard_title": "Envoy Global",
+          "dashboard_uid": "heHhNSFf6Na8vIZWRs8H",
+          "file_path": "scratch/grafana-dashboards/Networking/heHhNSFf6Na8vIZWRs8H-Envoy Global.json",
+          "kind": "panel_target",
+          "panel_id": 20,
+          "panel_path": [
+            "Unhealthy Endpoints"
+          ],
+          "panel_title": "Unhealthy Endpoints",
+          "ref_id": "A"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix"
+              ],
+              "score": 8.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 1.0
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.85,
+          "reasons": [
+            "source_metric_has_total_suffix"
+          ],
+          "sourceMetric": "envoy_cluster_membership_total"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_up",
+              "reasons": [
+                "source_metric_looks_like_health_or_info_gauge"
+              ],
+              "score": 6.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 1.0
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_up",
+          "confidence": 0.75,
+          "reasons": [
+            "source_metric_looks_like_health_or_info_gauge"
+          ],
+          "sourceMetric": "envoy_cluster_membership_healthy"
+        }
+      ],
+      "name": "draft_cand_0554_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "sum by(namespace) (envoy_cluster_membership_total{namespace=~\"$Namespace\"}) - sum by(namespace) (envoy_cluster_membership_healthy{namespace=~\"$Namespace\"})",
+      "rank": 69,
+      "retargetingHint": "simple_metric_substitution_candidate",
+      "reviewNotes": [],
+      "score": 106.4,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "sum by ( <id> ) ( <id> { <id> = ~ <str> } ) - sum by ( <id> ) ( <id> { <id> = ~ <str> } )",
+      "sourceCount": 1,
+      "tier": "promote_next",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum by(namespace) (envoy_cluster_membership_total{namespace=~\"$Namespace\"}) - sum by(namespace) (envoy_cluster_membership_healthy{namespace=~\"$Namespace\"})"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "blue",
+          "variable": "Namespace"
+        },
+        {
+          "replacement": "blue",
+          "variable": "Namespace"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0073",
+      "dashboardCount": 1,
+      "draftQuery": "histogram_quantile(0.50, sum by(job, le) (rate(harness_request_duration_seconds_bucket{job=~\"api\"}[60s]))) * 1",
+      "exampleSources": [
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 3,
+          "panel_path": [
+            "Duration"
+          ],
+          "panel_title": "Duration",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 3,
+          "panel_path": [
+            "Duration"
+          ],
+          "panel_title": "Duration",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 3,
+          "panel_path": [
+            "Duration"
+          ],
+          "panel_title": "Duration",
+          "ref_id": "C"
+        },
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 6,
+          "panel_path": [
+            "Duration"
+          ],
+          "panel_title": "Duration",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 6,
+          "panel_path": [
+            "Duration"
+          ],
+          "panel_title": "Duration",
+          "ref_id": "B"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 3.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 3.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "grpc_server_handling_seconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0073_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 6,
+      "originalRepresentativeQuery": "histogram_quantile(0.50, sum by (job, le) (rate(grpc_server_handling_seconds_bucket{job=~\"$job\", grpc_type=\"unary\"}[$interval]))) * 1",
+      "rank": 70,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 106.026,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "grpc_type"
+        }
+      ],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum by ( <id> , <id> ) ( rate ( <id> { <id> = ~ <str> , <id> = <str> } [ <var> ] ) ) ) * <num>",
+      "sourceCount": 3,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.50, sum by (job, le) (rate(grpc_server_handling_seconds_bucket{job=~\"$job\", grpc_type=\"unary\"}[$interval]))) * 1"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.90, sum by (job, le) (rate(grpc_server_handling_seconds_bucket{job=~\"$job\", grpc_type=\"unary\"}[$interval]))) * 1"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.99, sum by (job, le) (rate(grpc_server_handling_seconds_bucket{job=~\"$job\", grpc_type=\"unary\"}[$interval]))) * 1"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.50, sum by (job, le) (rate(grpc_server_handling_seconds_bucket{job=~\"$job\", grpc_type=\"server_stream\"}[$interval]))) * 1"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.90, sum by (job, le) (rate(grpc_server_handling_seconds_bucket{job=~\"$job\", grpc_type=\"server_stream\"}[$interval]))) * 1"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "60s",
+          "variable": "interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0329",
+      "dashboardCount": 1,
+      "draftQuery": "sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 25,
+          "panel_path": [
+            "Errors Rate"
+          ],
+          "panel_title": "Errors Rate",
+          "ref_id": "4XX"
+        },
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 25,
+          "panel_path": [
+            "Errors Rate"
+          ],
+          "panel_title": "Errors Rate",
+          "ref_id": "5XX"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "set_operator"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "http_client_duration_milliseconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0329_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 2,
+      "originalRepresentativeQuery": "sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\", http_status_code=~\"4..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval]))",
+      "rank": 71,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 105.597,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "net_peer_name"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "http_status_code"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "net_peer_name"
+        }
+      ],
+      "shapeFingerprint": "sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = <str> , <id> = ~ <str> } [ <var> ] ) or vector ( <num> ) ) / sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = <str> } [ <var> ] ) )",
+      "sourceCount": 2,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\", http_status_code=~\"4..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval]))"
+        },
+        {
+          "count": 1,
+          "query": "sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\", http_status_code=~\"5..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "http_client_peer_name"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "http_client_peer_name"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0622",
+      "dashboardCount": 1,
+      "draftQuery": "sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 25,
+          "panel_path": [
+            "Errors Rate"
+          ],
+          "panel_title": "Errors Rate",
+          "ref_id": "All"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "set_operator"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "http_client_duration_milliseconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0622_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\", http_status_code!~\"2..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval]))",
+      "rank": 77,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 103.4,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "net_peer_name"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "http_status_code"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "net_peer_name"
+        }
+      ],
+      "shapeFingerprint": "sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = <str> , <id> ! ~ <str> } [ <var> ] ) or vector ( <num> ) ) / sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = <str> } [ <var> ] ) )",
+      "sourceCount": 1,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\", http_status_code!~\"2..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "http_client_peer_name"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "http_client_peer_name"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0152",
+      "dashboardCount": 3,
+      "draftQuery": "((1 - sum (rate(harness_requests_total{job=\"node-exporter\",instance=\"a\"}[5m]))) / group_left count (harness_requests_total{job=\"node-exporter\",instance=\"a\"}))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Node Exporter / MacOS",
+          "dashboard_uid": "629701ea43bf69291922ea45f4a87d37",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/629701ea43bf69291922ea45f4a87d37-Node Exporter _ MacOS.json",
+          "kind": "panel_target",
+          "panel_id": 2,
+          "panel_path": [
+            "CPU Usage"
+          ],
+          "panel_title": "CPU Usage",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Node Exporter / Nodes",
+          "dashboard_uid": "7d57716318ee0dddbac5a7f451fb7753",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/7d57716318ee0dddbac5a7f451fb7753-Node Exporter _ Nodes.json",
+          "kind": "panel_target",
+          "panel_id": 2,
+          "panel_path": [
+            "CPU Usage"
+          ],
+          "panel_title": "CPU Usage",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Node Exporter / AIX",
+          "dashboard_uid": "7e0a61e486f727d763fb1d86fdd629c2",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/7e0a61e486f727d763fb1d86fdd629c2-Node Exporter _ AIX.json",
+          "kind": "panel_target",
+          "panel_id": 2,
+          "panel_path": [
+            "CPU Usage"
+          ],
+          "panel_title": "CPU Usage",
+          "ref_id": null
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "vector_matching"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "unmapped",
+          "keyword": "without",
+          "kind": "grouping_label",
+          "source": "mode"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "ignoring",
+          "kind": "grouping_label",
+          "source": "cpu"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "without",
+          "kind": "grouping_label",
+          "source": "cpu"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "without",
+          "kind": "grouping_label",
+          "source": "mode"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "node_cpu_seconds_total"
+        }
+      ],
+      "name": "draft_cand_0152_rate_family_vector_matching_aggregation_selector",
+      "occurrenceCount": 3,
+      "originalRepresentativeQuery": "( (1 - sum without (mode) (rate(node_cpu_seconds_total{job=\"node-exporter\", mode=~\"idle|iowait|steal\", instance=\"$instance\", cluster=~\"$cluster\"}[$__rate_interval]))) / ignoring(cpu) group_left count without (cpu, mode) (node_cpu_seconds_total{job=\"node-exporter\", mode=\"idle\", instance=\"$instance\", cluster=~\"$cluster\"}) )",
+      "rank": 79,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 102.7,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "mode"
+        },
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "conflict_dropped",
+          "dropped": {
+            "operator": "=~",
+            "value": "\"$cluster\""
+          },
+          "kept": {
+            "operator": "=",
+            "value": "\"node-exporter\""
+          },
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "mode"
+        },
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "conflict_dropped",
+          "dropped": {
+            "operator": "=~",
+            "value": "\"$cluster\""
+          },
+          "kept": {
+            "operator": "=",
+            "value": "\"node-exporter\""
+          },
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        }
+      ],
+      "shapeFingerprint": "( ( <num> - sum without ( <id> ) ( rate ( <id> { <id> = <str> , <id> = ~ <str> , <id> = <str> , <id> = ~ <str> } [ <var> ] ) ) ) / ignoring ( <id> ) group_left count without ( <id> , <id> ) ( <id> { <id> = <str> , <id> = <str> , <id> = <str> , <id> = ~ <str> } ) )",
+      "sourceCount": 3,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 3,
+          "query": "( (1 - sum without (mode) (rate(node_cpu_seconds_total{job=\"node-exporter\", mode=~\"idle|iowait|steal\", instance=\"$instance\", cluster=~\"$cluster\"}[$__rate_interval]))) / ignoring(cpu) group_left count without (cpu, mode) (node_cpu_seconds_total{job=\"node-exporter\", mode=\"idle\", instance=\"$instance\", cluster=~\"$cluster\"}) )"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0023",
+      "dashboardCount": 1,
+      "draftQuery": "sum(rate(harness_requests_total[60s]) * on(instance, job) group_left harness_up{namespace=\"blue\"})",
+      "exampleSources": [
+        {
+          "dashboard_title": "RabbitMQ-Overview",
+          "dashboard_uid": "Kn5xm-gZk",
+          "file_path": "scratch/grafana-dashboards/RabbitMQ/Kn5xm-gZk-RabbitMQ-Overview.json",
+          "kind": "panel_target",
+          "panel_id": 13,
+          "panel_path": [
+            "Messages published / s"
+          ],
+          "panel_title": "Messages published / s",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "RabbitMQ-Overview",
+          "dashboard_uid": "Kn5xm-gZk",
+          "file_path": "scratch/grafana-dashboards/RabbitMQ/Kn5xm-gZk-RabbitMQ-Overview.json",
+          "kind": "panel_target",
+          "panel_id": 18,
+          "panel_path": [
+            "Messages confirmed to publishers / s"
+          ],
+          "panel_title": "Messages confirmed to publishers / s",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "RabbitMQ-Overview",
+          "dashboard_uid": "Kn5xm-gZk",
+          "file_path": "scratch/grafana-dashboards/RabbitMQ/Kn5xm-gZk-RabbitMQ-Overview.json",
+          "kind": "panel_target",
+          "panel_id": 61,
+          "panel_path": [
+            "Messages routed to queues / s"
+          ],
+          "panel_title": "Messages routed to queues / s",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "RabbitMQ-Overview",
+          "dashboard_uid": "Kn5xm-gZk",
+          "file_path": "scratch/grafana-dashboards/RabbitMQ/Kn5xm-gZk-RabbitMQ-Overview.json",
+          "kind": "panel_target",
+          "panel_id": 34,
+          "panel_path": [
+            "Unroutable messages dropped / s"
+          ],
+          "panel_title": "Unroutable messages dropped / s",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "RabbitMQ-Overview",
+          "dashboard_uid": "Kn5xm-gZk",
+          "file_path": "scratch/grafana-dashboards/RabbitMQ/Kn5xm-gZk-RabbitMQ-Overview.json",
+          "kind": "panel_target",
+          "panel_id": 16,
+          "panel_path": [
+            "Unroutable messages returned to publishers / s"
+          ],
+          "panel_title": "Unroutable messages returned to publishers / s",
+          "ref_id": "A"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "vector_matching"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "unmapped",
+          "keyword": "group_left",
+          "kind": "grouping_label",
+          "source": "rabbitmq_cluster"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "group_left",
+          "kind": "grouping_label",
+          "source": "rabbitmq_node"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "rabbitmq_node"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.7,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "rabbitmq_queues_created_total"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_up",
+              "reasons": [
+                "source_metric_looks_like_health_or_info_gauge"
+              ],
+              "score": 6.0
+            },
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            }
+          ],
+          "chosenHarnessMetric": "harness_up",
+          "confidence": 0.75,
+          "reasons": [
+            "source_metric_looks_like_health_or_info_gauge"
+          ],
+          "sourceMetric": "rabbitmq_identity_info"
+        }
+      ],
+      "name": "draft_cand_0023_rate_family_vector_matching_aggregation_selector",
+      "occurrenceCount": 19,
+      "originalRepresentativeQuery": "sum(rate(rabbitmq_queues_created_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)",
+      "rank": 85,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 101.727,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "rabbitmq_cluster"
+        }
+      ],
+      "shapeFingerprint": "sum ( rate ( <id> [ <dur> ] ) * on ( <id> , <id> ) group_left ( <id> , <id> ) <id> { <id> = <str> , <id> = <str> } ) by ( <id> )",
+      "sourceCount": 19,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum(rate(rabbitmq_global_messages_received_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)"
+        },
+        {
+          "count": 1,
+          "query": "sum(rate(rabbitmq_global_messages_confirmed_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)"
+        },
+        {
+          "count": 1,
+          "query": "sum(rate(rabbitmq_global_messages_routed_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)"
+        },
+        {
+          "count": 1,
+          "query": "sum(rate(rabbitmq_global_messages_unroutable_dropped_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)"
+        },
+        {
+          "count": 1,
+          "query": "sum(rate(rabbitmq_global_messages_unroutable_returned_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "rabbitmq_cluster"
+        },
+        {
+          "replacement": "blue",
+          "variable": "namespace"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0474",
+      "dashboardCount": 1,
+      "draftQuery": "max(harness_queue_depth{namespace=~\"blue\",pod=~\"a\"} - harness_up{namespace=~\"blue\",pod=~\"a\"})",
+      "exampleSources": [
+        {
+          "dashboard_title": "CloudNativePG",
+          "dashboard_uid": "cloudnative-pg",
+          "file_path": "scratch/grafana-dashboards/PostgreSQL/cloudnative-pg-CloudNativePG.json",
+          "kind": "panel_target",
+          "panel_id": 585,
+          "panel_path": [
+            "(untitled)"
+          ],
+          "panel_title": "(untitled)",
+          "ref_id": "A"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.75,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "source_metric_looks_like_gauge",
+                "generic_gauge_fallback"
+              ],
+              "score": 6.0
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_queue_depth",
+          "confidence": 0.75,
+          "reasons": [
+            "source_metric_looks_like_gauge",
+            "generic_gauge_fallback"
+          ],
+          "sourceMetric": "cnpg_pg_replication_streaming_replicas"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_up",
+              "reasons": [
+                "source_metric_looks_like_health_or_info_gauge"
+              ],
+              "score": 6.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 1.0
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_up",
+          "confidence": 0.75,
+          "reasons": [
+            "source_metric_looks_like_health_or_info_gauge"
+          ],
+          "sourceMetric": "cnpg_pg_replication_is_wal_receiver_up"
+        }
+      ],
+      "name": "draft_cand_0474_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "max(cnpg_pg_replication_streaming_replicas{namespace=~\"$namespace\", pod=~\"$instances\"} - cnpg_pg_replication_is_wal_receiver_up{namespace=~\"$namespace\", pod=~\"$instances\"})",
+      "rank": 87,
+      "retargetingHint": "simple_metric_substitution_candidate",
+      "reviewNotes": [],
+      "score": 101.4,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "max ( <id> { <id> = ~ <str> , <id> = ~ <str> } - <id> { <id> = ~ <str> , <id> = ~ <str> } )",
+      "sourceCount": 1,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "max(cnpg_pg_replication_streaming_replicas{namespace=~\"$namespace\", pod=~\"$instances\"} - cnpg_pg_replication_is_wal_receiver_up{namespace=~\"$namespace\", pod=~\"$instances\"})"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "blue",
+          "variable": "namespace"
+        },
+        {
+          "replacement": "a",
+          "variable": "instances"
+        },
+        {
+          "replacement": "blue",
+          "variable": "namespace"
+        },
+        {
+          "replacement": "a",
+          "variable": "instances"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0257",
+      "dashboardCount": 1,
+      "draftQuery": "sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s])) / group_left sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 2,
+          "panel_path": [
+            "Errors"
+          ],
+          "panel_title": "Errors",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 5,
+          "panel_path": [
+            "Errors"
+          ],
+          "panel_title": "Errors",
+          "ref_id": "A"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "vector_matching"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "grpc_code"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "ignoring",
+          "kind": "grouping_label",
+          "source": "grpc_code"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "grpc_server_handled_total"
+        }
+      ],
+      "name": "draft_cand_0257_rate_family_vector_matching_aggregation_selector",
+      "occurrenceCount": 2,
+      "originalRepresentativeQuery": "sum by (job, grpc_code) (rate(grpc_server_handled_total{grpc_code=~\"Unknown|ResourceExhausted|Internal|Unavailable|DataLoss\",job=~\"$job\", grpc_type=\"unary\"}[$interval])) / ignoring (grpc_code) group_left() sum by (job) (rate(grpc_server_handled_total{job=~\"$job\", grpc_type=\"unary\"}[$interval]))",
+      "rank": 91,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 99.447,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "grpc_code"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "grpc_type"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "grpc_type"
+        }
+      ],
+      "shapeFingerprint": "sum by ( <id> , <id> ) ( rate ( <id> { <id> = ~ <str> , <id> = ~ <str> , <id> = <str> } [ <var> ] ) ) / ignoring ( <id> ) group_left ( ) sum by ( <id> ) ( rate ( <id> { <id> = ~ <str> , <id> = <str> } [ <var> ] ) )",
+      "sourceCount": 1,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum by (job, grpc_code) (rate(grpc_server_handled_total{grpc_code=~\"Unknown|ResourceExhausted|Internal|Unavailable|DataLoss\",job=~\"$job\", grpc_type=\"unary\"}[$interval])) / ignoring (grpc_code) group_left() sum by (job) (rate(grpc_server_handled_total{job=~\"$job\", grpc_type=\"unary\"}[$interval]))"
+        },
+        {
+          "count": 1,
+          "query": "sum by (job, grpc_code) (rate(grpc_server_handled_total{grpc_code=~\"Unknown|ResourceExhausted|Internal|Unavailable|DataLoss\",job=~\"$job\", grpc_type=\"server_stream\"}[$interval])) / ignoring (grpc_code) group_left() sum by (job) (rate(grpc_server_handled_total{job=~\"$job\", grpc_type=\"server_stream\"}[$interval]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "60s",
+          "variable": "interval"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "60s",
+          "variable": "interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0151",
+      "dashboardCount": 1,
+      "draftQuery": "# receivers -> processor label_join(label_replace(label_join((sum(rate(harness_requests_total{job=\"api\"}[5m])) by(service)) ,\"source\", \"-rcv-\", \"transport\", \"receiver\") ,\"target\", \"processor\", \"\", \"\") , \"id\", \"-\", \"source\", \"target\") # processor -> exporters or label_join(label_replace(label_join((sum(rate(harness_requests_total{job=\"api\"}[5m])) by(service)) , \"target\", \"-exp-\", \"transport\", \"exporter\") , \"source\", \"processor\", \"\", \"\") , \"id\", \"-\", \"source\", \"target\")",
+      "exampleSources": [
+        {
+          "dashboard_title": "OpenTelemetry Collector",
+          "dashboard_uid": "BKf2sowmj",
+          "file_path": "scratch/grafana-dashboards/Monitoring meta/BKf2sowmj-OpenTelemetry Collector.json",
+          "kind": "panel_target",
+          "panel_id": 58,
+          "panel_path": [
+            "Spans Flow"
+          ],
+          "panel_title": "Spans Flow",
+          "ref_id": "edges"
+        },
+        {
+          "dashboard_title": "OpenTelemetry Collector",
+          "dashboard_uid": "BKf2sowmj",
+          "file_path": "scratch/grafana-dashboards/Monitoring meta/BKf2sowmj-OpenTelemetry Collector.json",
+          "kind": "panel_target",
+          "panel_id": 60,
+          "panel_path": [
+            "Metric Points Flow"
+          ],
+          "panel_title": "Metric Points Flow",
+          "ref_id": "edges"
+        },
+        {
+          "dashboard_title": "OpenTelemetry Collector",
+          "dashboard_uid": "BKf2sowmj",
+          "file_path": "scratch/grafana-dashboards/Monitoring meta/BKf2sowmj-OpenTelemetry Collector.json",
+          "kind": "panel_target",
+          "panel_id": 61,
+          "panel_path": [
+            "Log Records Flow"
+          ],
+          "panel_title": "Log Records Flow",
+          "ref_id": "edges"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "comparison",
+        "label_mutation",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "set_operator"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "mapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "receiver",
+          "target": "service"
+        },
+        {
+          "action": "mapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "exporter",
+          "target": "service"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.65,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.65,
+          "reasons": [
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "otelcol_receiver_accepted_spans"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.65,
+          "reasons": [
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "otelcol_exporter_sent_spans"
+        }
+      ],
+      "name": "draft_cand_0151_rate_family_aggregation_selector",
+      "occurrenceCount": 3,
+      "originalRepresentativeQuery": "# receivers -> processor label_join( label_replace( label_join( (sum(rate(otelcol_receiver_accepted_spans${suffix_total}{job=\"$job\"}[$__rate_interval])) by (receiver)) ,\"source\", \"-rcv-\", \"transport\", \"receiver\" ) ,\"target\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" ) # processor -> exporters or label_join( label_replace( label_join( (sum(rate(otelcol_exporter_sent_spans${suffix_total}{job=\"$job\"}[$__rate_interval])) by (exporter)) , \"target\", \"-exp-\", \"transport\", \"exporter\" ) , \"source\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" )",
+      "rank": 93,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "metric_mapping_is_lossy_many_source_metrics_to_one_harness_metric"
+      ],
+      "score": 99.2,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "# <id> - > <id> label_join ( label_replace ( label_join ( ( sum ( rate ( <id> <var> { <id> = <str> } [ <var> ] ) ) by ( <id> ) ) , <str> , <str> , <str> , <str> ) , <str> , <str> , <str> , <str> ) , <str> , <str> , <str> , <str> ) # <id> - > <id> or label_join ( label_replace ( label_join ( ( sum ( rate ( <id> <var> { <id> = <str> } [ <var> ] ) ) by ( <id> ) ) , <str> , <str> , <str> , <str> ) , <str> , <str> , <str> , <str> ) , <str> , <str> , <str> , <str> )",
+      "sourceCount": 3,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "# receivers -> processor label_join( label_replace( label_join( (sum(rate(otelcol_receiver_accepted_spans${suffix_total}{job=\"$job\"}[$__rate_interval])) by (receiver)) ,\"source\", \"-rcv-\", \"transport\", \"receiver\" ) ,\"target\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" ) # processor -> exporters or label_join( label_replace( label_join( (sum(rate(otelcol_exporter_sent_spans${suffix_total}{job=\"$job\"}[$__rate_interval])) by (exporter)) , \"target\", \"-exp-\", \"transport\", \"exporter\" ) , \"source\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" )"
+        },
+        {
+          "count": 1,
+          "query": "# receivers -> processor label_join( label_replace( label_join( (sum(rate(otelcol_receiver_accepted_metric_points${suffix_total}{job=\"$job\"}[$__rate_interval])) by (receiver)) , \"source\", \"-rcv-\", \"transport\", \"receiver\" ) , \"target\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" ) # processor -> exporters or label_join( label_replace( label_join( (sum(rate(otelcol_exporter_sent_metric_points${suffix_total}{job=\"$job\"}[$__rate_interval])) by (exporter)) , \"target\", \"-exp-\", \"transport\", \"exporter\" ) , \"source\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" )"
+        },
+        {
+          "count": 1,
+          "query": "# receivers -> processor label_join( label_replace( label_join( (sum(rate(otelcol_receiver_accepted_log_records${suffix_total}{job=\"$job\"}[$__rate_interval])) by (receiver)) , \"source\", \"-rcv-\", \"transport\", \"receiver\" ) , \"target\", \"processor\", \"\", \"\" ) , \"id\", \"-edg-\", \"source\", \"target\" ) # processor -> exporters or label_join( label_replace( label_join( (sum(rate(otelcol_exporter_sent_log_records${suffix_total}{job=\"$job\"}[$__rate_interval])) by (exporter)) ,\"target\",\"-exp-\",\"transport\",\"exporter\" ) ,\"source\",\"processor\",\"\",\"\" ) ,\"id\",\"-edg-\",\"source\",\"target\" )"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "",
+          "variable": "suffix_total"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "",
+          "variable": "suffix_total"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0330",
+      "dashboardCount": 1,
+      "draftQuery": "sum(rate(harness_request_duration_seconds_count{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_count{job=\"api\",instance=\"a\"}[5m]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 47,
+          "panel_path": [
+            "Errors Rate"
+          ],
+          "panel_title": "Errors Rate",
+          "ref_id": "4XX"
+        },
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 47,
+          "panel_path": [
+            "Errors Rate"
+          ],
+          "panel_title": "Errors Rate",
+          "ref_id": "5XX"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "set_operator"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_has_count_suffix",
+                "source_metric_looks_like_duration_count"
+              ],
+              "score": 11.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_looks_like_duration_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum"
+              ],
+              "score": 4.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_count",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_count_suffix",
+            "source_metric_looks_like_duration_count"
+          ],
+          "sourceMetric": "http_server_duration_milliseconds_count"
+        }
+      ],
+      "name": "draft_cand_0330_rate_family_aggregation_selector",
+      "occurrenceCount": 2,
+      "originalRepresentativeQuery": "sum(rate(http_server_duration_milliseconds_count{job=\"$job\", instance=\"$instance\", http_status_code=~\"4..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_server_duration_milliseconds_count{job=\"$job\", instance=\"$instance\"}[$__rate_interval]))",
+      "rank": 94,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 98.597,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "http_status_code"
+        }
+      ],
+      "shapeFingerprint": "sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = ~ <str> } [ <var> ] ) or vector ( <num> ) ) / sum ( rate ( <id> { <id> = <str> , <id> = <str> } [ <var> ] ) )",
+      "sourceCount": 2,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum(rate(http_server_duration_milliseconds_count{job=\"$job\", instance=\"$instance\", http_status_code=~\"4..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_server_duration_milliseconds_count{job=\"$job\", instance=\"$instance\"}[$__rate_interval]))"
+        },
+        {
+          "count": 1,
+          "query": "sum(rate(http_server_duration_milliseconds_count{job=\"$job\", instance=\"$instance\", http_status_code=~\"5..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_server_duration_milliseconds_count{job=\"$job\", instance=\"$instance\"}[$__rate_interval]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0053",
+      "dashboardCount": 1,
+      "draftQuery": "sum by(namespace) (rate(harness_requests_total{job=\"api\",namespace!=\"\"}[5m]) * on(job, namespace, pod) group_left topk by(job, namespace, pod) (1, max by(job, namespace, pod) (harness_up{job=\"api\"})))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Kubernetes / Networking / Cluster",
+          "dashboard_uid": "ff635a025bcfea7bc3dd4f508990a3e9",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/ff635a025bcfea7bc3dd4f508990a3e9-Kubernetes _ Networking _ Cluster.json",
+          "kind": "panel_target",
+          "panel_id": 3,
+          "panel_path": [
+            "Current Status"
+          ],
+          "panel_title": "Current Status",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Kubernetes / Networking / Cluster",
+          "dashboard_uid": "ff635a025bcfea7bc3dd4f508990a3e9",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/ff635a025bcfea7bc3dd4f508990a3e9-Kubernetes _ Networking _ Cluster.json",
+          "kind": "panel_target",
+          "panel_id": 8,
+          "panel_path": [
+            "Rate of Received Packets"
+          ],
+          "panel_title": "Rate of Received Packets",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Kubernetes / Networking / Cluster",
+          "dashboard_uid": "ff635a025bcfea7bc3dd4f508990a3e9",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/ff635a025bcfea7bc3dd4f508990a3e9-Kubernetes _ Networking _ Cluster.json",
+          "kind": "panel_target",
+          "panel_id": 9,
+          "panel_path": [
+            "Rate of Transmitted Packets"
+          ],
+          "panel_title": "Rate of Transmitted Packets",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Kubernetes / Networking / Cluster",
+          "dashboard_uid": "ff635a025bcfea7bc3dd4f508990a3e9",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/ff635a025bcfea7bc3dd4f508990a3e9-Kubernetes _ Networking _ Cluster.json",
+          "kind": "panel_target",
+          "panel_id": 10,
+          "panel_path": [
+            "Rate of Received Packets Dropped"
+          ],
+          "panel_title": "Rate of Received Packets Dropped",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Kubernetes / Networking / Cluster",
+          "dashboard_uid": "ff635a025bcfea7bc3dd4f508990a3e9",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/ff635a025bcfea7bc3dd4f508990a3e9-Kubernetes _ Networking _ Cluster.json",
+          "kind": "panel_target",
+          "panel_id": 11,
+          "panel_path": [
+            "Rate of Transmitted Packets Dropped"
+          ],
+          "panel_title": "Rate of Transmitted Packets Dropped",
+          "ref_id": null
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "comparison",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "vector_matching"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "mapped",
+          "keyword": "on",
+          "kind": "grouping_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "mapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "mapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "cluster",
+          "target": "job"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.7,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "container_network_receive_packets_total"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_up",
+              "reasons": [
+                "source_metric_looks_like_health_or_info_gauge"
+              ],
+              "score": 6.0
+            },
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            }
+          ],
+          "chosenHarnessMetric": "harness_up",
+          "confidence": 0.75,
+          "reasons": [
+            "source_metric_looks_like_health_or_info_gauge"
+          ],
+          "sourceMetric": "kube_pod_info"
+        }
+      ],
+      "name": "draft_cand_0053_rate_family_vector_matching_aggregation_selector",
+      "occurrenceCount": 8,
+      "originalRepresentativeQuery": "sum by (namespace) ( rate(container_network_receive_packets_total{cluster=\"$cluster\",namespace!=\"\"}[$__rate_interval]) * on (cluster,namespace,pod) group_left () topk by (cluster,namespace,pod) ( 1, max by (cluster,namespace,pod) (kube_pod_info{host_network=\"false\",cluster=\"$cluster\"}) ) )",
+      "rank": 96,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 97.595,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "host_network"
+        },
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        }
+      ],
+      "shapeFingerprint": "sum by ( <id> ) ( rate ( <id> { <id> = <str> , <id> != <str> } [ <var> ] ) * on ( <id> , <id> , <id> ) group_left ( ) topk by ( <id> , <id> , <id> ) ( <num> , max by ( <id> , <id> , <id> ) ( <id> { <id> = <str> , <id> = <str> } ) ) )",
+      "sourceCount": 5,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 2,
+          "query": "sum by (namespace) ( rate(container_network_receive_packets_total{cluster=\"$cluster\",namespace!=\"\"}[$__rate_interval]) * on (cluster,namespace,pod) group_left () topk by (cluster,namespace,pod) ( 1, max by (cluster,namespace,pod) (kube_pod_info{host_network=\"false\",cluster=\"$cluster\"}) ) )"
+        },
+        {
+          "count": 2,
+          "query": "sum by (namespace) ( rate(container_network_transmit_packets_total{cluster=\"$cluster\",namespace!=\"\"}[$__rate_interval]) * on (cluster,namespace,pod) group_left () topk by (cluster,namespace,pod) ( 1, max by (cluster,namespace,pod) (kube_pod_info{host_network=\"false\",cluster=\"$cluster\"}) ) )"
+        },
+        {
+          "count": 2,
+          "query": "sum by (namespace) ( rate(container_network_receive_packets_dropped_total{cluster=\"$cluster\",namespace!=\"\"}[$__rate_interval]) * on (cluster,namespace,pod) group_left () topk by (cluster,namespace,pod) ( 1, max by (cluster,namespace,pod) (kube_pod_info{host_network=\"false\",cluster=\"$cluster\"}) ) )"
+        },
+        {
+          "count": 2,
+          "query": "sum by (namespace) ( rate(container_network_transmit_packets_dropped_total{cluster=\"$cluster\",namespace!=\"\"}[$__rate_interval]) * on (cluster,namespace,pod) group_left () topk by (cluster,namespace,pod) ( 1, max by (cluster,namespace,pod) (kube_pod_info{host_network=\"false\",cluster=\"$cluster\"}) ) )"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        }
+      ]
+    }
+  ],
+  "queryCount": 29,
+  "theme": "binary_arithmetic"
+}

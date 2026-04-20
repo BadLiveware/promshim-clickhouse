@@ -1,0 +1,26 @@
+[
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0416_rate_family_range_function_subquery_aggregation_selector",
+    "query": "avg_over_time(sum(irate(harness_requests_total{job=\"es-search\"}[5m]))[5m:])",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0225_rate_family_subquery_aggregation_selector",
+    "query": "irate(sum by(pod) (harness_requests_total{namespace=~\"blue\",job=~\"api\"})[5m:])",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0242_rate_family_subquery_aggregation_selector",
+    "query": "rate(sum(harness_requests_total{job=~\"api\",namespace=~\"blue\"})[5m:])",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  }
+]

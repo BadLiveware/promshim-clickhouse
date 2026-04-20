@@ -1,0 +1,34 @@
+[
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0152_rate_family_vector_matching_aggregation_selector",
+    "query": "((1 - sum (rate(harness_requests_total{job=\"node-exporter\",instance=\"a\"}[5m]))) / group_left count (harness_requests_total{job=\"node-exporter\",instance=\"a\"}))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0023_rate_family_vector_matching_aggregation_selector",
+    "query": "sum(rate(harness_requests_total[60s]) * on(instance, job) group_left harness_up{namespace=\"blue\"})",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0257_rate_family_vector_matching_aggregation_selector",
+    "query": "sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s])) / group_left sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0053_rate_family_vector_matching_aggregation_selector",
+    "query": "sum by(namespace) (rate(harness_requests_total{job=\"api\",namespace!=\"\"}[5m]) * on(job, namespace, pod) group_left topk by(job, namespace, pod) (1, max by(job, namespace, pod) (harness_up{job=\"api\"})))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  }
+]

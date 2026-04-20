@@ -1,0 +1,795 @@
+{
+  "entries": [
+    {
+      "candidateId": "cand-0152",
+      "dashboardCount": 3,
+      "draftQuery": "((1 - sum (rate(harness_requests_total{job=\"node-exporter\",instance=\"a\"}[5m]))) / group_left count (harness_requests_total{job=\"node-exporter\",instance=\"a\"}))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Node Exporter / MacOS",
+          "dashboard_uid": "629701ea43bf69291922ea45f4a87d37",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/629701ea43bf69291922ea45f4a87d37-Node Exporter _ MacOS.json",
+          "kind": "panel_target",
+          "panel_id": 2,
+          "panel_path": [
+            "CPU Usage"
+          ],
+          "panel_title": "CPU Usage",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Node Exporter / Nodes",
+          "dashboard_uid": "7d57716318ee0dddbac5a7f451fb7753",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/7d57716318ee0dddbac5a7f451fb7753-Node Exporter _ Nodes.json",
+          "kind": "panel_target",
+          "panel_id": 2,
+          "panel_path": [
+            "CPU Usage"
+          ],
+          "panel_title": "CPU Usage",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Node Exporter / AIX",
+          "dashboard_uid": "7e0a61e486f727d763fb1d86fdd629c2",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/7e0a61e486f727d763fb1d86fdd629c2-Node Exporter _ AIX.json",
+          "kind": "panel_target",
+          "panel_id": 2,
+          "panel_path": [
+            "CPU Usage"
+          ],
+          "panel_title": "CPU Usage",
+          "ref_id": null
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "vector_matching"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "unmapped",
+          "keyword": "without",
+          "kind": "grouping_label",
+          "source": "mode"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "ignoring",
+          "kind": "grouping_label",
+          "source": "cpu"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "without",
+          "kind": "grouping_label",
+          "source": "cpu"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "without",
+          "kind": "grouping_label",
+          "source": "mode"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "node_cpu_seconds_total"
+        }
+      ],
+      "name": "draft_cand_0152_rate_family_vector_matching_aggregation_selector",
+      "occurrenceCount": 3,
+      "originalRepresentativeQuery": "( (1 - sum without (mode) (rate(node_cpu_seconds_total{job=\"node-exporter\", mode=~\"idle|iowait|steal\", instance=\"$instance\", cluster=~\"$cluster\"}[$__rate_interval]))) / ignoring(cpu) group_left count without (cpu, mode) (node_cpu_seconds_total{job=\"node-exporter\", mode=\"idle\", instance=\"$instance\", cluster=~\"$cluster\"}) )",
+      "rank": 79,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 102.7,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "mode"
+        },
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "conflict_dropped",
+          "dropped": {
+            "operator": "=~",
+            "value": "\"$cluster\""
+          },
+          "kept": {
+            "operator": "=",
+            "value": "\"node-exporter\""
+          },
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "mode"
+        },
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "conflict_dropped",
+          "dropped": {
+            "operator": "=~",
+            "value": "\"$cluster\""
+          },
+          "kept": {
+            "operator": "=",
+            "value": "\"node-exporter\""
+          },
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        }
+      ],
+      "shapeFingerprint": "( ( <num> - sum without ( <id> ) ( rate ( <id> { <id> = <str> , <id> = ~ <str> , <id> = <str> , <id> = ~ <str> } [ <var> ] ) ) ) / ignoring ( <id> ) group_left count without ( <id> , <id> ) ( <id> { <id> = <str> , <id> = <str> , <id> = <str> , <id> = ~ <str> } ) )",
+      "sourceCount": 3,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 3,
+          "query": "( (1 - sum without (mode) (rate(node_cpu_seconds_total{job=\"node-exporter\", mode=~\"idle|iowait|steal\", instance=\"$instance\", cluster=~\"$cluster\"}[$__rate_interval]))) / ignoring(cpu) group_left count without (cpu, mode) (node_cpu_seconds_total{job=\"node-exporter\", mode=\"idle\", instance=\"$instance\", cluster=~\"$cluster\"}) )"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0023",
+      "dashboardCount": 1,
+      "draftQuery": "sum(rate(harness_requests_total[60s]) * on(instance, job) group_left harness_up{namespace=\"blue\"})",
+      "exampleSources": [
+        {
+          "dashboard_title": "RabbitMQ-Overview",
+          "dashboard_uid": "Kn5xm-gZk",
+          "file_path": "scratch/grafana-dashboards/RabbitMQ/Kn5xm-gZk-RabbitMQ-Overview.json",
+          "kind": "panel_target",
+          "panel_id": 13,
+          "panel_path": [
+            "Messages published / s"
+          ],
+          "panel_title": "Messages published / s",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "RabbitMQ-Overview",
+          "dashboard_uid": "Kn5xm-gZk",
+          "file_path": "scratch/grafana-dashboards/RabbitMQ/Kn5xm-gZk-RabbitMQ-Overview.json",
+          "kind": "panel_target",
+          "panel_id": 18,
+          "panel_path": [
+            "Messages confirmed to publishers / s"
+          ],
+          "panel_title": "Messages confirmed to publishers / s",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "RabbitMQ-Overview",
+          "dashboard_uid": "Kn5xm-gZk",
+          "file_path": "scratch/grafana-dashboards/RabbitMQ/Kn5xm-gZk-RabbitMQ-Overview.json",
+          "kind": "panel_target",
+          "panel_id": 61,
+          "panel_path": [
+            "Messages routed to queues / s"
+          ],
+          "panel_title": "Messages routed to queues / s",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "RabbitMQ-Overview",
+          "dashboard_uid": "Kn5xm-gZk",
+          "file_path": "scratch/grafana-dashboards/RabbitMQ/Kn5xm-gZk-RabbitMQ-Overview.json",
+          "kind": "panel_target",
+          "panel_id": 34,
+          "panel_path": [
+            "Unroutable messages dropped / s"
+          ],
+          "panel_title": "Unroutable messages dropped / s",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "RabbitMQ-Overview",
+          "dashboard_uid": "Kn5xm-gZk",
+          "file_path": "scratch/grafana-dashboards/RabbitMQ/Kn5xm-gZk-RabbitMQ-Overview.json",
+          "kind": "panel_target",
+          "panel_id": 16,
+          "panel_path": [
+            "Unroutable messages returned to publishers / s"
+          ],
+          "panel_title": "Unroutable messages returned to publishers / s",
+          "ref_id": "A"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "vector_matching"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "unmapped",
+          "keyword": "group_left",
+          "kind": "grouping_label",
+          "source": "rabbitmq_cluster"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "group_left",
+          "kind": "grouping_label",
+          "source": "rabbitmq_node"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "rabbitmq_node"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.7,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "rabbitmq_queues_created_total"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_up",
+              "reasons": [
+                "source_metric_looks_like_health_or_info_gauge"
+              ],
+              "score": 6.0
+            },
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            }
+          ],
+          "chosenHarnessMetric": "harness_up",
+          "confidence": 0.75,
+          "reasons": [
+            "source_metric_looks_like_health_or_info_gauge"
+          ],
+          "sourceMetric": "rabbitmq_identity_info"
+        }
+      ],
+      "name": "draft_cand_0023_rate_family_vector_matching_aggregation_selector",
+      "occurrenceCount": 19,
+      "originalRepresentativeQuery": "sum(rate(rabbitmq_queues_created_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)",
+      "rank": 85,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 101.727,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "rabbitmq_cluster"
+        }
+      ],
+      "shapeFingerprint": "sum ( rate ( <id> [ <dur> ] ) * on ( <id> , <id> ) group_left ( <id> , <id> ) <id> { <id> = <str> , <id> = <str> } ) by ( <id> )",
+      "sourceCount": 19,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum(rate(rabbitmq_global_messages_received_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)"
+        },
+        {
+          "count": 1,
+          "query": "sum(rate(rabbitmq_global_messages_confirmed_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)"
+        },
+        {
+          "count": 1,
+          "query": "sum(rate(rabbitmq_global_messages_routed_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)"
+        },
+        {
+          "count": 1,
+          "query": "sum(rate(rabbitmq_global_messages_unroutable_dropped_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)"
+        },
+        {
+          "count": 1,
+          "query": "sum(rate(rabbitmq_global_messages_unroutable_returned_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "rabbitmq_cluster"
+        },
+        {
+          "replacement": "blue",
+          "variable": "namespace"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0257",
+      "dashboardCount": 1,
+      "draftQuery": "sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s])) / group_left sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 2,
+          "panel_path": [
+            "Errors"
+          ],
+          "panel_title": "Errors",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 5,
+          "panel_path": [
+            "Errors"
+          ],
+          "panel_title": "Errors",
+          "ref_id": "A"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "vector_matching"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "grpc_code"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "ignoring",
+          "kind": "grouping_label",
+          "source": "grpc_code"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "grpc_server_handled_total"
+        }
+      ],
+      "name": "draft_cand_0257_rate_family_vector_matching_aggregation_selector",
+      "occurrenceCount": 2,
+      "originalRepresentativeQuery": "sum by (job, grpc_code) (rate(grpc_server_handled_total{grpc_code=~\"Unknown|ResourceExhausted|Internal|Unavailable|DataLoss\",job=~\"$job\", grpc_type=\"unary\"}[$interval])) / ignoring (grpc_code) group_left() sum by (job) (rate(grpc_server_handled_total{job=~\"$job\", grpc_type=\"unary\"}[$interval]))",
+      "rank": 91,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 99.447,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "grpc_code"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "grpc_type"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "grpc_type"
+        }
+      ],
+      "shapeFingerprint": "sum by ( <id> , <id> ) ( rate ( <id> { <id> = ~ <str> , <id> = ~ <str> , <id> = <str> } [ <var> ] ) ) / ignoring ( <id> ) group_left ( ) sum by ( <id> ) ( rate ( <id> { <id> = ~ <str> , <id> = <str> } [ <var> ] ) )",
+      "sourceCount": 1,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum by (job, grpc_code) (rate(grpc_server_handled_total{grpc_code=~\"Unknown|ResourceExhausted|Internal|Unavailable|DataLoss\",job=~\"$job\", grpc_type=\"unary\"}[$interval])) / ignoring (grpc_code) group_left() sum by (job) (rate(grpc_server_handled_total{job=~\"$job\", grpc_type=\"unary\"}[$interval]))"
+        },
+        {
+          "count": 1,
+          "query": "sum by (job, grpc_code) (rate(grpc_server_handled_total{grpc_code=~\"Unknown|ResourceExhausted|Internal|Unavailable|DataLoss\",job=~\"$job\", grpc_type=\"server_stream\"}[$interval])) / ignoring (grpc_code) group_left() sum by (job) (rate(grpc_server_handled_total{job=~\"$job\", grpc_type=\"server_stream\"}[$interval]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "60s",
+          "variable": "interval"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "60s",
+          "variable": "interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0053",
+      "dashboardCount": 1,
+      "draftQuery": "sum by(namespace) (rate(harness_requests_total{job=\"api\",namespace!=\"\"}[5m]) * on(job, namespace, pod) group_left topk by(job, namespace, pod) (1, max by(job, namespace, pod) (harness_up{job=\"api\"})))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Kubernetes / Networking / Cluster",
+          "dashboard_uid": "ff635a025bcfea7bc3dd4f508990a3e9",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/ff635a025bcfea7bc3dd4f508990a3e9-Kubernetes _ Networking _ Cluster.json",
+          "kind": "panel_target",
+          "panel_id": 3,
+          "panel_path": [
+            "Current Status"
+          ],
+          "panel_title": "Current Status",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Kubernetes / Networking / Cluster",
+          "dashboard_uid": "ff635a025bcfea7bc3dd4f508990a3e9",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/ff635a025bcfea7bc3dd4f508990a3e9-Kubernetes _ Networking _ Cluster.json",
+          "kind": "panel_target",
+          "panel_id": 8,
+          "panel_path": [
+            "Rate of Received Packets"
+          ],
+          "panel_title": "Rate of Received Packets",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Kubernetes / Networking / Cluster",
+          "dashboard_uid": "ff635a025bcfea7bc3dd4f508990a3e9",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/ff635a025bcfea7bc3dd4f508990a3e9-Kubernetes _ Networking _ Cluster.json",
+          "kind": "panel_target",
+          "panel_id": 9,
+          "panel_path": [
+            "Rate of Transmitted Packets"
+          ],
+          "panel_title": "Rate of Transmitted Packets",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Kubernetes / Networking / Cluster",
+          "dashboard_uid": "ff635a025bcfea7bc3dd4f508990a3e9",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/ff635a025bcfea7bc3dd4f508990a3e9-Kubernetes _ Networking _ Cluster.json",
+          "kind": "panel_target",
+          "panel_id": 10,
+          "panel_path": [
+            "Rate of Received Packets Dropped"
+          ],
+          "panel_title": "Rate of Received Packets Dropped",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Kubernetes / Networking / Cluster",
+          "dashboard_uid": "ff635a025bcfea7bc3dd4f508990a3e9",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/ff635a025bcfea7bc3dd4f508990a3e9-Kubernetes _ Networking _ Cluster.json",
+          "kind": "panel_target",
+          "panel_id": 11,
+          "panel_path": [
+            "Rate of Transmitted Packets Dropped"
+          ],
+          "panel_title": "Rate of Transmitted Packets Dropped",
+          "ref_id": null
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "comparison",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "vector_matching"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "mapped",
+          "keyword": "on",
+          "kind": "grouping_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "mapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "mapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "cluster",
+          "target": "job"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.7,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix",
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 12.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_total_suffix",
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "container_network_receive_packets_total"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_up",
+              "reasons": [
+                "source_metric_looks_like_health_or_info_gauge"
+              ],
+              "score": 6.0
+            },
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            }
+          ],
+          "chosenHarnessMetric": "harness_up",
+          "confidence": 0.75,
+          "reasons": [
+            "source_metric_looks_like_health_or_info_gauge"
+          ],
+          "sourceMetric": "kube_pod_info"
+        }
+      ],
+      "name": "draft_cand_0053_rate_family_vector_matching_aggregation_selector",
+      "occurrenceCount": 8,
+      "originalRepresentativeQuery": "sum by (namespace) ( rate(container_network_receive_packets_total{cluster=\"$cluster\",namespace!=\"\"}[$__rate_interval]) * on (cluster,namespace,pod) group_left () topk by (cluster,namespace,pod) ( 1, max by (cluster,namespace,pod) (kube_pod_info{host_network=\"false\",cluster=\"$cluster\"}) ) )",
+      "rank": 96,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 97.595,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "host_network"
+        },
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        }
+      ],
+      "shapeFingerprint": "sum by ( <id> ) ( rate ( <id> { <id> = <str> , <id> != <str> } [ <var> ] ) * on ( <id> , <id> , <id> ) group_left ( ) topk by ( <id> , <id> , <id> ) ( <num> , max by ( <id> , <id> , <id> ) ( <id> { <id> = <str> , <id> = <str> } ) ) )",
+      "sourceCount": 5,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 2,
+          "query": "sum by (namespace) ( rate(container_network_receive_packets_total{cluster=\"$cluster\",namespace!=\"\"}[$__rate_interval]) * on (cluster,namespace,pod) group_left () topk by (cluster,namespace,pod) ( 1, max by (cluster,namespace,pod) (kube_pod_info{host_network=\"false\",cluster=\"$cluster\"}) ) )"
+        },
+        {
+          "count": 2,
+          "query": "sum by (namespace) ( rate(container_network_transmit_packets_total{cluster=\"$cluster\",namespace!=\"\"}[$__rate_interval]) * on (cluster,namespace,pod) group_left () topk by (cluster,namespace,pod) ( 1, max by (cluster,namespace,pod) (kube_pod_info{host_network=\"false\",cluster=\"$cluster\"}) ) )"
+        },
+        {
+          "count": 2,
+          "query": "sum by (namespace) ( rate(container_network_receive_packets_dropped_total{cluster=\"$cluster\",namespace!=\"\"}[$__rate_interval]) * on (cluster,namespace,pod) group_left () topk by (cluster,namespace,pod) ( 1, max by (cluster,namespace,pod) (kube_pod_info{host_network=\"false\",cluster=\"$cluster\"}) ) )"
+        },
+        {
+          "count": 2,
+          "query": "sum by (namespace) ( rate(container_network_transmit_packets_dropped_total{cluster=\"$cluster\",namespace!=\"\"}[$__rate_interval]) * on (cluster,namespace,pod) group_left () topk by (cluster,namespace,pod) ( 1, max by (cluster,namespace,pod) (kube_pod_info{host_network=\"false\",cluster=\"$cluster\"}) ) )"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        }
+      ]
+    }
+  ],
+  "queryCount": 4,
+  "theme": "vector_matching"
+}

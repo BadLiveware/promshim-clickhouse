@@ -1,0 +1,34 @@
+[
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0011_range_function_selector",
+    "query": "max_over_time(harness_queue_depth{job=\"api\",instance=\"a\"}[5m])",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0416_rate_family_range_function_subquery_aggregation_selector",
+    "query": "avg_over_time(sum(irate(harness_requests_total{job=\"es-search\"}[5m]))[5m:])",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0419_range_function_selector",
+    "query": "avg_over_time(harness_up{job=\"prometheus-localhost\",instance=\"localhost:9090\"}[5m])",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0477_range_function_aggregation_selector",
+    "query": "max(max_over_time(harness_up{instance=~\"a\"}[60s]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  }
+]

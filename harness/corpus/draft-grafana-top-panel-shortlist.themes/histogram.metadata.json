@@ -1,0 +1,3003 @@
+{
+  "entries": [
+    {
+      "candidateId": "cand-0043",
+      "dashboardCount": 3,
+      "draftQuery": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{instance=~\"a\"}[5m])) by(le, job))",
+      "exampleSources": [
+        {
+          "dashboard_title": "CoreDNS with NodeLocalDNS",
+          "dashboard_uid": "2XyV79Kix",
+          "file_path": "scratch/grafana-dashboards/Networking/2XyV79Kix-CoreDNS with NodeLocalDNS.json",
+          "kind": "panel_target",
+          "panel_id": 3,
+          "panel_path": [
+            "Responses (duration)"
+          ],
+          "panel_title": "Responses (duration)",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "CoreDNS with NodeLocalDNS",
+          "dashboard_uid": "2XyV79Kix",
+          "file_path": "scratch/grafana-dashboards/Networking/2XyV79Kix-CoreDNS with NodeLocalDNS.json",
+          "kind": "panel_target",
+          "panel_id": 3,
+          "panel_path": [
+            "Responses (duration)"
+          ],
+          "panel_title": "Responses (duration)",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "CoreDNS with NodeLocalDNS",
+          "dashboard_uid": "2XyV79Kix",
+          "file_path": "scratch/grafana-dashboards/Networking/2XyV79Kix-CoreDNS with NodeLocalDNS.json",
+          "kind": "panel_target",
+          "panel_id": 3,
+          "panel_path": [
+            "Responses (duration)"
+          ],
+          "panel_title": "Responses (duration)",
+          "ref_id": "C"
+        },
+        {
+          "dashboard_title": "CoreDNS with NodeLocalDNS",
+          "dashboard_uid": "2XyV79Kixs",
+          "file_path": "scratch/grafana-dashboards/Networking/2XyV79Kixs-CoreDNS with NodeLocalDNS.json",
+          "kind": "panel_target",
+          "panel_id": 3,
+          "panel_path": [
+            "Responses (duration)"
+          ],
+          "panel_title": "Responses (duration)",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "CoreDNS with NodeLocalDNS",
+          "dashboard_uid": "2XyV79Kixs",
+          "file_path": "scratch/grafana-dashboards/Networking/2XyV79Kixs-CoreDNS with NodeLocalDNS.json",
+          "kind": "panel_target",
+          "panel_id": 3,
+          "panel_path": [
+            "Responses (duration)"
+          ],
+          "panel_title": "Responses (duration)",
+          "ref_id": "B"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "coredns_dns_request_duration_seconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0043_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 9,
+      "originalRepresentativeQuery": "histogram_quantile(0.50, sum(rate(coredns_dns_request_duration_seconds_bucket{instance=~\"$instance\"}[5m])) by (le, job))",
+      "rank": 2,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [],
+      "score": 145.227,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum ( rate ( <id> { <id> = ~ <str> } [ <dur> ] ) ) by ( <id> , <id> ) )",
+      "sourceCount": 9,
+      "tier": "promote_now",
+      "topQueryVariants": [
+        {
+          "count": 2,
+          "query": "histogram_quantile(0.99, sum(rate(coredns_dns_request_duration_seconds_bucket{instance=~\"$instance\"}[5m])) by (le, job))"
+        },
+        {
+          "count": 2,
+          "query": "histogram_quantile(0.90, sum(rate(coredns_dns_request_duration_seconds_bucket{instance=~\"$instance\"}[5m])) by (le, job))"
+        },
+        {
+          "count": 2,
+          "query": "histogram_quantile(0.50, sum(rate(coredns_dns_request_duration_seconds_bucket{instance=~\"$instance\"}[5m])) by (le, job))"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.99, sum(rate(envoy_cluster_upstream_rq_time_bucket{namespace=~\"$Namespace\"}[5m])) by (le, namespace))"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.9, sum(rate(envoy_cluster_upstream_rq_time_bucket{namespace=~\"$Namespace\"}[5m])) by (le, namespace))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "a",
+          "variable": "instance"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0060",
+      "dashboardCount": 1,
+      "draftQuery": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m])) by(le))",
+      "exampleSources": [
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 40,
+          "panel_path": [
+            "Responses Duration"
+          ],
+          "panel_title": "Responses Duration",
+          "ref_id": "p50"
+        },
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 40,
+          "panel_path": [
+            "Responses Duration"
+          ],
+          "panel_title": "Responses Duration",
+          "ref_id": "p75"
+        },
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 40,
+          "panel_path": [
+            "Responses Duration"
+          ],
+          "panel_title": "Responses Duration",
+          "ref_id": "p90"
+        },
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 40,
+          "panel_path": [
+            "Responses Duration"
+          ],
+          "panel_title": "Responses Duration",
+          "ref_id": "p95"
+        },
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 40,
+          "panel_path": [
+            "Responses Duration"
+          ],
+          "panel_title": "Responses Duration",
+          "ref_id": "p98"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "http_server_duration_milliseconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0060_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 7,
+      "originalRepresentativeQuery": "histogram_quantile(0.50, sum(rate(http_server_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\"}[$__rate_interval])) by (le))",
+      "rank": 3,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [],
+      "score": 142.3,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum ( rate ( <id> { <id> = <str> , <id> = <str> } [ <var> ] ) ) by ( <id> ) )",
+      "sourceCount": 7,
+      "tier": "promote_now",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.50, sum(rate(http_server_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\"}[$__rate_interval])) by (le))"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.75, sum(rate(http_server_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\"}[$__rate_interval])) by (le))"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.90, sum(rate(http_server_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\"}[$__rate_interval])) by (le))"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.95, sum(rate(http_server_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\"}[$__rate_interval])) by (le))"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.98, sum(rate(http_server_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\"}[$__rate_interval])) by (le))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0074",
+      "dashboardCount": 2,
+      "draftQuery": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{instance=~\"a\"}[5m])) by(le))",
+      "exampleSources": [
+        {
+          "dashboard_title": "CoreDNS Copy",
+          "dashboard_uid": "adwakhla8t24gf",
+          "file_path": "scratch/grafana-dashboards/imported/adwakhla8t24gf-CoreDNS Copy.json",
+          "kind": "panel_target",
+          "panel_id": 37,
+          "panel_path": [
+            "Responses (latency)"
+          ],
+          "panel_title": "Responses (latency)",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "CoreDNS Copy",
+          "dashboard_uid": "adwakhla8t24gf",
+          "file_path": "scratch/grafana-dashboards/imported/adwakhla8t24gf-CoreDNS Copy.json",
+          "kind": "panel_target",
+          "panel_id": 37,
+          "panel_path": [
+            "Responses (latency)"
+          ],
+          "panel_title": "Responses (latency)",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "CoreDNS Copy",
+          "dashboard_uid": "adwakhla8t24gf",
+          "file_path": "scratch/grafana-dashboards/imported/adwakhla8t24gf-CoreDNS Copy.json",
+          "kind": "panel_target",
+          "panel_id": 37,
+          "panel_path": [
+            "Responses (latency)"
+          ],
+          "panel_title": "Responses (latency)",
+          "ref_id": "C"
+        },
+        {
+          "dashboard_title": "CoreDNS",
+          "dashboard_uid": "wY4blRMGz",
+          "file_path": "scratch/grafana-dashboards/imported/wY4blRMGz-CoreDNS.json",
+          "kind": "panel_target",
+          "panel_id": 37,
+          "panel_path": [
+            "Responses (latency)"
+          ],
+          "panel_title": "Responses (latency)",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "CoreDNS",
+          "dashboard_uid": "wY4blRMGz",
+          "file_path": "scratch/grafana-dashboards/imported/wY4blRMGz-CoreDNS.json",
+          "kind": "panel_target",
+          "panel_id": 37,
+          "panel_path": [
+            "Responses (latency)"
+          ],
+          "panel_title": "Responses (latency)",
+          "ref_id": "B"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "coredns_forward_request_duration_seconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0074_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 6,
+      "originalRepresentativeQuery": "histogram_quantile(0.50, sum(rate(coredns_forward_request_duration_seconds_bucket{instance=~\"$instance\"}[5m])) by (le))",
+      "rank": 4,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [],
+      "score": 142.226,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum ( rate ( <id> { <id> = ~ <str> } [ <dur> ] ) ) by ( <id> ) )",
+      "sourceCount": 6,
+      "tier": "promote_now",
+      "topQueryVariants": [
+        {
+          "count": 2,
+          "query": "histogram_quantile(0.99, sum(rate(coredns_forward_request_duration_seconds_bucket{instance=~\"$instance\"}[5m])) by (le))"
+        },
+        {
+          "count": 2,
+          "query": "histogram_quantile(0.90, sum(rate(coredns_forward_request_duration_seconds_bucket{instance=~\"$instance\"}[5m])) by (le))"
+        },
+        {
+          "count": 2,
+          "query": "histogram_quantile(0.50, sum(rate(coredns_forward_request_duration_seconds_bucket{instance=~\"$instance\"}[5m])) by (le))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "a",
+          "variable": "instance"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0160",
+      "dashboardCount": 1,
+      "draftQuery": "histogram_quantile(0.50, sum by(job, le) (rate(harness_request_duration_seconds_bucket{job=~\"api\"}[60s]))) * 1",
+      "exampleSources": [
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 10,
+          "panel_path": [
+            "Duration"
+          ],
+          "panel_title": "Duration",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 10,
+          "panel_path": [
+            "Duration"
+          ],
+          "panel_title": "Duration",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 10,
+          "panel_path": [
+            "Duration"
+          ],
+          "panel_title": "Duration",
+          "ref_id": "C"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "thanos_objstore_bucket_operation_duration_seconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0160_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 3,
+      "originalRepresentativeQuery": "histogram_quantile(0.50, sum by (job, le) (rate(thanos_objstore_bucket_operation_duration_seconds_bucket{job=~\"$job\"}[$interval]))) * 1",
+      "rank": 6,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [],
+      "score": 140.2,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum by ( <id> , <id> ) ( rate ( <id> { <id> = ~ <str> } [ <var> ] ) ) ) * <num>",
+      "sourceCount": 3,
+      "tier": "promote_now",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.50, sum by (job, le) (rate(thanos_objstore_bucket_operation_duration_seconds_bucket{job=~\"$job\"}[$interval]))) * 1"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.90, sum by (job, le) (rate(thanos_objstore_bucket_operation_duration_seconds_bucket{job=~\"$job\"}[$interval]))) * 1"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.99, sum by (job, le) (rate(thanos_objstore_bucket_operation_duration_seconds_bucket{job=~\"$job\"}[$interval]))) * 1"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "60s",
+          "variable": "interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0219",
+      "dashboardCount": 1,
+      "draftQuery": "histogram_quantile(0.50, sum(irate(harness_request_duration_seconds_bucket{instance=~\"a\",job=~\"api\"}[5m])) by(le)) * 1",
+      "exampleSources": [
+        {
+          "dashboard_title": "Grafana Overview",
+          "dashboard_uid": "6be0s85Mk",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/6be0s85Mk-Grafana Overview.json",
+          "kind": "panel_target",
+          "panel_id": 4,
+          "panel_path": [
+            "Request Latency"
+          ],
+          "panel_title": "Request Latency",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "Grafana Overview",
+          "dashboard_uid": "6be0s85Mk",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/6be0s85Mk-Grafana Overview.json",
+          "kind": "panel_target",
+          "panel_id": 4,
+          "panel_path": [
+            "Request Latency"
+          ],
+          "panel_title": "Request Latency",
+          "ref_id": "B"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "grafana_http_request_duration_seconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0219_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 2,
+      "originalRepresentativeQuery": "histogram_quantile(0.50, sum(irate(grafana_http_request_duration_seconds_bucket{instance=~\"$instance\", job=~\"$job\"}[$__rate_interval])) by (le)) * 1",
+      "rank": 7,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [],
+      "score": 138.597,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum ( irate ( <id> { <id> = ~ <str> , <id> = ~ <str> } [ <var> ] ) ) by ( <id> ) ) * <num>",
+      "sourceCount": 2,
+      "tier": "promote_now",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.99, sum(irate(grafana_http_request_duration_seconds_bucket{instance=~\"$instance\", job=~\"$job\"}[$__rate_interval])) by (le)) * 1"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.50, sum(irate(grafana_http_request_duration_seconds_bucket{instance=~\"$instance\", job=~\"$job\"}[$__rate_interval])) by (le)) * 1"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0159",
+      "dashboardCount": 1,
+      "draftQuery": "histogram_quantile(0.5, sum by(le) (rate(harness_request_duration_seconds_bucket[5m])))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Envoy Global",
+          "dashboard_uid": "heHhNSFf6Na8vIZWRs8H",
+          "file_path": "scratch/grafana-dashboards/Networking/heHhNSFf6Na8vIZWRs8H-Envoy Global.json",
+          "kind": "panel_target",
+          "panel_id": 16,
+          "panel_path": [
+            "Downstream Latency"
+          ],
+          "panel_title": "Downstream Latency",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "Envoy Global",
+          "dashboard_uid": "heHhNSFf6Na8vIZWRs8H",
+          "file_path": "scratch/grafana-dashboards/Networking/heHhNSFf6Na8vIZWRs8H-Envoy Global.json",
+          "kind": "panel_target",
+          "panel_id": 16,
+          "panel_path": [
+            "Downstream Latency"
+          ],
+          "panel_title": "Downstream Latency",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "Envoy Global",
+          "dashboard_uid": "heHhNSFf6Na8vIZWRs8H",
+          "file_path": "scratch/grafana-dashboards/Networking/heHhNSFf6Na8vIZWRs8H-Envoy Global.json",
+          "kind": "panel_target",
+          "panel_id": 16,
+          "panel_path": [
+            "Downstream Latency"
+          ],
+          "panel_title": "Downstream Latency",
+          "ref_id": "C"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.95,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 14.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 3.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 3.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "envoy_http_downstream_rq_time_bucket"
+        }
+      ],
+      "name": "draft_cand_0159_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 3,
+      "originalRepresentativeQuery": "histogram_quantile(0.5, sum by(le) (rate(envoy_http_downstream_rq_time_bucket[5m])))",
+      "rank": 8,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [],
+      "score": 138.2,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum by ( <id> ) ( rate ( <id> [ <dur> ] ) ) )",
+      "sourceCount": 3,
+      "tier": "promote_now",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.9, sum by(le) (rate(envoy_http_downstream_rq_time_bucket[5m])))"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.5, sum by(le) (rate(envoy_http_downstream_rq_time_bucket[5m])))"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.99, sum by(le) (rate(envoy_http_downstream_rq_time_bucket[5m])))"
+        }
+      ],
+      "variableReplacements": []
+    },
+    {
+      "candidateId": "cand-0534",
+      "dashboardCount": 1,
+      "draftQuery": "sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s])) / sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 9,
+          "panel_path": [
+            "Errors"
+          ],
+          "panel_title": "Errors",
+          "ref_id": "A"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.85,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix"
+              ],
+              "score": 8.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 3.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.85,
+          "reasons": [
+            "source_metric_has_total_suffix"
+          ],
+          "sourceMetric": "thanos_objstore_bucket_operation_failures_total"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "source_metric_has_total_suffix"
+              ],
+              "score": 8.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 3.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.85,
+          "reasons": [
+            "source_metric_has_total_suffix"
+          ],
+          "sourceMetric": "thanos_objstore_bucket_operations_total"
+        }
+      ],
+      "name": "draft_cand_0534_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "sum by (job) (rate(thanos_objstore_bucket_operation_failures_total{job=~\"$job\"}[$interval])) / sum by (job) (rate(thanos_objstore_bucket_operations_total{job=~\"$job\"}[$interval]))",
+      "rank": 55,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "metric_mapping_is_lossy_many_source_metrics_to_one_harness_metric"
+      ],
+      "score": 116.4,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "sum by ( <id> ) ( rate ( <id> { <id> = ~ <str> } [ <var> ] ) ) / sum by ( <id> ) ( rate ( <id> { <id> = ~ <str> } [ <var> ] ) )",
+      "sourceCount": 1,
+      "tier": "promote_next",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum by (job) (rate(thanos_objstore_bucket_operation_failures_total{job=~\"$job\"}[$interval])) / sum by (job) (rate(thanos_objstore_bucket_operations_total{job=~\"$job\"}[$interval]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "60s",
+          "variable": "interval"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "60s",
+          "variable": "interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0019",
+      "dashboardCount": 2,
+      "draftQuery": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{instance=~\"a\"}[5m])) by(le))",
+      "exampleSources": [
+        {
+          "dashboard_title": "CoreDNS with NodeLocalDNS",
+          "dashboard_uid": "2XyV79Kix",
+          "file_path": "scratch/grafana-dashboards/Networking/2XyV79Kix-CoreDNS with NodeLocalDNS.json",
+          "kind": "panel_target",
+          "panel_id": 9,
+          "panel_path": [
+            "Requests (size, udp)"
+          ],
+          "panel_title": "Requests (size, udp)",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "CoreDNS with NodeLocalDNS",
+          "dashboard_uid": "2XyV79Kix",
+          "file_path": "scratch/grafana-dashboards/Networking/2XyV79Kix-CoreDNS with NodeLocalDNS.json",
+          "kind": "panel_target",
+          "panel_id": 9,
+          "panel_path": [
+            "Requests (size, udp)"
+          ],
+          "panel_title": "Requests (size, udp)",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "CoreDNS with NodeLocalDNS",
+          "dashboard_uid": "2XyV79Kix",
+          "file_path": "scratch/grafana-dashboards/Networking/2XyV79Kix-CoreDNS with NodeLocalDNS.json",
+          "kind": "panel_target",
+          "panel_id": 9,
+          "panel_path": [
+            "Requests (size, udp)"
+          ],
+          "panel_title": "Requests (size, udp)",
+          "ref_id": "C"
+        },
+        {
+          "dashboard_title": "CoreDNS with NodeLocalDNS",
+          "dashboard_uid": "2XyV79Kix",
+          "file_path": "scratch/grafana-dashboards/Networking/2XyV79Kix-CoreDNS with NodeLocalDNS.json",
+          "kind": "panel_target",
+          "panel_id": 14,
+          "panel_path": [
+            "Requests (size,tcp)"
+          ],
+          "panel_title": "Requests (size,tcp)",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "CoreDNS with NodeLocalDNS",
+          "dashboard_uid": "2XyV79Kix",
+          "file_path": "scratch/grafana-dashboards/Networking/2XyV79Kix-CoreDNS with NodeLocalDNS.json",
+          "kind": "panel_target",
+          "panel_id": 14,
+          "panel_path": [
+            "Requests (size,tcp)"
+          ],
+          "panel_title": "Requests (size,tcp)",
+          "ref_id": "B"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "proto"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 14.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 3.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 3.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "coredns_dns_request_size_bytes_bucket"
+        }
+      ],
+      "name": "draft_cand_0019_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 22,
+      "originalRepresentativeQuery": "histogram_quantile(0.50, sum(rate(coredns_dns_request_size_bytes_bucket{instance=~\"$instance\",proto=\"tcp\"}[5m])) by (le,proto))",
+      "rank": 57,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 113.632,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "proto"
+        }
+      ],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum ( rate ( <id> { <id> = ~ <str> , <id> = <str> } [ <dur> ] ) ) by ( <id> , <id> ) )",
+      "sourceCount": 22,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 2,
+          "query": "histogram_quantile(0.99, sum(rate(coredns_dns_request_size_bytes_bucket{instance=~\"$instance\",proto=\"udp\"}[5m])) by (le,proto))"
+        },
+        {
+          "count": 2,
+          "query": "histogram_quantile(0.90, sum(rate(coredns_dns_request_size_bytes_bucket{instance=~\"$instance\",proto=\"udp\"}[5m])) by (le,proto))"
+        },
+        {
+          "count": 2,
+          "query": "histogram_quantile(0.50, sum(rate(coredns_dns_request_size_bytes_bucket{instance=~\"$instance\",proto=\"udp\"}[5m])) by (le,proto))"
+        },
+        {
+          "count": 2,
+          "query": "histogram_quantile(0.99, sum(rate(coredns_dns_request_size_bytes_bucket{instance=~\"$instance\",proto=\"tcp\"}[5m])) by (le,proto))"
+        },
+        {
+          "count": 2,
+          "query": "histogram_quantile(0.90, sum(rate(coredns_dns_request_size_bytes_bucket{instance=~\"$instance\",proto=\"tcp\"}[5m])) by (le,proto))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "a",
+          "variable": "instance"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0026",
+      "dashboardCount": 2,
+      "draftQuery": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{instance=~\"a\"}[5m])) by(le))",
+      "exampleSources": [
+        {
+          "dashboard_title": "CoreDNS Copy",
+          "dashboard_uid": "adwakhla8t24gf",
+          "file_path": "scratch/grafana-dashboards/imported/adwakhla8t24gf-CoreDNS Copy.json",
+          "kind": "panel_target",
+          "panel_id": 32,
+          "panel_path": [
+            "Responses (latency, internet zone)"
+          ],
+          "panel_title": "Responses (latency, internet zone)",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "CoreDNS Copy",
+          "dashboard_uid": "adwakhla8t24gf",
+          "file_path": "scratch/grafana-dashboards/imported/adwakhla8t24gf-CoreDNS Copy.json",
+          "kind": "panel_target",
+          "panel_id": 32,
+          "panel_path": [
+            "Responses (latency, internet zone)"
+          ],
+          "panel_title": "Responses (latency, internet zone)",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "CoreDNS Copy",
+          "dashboard_uid": "adwakhla8t24gf",
+          "file_path": "scratch/grafana-dashboards/imported/adwakhla8t24gf-CoreDNS Copy.json",
+          "kind": "panel_target",
+          "panel_id": 32,
+          "panel_path": [
+            "Responses (latency, internet zone)"
+          ],
+          "panel_title": "Responses (latency, internet zone)",
+          "ref_id": "C"
+        },
+        {
+          "dashboard_title": "CoreDNS Copy",
+          "dashboard_uid": "adwakhla8t24gf",
+          "file_path": "scratch/grafana-dashboards/imported/adwakhla8t24gf-CoreDNS Copy.json",
+          "kind": "panel_target",
+          "panel_id": 18,
+          "panel_path": [
+            "Requests (size, internet zone)"
+          ],
+          "panel_title": "Requests (size, internet zone)",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "CoreDNS Copy",
+          "dashboard_uid": "adwakhla8t24gf",
+          "file_path": "scratch/grafana-dashboards/imported/adwakhla8t24gf-CoreDNS Copy.json",
+          "kind": "panel_target",
+          "panel_id": 18,
+          "panel_path": [
+            "Requests (size, internet zone)"
+          ],
+          "panel_title": "Requests (size, internet zone)",
+          "ref_id": "B"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 14.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 3.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 3.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "coredns_dns_request_size_bytes_bucket"
+        }
+      ],
+      "name": "draft_cand_0026_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 18,
+      "originalRepresentativeQuery": "histogram_quantile(0.50, sum(rate(coredns_dns_request_size_bytes_bucket{instance=~\"$instance\", zone=\".\"}[5m])) by (le))",
+      "rank": 60,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 112.068,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "zone"
+        }
+      ],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum ( rate ( <id> { <id> = ~ <str> , <id> = <str> } [ <dur> ] ) ) by ( <id> ) )",
+      "sourceCount": 18,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 2,
+          "query": "histogram_quantile(0.99, sum(rate(coredns_dns_request_duration_seconds_bucket{instance=~\"$instance\", zone=\".\"}[5m])) by (le))"
+        },
+        {
+          "count": 2,
+          "query": "histogram_quantile(0.90, sum(rate(coredns_dns_request_duration_seconds_bucket{instance=~\"$instance\", zone=\".\"}[5m])) by (le))"
+        },
+        {
+          "count": 2,
+          "query": "histogram_quantile(0.50, sum(rate(coredns_dns_request_duration_seconds_bucket{instance=~\"$instance\", zone=\".\"}[5m])) by (le))"
+        },
+        {
+          "count": 2,
+          "query": "histogram_quantile(0.99, sum(rate(coredns_dns_request_size_bytes_bucket{instance=~\"$instance\", zone=\".\"}[5m])) by (le))"
+        },
+        {
+          "count": 2,
+          "query": "histogram_quantile(0.90, sum(rate(coredns_dns_request_size_bytes_bucket{instance=~\"$instance\", zone=\".\"}[5m])) by (le))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "a",
+          "variable": "instance"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0073",
+      "dashboardCount": 1,
+      "draftQuery": "histogram_quantile(0.50, sum by(job, le) (rate(harness_request_duration_seconds_bucket{job=~\"api\"}[60s]))) * 1",
+      "exampleSources": [
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 3,
+          "panel_path": [
+            "Duration"
+          ],
+          "panel_title": "Duration",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 3,
+          "panel_path": [
+            "Duration"
+          ],
+          "panel_title": "Duration",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 3,
+          "panel_path": [
+            "Duration"
+          ],
+          "panel_title": "Duration",
+          "ref_id": "C"
+        },
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 6,
+          "panel_path": [
+            "Duration"
+          ],
+          "panel_title": "Duration",
+          "ref_id": "A"
+        },
+        {
+          "dashboard_title": "Thanos / Sidecar",
+          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
+          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
+          "kind": "panel_target",
+          "panel_id": 6,
+          "panel_path": [
+            "Duration"
+          ],
+          "panel_title": "Duration",
+          "ref_id": "B"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 3.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 3.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "grpc_server_handling_seconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0073_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 6,
+      "originalRepresentativeQuery": "histogram_quantile(0.50, sum by (job, le) (rate(grpc_server_handling_seconds_bucket{job=~\"$job\", grpc_type=\"unary\"}[$interval]))) * 1",
+      "rank": 70,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 106.026,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "grpc_type"
+        }
+      ],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum by ( <id> , <id> ) ( rate ( <id> { <id> = ~ <str> , <id> = <str> } [ <var> ] ) ) ) * <num>",
+      "sourceCount": 3,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.50, sum by (job, le) (rate(grpc_server_handling_seconds_bucket{job=~\"$job\", grpc_type=\"unary\"}[$interval]))) * 1"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.90, sum by (job, le) (rate(grpc_server_handling_seconds_bucket{job=~\"$job\", grpc_type=\"unary\"}[$interval]))) * 1"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.99, sum by (job, le) (rate(grpc_server_handling_seconds_bucket{job=~\"$job\", grpc_type=\"unary\"}[$interval]))) * 1"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.50, sum by (job, le) (rate(grpc_server_handling_seconds_bucket{job=~\"$job\", grpc_type=\"server_stream\"}[$interval]))) * 1"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.90, sum by (job, le) (rate(grpc_server_handling_seconds_bucket{job=~\"$job\", grpc_type=\"server_stream\"}[$interval]))) * 1"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "60s",
+          "variable": "interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0329",
+      "dashboardCount": 1,
+      "draftQuery": "sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 25,
+          "panel_path": [
+            "Errors Rate"
+          ],
+          "panel_title": "Errors Rate",
+          "ref_id": "4XX"
+        },
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 25,
+          "panel_path": [
+            "Errors Rate"
+          ],
+          "panel_title": "Errors Rate",
+          "ref_id": "5XX"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "set_operator"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "http_client_duration_milliseconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0329_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 2,
+      "originalRepresentativeQuery": "sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\", http_status_code=~\"4..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval]))",
+      "rank": 71,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 105.597,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "net_peer_name"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "http_status_code"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "net_peer_name"
+        }
+      ],
+      "shapeFingerprint": "sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = <str> , <id> = ~ <str> } [ <var> ] ) or vector ( <num> ) ) / sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = <str> } [ <var> ] ) )",
+      "sourceCount": 2,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\", http_status_code=~\"4..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval]))"
+        },
+        {
+          "count": 1,
+          "query": "sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\", http_status_code=~\"5..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "http_client_peer_name"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "http_client_peer_name"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0059",
+      "dashboardCount": 1,
+      "draftQuery": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m])) by(le))",
+      "exampleSources": [
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 23,
+          "panel_path": [
+            "Requests Duration"
+          ],
+          "panel_title": "Requests Duration",
+          "ref_id": "p50"
+        },
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 23,
+          "panel_path": [
+            "Requests Duration"
+          ],
+          "panel_title": "Requests Duration",
+          "ref_id": "p75"
+        },
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 23,
+          "panel_path": [
+            "Requests Duration"
+          ],
+          "panel_title": "Requests Duration",
+          "ref_id": "p90"
+        },
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 23,
+          "panel_path": [
+            "Requests Duration"
+          ],
+          "panel_title": "Requests Duration",
+          "ref_id": "p95"
+        },
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 23,
+          "panel_path": [
+            "Requests Duration"
+          ],
+          "panel_title": "Requests Duration",
+          "ref_id": "p98"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "http_client_duration_milliseconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0059_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 7,
+      "originalRepresentativeQuery": "histogram_quantile(0.50, sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval])) by (le))",
+      "rank": 73,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 105.3,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "net_peer_name"
+        }
+      ],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = <str> } [ <var> ] ) ) by ( <id> ) )",
+      "sourceCount": 7,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.50, sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval])) by (le))"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.75, sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval])) by (le))"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.90, sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval])) by (le))"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.95, sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval])) by (le))"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.98, sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval])) by (le))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "http_client_peer_name"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0622",
+      "dashboardCount": 1,
+      "draftQuery": "sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]))",
+      "exampleSources": [
+        {
+          "dashboard_title": "ASP.NET OTEL Metrics",
+          "dashboard_uid": "KdDACDp4z",
+          "file_path": "scratch/grafana-dashboards/.NET/KdDACDp4z-ASP.NET OTEL Metrics.json",
+          "kind": "panel_target",
+          "panel_id": 25,
+          "panel_path": [
+            "Errors Rate"
+          ],
+          "panel_title": "Errors Rate",
+          "ref_id": "All"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "set_operator"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "http_client_duration_milliseconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0622_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\", http_status_code!~\"2..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval]))",
+      "rank": 77,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 103.4,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "net_peer_name"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "http_status_code"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "net_peer_name"
+        }
+      ],
+      "shapeFingerprint": "sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = <str> , <id> ! ~ <str> } [ <var> ] ) or vector ( <num> ) ) / sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = <str> } [ <var> ] ) )",
+      "sourceCount": 1,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\", http_status_code!~\"2..\"}[$__rate_interval]) or vector(0)) / sum(rate(http_client_duration_milliseconds_bucket{job=\"$job\", instance=\"$instance\", net_peer_name=\"$http_client_peer_name\"}[$__rate_interval]))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "http_client_peer_name"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "api",
+          "variable": "http_client_peer_name"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0113",
+      "dashboardCount": 1,
+      "draftQuery": "histogram_quantile(0.99, sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=~\"a\"}[5m])) by(instance, le))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Kubernetes / Kubelet",
+          "dashboard_uid": "3138fa155d5915769fbded898ac09fd9",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/3138fa155d5915769fbded898ac09fd9-Kubernetes _ Kubelet.json",
+          "kind": "panel_target",
+          "panel_id": 11,
+          "panel_path": [
+            "Pod Start Duration"
+          ],
+          "panel_title": "Pod Start Duration",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Kubernetes / Kubelet",
+          "dashboard_uid": "3138fa155d5915769fbded898ac09fd9",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/3138fa155d5915769fbded898ac09fd9-Kubernetes _ Kubelet.json",
+          "kind": "panel_target",
+          "panel_id": 18,
+          "panel_path": [
+            "PLEG relist interval"
+          ],
+          "panel_title": "PLEG relist interval",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Kubernetes / Kubelet",
+          "dashboard_uid": "3138fa155d5915769fbded898ac09fd9",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/3138fa155d5915769fbded898ac09fd9-Kubernetes _ Kubelet.json",
+          "kind": "panel_target",
+          "panel_id": 19,
+          "panel_path": [
+            "PLEG relist duration"
+          ],
+          "panel_title": "PLEG relist duration",
+          "ref_id": null
+        }
+      ],
+      "families": [
+        "aggregation",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "kubelet_pod_start_duration_seconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0113_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 4,
+      "originalRepresentativeQuery": "histogram_quantile(0.99, sum(rate(kubelet_pod_start_duration_seconds_bucket{cluster=\"$cluster\",job=\"kubelet\", metrics_path=\"/metrics\",instance=~\"$instance\"}[$__rate_interval])) by (instance, le))",
+      "rank": 82,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 102.327,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "conflict_dropped",
+          "dropped": {
+            "operator": "=",
+            "value": "\"kubelet\""
+          },
+          "kept": {
+            "operator": "=",
+            "value": "\"$cluster\""
+          },
+          "kind": "selector_label",
+          "source": "job",
+          "target": "job"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "metrics_path"
+        }
+      ],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = <str> , <id> = ~ <str> } [ <var> ] ) ) by ( <id> , <id> ) )",
+      "sourceCount": 3,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.99, sum(rate(kubelet_pod_start_duration_seconds_bucket{cluster=\"$cluster\",job=\"kubelet\", metrics_path=\"/metrics\",instance=~\"$instance\"}[$__rate_interval])) by (instance, le))"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.99, sum(rate(kubelet_pod_worker_duration_seconds_bucket{cluster=\"$cluster\",job=\"kubelet\", metrics_path=\"/metrics\",instance=~\"$instance\"}[$__rate_interval])) by (instance, le))"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.99, sum(rate(kubelet_pleg_relist_interval_seconds_bucket{cluster=\"$cluster\",job=\"kubelet\", metrics_path=\"/metrics\",instance=~\"$instance\"}[$__rate_interval])) by (instance, le))"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.99, sum(rate(kubelet_pleg_relist_duration_seconds_bucket{cluster=\"$cluster\",job=\"kubelet\", metrics_path=\"/metrics\",instance=~\"$instance\"}[$__rate_interval])) by (instance, le))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0161",
+      "dashboardCount": 1,
+      "draftQuery": "histogram_quantile(0.99, sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=~\"a\"}[5m])) by(instance, le))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Kubernetes / Kubelet",
+          "dashboard_uid": "3138fa155d5915769fbded898ac09fd9",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/3138fa155d5915769fbded898ac09fd9-Kubernetes _ Kubelet.json",
+          "kind": "panel_target",
+          "panel_id": 9,
+          "panel_path": [
+            "Operation Duration 99th quantile"
+          ],
+          "panel_title": "Operation Duration 99th quantile",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Kubernetes / Kubelet",
+          "dashboard_uid": "3138fa155d5915769fbded898ac09fd9",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/3138fa155d5915769fbded898ac09fd9-Kubernetes _ Kubelet.json",
+          "kind": "panel_target",
+          "panel_id": 16,
+          "panel_path": [
+            "Cgroup manager 99th quantile"
+          ],
+          "panel_title": "Cgroup manager 99th quantile",
+          "ref_id": null
+        },
+        {
+          "dashboard_title": "Kubernetes / Kubelet",
+          "dashboard_uid": "3138fa155d5915769fbded898ac09fd9",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/3138fa155d5915769fbded898ac09fd9-Kubernetes _ Kubelet.json",
+          "kind": "panel_target",
+          "panel_id": 21,
+          "panel_path": [
+            "Request duration 99th quantile"
+          ],
+          "panel_title": "Request duration 99th quantile",
+          "ref_id": null
+        }
+      ],
+      "families": [
+        "aggregation",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "verb"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "rest_client_request_duration_seconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0161_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 3,
+      "originalRepresentativeQuery": "histogram_quantile(0.99, sum(rate(rest_client_request_duration_seconds_bucket{cluster=\"$cluster\",job=\"kubelet\", metrics_path=\"/metrics\", instance=~\"$instance\"}[$__rate_interval])) by (instance, verb, le))",
+      "rank": 88,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 101.2,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "conflict_dropped",
+          "dropped": {
+            "operator": "=",
+            "value": "\"kubelet\""
+          },
+          "kept": {
+            "operator": "=",
+            "value": "\"$cluster\""
+          },
+          "kind": "selector_label",
+          "source": "job",
+          "target": "job"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "metrics_path"
+        }
+      ],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = <str> , <id> = ~ <str> } [ <var> ] ) ) by ( <id> , <id> , <id> ) )",
+      "sourceCount": 3,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.99, sum(rate(kubelet_runtime_operations_duration_seconds_bucket{cluster=\"$cluster\",job=\"kubelet\", metrics_path=\"/metrics\",instance=~\"$instance\"}[$__rate_interval])) by (instance, operation_type, le))"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.99, sum(rate(kubelet_cgroup_manager_duration_seconds_bucket{cluster=\"$cluster\", job=\"kubelet\", metrics_path=\"/metrics\", instance=~\"$instance\"}[$__rate_interval])) by (instance, operation_type, le))"
+        },
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.99, sum(rate(rest_client_request_duration_seconds_bucket{cluster=\"$cluster\",job=\"kubelet\", metrics_path=\"/metrics\", instance=~\"$instance\"}[$__rate_interval])) by (instance, verb, le))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0221",
+      "dashboardCount": 2,
+      "draftQuery": "histogram_quantile(0.90, sum(rate(harness_request_duration_seconds_bucket{instance=\"a\"}[5m])) by(le))",
+      "exampleSources": [
+        {
+          "dashboard_title": "CoreDNS with NodeLocalDNS",
+          "dashboard_uid": "2XyV79Kix",
+          "file_path": "scratch/grafana-dashboards/Networking/2XyV79Kix-CoreDNS with NodeLocalDNS.json",
+          "kind": "panel_target",
+          "panel_id": 8,
+          "panel_path": [
+            "Responses (size, udp)"
+          ],
+          "panel_title": "Responses (size, udp)",
+          "ref_id": "B"
+        },
+        {
+          "dashboard_title": "CoreDNS with NodeLocalDNS",
+          "dashboard_uid": "2XyV79Kixs",
+          "file_path": "scratch/grafana-dashboards/Networking/2XyV79Kixs-CoreDNS with NodeLocalDNS.json",
+          "kind": "panel_target",
+          "panel_id": 8,
+          "panel_path": [
+            "Responses (size, udp)"
+          ],
+          "panel_title": "Responses (size, udp)",
+          "ref_id": "B"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "proto"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 14.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 3.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 3.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "coredns_dns_response_size_bytes_bucket"
+        }
+      ],
+      "name": "draft_cand_0221_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 2,
+      "originalRepresentativeQuery": "histogram_quantile(0.90, sum(rate(coredns_dns_response_size_bytes_bucket{instance=\"$instance\",proto=\"udp\"}[5m])) by (le,proto))",
+      "rank": 89,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 100.347,
+      "selectorLabelChanges": [
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "proto"
+        }
+      ],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum ( rate ( <id> { <id> = <str> , <id> = <str> } [ <dur> ] ) ) by ( <id> , <id> ) )",
+      "sourceCount": 2,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 2,
+          "query": "histogram_quantile(0.90, sum(rate(coredns_dns_response_size_bytes_bucket{instance=\"$instance\",proto=\"udp\"}[5m])) by (le,proto))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "a",
+          "variable": "instance"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0447",
+      "dashboardCount": 1,
+      "draftQuery": "histogram_quantile(0.99, sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=~\"a\"}[5m])) by(instance, le))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Kubernetes / Kubelet",
+          "dashboard_uid": "3138fa155d5915769fbded898ac09fd9",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/3138fa155d5915769fbded898ac09fd9-Kubernetes _ Kubelet.json",
+          "kind": "panel_target",
+          "panel_id": 14,
+          "panel_path": [
+            "Storage Operation Duration 99th quantile"
+          ],
+          "panel_title": "Storage Operation Duration 99th quantile",
+          "ref_id": null
+        }
+      ],
+      "families": [
+        "aggregation",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "operation_name"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "volume_plugin"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "storage_operation_duration_seconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0447_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "histogram_quantile(0.99, sum(rate(storage_operation_duration_seconds_bucket{cluster=\"$cluster\", job=\"kubelet\", metrics_path=\"/metrics\", instance=~\"$instance\"}[$__rate_interval])) by (instance, operation_name, volume_plugin, le))",
+      "rank": 97,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 97.4,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "conflict_dropped",
+          "dropped": {
+            "operator": "=",
+            "value": "\"kubelet\""
+          },
+          "kept": {
+            "operator": "=",
+            "value": "\"$cluster\""
+          },
+          "kind": "selector_label",
+          "source": "job",
+          "target": "job"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "metrics_path"
+        }
+      ],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum ( rate ( <id> { <id> = <str> , <id> = <str> , <id> = <str> , <id> = ~ <str> } [ <var> ] ) ) by ( <id> , <id> , <id> , <id> ) )",
+      "sourceCount": 1,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.99, sum(rate(storage_operation_duration_seconds_bucket{cluster=\"$cluster\", job=\"kubelet\", metrics_path=\"/metrics\", instance=~\"$instance\"}[$__rate_interval])) by (instance, operation_name, volume_plugin, le))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "api",
+          "variable": "cluster"
+        },
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0448",
+      "dashboardCount": 1,
+      "draftQuery": "histogram_quantile(0.99, sum(rate(harness_request_duration_seconds_bucket{job=\"apiserver\",instance=~\"a\"}[5m])) by(instance, le))",
+      "exampleSources": [
+        {
+          "dashboard_title": "Kubernetes / API server",
+          "dashboard_uid": "09ec8aa1e996d6ffcd6817bbaff4db1b",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/09ec8aa1e996d6ffcd6817bbaff4db1b-Kubernetes _ API server.json",
+          "kind": "panel_target",
+          "panel_id": 14,
+          "panel_path": [
+            "Work Queue Latency"
+          ],
+          "panel_title": "Work Queue Latency",
+          "ref_id": null
+        }
+      ],
+      "families": [
+        "aggregation",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "name"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "workqueue_queue_duration_seconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0448_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "histogram_quantile(0.99, sum(rate(workqueue_queue_duration_seconds_bucket{job=\"apiserver\", instance=~\"$instance\", cluster=\"$cluster\"}[$__rate_interval])) by (instance, name, le))",
+      "rank": 98,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 97.4,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        },
+        {
+          "action": "conflict_dropped",
+          "dropped": {
+            "operator": "=",
+            "value": "\"$cluster\""
+          },
+          "kept": {
+            "operator": "=",
+            "value": "\"apiserver\""
+          },
+          "kind": "selector_label",
+          "source": "cluster",
+          "target": "job"
+        }
+      ],
+      "shapeFingerprint": "histogram_quantile ( <num> , sum ( rate ( <id> { <id> = <str> , <id> = ~ <str> , <id> = <str> } [ <var> ] ) ) by ( <id> , <id> , <id> ) )",
+      "sourceCount": 1,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "histogram_quantile(0.99, sum(rate(workqueue_queue_duration_seconds_bucket{job=\"apiserver\", instance=~\"$instance\", cluster=\"$cluster\"}[$__rate_interval])) by (instance, name, le))"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "a",
+          "variable": "instance"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0646",
+      "dashboardCount": 1,
+      "draftQuery": "topk(2, histogram_quantile(0.9, sum(rate(harness_request_duration_seconds_bucket{namespace=~\"blue\",service=~\"api\"}[60s])) by(le)))",
+      "exampleSources": [
+        {
+          "dashboard_title": ".NET OpenTelemetry",
+          "dashboard_uid": "307f51280f8e44a5a4c4a3878dfa9399",
+          "file_path": "scratch/grafana-dashboards/WIP/307f51280f8e44a5a4c4a3878dfa9399-.NET OpenTelemetry.json",
+          "kind": "panel_target",
+          "panel_id": 651,
+          "panel_path": [
+            "Http Client requests Durations ($percentile)"
+          ],
+          "panel_title": "Http Client requests Durations ($percentile)",
+          "ref_id": "A"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "http_request_method"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "url_scheme"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "http_route"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "http_response_status_code"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "server_address"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "server_port"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "network_protocol_version"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "http_client_request_duration_seconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0646_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "topk($top, histogram_quantile(${percentile:value}, sum(rate(http_client_request_duration_seconds_bucket{k8s_namespace_name=~\"$k8s_namespace_name\", service_name=~\"$service_name\", service_version=~\"$service_version\"}[$interval])) by (le, http_request_method, url_scheme, http_route, http_response_status_code,server_address,server_port,network_protocol_version) ) )",
+      "rank": 99,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 97.4,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "k8s_namespace_name",
+          "target": "namespace"
+        },
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "service_name",
+          "target": "service"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "service_version"
+        }
+      ],
+      "shapeFingerprint": "topk ( <var> , histogram_quantile ( <var> , sum ( rate ( <id> { <id> = ~ <str> , <id> = ~ <str> , <id> = ~ <str> } [ <var> ] ) ) by ( <id> , <id> , <id> , <id> , <id> , <id> , <id> , <id> ) ) )",
+      "sourceCount": 1,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "topk($top, histogram_quantile(${percentile:value}, sum(rate(http_client_request_duration_seconds_bucket{k8s_namespace_name=~\"$k8s_namespace_name\", service_name=~\"$service_name\", service_version=~\"$service_version\"}[$interval])) by (le, http_request_method, url_scheme, http_route, http_response_status_code,server_address,server_port,network_protocol_version) ) )"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "2",
+          "variable": "top"
+        },
+        {
+          "replacement": "0.9",
+          "variable": "percentile"
+        },
+        {
+          "replacement": "blue",
+          "variable": "k8s_namespace_name"
+        },
+        {
+          "replacement": "api",
+          "variable": "service_name"
+        },
+        {
+          "replacement": "api",
+          "variable": "service_version"
+        },
+        {
+          "replacement": "60s",
+          "variable": "interval"
+        }
+      ]
+    },
+    {
+      "candidateId": "cand-0650",
+      "dashboardCount": 1,
+      "draftQuery": "topk(2, histogram_quantile(0.9, sum(rate(harness_request_duration_seconds_bucket{namespace=~\"blue\",service=~\"api\"}[5m])) by(le)))",
+      "exampleSources": [
+        {
+          "dashboard_title": ".NET OpenTelemetry",
+          "dashboard_uid": "307f51280f8e44a5a4c4a3878dfa9399",
+          "file_path": "scratch/grafana-dashboards/WIP/307f51280f8e44a5a4c4a3878dfa9399-.NET OpenTelemetry.json",
+          "kind": "panel_target",
+          "panel_id": 656,
+          "panel_path": [
+            "Connections Durations ($percentile)"
+          ],
+          "panel_title": "Connections Durations ($percentile)",
+          "ref_id": "A"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "histogram",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "network_protocol_name"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "network_protocol_version"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "network_transport"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "network_type"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "server_address"
+        },
+        {
+          "action": "unmapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "server_port"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.8,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_request_duration_seconds_bucket",
+              "reasons": [
+                "source_metric_has_bucket_suffix",
+                "source_metric_looks_like_duration_histogram",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 18.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_count",
+              "reasons": [
+                "source_metric_looks_like_duration_count",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            },
+            {
+              "harnessMetric": "harness_request_duration_seconds_sum",
+              "reasons": [
+                "source_metric_looks_like_duration_sum",
+                "query_family_uses_histogram_semantics"
+              ],
+              "score": 7.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_request_duration_seconds_bucket",
+          "confidence": 0.95,
+          "reasons": [
+            "source_metric_has_bucket_suffix",
+            "source_metric_looks_like_duration_histogram",
+            "query_family_uses_histogram_semantics"
+          ],
+          "sourceMetric": "kestrel_connection_duration_seconds_bucket"
+        }
+      ],
+      "name": "draft_cand_0650_histogram_rate_family_aggregation_selector",
+      "occurrenceCount": 1,
+      "originalRepresentativeQuery": "topk($top, histogram_quantile(${percentile:value}, sum(rate(kestrel_connection_duration_seconds_bucket{k8s_namespace_name=~\"$k8s_namespace_name\", service_name=~\"$service_name\", service_version=~\"$service_version\"}[$__rate_interval])) by (le,network_protocol_name,network_protocol_version,network_transport,network_type,server_address,server_port) ) )",
+      "rank": 100,
+      "retargetingHint": "requires_histogram_counter_fixture",
+      "reviewNotes": [
+        "query_contains_unmapped_labels_after_initial_rewrite",
+        "draft_runnable_query_required_dropping_unmapped_labels"
+      ],
+      "score": 97.4,
+      "selectorLabelChanges": [
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "k8s_namespace_name",
+          "target": "namespace"
+        },
+        {
+          "action": "mapped",
+          "kind": "selector_label",
+          "source": "service_name",
+          "target": "service"
+        },
+        {
+          "action": "unmapped",
+          "kind": "selector_label",
+          "source": "service_version"
+        }
+      ],
+      "shapeFingerprint": "topk ( <var> , histogram_quantile ( <var> , sum ( rate ( <id> { <id> = ~ <str> , <id> = ~ <str> , <id> = ~ <str> } [ <var> ] ) ) by ( <id> , <id> , <id> , <id> , <id> , <id> , <id> ) ) )",
+      "sourceCount": 1,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "topk($top, histogram_quantile(${percentile:value}, sum(rate(kestrel_connection_duration_seconds_bucket{k8s_namespace_name=~\"$k8s_namespace_name\", service_name=~\"$service_name\", service_version=~\"$service_version\"}[$__rate_interval])) by (le,network_protocol_name,network_protocol_version,network_transport,network_type,server_address,server_port) ) )"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "2",
+          "variable": "top"
+        },
+        {
+          "replacement": "0.9",
+          "variable": "percentile"
+        },
+        {
+          "replacement": "blue",
+          "variable": "k8s_namespace_name"
+        },
+        {
+          "replacement": "api",
+          "variable": "service_name"
+        },
+        {
+          "replacement": "api",
+          "variable": "service_version"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    }
+  ],
+  "queryCount": 20,
+  "theme": "histogram"
+}

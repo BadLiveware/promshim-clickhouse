@@ -1,0 +1,10 @@
+[
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0151_rate_family_aggregation_selector",
+    "query": "# receivers -> processor label_join(label_replace(label_join((sum(rate(harness_requests_total{job=\"api\"}[5m])) by(service)) ,\"source\", \"-rcv-\", \"transport\", \"receiver\") ,\"target\", \"processor\", \"\", \"\") , \"id\", \"-\", \"source\", \"target\") # processor -> exporters or label_join(label_replace(label_join((sum(rate(harness_requests_total{job=\"api\"}[5m])) by(service)) , \"target\", \"-exp-\", \"transport\", \"exporter\") , \"source\", \"processor\", \"\", \"\") , \"id\", \"-\", \"source\", \"target\")",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  }
+]

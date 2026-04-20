@@ -1,0 +1,162 @@
+[
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0043_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{instance=~\"a\"}[5m])) by(le, job))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0060_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m])) by(le))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0074_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{instance=~\"a\"}[5m])) by(le))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0160_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.50, sum by(job, le) (rate(harness_request_duration_seconds_bucket{job=~\"api\"}[60s]))) * 1",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0219_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.50, sum(irate(harness_request_duration_seconds_bucket{instance=~\"a\",job=~\"api\"}[5m])) by(le)) * 1",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0159_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.5, sum by(le) (rate(harness_request_duration_seconds_bucket[5m])))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0534_histogram_rate_family_aggregation_selector",
+    "query": "sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s])) / sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0019_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{instance=~\"a\"}[5m])) by(le))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0026_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{instance=~\"a\"}[5m])) by(le))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0073_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.50, sum by(job, le) (rate(harness_request_duration_seconds_bucket{job=~\"api\"}[60s]))) * 1",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0329_histogram_rate_family_aggregation_selector",
+    "query": "sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0059_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m])) by(le))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0622_histogram_rate_family_aggregation_selector",
+    "query": "sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0113_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.99, sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=~\"a\"}[5m])) by(instance, le))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0161_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.99, sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=~\"a\"}[5m])) by(instance, le))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0221_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.90, sum(rate(harness_request_duration_seconds_bucket{instance=\"a\"}[5m])) by(le))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0447_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.99, sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=~\"a\"}[5m])) by(instance, le))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0448_histogram_rate_family_aggregation_selector",
+    "query": "histogram_quantile(0.99, sum(rate(harness_request_duration_seconds_bucket{job=\"apiserver\",instance=~\"a\"}[5m])) by(instance, le))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0646_histogram_rate_family_aggregation_selector",
+    "query": "topk(2, histogram_quantile(0.9, sum(rate(harness_request_duration_seconds_bucket{namespace=~\"blue\",service=~\"api\"}[60s])) by(le)))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0650_histogram_rate_family_aggregation_selector",
+    "query": "topk(2, histogram_quantile(0.9, sum(rate(harness_request_duration_seconds_bucket{namespace=~\"blue\",service=~\"api\"}[5m])) by(le)))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  }
+]

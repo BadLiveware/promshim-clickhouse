@@ -1,0 +1,191 @@
+{
+  "entries": [
+    {
+      "candidateId": "cand-0151",
+      "dashboardCount": 1,
+      "draftQuery": "# receivers -> processor label_join(label_replace(label_join((sum(rate(harness_requests_total{job=\"api\"}[5m])) by(service)) ,\"source\", \"-rcv-\", \"transport\", \"receiver\") ,\"target\", \"processor\", \"\", \"\") , \"id\", \"-\", \"source\", \"target\") # processor -> exporters or label_join(label_replace(label_join((sum(rate(harness_requests_total{job=\"api\"}[5m])) by(service)) , \"target\", \"-exp-\", \"transport\", \"exporter\") , \"source\", \"processor\", \"\", \"\") , \"id\", \"-\", \"source\", \"target\")",
+      "exampleSources": [
+        {
+          "dashboard_title": "OpenTelemetry Collector",
+          "dashboard_uid": "BKf2sowmj",
+          "file_path": "scratch/grafana-dashboards/Monitoring meta/BKf2sowmj-OpenTelemetry Collector.json",
+          "kind": "panel_target",
+          "panel_id": 58,
+          "panel_path": [
+            "Spans Flow"
+          ],
+          "panel_title": "Spans Flow",
+          "ref_id": "edges"
+        },
+        {
+          "dashboard_title": "OpenTelemetry Collector",
+          "dashboard_uid": "BKf2sowmj",
+          "file_path": "scratch/grafana-dashboards/Monitoring meta/BKf2sowmj-OpenTelemetry Collector.json",
+          "kind": "panel_target",
+          "panel_id": 60,
+          "panel_path": [
+            "Metric Points Flow"
+          ],
+          "panel_title": "Metric Points Flow",
+          "ref_id": "edges"
+        },
+        {
+          "dashboard_title": "OpenTelemetry Collector",
+          "dashboard_uid": "BKf2sowmj",
+          "file_path": "scratch/grafana-dashboards/Monitoring meta/BKf2sowmj-OpenTelemetry Collector.json",
+          "kind": "panel_target",
+          "panel_id": 61,
+          "panel_path": [
+            "Log Records Flow"
+          ],
+          "panel_title": "Log Records Flow",
+          "ref_id": "edges"
+        }
+      ],
+      "families": [
+        "aggregation",
+        "binary_arithmetic",
+        "comparison",
+        "label_mutation",
+        "panel_query",
+        "range_selector",
+        "rate_family",
+        "selector",
+        "set_operator"
+      ],
+      "groupingLabelChanges": [
+        {
+          "action": "mapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "receiver",
+          "target": "service"
+        },
+        {
+          "action": "mapped",
+          "keyword": "by",
+          "kind": "grouping_label",
+          "source": "exporter",
+          "target": "service"
+        }
+      ],
+      "labelValuesChanges": [],
+      "mappingConfidence": 0.65,
+      "metricMappings": [
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.65,
+          "reasons": [
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "otelcol_receiver_accepted_spans"
+        },
+        {
+          "alternatives": [
+            {
+              "harnessMetric": "harness_requests_total",
+              "reasons": [
+                "query_uses_rate_family_without_histogram"
+              ],
+              "score": 4.0
+            },
+            {
+              "harnessMetric": "harness_queue_depth",
+              "reasons": [
+                "generic_gauge_fallback"
+              ],
+              "score": 0.5
+            },
+            {
+              "harnessMetric": "harness_disappearing_gauge",
+              "reasons": [],
+              "score": 0.0
+            }
+          ],
+          "chosenHarnessMetric": "harness_requests_total",
+          "confidence": 0.65,
+          "reasons": [
+            "query_uses_rate_family_without_histogram"
+          ],
+          "sourceMetric": "otelcol_exporter_sent_spans"
+        }
+      ],
+      "name": "draft_cand_0151_rate_family_aggregation_selector",
+      "occurrenceCount": 3,
+      "originalRepresentativeQuery": "# receivers -> processor label_join( label_replace( label_join( (sum(rate(otelcol_receiver_accepted_spans${suffix_total}{job=\"$job\"}[$__rate_interval])) by (receiver)) ,\"source\", \"-rcv-\", \"transport\", \"receiver\" ) ,\"target\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" ) # processor -> exporters or label_join( label_replace( label_join( (sum(rate(otelcol_exporter_sent_spans${suffix_total}{job=\"$job\"}[$__rate_interval])) by (exporter)) , \"target\", \"-exp-\", \"transport\", \"exporter\" ) , \"source\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" )",
+      "rank": 93,
+      "retargetingHint": "requires_counter_fixture",
+      "reviewNotes": [
+        "metric_mapping_is_lossy_many_source_metrics_to_one_harness_metric"
+      ],
+      "score": 99.2,
+      "selectorLabelChanges": [],
+      "shapeFingerprint": "# <id> - > <id> label_join ( label_replace ( label_join ( ( sum ( rate ( <id> <var> { <id> = <str> } [ <var> ] ) ) by ( <id> ) ) , <str> , <str> , <str> , <str> ) , <str> , <str> , <str> , <str> ) , <str> , <str> , <str> , <str> ) # <id> - > <id> or label_join ( label_replace ( label_join ( ( sum ( rate ( <id> <var> { <id> = <str> } [ <var> ] ) ) by ( <id> ) ) , <str> , <str> , <str> , <str> ) , <str> , <str> , <str> , <str> ) , <str> , <str> , <str> , <str> )",
+      "sourceCount": 3,
+      "tier": "strong_candidate",
+      "topQueryVariants": [
+        {
+          "count": 1,
+          "query": "# receivers -> processor label_join( label_replace( label_join( (sum(rate(otelcol_receiver_accepted_spans${suffix_total}{job=\"$job\"}[$__rate_interval])) by (receiver)) ,\"source\", \"-rcv-\", \"transport\", \"receiver\" ) ,\"target\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" ) # processor -> exporters or label_join( label_replace( label_join( (sum(rate(otelcol_exporter_sent_spans${suffix_total}{job=\"$job\"}[$__rate_interval])) by (exporter)) , \"target\", \"-exp-\", \"transport\", \"exporter\" ) , \"source\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" )"
+        },
+        {
+          "count": 1,
+          "query": "# receivers -> processor label_join( label_replace( label_join( (sum(rate(otelcol_receiver_accepted_metric_points${suffix_total}{job=\"$job\"}[$__rate_interval])) by (receiver)) , \"source\", \"-rcv-\", \"transport\", \"receiver\" ) , \"target\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" ) # processor -> exporters or label_join( label_replace( label_join( (sum(rate(otelcol_exporter_sent_metric_points${suffix_total}{job=\"$job\"}[$__rate_interval])) by (exporter)) , \"target\", \"-exp-\", \"transport\", \"exporter\" ) , \"source\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" )"
+        },
+        {
+          "count": 1,
+          "query": "# receivers -> processor label_join( label_replace( label_join( (sum(rate(otelcol_receiver_accepted_log_records${suffix_total}{job=\"$job\"}[$__rate_interval])) by (receiver)) , \"source\", \"-rcv-\", \"transport\", \"receiver\" ) , \"target\", \"processor\", \"\", \"\" ) , \"id\", \"-edg-\", \"source\", \"target\" ) # processor -> exporters or label_join( label_replace( label_join( (sum(rate(otelcol_exporter_sent_log_records${suffix_total}{job=\"$job\"}[$__rate_interval])) by (exporter)) ,\"target\",\"-exp-\",\"transport\",\"exporter\" ) ,\"source\",\"processor\",\"\",\"\" ) ,\"id\",\"-edg-\",\"source\",\"target\" )"
+        }
+      ],
+      "variableReplacements": [
+        {
+          "replacement": "",
+          "variable": "suffix_total"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        },
+        {
+          "replacement": "",
+          "variable": "suffix_total"
+        },
+        {
+          "replacement": "api",
+          "variable": "job"
+        },
+        {
+          "replacement": "5m",
+          "variable": "__rate_interval"
+        }
+      ]
+    }
+  ],
+  "queryCount": 1,
+  "theme": "label_mutation"
+}

@@ -41,6 +41,12 @@ type QuerySpec struct {
 	ExpectedStatus        string `json:"expectedStatus,omitempty"`
 	ExpectedErrorType     string `json:"expectedErrorType,omitempty"`
 	ExpectedErrorContains string `json:"expectedErrorContains,omitempty"`
+	// CompareMode selects how Prometheus and promshim responses are compared.
+	// "exact" (default) requires byte-for-byte value equality. "structural" only
+	// checks result type, series set, labels, timestamps, and NaN positions —
+	// use it for queries (e.g. rate-family) where ClickHouse's computed values
+	// legitimately diverge from Prometheus's extrapolated ones.
+	CompareMode string `json:"compareMode,omitempty"`
 }
 
 type CompareReport struct {
@@ -50,8 +56,11 @@ type CompareReport struct {
 }
 
 type QueryComparison struct {
-	Name   string `json:"name"`
-	Query  string `json:"query"`
-	Status string `json:"status"`
-	Detail string `json:"detail,omitempty"`
+	Name        string `json:"name"`
+	Query       string `json:"query"`
+	Status      string `json:"status"`
+	Severity    string `json:"severity,omitempty"`
+	Bucket      string `json:"bucket,omitempty"`
+	CompareMode string `json:"compareMode,omitempty"`
+	Detail      string `json:"detail,omitempty"`
 }

@@ -16,6 +16,9 @@ Default flow:
   6) docker compose down -v
 
 Options:
+  --theme <name>        Run against a single themed corpus from draft-grafana-top-panel-shortlist.themes/.
+  --all-themes          Run against every theme corpus in sequence (seeds once, compares per theme).
+                        Per-theme reports are written to artifacts/compare-report-{theme}.json.
   --no-build            Skip image build step.
   --keep-up             Keep containers/network/volumes after completion.
   --init-retries <n>    Retry attempts for clickhouse-init (default: 10).
@@ -45,9 +48,19 @@ HARNESS_DIR="${REPO_ROOT}/harness"
 BUILD_IMAGES=1
 KEEP_UP=0
 INIT_RETRIES=10
+THEME=""
+ALL_THEMES=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --theme)
+      THEME="$2"
+      shift 2
+      ;;
+    --all-themes)
+      ALL_THEMES=1
+      shift
+      ;;
     --no-build)
       BUILD_IMAGES=0
       shift
@@ -73,6 +86,40 @@ done
 if ! [[ "$INIT_RETRIES" =~ ^[0-9]+$ ]] || [[ "$INIT_RETRIES" -lt 1 ]]; then
   fatal "--init-retries must be a positive integer"
 fi
+
+if [[ -n "$THEME" ]] && (( ALL_THEMES == 1 )); then
+  fatal "--theme and --all-themes are mutually exclusive"
+fi
+
+CORPUS_PATH_OVERRIDE=""
+if [[ -n "$THEME" ]]; then
+  CORPUS_PATH_OVERRIDE="/app/harness/corpus/draft-grafana-top-panel-shortlist.themes/${THEME}.json"
+fi
+
+THEMES_HOST_DIR="${HARNESS_DIR}/corpus/draft-grafana-top-panel-shortlist.themes"
+
+discover_themes() {
+  local theme_file theme_name
+  for theme_file in "${THEMES_HOST_DIR}"/*.json; do
+    [[ "$theme_file" == *.metadata.json ]] && continue
+    theme_name=$(basename "$theme_file" .json)
+    [[ "$theme_name" == summary ]] && continue
+    printf '%s\n' "$theme_name"
+  done
+}
+
+print_compare_summary() {
+  local report_path="$1" label="$2"
+  if ! command -v jq >/dev/null 2>&1 || [[ ! -f "$report_path" ]]; then
+    return
+  fi
+  log "Compare summary (${label}):"
+  jq '{
+    status: ([.results[].status] | group_by(.) | map({key:.[0], value:length}) | from_entries),
+    severity: ([.results[] | (.severity // "ok")] | group_by(.) | map({key:.[0], value:length}) | from_entries),
+    bucket: ([.results[] | select(.status != "ok") | (.bucket // "other")] | group_by(.) | map({key:.[0], value:length}) | from_entries)
+  }' "$report_path"
+}
 
 ensure_command docker
 
@@ -119,14 +166,33 @@ fi
 log "Seeding deterministic dataset."
 docker compose --profile jobs run --rm seed
 
-log "Running differential compare job."
-docker compose --profile jobs run --rm compare
+run_compare() {
+  local corpus_path="$1" report_dest="$2" label="$3"
+  local env_args=(-e "PROM_HARNESS_CORPUS_PATH=${corpus_path}")
+  log "Running compare: ${label}"
+  docker compose --profile jobs run --rm "${env_args[@]}" compare || true
+  if [[ "${report_dest}" != "${HARNESS_DIR}/artifacts/compare-report.json" ]]; then
+    cp "${HARNESS_DIR}/artifacts/compare-report.json" "${report_dest}"
+  fi
+  print_compare_summary "${report_dest}" "${label}"
+}
 
-if command -v jq >/dev/null 2>&1 && [[ -f "${HARNESS_DIR}/artifacts/compare-report.json" ]]; then
-  log "Compare summary:"
-  jq '[.results[].status] | group_by(.) | map({status:.[0], count:length})' "${HARNESS_DIR}/artifacts/compare-report.json"
+if (( ALL_THEMES == 1 )); then
+  mapfile -t themes < <(discover_themes)
+  if [[ ${#themes[@]} -eq 0 ]]; then
+    fatal "No theme corpus files found in ${THEMES_HOST_DIR}"
+  fi
+  log "Running all ${#themes[@]} themes: ${themes[*]}"
+  for theme in "${themes[@]}"; do
+    run_compare \
+      "/app/harness/corpus/draft-grafana-top-panel-shortlist.themes/${theme}.json" \
+      "${HARNESS_DIR}/artifacts/compare-report-${theme}.json" \
+      "${theme}"
+  done
+  log "All theme reports written to ${HARNESS_DIR}/artifacts/compare-report-{theme}.json"
 else
-  log "Compare report written to ${HARNESS_DIR}/artifacts/compare-report.json"
+  corpus="${CORPUS_PATH_OVERRIDE:-/app/harness/corpus/queries.json}"
+  run_compare "$corpus" "${HARNESS_DIR}/artifacts/compare-report.json" "${THEME:-default}"
 fi
 
 log "Harness run completed successfully."

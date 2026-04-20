@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 
+	"ch-observability/internal/promshim/exec"
+	"ch-observability/internal/promshim/plan"
+	"ch-observability/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -76,7 +79,7 @@ func withInternalContext(err error, format string, args ...any) error {
 }
 
 type planBuildError struct {
-	Support SupportResult
+	Support plan.SupportResult
 	Expr    parser.Expr
 	Stage   string
 }
@@ -99,7 +102,7 @@ func (e *planBuildError) Kind() internalErrorKind {
 	return internalErrorKindUnsupported
 }
 
-func newPlanBuildError(expr parser.Expr, support SupportResult, stage string) error {
+func newPlanBuildError(expr parser.Expr, support plan.SupportResult, stage string) error {
 	return &planBuildError{Support: support, Expr: expr, Stage: stage}
 }
 
@@ -113,7 +116,7 @@ func normalizeInternalError(err error) error {
 		return err
 	}
 
-	var queryErr *QueryError
+	var queryErr *storage.QueryError
 	if asQueryError(err, &queryErr) {
 		switch queryErr.ErrorType {
 		case string(internalErrorKindBadData):
@@ -134,4 +137,21 @@ func internalErrorKindOf(err error) internalErrorKind {
 		return internal.Kind()
 	}
 	return internalErrorKindExecution
+}
+
+func fromExecError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if execErr, ok := err.(*exec.Error); ok {
+		switch execErr.Kind {
+		case exec.ErrorKindBadData:
+			return newBadDataErrorf("%s", execErr.Message)
+		case exec.ErrorKindUnsupported:
+			return newUnsupportedErrorf("%s", execErr.Message)
+		default:
+			return newExecutionErrorf("%s", execErr.Message)
+		}
+	}
+	return newExecutionErrorf("%s", err.Error())
 }

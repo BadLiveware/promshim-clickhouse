@@ -1,0 +1,85 @@
+package promharness
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"time"
+)
+
+func LoadSeedConfigFromEnv() (SeedConfig, error) {
+	stepSeconds := getenvInt("PROM_HARNESS_STEP_SECONDS", 60)
+	points := getenvInt("PROM_HARNESS_POINTS", 10)
+	cfg := SeedConfig{
+		PromRemoteWriteURL:       getenv("PROM_HARNESS_PROM_REMOTE_WRITE_URL", "http://prometheus:9090/api/v1/write"),
+		ClickHouseRemoteWriteURL: getenv("PROM_HARNESS_CLICKHOUSE_REMOTE_WRITE_URL", "http://default:otel@clickhouse:9092/write"),
+		Seed:                     getenvInt64("PROM_HARNESS_SEED", 12345),
+		Step:                     time.Duration(stepSeconds) * time.Second,
+		Points:                   points,
+		ArtifactDir:              getenv("PROM_HARNESS_ARTIFACT_DIR", "/artifacts"),
+	}
+	if base := os.Getenv("PROM_HARNESS_BASE_UNIX_SECONDS"); base != "" {
+		seconds, err := strconv.ParseInt(base, 10, 64)
+		if err != nil {
+			return SeedConfig{}, fmt.Errorf("invalid PROM_HARNESS_BASE_UNIX_SECONDS: %w", err)
+		}
+		cfg.BaseTime = time.Unix(seconds, 0).UTC()
+	} else {
+		cfg.BaseTime = time.Now().UTC().Truncate(cfg.Step).Add(-time.Duration(cfg.Points-1) * cfg.Step)
+	}
+	if cfg.Points < 2 {
+		return SeedConfig{}, fmt.Errorf("PROM_HARNESS_POINTS must be >= 2")
+	}
+	return cfg, nil
+}
+
+func LoadCompareConfigFromEnv() (CompareConfig, error) {
+	cfg := CompareConfig{
+		PrometheusBaseURL: getenv("PROM_HARNESS_PROM_URL", "http://prometheus:9090"),
+		PromshimBaseURL:   getenv("PROM_HARNESS_SHIM_URL", "http://promshim:9090"),
+		CorpusPath:        getenv("PROM_HARNESS_CORPUS_PATH", "/workspace/harness/corpus/queries.json"),
+		ArtifactDir:       getenv("PROM_HARNESS_ARTIFACT_DIR", "/artifacts"),
+		Timeout:           time.Duration(getenvInt("PROM_HARNESS_TIMEOUT_SECONDS", 30)) * time.Second,
+	}
+	return cfg, nil
+}
+
+func ManifestPath(dir string) string {
+	return filepath.Join(dir, "seed-manifest.json")
+}
+
+func CompareReportPath(dir string) string {
+	return filepath.Join(dir, "compare-report.json")
+}
+
+func getenv(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func getenvInt(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func getenvInt64(key string, fallback int64) int64 {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}

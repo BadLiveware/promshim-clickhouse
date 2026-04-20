@@ -1,0 +1,93 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.3.9.8
+    environment:
+      CLICKHOUSE_PASSWORD: otel
+    volumes:
+      - ./clickhouse/config.d/prometheus.xml:/etc/clickhouse-server/config.d/prometheus.xml:ro
+      - ./clickhouse/users.d/timeseries.xml:/etc/clickhouse-server/users.d/timeseries.xml:ro
+
+  clickhouse-init:
+    image: clickhouse/clickhouse-server:26.3.9.8
+    depends_on:
+      - clickhouse
+    volumes:
+      - ./clickhouse/init.sql:/init.sql:ro
+    entrypoint:
+      - /bin/bash
+      - -ec
+      - |
+        for i in $(seq 1 60); do
+          clickhouse-client --host clickhouse --user default --password otel --query 'SELECT 1' && break
+          sleep 1
+        done
+        clickhouse-client --host clickhouse --user default --password otel --multiquery < /init.sql
+    restart: "no"
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-remote-write-receiver
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=24h
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  promshim:
+    build:
+      context: ..
+      dockerfile: harness/Dockerfile
+      target: promshim
+    depends_on:
+      - clickhouse
+    environment:
+      PROM_SHIM_CLICKHOUSE_ENDPOINT: http://clickhouse:8123/
+      PROM_SHIM_CLICKHOUSE_DATABASE: observability
+      PROM_SHIM_CLICKHOUSE_TABLE: prometheus
+      PROM_SHIM_CLICKHOUSE_USERNAME: default
+      PROM_SHIM_CLICKHOUSE_PASSWORD: otel
+      PROM_SHIM_LISTEN_ADDR: :9090
+      PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES: 100000
+      PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES: 10000
+      PROM_SHIM_MAX_RESPONSE_SERIES: 100000
+      PROM_SHIM_MAX_RESPONSE_POINTS: 2000000
+
+  seed:
+    build:
+      context: ..
+      dockerfile: harness/Dockerfile
+      target: promharness-seed
+    depends_on:
+      - prometheus
+      - clickhouse
+    environment:
+      PROM_HARNESS_PROM_REMOTE_WRITE_URL: http://prometheus:9090/api/v1/write
+      PROM_HARNESS_CLICKHOUSE_REMOTE_WRITE_URL: http://default:otel@clickhouse:9092/write
+      PROM_HARNESS_ARTIFACT_DIR: /artifacts
+      PROM_HARNESS_SEED: 12345
+      PROM_HARNESS_STEP_SECONDS: 60
+      PROM_HARNESS_POINTS: 10
+    volumes:
+      - ./artifacts:/artifacts
+    restart: "no"
+    profiles: ["jobs"]
+
+  compare:
+    build:
+      context: ..
+      dockerfile: harness/Dockerfile
+      target: promharness-compare
+    depends_on:
+      - prometheus
+      - promshim
+    environment:
+      PROM_HARNESS_PROM_URL: http://prometheus:9090
+      PROM_HARNESS_SHIM_URL: http://promshim:9090
+      PROM_HARNESS_CORPUS_PATH: /app/harness/corpus/queries.json
+      PROM_HARNESS_ARTIFACT_DIR: /artifacts
+      PROM_HARNESS_TIMEOUT_SECONDS: 60
+    volumes:
+      - ./artifacts:/artifacts
+    restart: "no"
+    profiles: ["jobs"]

@@ -119,7 +119,8 @@ These local repositories are part of the implementation context for the shim and
 - [x] A first native ClickHouse SQL pushdown path now exists for aggregation over delegatable leaves
 - [x] A first range guardrail now rejects oversized range queries before execution
 - [x] A first chunked local range-execution path now exists for large local range plans
-- [ ] No streaming response path exists yet for very large final matrix results
+- [x] A first output-aware response limit now exists for oversized final query results
+- [x] Query/query_range success responses now stream directly instead of building one more full top-level result object graph first
 - [ ] No histogram support
 - [ ] No vector matching
 - [ ] No time modifiers
@@ -251,8 +252,10 @@ This is the main prerequisite for nearly everything else. Without it, the code w
 - [x] Logical planning, execution lowering, execution-strategy context, explain trees, first pushdown, and first range guardrail/chunking already exist
 - [x] Request handlers already plan through the new contextual planning path
 - [ ] The repo still mixes “feature implementation” progress with “migration to the new strategy-based execution model” progress
-- [ ] Output-aware safety for large final matrix responses is not implemented yet
-- [ ] Native SQL pushdown is still narrow and mostly limited to aggregation-over-leaf cases
+- [x] Output-aware safety for large final query responses now exists via configurable response series/point limits
+- [x] Query/query_range success rendering now streams directly from runtime values instead of building a second full top-level response graph
+- [x] A deterministic differential validation harness now exists for comparing Prometheus vs promshim over the same seeded samples
+- [ ] Native SQL pushdown is still intentionally narrow, but now covers aggregation over delegatable leaves and pushdown-safe unary/vector-scalar arithmetic transforms over those leaves
 
 #### Why now
 This phase makes the architectural pivot explicit. The goal is to finish migrating the shim onto the new strategy-driven execution model before more feature work expands the surface area and makes migration messier.
@@ -271,25 +274,36 @@ This phase makes the architectural pivot explicit. The goal is to finish migrati
 - [x] Add first range safety mechanisms:
   - [x] max points-per-series guardrail
   - [x] chunking threshold for large local range plans
-- [ ] Add output-aware safety for very large final matrix responses
-- [ ] Widen native SQL pushdown where it is semantically safe and materially reduces local result size
-- [ ] Make execution-strategy selection rules more explicit/documented as the source of truth for future work
+- [x] Add first output-aware response safety for very large final query results:
+  - [x] configurable response series/point limits
+  - [x] streamed query/query_range success rendering
+- [x] Add a deterministic differential validation harness for the new execution model:
+  - [x] docker-compose services for Prometheus, ClickHouse, and promshim
+  - [x] a seeded one-shot metric generator job that emits deterministic sample streams with a per-run manifest-recorded base timestamp
+  - [x] dual-write the same generated remote-write samples to Prometheus and ClickHouse
+  - [x] a one-shot comparator job that runs a query corpus against Prometheus and promshim and diffs normalized responses
+  - [x] scenario-based datasets for selectors, aggregations, binary/vector-scalar behavior, label helpers, and later histogram patterns
+- [ ] Widen native SQL pushdown further where it is semantically safe and materially reduces local result size
+- [x] Make execution-strategy selection rules more explicit/documented as the source of truth for future work
 
 #### Test gates
 - [x] Unit tests cover logical -> execution lowering
 - [x] Unit tests cover first strategy selection/explain behavior
 - [x] Unit tests cover range guardrail rejection and chunked local range execution
+- [x] Unit tests cover output-aware response limits and streamed success rendering
 - [x] Existing integration suites remain green on the migrated path
 - [x] Live HTTP spot checks validate:
   - [x] native aggregation pushdown
   - [x] chunked local range execution
   - [x] guardrail rejection
-- [ ] Add focused validation for output-aware response safety once implemented
+  - [x] response-limit rejection
+- [x] Differential harness validation exists for seeded dual-write scenarios and compares Prometheus vs promshim over the same samples
 
 #### Exit criteria
 - [ ] Supported queries run through the strategy-based execution path as the clear default architecture, not as a transitional compatibility wrapper in practice
-- [ ] The remaining major memory-risk path is explicitly addressed for oversized final responses
+- [x] The remaining major memory-risk path is now reduced for oversized final responses via response limits and streamed success rendering
 - [ ] Future feature phases can assume the new execution model instead of continuing the migration ad hoc
+- [x] Query-engine changes can be regression-checked against a deterministic Prometheus oracle over the same seeded samples
 
 ---
 
@@ -304,6 +318,7 @@ This phase makes the architectural pivot explicit. The goal is to finish migrati
 - [x] Instant aggregation works
 - [x] Range/matrix aggregation works by timestamp for the implemented aggregators
 - [x] A first native SQL aggregation pushdown path now exists for aggregations over delegatable leaves
+- [x] Native aggregation pushdown now also covers pushdown-safe unary and scalar-arithmetic transforms over delegatable leaves (for example `sum by (...) (metric * 100)` and `avg by (...) (-metric)`)
 - [x] Large local range aggregation plans can now be chunked instead of materializing one full child range at once
 - [x] A reducer/factory boundary now exists for adding more aggregators cleanly
 - [ ] Higher-order aggregators such as `topk`, `bottomk`, and `count_values` are not implemented yet
@@ -732,6 +747,8 @@ metric_a * on(namespace, pod) group_left(label_x, label_y) metric_b
 - [x] `go test ./...`
 - [x] Live HTTP integration tests against ClickHouse on `127.0.0.1:8123`
 - [x] Local shim verification on `127.0.0.1:9090`
+- [x] Differential docker-compose harness with seeded dual-write into Prometheus and ClickHouse
+- [x] Query corpus diff against Prometheus direct results vs promshim -> ClickHouse results
 
 ### Contract invariants
 - [x] HTTP API remains unchanged
@@ -744,10 +761,10 @@ metric_a * on(namespace, pod) group_left(label_x, label_y) metric_b
 ## Immediate Next Steps
 
 ### Recommended next implementation step
-- [ ] Continue Phase 1.5 by adding output-aware safety for large final matrix responses, likely via stricter response-size limits and/or streaming-oriented response shaping
+- [ ] Continue Phase 1.5 by adding the deterministic docker-compose differential harness with seeded dual-write into Prometheus and ClickHouse
 
 ### Recommended first acceptance target after that
-- [ ] Continue Phase 1.5 by expanding native SQL pushdown beyond current aggregation-over-leaf cases where it is semantically safe and measurably reduces local result size
+- [ ] Continue Phase 1.5 by expanding native SQL pushdown beyond the current leaf + unary/scalar-transform aggregation subset where it is semantically safe and measurably reduces local result size
 
 ### Recommended first high-value dashboard target after medium subset
 - [ ] Phase 5: `histogram_quantile`

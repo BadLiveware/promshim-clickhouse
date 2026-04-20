@@ -4,6 +4,8 @@ import (
 	"context"
 	"sort"
 	"time"
+
+	"ch-observability/internal/promshim/model"
 )
 
 type chunkedRangePlan struct {
@@ -13,7 +15,7 @@ type chunkedRangePlan struct {
 	Estimate             *planEstimate
 }
 
-func (p *chunkedRangePlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (runtimeValue, error) {
+func (p *chunkedRangePlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
 	if params.Mode != evalModeRange {
 		return p.Child.execute(ctx, evaluator, params)
 	}
@@ -21,13 +23,13 @@ func (p *chunkedRangePlan) execute(ctx context.Context, evaluator *evaluator, pa
 	if err != nil {
 		return nil, withInternalContext(err, "building range chunks")
 	}
-	merged := matrixValue{Series: nil}
+	merged := model.MatrixValue{Series: nil}
 	for _, chunk := range chunks {
 		value, err := p.Child.execute(ctx, evaluator, chunk)
 		if err != nil {
 			return nil, withInternalContext(err, "executing chunked range subquery start=%s end=%s", chunk.Start, chunk.End)
 		}
-		matrix, ok := value.(matrixValue)
+		matrix, ok := value.(model.MatrixValue)
 		if !ok {
 			return nil, newExecutionErrorf("chunked range execution requires matrix child results, got %T", value)
 		}
@@ -83,25 +85,25 @@ func splitRangeIntoChunks(params evalParams, chunkPointsPerSeries int64) ([]eval
 	return chunks, nil
 }
 
-func mergeMatrixValues(left, right matrixValue) (matrixValue, error) {
+func mergeMatrixValues(left, right model.MatrixValue) (model.MatrixValue, error) {
 	if len(left.Series) == 0 {
-		return matrixValue{Series: cloneSeries(right.Series)}, nil
+		return model.MatrixValue{Series: model.CloneSeries(right.Series)}, nil
 	}
-	merged := make(map[string]rangeSeries, len(left.Series)+len(right.Series))
+	merged := make(map[string]model.RangeSeries, len(left.Series)+len(right.Series))
 	for _, series := range left.Series {
-		merged[labelsKey(series.Metric)] = rangeSeries{Metric: cloneMetric(series.Metric), Values: cloneRangePoints(series.Values)}
+		merged[model.LabelsKey(series.Metric)] = model.RangeSeries{Metric: model.CloneMetric(series.Metric), Values: model.CloneRangePoints(series.Values)}
 	}
 	for _, series := range right.Series {
-		key := labelsKey(series.Metric)
+		key := model.LabelsKey(series.Metric)
 		if existing, ok := merged[key]; ok {
-			values, err := appendRangePointsStrict(existing.Values, series.Values)
+			values, err := model.AppendRangePointsStrict(existing.Values, series.Values)
 			if err != nil {
-				return matrixValue{}, newExecutionErrorf("chunked range merge encountered non-increasing timestamps for labelset %q", key)
+				return model.MatrixValue{}, newExecutionErrorf("chunked range merge encountered non-increasing timestamps for labelset %q", key)
 			}
 			existing.Values = values
 			merged[key] = existing
 		} else {
-			merged[key] = rangeSeries{Metric: cloneMetric(series.Metric), Values: cloneRangePoints(series.Values)}
+			merged[key] = model.RangeSeries{Metric: model.CloneMetric(series.Metric), Values: model.CloneRangePoints(series.Values)}
 		}
 	}
 	keys := make([]string, 0, len(merged))
@@ -109,9 +111,9 @@ func mergeMatrixValues(left, right matrixValue) (matrixValue, error) {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	result := make([]rangeSeries, 0, len(keys))
+	result := make([]model.RangeSeries, 0, len(keys))
 	for _, key := range keys {
 		result = append(result, merged[key])
 	}
-	return matrixValue{Series: result}, nil
+	return model.MatrixValue{Series: result}, nil
 }

@@ -1,0 +1,53 @@
+{
+  "nextId": 6,
+  "tasks": [
+    {
+      "id": "2",
+      "subject": "Refresh implementation order plan",
+      "description": "Update .pi/implementation-order-plan.md so immediate next steps reflect the current repo state: harness and organization cleanup are done, and Phase 2 remaining work is topk/bottomk/count_values rather than already-completed migration steps.",
+      "status": "in_progress",
+      "activeForm": "Refreshing implementation order plan",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776706171199,
+      "updatedAt": 1776706191051
+    },
+    {
+      "id": "3",
+      "subject": "Analyze remaining Phase 2 aggregation gaps",
+      "description": "Inspect current promshim aggregation planner/execution/tests and upstream Prometheus semantics for topk, bottomk, and count_values. Identify scope, invariants, and validation needed to finish Phase 2 without regressing current aggregation behavior.",
+      "status": "pending",
+      "activeForm": "Analyzing remaining aggregation gaps",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776706174892,
+      "updatedAt": 1776706174892
+    },
+    {
+      "id": "4",
+      "subject": "Implement remaining Phase 2 aggregators",
+      "description": "Add support for topk, bottomk, and count_values in the promshim planner/execution path, preserving existing API/error behavior and current aggregation semantics for sum/count/min/max/avg. Update support analysis, logical/execution lowering, runtime aggregation logic, and any shared model helpers required.",
+      "status": "pending",
+      "activeForm": "Implementing remaining aggregators",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776706180301,
+      "updatedAt": 1776706180301
+    },
+    {
+      "id": "5",
+      "subject": "Add validation for new aggregators",
+      "description": "Add or update unit/integration tests for topk, bottomk, and count_values and run formatting plus project test suites needed to validate Phase 2 completion.",
+      "status": "pending",
+      "activeForm": "Validating new aggregators",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776706184409,
+      "updatedAt": 1776706184409
+    }
+  ]
+}

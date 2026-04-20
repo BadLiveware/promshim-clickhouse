@@ -1,0 +1,22 @@
+<clickhouse>
+  <listen_host>0.0.0.0</listen_host>
+  <prometheus>
+    <port>9092</port>
+    <handlers>
+      <remote_write>
+        <url>/write</url>
+        <handler>
+          <type>remote_write</type>
+          <table>observability.prometheus</table>
+        </handler>
+      </remote_write>
+      <remote_read>
+        <url>/read</url>
+        <handler>
+          <type>remote_read</type>
+          <table>observability.prometheus</table>
+        </handler>
+      </remote_read>
+    </handlers>
+  </prometheus>
+</clickhouse>

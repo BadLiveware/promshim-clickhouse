@@ -60,6 +60,123 @@ func buildRangeQuerySQL(opts Options, promql string, startMS, endMS, stepMS int6
 	return rangeQuerySQL, params
 }
 
+func buildInstantAggregationQuerySQL(opts Options, promql string, evaluationTimeMS int64, op parser.ItemType, grouping []string, without bool) (string, map[string]string, error) {
+	aggExpr, err := buildAggregationValueSQL(op, "value")
+	if err != nil {
+		return "", nil, err
+	}
+	tagsExpr := buildAggregationTagsSQL("tags", grouping, without)
+	params := baseParams(opts)
+	params["param_promql"] = promql
+	params["param_evaluation_ms"] = strconv.FormatInt(evaluationTimeMS, 10)
+	return fmt.Sprintf(`
+SELECT
+    grouping_tags AS tags,
+    max(timestamp) AS timestamp,
+    %s AS value
+FROM (
+    SELECT
+        %s AS grouping_tags,
+        timestamp,
+        value
+    FROM prometheusQuery(
+        {database:String},
+        {table:String},
+        {promql:String},
+        fromUnixTimestamp64Milli({evaluation_ms:Int64})
+    )
+)
+GROUP BY grouping_tags
+ORDER BY grouping_tags
+SETTINGS allow_experimental_time_series_table = 1
+FORMAT JSONEachRow
+`, aggExpr, tagsExpr), params, nil
+}
+
+func buildRangeAggregationQuerySQL(opts Options, promql string, startMS, endMS, stepMS int64, op parser.ItemType, grouping []string, without bool) (string, map[string]string, error) {
+	aggExpr, err := buildAggregationValueSQL(op, "point.2")
+	if err != nil {
+		return "", nil, err
+	}
+	tagsExpr := buildAggregationTagsSQL("tags", grouping, without)
+	params := baseParams(opts)
+	params["param_promql"] = promql
+	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
+	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
+	params["param_step_ms"] = strconv.FormatInt(stepMS, 10)
+	return fmt.Sprintf(`
+SELECT
+    tags,
+    arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series
+FROM (
+    SELECT
+        grouping_tags AS tags,
+        point.1 AS timestamp,
+        %s AS value
+    FROM (
+        SELECT
+            %s AS grouping_tags,
+            arrayJoin(time_series) AS point
+        FROM prometheusQueryRange(
+            {database:String},
+            {table:String},
+            {promql:String},
+            fromUnixTimestamp64Milli({start_ms:Int64}),
+            fromUnixTimestamp64Milli({end_ms:Int64}),
+            toDecimal64({step_ms:Int64}, 3) / 1000
+        )
+    )
+    GROUP BY grouping_tags, timestamp
+)
+GROUP BY tags
+ORDER BY tags
+SETTINGS allow_experimental_time_series_table = 1
+FORMAT JSONEachRow
+`, aggExpr, tagsExpr), params, nil
+}
+
+func buildAggregationTagsSQL(column string, grouping []string, without bool) string {
+	if without {
+		labels := append([]string{labels.MetricName}, grouping...)
+		return fmt.Sprintf("arraySort(tag -> tag.1, arrayFilter(tag -> NOT has(%s, tag.1), %s))", sqlStringArrayLiteral(labels), column)
+	}
+	if len(grouping) == 0 {
+		return "CAST([], 'Array(Tuple(String, String))')"
+	}
+	return fmt.Sprintf("arraySort(tag -> tag.1, arrayFilter(tag -> has(%s, tag.1), %s))", sqlStringArrayLiteral(grouping), column)
+}
+
+func buildAggregationValueSQL(op parser.ItemType, valueRef string) (string, error) {
+	switch op {
+	case parser.SUM:
+		return fmt.Sprintf("if(countIf(isNaN(%s)) > 0, CAST(NULL, 'Nullable(Float64)'), sum(%s))", valueRef, valueRef), nil
+	case parser.COUNT:
+		return fmt.Sprintf("toFloat64(count(%s))", valueRef), nil
+	case parser.MIN:
+		return fmt.Sprintf("if(countIf(NOT isNaN(%s)) = 0, CAST(NULL, 'Nullable(Float64)'), minIf(%s, NOT isNaN(%s)))", valueRef, valueRef, valueRef), nil
+	case parser.MAX:
+		return fmt.Sprintf("if(countIf(NOT isNaN(%s)) = 0, CAST(NULL, 'Nullable(Float64)'), maxIf(%s, NOT isNaN(%s)))", valueRef, valueRef, valueRef), nil
+	case parser.AVG:
+		return fmt.Sprintf("if(countIf(isNaN(%s)) > 0 OR count() = 0, CAST(NULL, 'Nullable(Float64)'), avg(%s))", valueRef, valueRef), nil
+	default:
+		return "", newUnsupportedErrorf("native SQL aggregation for operator %q is not implemented yet", op.String())
+	}
+}
+
+func sqlStringArrayLiteral(values []string) string {
+	quoted := make([]string, 0, len(values))
+	for _, value := range values {
+		quoted = append(quoted, sqlStringLiteral(value))
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
+}
+
+func sqlStringLiteral(value string) string {
+	escaped := strings.ReplaceAll(value, "\\", "\\\\")
+	escaped = strings.ReplaceAll(escaped, "'", "\\'")
+	return "'" + escaped + "'"
+}
+
 func buildLabelsQuery(opts Options, request *http.Request) (string, map[string]string, error) {
 	sourceSQL, params, err := buildSeriesTagsSource(opts, request)
 	if err != nil {

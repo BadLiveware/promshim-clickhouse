@@ -12,9 +12,10 @@ import (
 )
 
 type Handler struct {
-	opts   Options
-	client *ClickHouseClient
-	mux    *http.ServeMux
+	opts      Options
+	client    *ClickHouseClient
+	evaluator *evaluator
+	mux       *http.ServeMux
 }
 
 type apiError struct {
@@ -49,15 +50,17 @@ type tagsRow struct {
 }
 
 func NewHandler(opts Options) (http.Handler, error) {
+	opts = normalizeOptions(opts)
 	client, err := NewClickHouseClient(opts)
 	if err != nil {
 		return nil, err
 	}
 
 	h := &Handler{
-		opts:   opts,
-		client: client,
-		mux:    http.NewServeMux(),
+		opts:      opts,
+		client:    client,
+		evaluator: newEvaluator(opts, client),
+		mux:       http.NewServeMux(),
 	}
 
 	h.mux.HandleFunc("GET /health", h.handleHealth)
@@ -101,12 +104,6 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	analysis := AnalyzeExpression(expr)
-	if !analysis.Supported {
-		writePromError(w, apiError{StatusCode: http.StatusUnprocessableEntity, ErrorType: "unsupported", Error: fmt.Sprintf("unsupported PromQL (difficulty=%s): %s", analysis.Difficulty, analysis.Reason)})
-		return
-	}
-
 	evaluationTime := time.Now().UTC()
 	if raw := r.URL.Query().Get("time"); raw != "" {
 		evaluationTime, err = parsePrometheusTimestamp(raw)
@@ -116,57 +113,38 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if agg, ok := supportedSumAggregation(expr); ok {
-		rows, apiErr := h.executeInstantSumAggregation(r.Context(), agg, evaluationTime)
-		if apiErr != nil {
-			writePromError(w, *apiErr)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"status": "success",
-			"data": map[string]any{
-				"resultType": "vector",
-				"result":     rows,
-			},
-		})
-		return
-	}
-
-	sql, params := buildInstantQuerySQL(h.opts, expr.String(), evaluationTime.UnixMilli())
-	response, err := h.client.Execute(r.Context(), sql, params)
+	plan, err := buildPlanWithContext(expr, planContext{
+		Mode:                            evalModeInstant,
+		EvaluationTime:                  evaluationTime,
+		PreferNativeAggregationPushdown: true,
+		MaxRangePointsPerSeries:         h.opts.MaxRangePointsPerSeries,
+		RangeChunkPointsPerSeries:       h.opts.RangeChunkPointsPerSeries,
+	})
 	if err != nil {
-		writeAnyError(w, err)
-		return
-	}
-	defer response.Body.Close()
-
-	resultType := string(expr.Type())
-	if resultType == "matrix" {
-		rows, apiErr := decodeMatrixRows(response.Body)
-		if apiErr != nil {
-			writePromError(w, *apiErr)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"status": "success",
-			"data": map[string]any{
-				"resultType": "matrix",
-				"result":     rows,
-			},
-		})
+		writeInternalPromError(w, err)
 		return
 	}
 
-	rows, apiErr := decodeInstantRows(response.Body)
-	if apiErr != nil {
-		writePromError(w, *apiErr)
+	value, err := h.evaluator.evaluate(r.Context(), plan, evalParams{
+		Mode:           evalModeInstant,
+		EvaluationTime: evaluationTime,
+	})
+	if err != nil {
+		writeInternalPromError(w, err)
 		return
 	}
+
+	resultType, result, err := renderInstantQueryValue(value)
+	if err != nil {
+		writeInternalPromError(w, err)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": "success",
 		"data": map[string]any{
-			"resultType": "vector",
-			"result":     rows,
+			"resultType": resultType,
+			"result":     result,
 		},
 	})
 }
@@ -181,12 +159,6 @@ func (h *Handler) handleQueryRange(w http.ResponseWriter, r *http.Request) {
 	expr, err := ParseExpression(query)
 	if err != nil {
 		writePromError(w, apiError{StatusCode: http.StatusBadRequest, ErrorType: "bad_data", Error: err.Error()})
-		return
-	}
-
-	analysis := AnalyzeExpression(expr)
-	if !analysis.Supported {
-		writePromError(w, apiError{StatusCode: http.StatusUnprocessableEntity, ErrorType: "unsupported", Error: fmt.Sprintf("unsupported PromQL (difficulty=%s): %s", analysis.Difficulty, analysis.Reason)})
 		return
 	}
 
@@ -210,40 +182,42 @@ func (h *Handler) handleQueryRange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if agg, ok := supportedSumAggregation(expr); ok {
-		rows, apiErr := h.executeRangeSumAggregation(r.Context(), agg, start, end, step)
-		if apiErr != nil {
-			writePromError(w, *apiErr)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"status": "success",
-			"data": map[string]any{
-				"resultType": "matrix",
-				"result":     rows,
-			},
-		})
-		return
-	}
-
-	sql, params := buildRangeQuerySQL(h.opts, expr.String(), start.UnixMilli(), end.UnixMilli(), step.Milliseconds())
-	response, err := h.client.Execute(r.Context(), sql, params)
+	plan, err := buildPlanWithContext(expr, planContext{
+		Mode:                            evalModeRange,
+		Start:                           start,
+		End:                             end,
+		Step:                            step,
+		PreferNativeAggregationPushdown: true,
+		MaxRangePointsPerSeries:         h.opts.MaxRangePointsPerSeries,
+		RangeChunkPointsPerSeries:       h.opts.RangeChunkPointsPerSeries,
+	})
 	if err != nil {
-		writeAnyError(w, err)
+		writeInternalPromError(w, err)
 		return
 	}
-	defer response.Body.Close()
 
-	rows, apiErr := decodeMatrixRows(response.Body)
-	if apiErr != nil {
-		writePromError(w, *apiErr)
+	value, err := h.evaluator.evaluate(r.Context(), plan, evalParams{
+		Mode:  evalModeRange,
+		Start: start,
+		End:   end,
+		Step:  step,
+	})
+	if err != nil {
+		writeInternalPromError(w, err)
 		return
 	}
+
+	resultType, result, err := renderRangeQueryValue(value)
+	if err != nil {
+		writeInternalPromError(w, err)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": "success",
 		"data": map[string]any{
-			"resultType": "matrix",
-			"result":     rows,
+			"resultType": resultType,
+			"result":     result,
 		},
 	})
 }
@@ -432,12 +406,26 @@ func newScanner(reader io.Reader) *bufio.Scanner {
 }
 
 func writeAnyError(w http.ResponseWriter, err error) {
-	var queryErr *QueryError
-	if ok := asQueryError(err, &queryErr); ok {
-		writePromError(w, apiError{StatusCode: queryErr.StatusCode, ErrorType: queryErr.ErrorType, Error: queryErr.Message})
-		return
+	writePromError(w, apiErrorFromInternal(normalizeInternalError(err)))
+}
+
+func writeInternalPromError(w http.ResponseWriter, err error) {
+	writePromError(w, apiErrorFromInternal(err))
+}
+
+func apiErrorFromInternal(err error) apiError {
+	err = normalizeInternalError(err)
+	kind := internalErrorKindOf(err)
+	statusCode := http.StatusBadGateway
+	switch kind {
+	case internalErrorKindBadData:
+		statusCode = http.StatusBadRequest
+	case internalErrorKindUnsupported:
+		statusCode = http.StatusUnprocessableEntity
+	case internalErrorKindExecution:
+		statusCode = http.StatusBadGateway
 	}
-	writePromError(w, apiError{StatusCode: http.StatusBadGateway, ErrorType: "execution", Error: err.Error()})
+	return apiError{StatusCode: statusCode, ErrorType: string(kind), Error: err.Error()}
 }
 
 func asQueryError(err error, target **QueryError) bool {

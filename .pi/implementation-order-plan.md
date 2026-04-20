@@ -40,6 +40,43 @@ Use these meanings when reading this file:
 
 ---
 
+## External reference repositories
+
+These local repositories are part of the implementation context for the shim and should be used during planning and implementation when needed.
+
+### Prometheus
+- Local checkout: `~/code/external/prometheus/`
+- Use for:
+  - checking PromQL parser/AST behavior
+  - understanding aggregation, binary-op, vector-matching, time-modifier, and subquery semantics
+  - borrowing implementation ideas and test cases
+  - comparing expected Prometheus query engine behavior against shim behavior
+- Especially relevant areas:
+  - `promql/`
+  - `promql/parser/`
+
+### ClickHouse
+- Local checkout: `~/code/external/ClickHouse/`
+- Use for:
+  - understanding how ClickHouse implements Prometheus-related query handling internally
+  - checking `TimeSeries` and `prometheusQuery()` / `prometheusQueryRange()` internals
+  - validating what can realistically be delegated vs what must be implemented locally in the shim
+  - borrowing implementation ideas where useful
+- Especially relevant areas:
+  - `src/Storages/TimeSeries/`
+  - `src/Storages/TimeSeries/PrometheusQueryToSQL/`
+
+### How to use these references
+- They are reference material for:
+  - checking how things work internally
+  - borrowing implementation ideas
+  - understanding edge cases and semantics
+  - validating assumptions before adding new shim behavior
+- They are **not** a replacement for the shim’s own HTTP contract tests.
+- When behavior differs between the current shim and upstream references, prefer making the difference explicit in tests and plan notes.
+
+---
+
 ## Current repo snapshot
 
 ### What exists now
@@ -47,28 +84,42 @@ Use these meanings when reading this file:
 - [x] HTTP API contract exists and matches the current shim surface
 - [x] PromQL parsing uses the Prometheus parser/AST
 - [x] Supported-vs-unsupported classification exists before execution
+- [x] A first logical-plan layer now exists separately from execution-plan lowering
+- [x] `buildPlan(...)` now composes logical planning and execution-plan lowering
+- [x] A first request-aware execution-strategy context now exists for planning
+- [x] Execution plans are now explainable through an internal explain tree
+- [x] A first range guardrail and chunked local range-execution path now exists
 - [x] Easy subset works through ClickHouse delegation:
   - [x] selectors
   - [x] equality matchers
   - [x] regex matchers
   - [x] some delegated range functions such as `rate(...)`
   - [x] labels / label values / series metadata endpoints
-- [x] First medium feature exists locally in Go:
+- [x] First broader local aggregation subset exists locally in Go:
   - [x] `sum(...)`
-  - [x] `sum by (...) (...)`
-  - [x] `sum without (...) (...)`
-  - [x] range-query equivalents of top-level `sum`
+  - [x] `count(...)`
+  - [x] `min(...)`
+  - [x] `max(...)`
+  - [x] `avg(...)`
+  - [x] `by (...)` / `without (...)` forms for the implemented aggregators
+  - [x] range-query equivalents for the implemented aggregators
 - [x] Unit tests exist for parser support classification and some aggregation semantics
 - [x] HTTP integration tests exist for `easy`, `medium`, and `hard`
 
 ### What does not exist yet
-- [ ] No real recursive planner/evaluator yet
-- [ ] No generic AST-to-plan lowering yet
-- [ ] No generic typed runtime value model for scalar/vector/matrix evaluation
-- [ ] No general aggregation framework beyond the current `sum` path
-- [ ] No scalar execution
-- [ ] No binary operator execution
-- [ ] No label mutation helpers
+- [x] A first recursive planner/evaluator path now exists for the current supported subset
+- [x] Basic AST-to-plan lowering now exists for delegated leaves and local `sum(...)`
+- [x] A basic typed runtime value model now exists for scalar/vector/matrix evaluation
+- [x] Planner/evaluator errors now carry stage/expression context without depending on HTTP response types
+- [x] A basic local aggregation framework now exists behind the current `sum` path
+- [x] A first scalar execution path now exists
+- [x] A first local binary-operator execution path now exists for scalar/scalar and vector/scalar expressions
+- [x] Local label mutation helpers now exist (`label_replace`, `label_join`)
+- [x] A first execution-strategy planner now exists for aggregation pushdown decisions
+- [x] A first native ClickHouse SQL pushdown path now exists for aggregation over delegatable leaves
+- [x] A first range guardrail now rejects oversized range queries before execution
+- [x] A first chunked local range-execution path now exists for large local range plans
+- [ ] No streaming response path exists yet for very large final matrix results
 - [ ] No histogram support
 - [ ] No vector matching
 - [ ] No time modifiers
@@ -80,6 +131,7 @@ Use these meanings when reading this file:
 
 - Build the smallest reusable execution model before adding many more one-off operators.
 - Prefer recursive planning over handler special-casing.
+- Keep PromQL semantics in Go-owned planning/execution structures; ClickHouse delegation and SQL are execution targets, not the semantic source of truth.
 - Land features in an order that unlocks more downstream features.
 - Keep compatibility behavior explicit:
   - supported queries should succeed
@@ -124,18 +176,26 @@ Focus on deeper PromQL execution semantics.
 ## Ordered Checklist
 
 ### Phase 1 — Build a real recursive planner/evaluator
-**Status: In progress**
+**Status: Done**
 
 #### Current repo state
 - [x] PromQL AST parsing and support analysis exist
 - [x] Some local execution exists for top-level `sum(...)`
-- [x] Some execution helpers already exist for:
+- [x] Shared execution helpers now exist for:
+  - [x] label-set normalization
   - [x] grouping key generation
   - [x] current `__name__` handling for `sum` aggregation
+  - [x] timestamp alignment for range construction / merge validation
   - [x] current NaN/null conversion helpers
-- [ ] Handlers still contain top-level feature special-cases
-- [ ] No recursive planner/evaluator exists yet
-- [ ] Current `sum(...)` support is not yet expressed as reusable plan nodes
+- [x] Query handlers now route through the planner/evaluator path instead of top-level `sum(...)` special-cases
+- [x] A recursive planner/evaluator path now exists for delegated leaves and local `sum(...)`
+- [x] Logical PromQL planning is now separated from execution-plan lowering
+- [x] A first execution-strategy context now flows into execution-plan lowering
+- [x] Execution plans now carry an internal explain tree
+- [x] Range planning now includes a first guardrail and chunking pass
+- [x] `buildPlan(...)` now acts as a compatibility wrapper over logical planning + execution lowering
+- [x] Current `sum(...)` support is now expressed as reusable plan nodes
+- [x] The planner/evaluator path is now transport-agnostic; HTTP status mapping lives in the handler layer
 
 #### Why now
 This is the main prerequisite for nearly everything else. Without it, the code will keep accreting special-cases for each new feature.
@@ -144,36 +204,92 @@ This is the main prerequisite for nearly everything else. Without it, the code w
 - Nothing
 
 #### Scope
-- [ ] Replace top-level handler special-cases with a recursive AST planner/evaluator
-- [ ] Introduce plan nodes for:
-  - [ ] delegated leaf expression
-  - [ ] local aggregate
-  - [ ] local binary op
-  - [ ] local label transform
-  - [ ] local histogram op
-  - [ ] time modifier
-- [ ] Introduce typed runtime values:
-  - [ ] scalar
-  - [ ] vector
-  - [ ] matrix
-- [ ] Introduce shared execution helpers:
-  - [ ] label-set normalization
+- [x] Replace top-level handler special-cases with a recursive AST planner/evaluator for the current supported subset
+- [x] Separate logical PromQL planning from execution-plan lowering for the current supported subset
+- [x] Add a first execution-strategy context and explainable execution-plan layer for the current supported subset
+- [x] Introduce plan nodes for the current supported subset:
+  - [x] delegated leaf expression
+  - [x] local aggregate
+  - [x] local binary op
+  - [x] local label transform
+- [ ] Feature-specific plan nodes still belong to later phases:
+  - [ ] local histogram op (Phase 5)
+  - [ ] time modifier (Phase 8)
+- [x] Introduce typed runtime values:
+  - [x] scalar
+  - [x] vector
+  - [x] matrix
+- [x] Introduce shared execution helpers:
+  - [x] label-set normalization
   - [x] grouping key generation
   - [x] basic current `__name__` handling
-  - [ ] timestamp alignment rules as a shared evaluator concern
+  - [x] timestamp alignment rules as a shared evaluator concern
   - [x] basic current NaN/null handling
-- [ ] Move current `sum(...)` support onto the new planner path
+- [x] Move current `sum(...)` support onto the new planner path
 
 #### Test gates
 - [x] Unit tests for AST support classification exist
-- [ ] Unit tests for AST-to-plan lowering
-- [ ] Unit tests for runtime value conversions
+- [x] Unit tests for AST-to-plan lowering exist for the current subset
+- [x] Basic unit tests for runtime value rendering/conversion exist for the current subset
+- [x] Unit tests now cover logical -> execution lowering and first native SQL pushdown selection/explain behavior
+- [x] Unit tests now cover range guardrail rejection and chunked local range execution
+- [x] Unit tests now cover shared label-normalization and timestamp-alignment helpers
 - [x] Existing easy integration tests pass unchanged
-- [x] Existing medium `sum(...)` integration tests pass on the current implementation path
-- [ ] Existing medium `sum(...)` integration tests pass on the future planner path
+- [x] Existing medium `sum(...)` integration tests pass on the planner/evaluator path
 
 #### Exit criteria
-- [ ] New features can be added as plan/eval nodes instead of handler branches
+- [x] New features can now be added as plan/eval nodes instead of handler branches
+- [x] The code now has an explicit place to insert future execution-strategy planning between logical planning and execution lowering
+- [x] The reusable planner/runtime foundation is complete enough that migration and optimization work can proceed as Phase 1.5 instead of extending Phase 1 indefinitely
+
+---
+
+### Phase 1.5 — Migrate onto the new execution approach
+**Status: In progress**
+
+#### Current repo state
+- [x] Logical planning, execution lowering, execution-strategy context, explain trees, first pushdown, and first range guardrail/chunking already exist
+- [x] Request handlers already plan through the new contextual planning path
+- [ ] The repo still mixes “feature implementation” progress with “migration to the new strategy-based execution model” progress
+- [ ] Output-aware safety for large final matrix responses is not implemented yet
+- [ ] Native SQL pushdown is still narrow and mostly limited to aggregation-over-leaf cases
+
+#### Why now
+This phase makes the architectural pivot explicit. The goal is to finish migrating the shim onto the new strategy-driven execution model before more feature work expands the surface area and makes migration messier.
+
+#### Depends on
+- [x] Phase 1
+
+#### Scope
+- [x] Make logical planning + execution lowering + strategy selection the default execution story for supported queries
+- [x] Add request-aware planning context so handlers choose execution strategies intentionally
+- [x] Add first explainable execution strategies:
+  - [x] delegated PromQL leaf execution
+  - [x] native SQL aggregation pushdown
+  - [x] local execution
+  - [x] chunked local range execution
+- [x] Add first range safety mechanisms:
+  - [x] max points-per-series guardrail
+  - [x] chunking threshold for large local range plans
+- [ ] Add output-aware safety for very large final matrix responses
+- [ ] Widen native SQL pushdown where it is semantically safe and materially reduces local result size
+- [ ] Make execution-strategy selection rules more explicit/documented as the source of truth for future work
+
+#### Test gates
+- [x] Unit tests cover logical -> execution lowering
+- [x] Unit tests cover first strategy selection/explain behavior
+- [x] Unit tests cover range guardrail rejection and chunked local range execution
+- [x] Existing integration suites remain green on the migrated path
+- [x] Live HTTP spot checks validate:
+  - [x] native aggregation pushdown
+  - [x] chunked local range execution
+  - [x] guardrail rejection
+- [ ] Add focused validation for output-aware response safety once implemented
+
+#### Exit criteria
+- [ ] Supported queries run through the strategy-based execution path as the clear default architecture, not as a transitional compatibility wrapper in practice
+- [ ] The remaining major memory-risk path is explicitly addressed for oversized final responses
+- [ ] Future feature phases can assume the new execution model instead of continuing the migration ad hoc
 
 ---
 
@@ -181,13 +297,16 @@ This is the main prerequisite for nearly everything else. Without it, the code w
 **Status: In progress**
 
 #### Current repo state
-- [x] A local aggregation path exists for `sum`
+- [x] A local aggregation path exists for the first implemented aggregation subset
 - [x] `sum by (...)` works
 - [x] `sum without (...)` works
+- [x] `count`, `min`, `max`, and `avg` now work on the local aggregation path
 - [x] Instant aggregation works
-- [x] Range/matrix aggregation works by timestamp for `sum`
-- [ ] No reducer framework exists yet for adding more operators cleanly
-- [ ] No aggregators other than `sum` are implemented yet
+- [x] Range/matrix aggregation works by timestamp for the implemented aggregators
+- [x] A first native SQL aggregation pushdown path now exists for aggregations over delegatable leaves
+- [x] Large local range aggregation plans can now be chunked instead of materializing one full child range at once
+- [x] A reducer/factory boundary now exists for adding more aggregators cleanly
+- [ ] Higher-order aggregators such as `topk`, `bottomk`, and `count_values` are not implemented yet
 
 #### Why now
 Aggregation unlocks a large amount of dashboard compatibility and is a prerequisite for histogram-heavy query patterns.
@@ -197,16 +316,16 @@ Aggregation unlocks a large amount of dashboard compatibility and is a prerequis
 
 #### Recommended internal order
 - [x] `sum`
-- [ ] `count`
-- [ ] `min`
-- [ ] `max`
-- [ ] `avg`
+- [x] `count`
+- [x] `min`
+- [x] `max`
+- [x] `avg`
 - [ ] `topk`
 - [ ] `bottomk`
 - [ ] `count_values`
 
 #### Scope
-- [ ] Turn local aggregation into a reusable operator framework
+- [x] A first reusable local aggregation framework now exists
 - [x] Reuse current grouping/label semantics for:
   - [x] `by (...)`
   - [x] `without (...)`
@@ -214,36 +333,40 @@ Aggregation unlocks a large amount of dashboard compatibility and is a prerequis
   - [x] drop `__name__` where appropriate
   - [x] preserve only requested grouping labels for `by (...)`
   - [x] remove listed labels and `__name__` for `without (...)`
-- [x] Support both for `sum`:
+- [x] Support both for the implemented aggregators:
   - [x] instant vector aggregation
   - [x] matrix/range aggregation by timestamp
-- [ ] Extend the framework to other aggregators
+- [x] First execution-strategy pushdown now exists for the implemented aggregators when their child is a delegatable leaf
+- [ ] Extend the framework to higher-order aggregators
 
 #### Test gates
 - [x] Unit tests for some grouping behavior exist
-- [ ] Unit tests for reducer semantics per operator
+- [x] Basic unit tests now exist for the reducer/runtime aggregation boundary
+- [x] Medium integration tests now cover:
+  - [x] `count(...)`
+  - [x] `avg(...)`
+  - [x] `min(...)`
+  - [x] `max(...)`
 - [ ] Medium integration tests for:
-  - [ ] `count(...)`
-  - [ ] `avg(...)`
-  - [ ] `min(...)`
-  - [ ] `max(...)`
   - [ ] `topk(...)`
   - [ ] `bottomk(...)`
 - [x] Existing `sum(...)` tests remain green
 
 #### Exit criteria
-- [ ] New aggregators are added by plugging into a reducer framework, not custom code paths
+- [x] New implemented aggregators are added by plugging into the reducer framework, not custom code paths
 
 ---
 
 ### Phase 3 — Add scalar support and pointwise binary ops
-**Status: Not started**
+**Status: In progress**
 
 #### Current repo state
-- [x] Unsupported binary operators fail explicitly today
-- [ ] No scalar execution exists
-- [ ] No vector-scalar arithmetic exists
-- [ ] No vector-scalar comparison exists
+- [x] Scalar instant execution now exists
+- [x] Unary `+` and `-` now exist for the current supported scalar/instant-vector subset
+- [x] Vector-scalar arithmetic now exists for the first implemented operator subset
+- [x] Vector-scalar comparison now exists for the first implemented comparison subset
+- [x] `bool` comparison mode now exists for vector-scalar comparisons
+- [x] Vector-vector and vector-matching binary expressions still fail explicitly as unsupported today
 
 #### Why now
 This is simpler than vector-vector matching, but it unlocks many common dashboard expressions.
@@ -252,48 +375,51 @@ This is simpler than vector-vector matching, but it unlocks many common dashboar
 - [ ] Phase 1
 
 #### Scope
-- [ ] Add scalar execution and vector-scalar binary semantics
-- [ ] Scalar literals
-- [ ] Unary `+` and `-`
-- [ ] Vector-scalar arithmetic:
-  - [ ] `+`
-  - [ ] `-`
-  - [ ] `*`
-  - [ ] `/`
-  - [ ] `%`
-  - [ ] `^`
-- [ ] Vector-scalar comparisons:
-  - [ ] `==`
-  - [ ] `!=`
-  - [ ] `>`
-  - [ ] `<`
-  - [ ] `>=`
-  - [ ] `<=`
-- [ ] `bool` comparison mode
+- [x] Add scalar execution and vector-scalar binary semantics for the current local subset
+- [x] Scalar literals
+- [x] Unary `+` and `-`
+- [x] Vector-scalar arithmetic:
+  - [x] `+`
+  - [x] `-`
+  - [x] `*`
+  - [x] `/`
+  - [x] `%`
+  - [x] `^`
+- [x] Vector-scalar comparisons:
+  - [x] `==`
+  - [x] `!=`
+  - [x] `>`
+  - [x] `<`
+  - [x] `>=`
+  - [x] `<=`
+- [x] `bool` comparison mode
+- [ ] Vector-vector binary semantics remain out of scope for this phase slice
 
 #### Example queries unlocked
-- [ ] `up == 0`
-- [ ] `rate(...[5m]) * 100`
-- [ ] `sum(...) / 60`
+- [x] `up == 0`
+- [x] `rate(...[5m]) * 100`
+- [x] `sum(...) / 60`
+- [x] `1 + 2`
 
 #### Test gates
-- [ ] Unit tests for scalar coercion
-- [ ] Unit tests for arithmetic and comparison semantics
-- [ ] Medium integration tests for representative vector-scalar queries
-- [ ] Explicit tests for `bool` output behavior
+- [x] Unit tests now cover scalar result evaluation and arithmetic/comparison semantics for the implemented subset
+- [x] Medium integration tests now cover representative vector-scalar queries
+- [x] Explicit tests now exist for `bool` output behavior
+- [ ] Additional tests for scalar-only range-query behavior if/when that is implemented
 
 #### Exit criteria
-- [ ] Binary operator semantics exist for scalar-involved queries and can be reused later for vector-vector ops
+- [x] Binary operator semantics now exist for scalar-involved queries and can be reused later for vector-vector ops
+- [ ] Vector-vector matching and set semantics remain future work
 
 ---
 
 ### Phase 4 — Implement label mutation helpers
-**Status: Not started**
+**Status: Done**
 
 #### Current repo state
-- [x] `label_replace` fails explicitly as unsupported today
-- [x] `label_join` would fail explicitly as unsupported today
-- [ ] No label mutation implementation exists
+- [x] `label_replace` is implemented on the local planner/evaluator path
+- [x] `label_join` is implemented on the local planner/evaluator path
+- [x] Label mutation helpers now work for both instant and range evaluation over the supported subset
 
 #### Why now
 These are medium-complexity, high-value compatibility features that do not require vector matching.
@@ -302,19 +428,19 @@ These are medium-complexity, high-value compatibility features that do not requi
 - [ ] Phase 1
 
 #### Scope
-- [ ] Implement `label_replace`
-- [ ] Implement `label_join`
-- [ ] Regex handling and replacement behavior
-- [ ] Label overwrite/creation semantics
-- [ ] Label deletion edge behavior if replacement yields empty value, if applicable to chosen compatibility behavior
+- [x] Implement `label_replace`
+- [x] Implement `label_join`
+- [x] Regex handling and replacement behavior
+- [x] Label overwrite/creation semantics
+- [x] Preserve current-label behavior unless the destination label is explicitly overwritten
 
 #### Test gates
-- [ ] Unit tests for regex capture/replacement semantics
-- [ ] Unit tests for label mutation edge cases
-- [ ] Medium integration tests for common dashboard label transforms
+- [x] Unit tests now cover regex capture/replacement semantics and plan-time validation
+- [x] Unit tests now cover key label mutation edge cases, including duplicate labelset handling
+- [x] Medium integration tests now cover common label transform queries
 
 #### Exit criteria
-- [ ] Common label-rewrite dashboard queries no longer fail as unsupported
+- [x] Common label-rewrite dashboard queries no longer fail as unsupported
 
 ---
 
@@ -520,6 +646,7 @@ These features are important, but they benefit from the core execution model bei
 
 ### Hard prerequisites
 - Phase 1 is the prerequisite for almost everything else.
+- Phase 1.5 is the preferred prerequisite for broader pushdown, output-safety work, and future high-cost query features.
 - Phase 6 is the prerequisite for:
   - vector-vector binary ops
   - set operators
@@ -541,10 +668,11 @@ These features are important, but they benefit from the core execution model bei
 
 Use this order unless target-dashboard evidence suggests otherwise:
 
-- [ ] Phase 1 — recursive planner/evaluator — **In progress**
-- [ ] Phase 2 — broader aggregations — **In progress (`sum` only)**
-- [ ] Phase 3 — scalar + vector-scalar ops — **Not started**
-- [ ] Phase 4 — label mutation helpers — **Not started**
+- [x] Phase 1 — recursive planner/evaluator — **Done (logical/execution split + shared helpers + first strategy/explain/guardrail/chunking layer landed)**
+- [ ] Phase 1.5 — migrate onto the new execution approach — **In progress (strategy-based execution is real, but migration/output-safety/pushdown widening remain)**
+- [ ] Phase 2 — broader aggregations — **In progress (`sum`, `count`, `min`, `max`, `avg` now have local execution, first native pushdown, and chunked local range execution support)**
+- [ ] Phase 3 — scalar + vector-scalar ops — **In progress**
+- [ ] Phase 4 — label mutation helpers — **Done**
 - [ ] Phase 5 — histogram support — **Not started**
 - [ ] Phase 6 — vector matching + vector-vector binary ops — **Not started**
 - [ ] Phase 7 — set operators — **Not started**
@@ -616,10 +744,10 @@ metric_a * on(namespace, pod) group_left(label_x, label_y) metric_b
 ## Immediate Next Steps
 
 ### Recommended next implementation step
-- [ ] Phase 1: recursive planner/evaluator
+- [ ] Continue Phase 1.5 by adding output-aware safety for large final matrix responses, likely via stricter response-size limits and/or streaming-oriented response shaping
 
 ### Recommended first acceptance target after that
-- [ ] Finish the Phase 2 aggregation framework so `count`, `min`, `max`, and `avg` can land without more handler special-casing
+- [ ] Continue Phase 1.5 by expanding native SQL pushdown beyond current aggregation-over-leaf cases where it is semantically safe and measurably reduces local result size
 
 ### Recommended first high-value dashboard target after medium subset
 - [ ] Phase 5: `histogram_quantile`

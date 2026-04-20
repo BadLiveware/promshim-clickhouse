@@ -32,11 +32,24 @@
 {{- $startupThrowOnError := dig "throwOnError" false $startupCfg -}}
 {{- $startupScriptsPath := printf "files/clickhouse/init/%s" (dig "file" "single/001-observability-bootstrap.sql" $startupCfg) -}}
 {{- $startupSql := include "ch-observability-poc.renderValue" (dict "value" (.Files.Get $startupScriptsPath) "context" .) | trim -}}
-{{- $startupScriptEntries := list (dict "query" $startupSql) -}}
+{{- $startupStatements := regexSplit `(?m);[ \t]*$` $startupSql -1 -}}
+{{- $startupScriptEntries := list -}}
+{{- range $statement := $startupStatements -}}
+  {{- $statement = trim $statement -}}
+  {{- if ne $statement "" -}}
+    {{- $startupScriptEntries = append $startupScriptEntries (dict "query" $statement) -}}
+  {{- end -}}
+{{- end -}}
+{{- $timeSeriesTableName := printf "%s.%s" .Values.clickhouse.env.database .Values.clickhouse.timeSeries.table -}}
+{{- $customPrometheusConfig := .Values.clickhouse.monitoring.prometheus | default dict -}}
+{{- if and (kindIs "map" $customPrometheusConfig) (gt (len $customPrometheusConfig) 0) -}}
+{{- fail "clickhouse.monitoring.prometheus cannot be combined with the chart-managed ClickHouse TimeSeries Prometheus endpoint" -}}
+{{- end -}}
 apiVersion: v1
 kind: Secret
 metadata:
   name: clickhouse-default-password
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "ch-observability-poc.labels" . | nindent 4 }}
     app.kubernetes.io/component: clickhouse
@@ -162,19 +175,32 @@ spec:
       secret:
         key: password
         name: clickhouse-default-password
+    extraUsersConfig:
+      profiles:
+        default:
+          allow_experimental_time_series_table: 1
     extraConfig:
       listen_host: "0.0.0.0"
+      prometheus:
+        port: {{ .Values.clickhouse.timeSeries.port }}
+        handlers:
+          remote_write:
+            url: {{ .Values.clickhouse.timeSeries.writePath | quote }}
+            handler:
+              type: remote_write
+              table: {{ $timeSeriesTableName | quote }}
+          remote_read:
+            url: {{ .Values.clickhouse.timeSeries.readPath | quote }}
+            handler:
+              type: remote_read
+              table: {{ $timeSeriesTableName | quote }}
 {{- if and $startupEnabled (ne $startupSql "") }}
       startup_scripts:
         throw_on_error: {{ $startupThrowOnError }}
         scripts:
 {{- toYaml $startupScriptEntries | nindent 10 }}
 {{- end }}
-{{- $prometheusConfig := .Values.clickhouse.monitoring.prometheus | default dict -}}
-{{- if and .Values.clickhouse.monitoring.enabled (kindIs "map" $prometheusConfig) (gt (len $prometheusConfig) 0) }}
-      prometheus:
-{{- toYaml $prometheusConfig | nindent 8 }}
-{{- end }}
+
 {{- if and $startupEnabled (eq $startupSql "") }}
 {{- fail (printf "missing ClickHouse startup SQL file: %s" $startupScriptsPath) -}}
 {{- end }}

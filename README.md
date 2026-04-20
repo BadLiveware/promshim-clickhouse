@@ -2,6 +2,10 @@
 
 Private HA playground for ClickHouse + OpenTelemetry observability.
 
+Current storage split:
+- logs/traces -> OTel-native ClickHouse tables
+- metrics -> ClickHouse `TimeSeries` table (`observability.prometheus`) via Prometheus remote-write
+
 ## Quick start
 
 ```bash

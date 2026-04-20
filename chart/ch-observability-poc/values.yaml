@@ -97,6 +97,16 @@ clickhouse:
     # port by default; set this block explicitly only if you need a custom protocol section.
     prometheus: null
 
+  # Prometheus protocol endpoint backed by a ClickHouse TimeSeries table.
+  # Metrics collectors write to /write, and future query shims can read via SQL/prometheusQuery()
+  # or through the optional /read endpoint on the same port.
+  timeSeries:
+    table: prometheus
+    portName: promapi
+    port: 9092
+    writePath: /write
+    readPath: /read
+
   # ClickHouse bootstrap SQL injected into operator settings as server config `<startup_scripts>`.
   # This is chart-level plumbing and maps to `spec.settings.extraConfig.startup_scripts`.
   bootstrap:
@@ -107,10 +117,6 @@ clickhouse:
     # SQL file name relative to files/clickhouse/init/.
     # Defaults to the HA script in `replicated/`.
     file: replicated/001-observability-bootstrap.sql
-    # Optional ClickHouse cluster name used by replicated bootstrap SQL.
-    # This chart defaults to HA mode, so set `file` explicitly to
-    # `single/001-observability-bootstrap.sql` if you need non-HA single-node behavior.
-    clusterName: ""
 
 # Settings passed to the ClickHouse Operator chart dependency.
 clickhouseoperator:

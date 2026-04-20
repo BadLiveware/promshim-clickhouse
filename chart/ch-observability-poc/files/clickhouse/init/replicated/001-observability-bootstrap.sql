@@ -1,7 +1,12 @@
--- Bootstrap database for OpenTelemetry data.
--- The OpenTelemetry ClickHouse exporter will create/maintain the OTEL tables
--- (otel_logs, otel_traces, otel_metrics_*) when create_schema=true.
+-- Bootstrap database for observability data.
+-- Logs and traces land in OTel-native tables created by the ClickHouse exporter.
+-- Metrics land in a ClickHouse TimeSeries table through Prometheus remote-write.
 
 CREATE DATABASE IF NOT EXISTS {{ .Values.clickhouse.env.database }}
-ON CLUSTER '{{ .Values.clickhouse.bootstrap.clusterName | default .Values.clickhouse.clusterName }}'
 ENGINE = Replicated;
+
+CREATE TABLE IF NOT EXISTS {{ .Values.clickhouse.env.database }}.{{ .Values.clickhouse.timeSeries.table }}
+ENGINE = TimeSeries
+DATA ENGINE = ReplicatedMergeTree
+TAGS ENGINE = ReplicatedAggregatingMergeTree
+METRICS ENGINE = ReplicatedReplacingMergeTree;

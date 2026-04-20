@@ -31,4 +31,8 @@ spec:
       targetPort: {{ .Values.clickhouse.monitoring.servicePort }}
       protocol: TCP
 {{- end }}
+    - name: {{ .Values.clickhouse.timeSeries.portName }}
+      port: {{ .Values.clickhouse.timeSeries.port }}
+      targetPort: {{ .Values.clickhouse.timeSeries.port }}
+      protocol: TCP
 {{- end }}

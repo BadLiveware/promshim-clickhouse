@@ -27,6 +27,7 @@ helm template ch-observability-cnpg ./chart/ch-observability-cnpg --namespace mo
 
 - HA defaults are kept in `values.yaml`.
 - ClickHouse bootstrap SQL defaults to replicated mode (`files/clickhouse/init/replicated/001-observability-bootstrap.sql`).
+- Logs and traces are stored in OTel-native ClickHouse tables; metrics are written to `observability.prometheus` using ClickHouse `TimeSeries` + Prometheus remote-write.
 - Grafana is managed natively through the Grafana Operator CR (`kind: Grafana`).
 - This chart provisions its own dashboards and datasources via native CRDs (`GrafanaDatasource`, `GrafanaDashboard`).
 - `k8s-sidecar` containers are also deployed so third-party charts can contribute dashboards and datasources via labeled ConfigMaps.

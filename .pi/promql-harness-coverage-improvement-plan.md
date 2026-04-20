@@ -29,7 +29,7 @@ The differential harness should remain the acceptance gate for supported query-b
 ## Current snapshot
 
 ### Harness status today
-- Stable corpus: `82` passing queries.
+- Stable corpus: `82` passing queries plus 4 explicit error-probe rows in `harness/corpus/queries.json`.
 - Endpoints covered:
   - `49` instant `/api/v1/query`
   - `33` range `/api/v1/query_range`
@@ -105,10 +105,10 @@ Use these statuses consistently in docs and future reviews:
 | Vector matching (`on`, `ignoring`, `group_left`, `group_right`, fill modifiers) | Implemented subset | **Stable differential** for `on`, `group_left`, `group_right`; no stable fill-modifier rows; `ignoring(...)` not represented | vector matching tests, hard integration tests | add `ignoring(...)`; resolve fill-modifier oracle/doc mismatch; add error-path parity for cardinality failures | High |
 | Set operators (`and`, `or`, `unless`) | Implemented | **Stable differential** | vector matching tests | add more label/matching variants and negative/error cases | Medium |
 | Label mutation (`label_replace`, `label_join`) | Implemented | **Stable differential** | label mutation tests | duplicate-labelset collision parity not fully differentialized | Medium |
-| Classic histogram functions (`histogram_quantile`, `histogram_count`, `histogram_sum`, `histogram_avg`) | Implemented for classic buckets | **Stable differential** only for `histogram_quantile` | planner + histogram executor tests | add stable rows for count/sum/avg; native histogram sample-type remains out of scope | High |
+| Classic histogram functions (`histogram_quantile`, `histogram_count`, `histogram_sum`, `histogram_avg`) | Implemented for classic buckets | **Stable differential** for `histogram_quantile`; other projections remain pending parity hardening | planner + histogram executor tests | add stable rows for count/sum/avg and empty-bucket/range-edge cases; native histogram sample-type remains out of scope | High |
 | Subqueries and matrix-consuming functions | Implemented for current local subset | **Stable differential** for current promoted subset | planner/range-function tests | full Prometheus-compatible subquery semantics not complete; rate-family-over-subquery remains intentionally unsupported | High |
 | Absence and staleness-sensitive behavior (`absent`, `absent_over_time`, sparse/disappearing series) | `absent` family implemented; staleness edge behavior still open | **Stable differential** for core absent-family cases; extra probes exist in `harness/corpus/phase10-staleness-probes.json` | absent tests, phase 10 docs | promote more staleness/lookback boundary cases after parity verification | High |
-| Error semantics (`unsupported`, `bad_data`, duplicate-labelset, invalid expression type`) | explicit error model exists | **No stable differential corpus for expected errors** | service/planner/unit tests | add expected-error harness mode so unsupported and bad-data behavior are regression-checked | High |
+| Error semantics (`unsupported`, `bad_data`, duplicate-labelset, invalid expression type`) | explicit error model exists | **Expected-error differential checks enabled** | service/planner/unit tests + harness `expectedStatus=error` rows | add duplicate-labelset/unsupported parity checks with both Prometheus + shim expectations | High |
 | Metadata/query-UX endpoints (`/labels`, `/label/{name}/values`, `/series`) | endpoints exist | **No differential harness coverage** | some service code/tests | add endpoint-specific differential checks because dashboard compatibility depends on them too | Medium |
 | Real dashboard/alert/query inventory from `monitoring-v2` | Unknown | **No coverage accounting** | none in repo yet | biggest blind spot: current corpus is synthetic, not usage-derived | Highest |
 | External/public dashboard query inventory (GitHub repos, Grafana.com dashboards) | Not harvested yet | **No coverage accounting** | none in repo yet | useful source of common PromQL shapes, but requires dedupe, datasource filtering, and semantic rewrite before stable use | High |

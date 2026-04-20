@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -60,7 +61,7 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 	report := CompareReport{CorpusPath: cfg.CorpusPath, Manifest: manifest, Results: make([]QueryComparison, 0, len(queries))}
 	var firstErr error
 	for _, query := range queries {
-		promResult, err := QueryAndNormalize(client, cfg.PrometheusBaseURL, manifest, query)
+		promResult, err := QueryAndFetch(client, cfg.PrometheusBaseURL, manifest, query)
 		if err != nil {
 			report.Results = append(report.Results, QueryComparison{Name: query.Name, Query: query.Query, Status: "error", Detail: err.Error()})
 			if firstErr == nil {
@@ -68,7 +69,7 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 			}
 			continue
 		}
-		shimResult, err := QueryAndNormalize(client, cfg.PromshimBaseURL, manifest, query)
+		shimResult, err := QueryAndFetch(client, cfg.PromshimBaseURL, manifest, query)
 		if err != nil {
 			report.Results = append(report.Results, QueryComparison{Name: query.Name, Query: query.Query, Status: "error", Detail: err.Error()})
 			if firstErr == nil {
@@ -76,14 +77,15 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 			}
 			continue
 		}
-		if err := CompareNormalizedResults(promResult, shimResult); err != nil {
-			report.Results = append(report.Results, QueryComparison{Name: query.Name, Query: query.Query, Status: "diff", Detail: err.Error()})
+		result, err := CompareQueryOutcome(query, promResult, shimResult)
+		if err != nil {
+			report.Results = append(report.Results, QueryComparison{Name: query.Name, Query: query.Query, Status: "error", Detail: err.Error()})
 			if firstErr == nil {
 				firstErr = err
 			}
 			continue
 		}
-		report.Results = append(report.Results, QueryComparison{Name: query.Name, Query: query.Query, Status: "ok"})
+		report.Results = append(report.Results, QueryComparison{Name: query.Name, Query: query.Query, Status: result})
 	}
 	if err := writeCompareReport(cfg.ArtifactDir, report); err != nil && firstErr == nil {
 		firstErr = err
@@ -92,6 +94,52 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 		return report, firstErr
 	}
 	return report, nil
+}
+
+func CompareQueryOutcome(spec QuerySpec, promResult queryResult, shimResult queryResult) (string, error) {
+	expectedStatus := strings.ToLower(strings.TrimSpace(spec.ExpectedStatus))
+	if expectedStatus == "" {
+		expectedStatus = "ok"
+	}
+	switch expectedStatus {
+	case "ok":
+		if promResult.Status != "success" {
+			return "error", fmt.Errorf("expected success from Prometheus for %q but got %s: %s", spec.Name, promResult.Status, promResult.Error)
+		}
+		if shimResult.Status != "success" {
+			return "error", fmt.Errorf("expected success from promshim for %q but got %s: %s", spec.Name, shimResult.Status, shimResult.Error)
+		}
+		if err := CompareNormalizedResults(promResult.Data, shimResult.Data); err != nil {
+			return "diff", err
+		}
+	case "error":
+		if promResult.Status != "error" {
+			return "error", fmt.Errorf("expected error from Prometheus for %q but got %s", spec.Name, promResult.Status)
+		}
+		if shimResult.Status != "error" {
+			return "error", fmt.Errorf("expected error from promshim for %q but got %s", spec.Name, shimResult.Status)
+		}
+		if expectedType := strings.TrimSpace(spec.ExpectedErrorType); expectedType != "" {
+			if promResult.ErrorType != expectedType {
+				return "error", fmt.Errorf("unexpected Prometheus errorType for %q: expected %q got %q", spec.Name, expectedType, promResult.ErrorType)
+			}
+			if shimResult.ErrorType != expectedType {
+				return "error", fmt.Errorf("unexpected promshim errorType for %q: expected %q got %q", spec.Name, expectedType, shimResult.ErrorType)
+			}
+		}
+		if expectedContains := strings.TrimSpace(spec.ExpectedErrorContains); expectedContains != "" {
+			if !strings.Contains(promResult.Error, expectedContains) {
+				return "error", fmt.Errorf("expected Prometheus error for %q to contain %q, got %q", spec.Name, expectedContains, promResult.Error)
+			}
+			if !strings.Contains(shimResult.Error, expectedContains) {
+				return "error", fmt.Errorf("expected promshim error for %q to contain %q, got %q", spec.Name, expectedContains, shimResult.Error)
+			}
+		}
+	default:
+		return "error", fmt.Errorf("unsupported expectedStatus %q for %q", spec.ExpectedStatus, spec.Name)
+	}
+
+	return "ok", nil
 }
 
 func waitForDatasetAvailability(ctx context.Context, client *http.Client, cfg CompareConfig, manifest Manifest) error {

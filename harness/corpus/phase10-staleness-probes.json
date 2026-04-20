@@ -1,0 +1,40 @@
+[
+  {
+    "name": "sparse_selector_midpoint_instant",
+    "endpoint": "query",
+    "query": "harness_sparse_gauge{job=\"api\",instance=\"a\"}",
+    "timeOffsetSeconds": 300
+  },
+  {
+    "name": "disappearing_selector_early_instant",
+    "endpoint": "query",
+    "query": "harness_disappearing_gauge{job=\"api\",instance=\"a\"}",
+    "timeOffsetSeconds": 240
+  },
+  {
+    "name": "disappearing_selector_late_instant",
+    "endpoint": "query",
+    "query": "harness_disappearing_gauge{job=\"api\",instance=\"a\"}",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "disappearing_absent_over_time_early",
+    "endpoint": "query",
+    "query": "absent_over_time(harness_disappearing_gauge{job=\"api\",instance=\"a\"}[5m])",
+    "timeOffsetSeconds": 240
+  },
+  {
+    "name": "disappearing_absent_over_time_late",
+    "endpoint": "query",
+    "query": "absent_over_time(harness_disappearing_gauge{job=\"api\",instance=\"a\"}[5m])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "disappearing_absent_over_time_range",
+    "endpoint": "query_range",
+    "query": "absent_over_time(harness_disappearing_gauge{job=\"api\",instance=\"a\"}[5m])",
+    "startOffsetSeconds": 180,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  }
+]

@@ -3,11 +3,20 @@ package exec
 import (
 	"math"
 	"sort"
+	"strconv"
 	"time"
 
 	"ch-observability/internal/promshim/model"
 	"github.com/prometheus/prometheus/promql/parser"
 )
+
+type AggregationOptions struct {
+	Grouping       []string
+	Without        bool
+	EvaluationTime time.Time
+	ParamNumber    *float64
+	ParamString    string
+}
 
 type aggregateReducer interface {
 	Add(value float64)
@@ -68,22 +77,51 @@ func (r *avgReducer) Result() float64 {
 	return r.sum / r.count
 }
 
-func AggregateRuntimeValue(op parser.ItemType, value model.RuntimeValue, grouping []string, without bool, evaluationTime time.Time) (model.RuntimeValue, error) {
-	switch typed := value.(type) {
-	case model.VectorValue:
-		samples, err := AggregateInstantSamples(op, typed.Samples, grouping, without, evaluationTime)
+func AggregateRuntimeValue(op parser.ItemType, value model.RuntimeValue, opts AggregationOptions) (model.RuntimeValue, error) {
+	switch op {
+	case parser.TOPK, parser.BOTTOMK:
+		k, err := aggregationKValue(op, opts.ParamNumber)
 		if err != nil {
 			return nil, err
 		}
-		return model.VectorValue{Samples: samples}, nil
-	case model.MatrixValue:
-		series, err := AggregateRangeSeries(op, typed.Series, grouping, without)
+		switch typed := value.(type) {
+		case model.VectorValue:
+			return model.VectorValue{Samples: AggregateTopBottomInstantSamples(op, typed.Samples, opts.Grouping, opts.Without, k)}, nil
+		case model.MatrixValue:
+			return model.MatrixValue{Series: AggregateTopBottomRangeSeries(op, typed.Series, opts.Grouping, opts.Without, k)}, nil
+		default:
+			return nil, executionf("aggregation requires vector or matrix input, got %T", value)
+		}
+	case parser.COUNT_VALUES:
+		label, err := countValuesLabel(opts.ParamString)
 		if err != nil {
 			return nil, err
 		}
-		return model.MatrixValue{Series: series}, nil
+		switch typed := value.(type) {
+		case model.VectorValue:
+			return model.VectorValue{Samples: AggregateCountValuesInstantSamples(typed.Samples, opts.Grouping, opts.Without, opts.EvaluationTime, label)}, nil
+		case model.MatrixValue:
+			return model.MatrixValue{Series: AggregateCountValuesRangeSeries(typed.Series, opts.Grouping, opts.Without, label)}, nil
+		default:
+			return nil, executionf("aggregation requires vector or matrix input, got %T", value)
+		}
 	default:
-		return nil, executionf("aggregation requires vector or matrix input, got %T", value)
+		switch typed := value.(type) {
+		case model.VectorValue:
+			samples, err := AggregateInstantSamples(op, typed.Samples, opts.Grouping, opts.Without, opts.EvaluationTime)
+			if err != nil {
+				return nil, err
+			}
+			return model.VectorValue{Samples: samples}, nil
+		case model.MatrixValue:
+			series, err := AggregateRangeSeries(op, typed.Series, opts.Grouping, opts.Without)
+			if err != nil {
+				return nil, err
+			}
+			return model.MatrixValue{Series: series}, nil
+		default:
+			return nil, executionf("aggregation requires vector or matrix input, got %T", value)
+		}
 	}
 }
 
@@ -156,6 +194,180 @@ func AggregateRangeSeries(op parser.ItemType, series []model.RangeSeries, groupi
 	return result, nil
 }
 
+func AggregateTopBottomInstantSamples(op parser.ItemType, samples []model.InstantSample, grouping []string, without bool, k int) []model.InstantSample {
+	if k < 1 || len(samples) == 0 {
+		return nil
+	}
+	buckets := make(map[string][]model.InstantSample, len(samples))
+	for _, sample := range samples {
+		key := model.LabelsKey(model.AggregationMetric(sample.Metric, grouping, without))
+		buckets[key] = append(buckets[key], sample)
+	}
+	keys := sortedMapKeys(buckets)
+	result := make([]model.InstantSample, 0, len(samples))
+	for _, key := range keys {
+		bucket := append([]model.InstantSample(nil), buckets[key]...)
+		sort.SliceStable(bucket, func(i, j int) bool { return aggregateSampleLess(op, bucket[i], bucket[j]) })
+		limit := min(k, len(bucket))
+		for _, sample := range bucket[:limit] {
+			result = append(result, model.InstantSample{Metric: model.CloneMetric(sample.Metric), Timestamp: sample.Timestamp, Value: sample.Value})
+		}
+	}
+	return result
+}
+
+func AggregateTopBottomRangeSeries(op parser.ItemType, series []model.RangeSeries, grouping []string, without bool, k int) []model.RangeSeries {
+	if k < 1 || len(series) == 0 {
+		return nil
+	}
+	samplesByTimestamp, timestamps := rangeSeriesSamplesByTimestamp(series)
+	grouped := make(map[string]model.RangeSeries, len(series))
+	for _, timestamp := range timestamps {
+		selected := AggregateTopBottomInstantSamples(op, samplesByTimestamp[timestamp], grouping, without, k)
+		for _, sample := range selected {
+			key := model.LabelsKey(sample.Metric)
+			item := grouped[key]
+			if item.Metric == nil {
+				item.Metric = model.CloneMetric(sample.Metric)
+			}
+			item.Values = append(item.Values, model.RangePoint{Timestamp: sample.Timestamp, Value: sample.Value})
+			grouped[key] = item
+		}
+	}
+	keys := sortedMapKeys(grouped)
+	result := make([]model.RangeSeries, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, grouped[key])
+	}
+	return result
+}
+
+func AggregateCountValuesInstantSamples(samples []model.InstantSample, grouping []string, without bool, evaluationTime time.Time, valueLabel string) []model.InstantSample {
+	timestamp := float64(evaluationTime.UnixNano()) / float64(time.Second)
+	effectiveGrouping := countValuesGrouping(grouping, without, valueLabel)
+	type bucket struct {
+		Metric map[string]string
+		Count  int
+	}
+	buckets := make(map[string]*bucket, len(samples))
+	for _, sample := range samples {
+		metric := model.CloneMetric(sample.Metric)
+		metric[valueLabel] = formatAggregationValue(sample.Value)
+		aggregatedMetric := model.AggregationMetric(metric, effectiveGrouping, without)
+		key := model.LabelsKey(aggregatedMetric)
+		if buckets[key] == nil {
+			buckets[key] = &bucket{Metric: aggregatedMetric}
+		}
+		buckets[key].Count++
+	}
+	keys := sortedBucketKeys(buckets)
+	result := make([]model.InstantSample, 0, len(keys))
+	for _, key := range keys {
+		bucket := buckets[key]
+		result = append(result, model.InstantSample{Metric: bucket.Metric, Timestamp: timestamp, Value: float64(bucket.Count)})
+	}
+	return result
+}
+
+func AggregateCountValuesRangeSeries(series []model.RangeSeries, grouping []string, without bool, valueLabel string) []model.RangeSeries {
+	samplesByTimestamp, timestamps := rangeSeriesSamplesByTimestamp(series)
+	grouped := make(map[string]model.RangeSeries, len(series))
+	for _, timestamp := range timestamps {
+		selected := AggregateCountValuesInstantSamples(samplesByTimestamp[timestamp], grouping, without, time.Unix(0, int64(timestamp*float64(time.Second))).UTC(), valueLabel)
+		for _, sample := range selected {
+			key := model.LabelsKey(sample.Metric)
+			item := grouped[key]
+			if item.Metric == nil {
+				item.Metric = model.CloneMetric(sample.Metric)
+			}
+			item.Values = append(item.Values, model.RangePoint{Timestamp: sample.Timestamp, Value: sample.Value})
+			grouped[key] = item
+		}
+	}
+	keys := sortedMapKeys(grouped)
+	result := make([]model.RangeSeries, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, grouped[key])
+	}
+	return result
+}
+
+func aggregationKValue(op parser.ItemType, value *float64) (int, error) {
+	if value == nil {
+		return 0, badDataf("aggregation operator %q requires a scalar parameter", op.String())
+	}
+	return int(*value), nil
+}
+
+func countValuesLabel(value string) (string, error) {
+	if value == "" {
+		return "", badDataf("count_values requires a label parameter")
+	}
+	return value, nil
+}
+
+func countValuesGrouping(grouping []string, without bool, valueLabel string) []string {
+	if without {
+		return append([]string(nil), grouping...)
+	}
+	result := append([]string(nil), grouping...)
+	for _, label := range result {
+		if label == valueLabel {
+			return result
+		}
+	}
+	result = append(result, valueLabel)
+	return result
+}
+
+func rangeSeriesSamplesByTimestamp(series []model.RangeSeries) (map[float64][]model.InstantSample, []float64) {
+	grouped := make(map[float64][]model.InstantSample, len(series))
+	timestamps := make([]float64, 0)
+	seen := make(map[float64]struct{})
+	for _, item := range series {
+		for _, point := range item.Values {
+			grouped[point.Timestamp] = append(grouped[point.Timestamp], model.InstantSample{Metric: item.Metric, Timestamp: point.Timestamp, Value: point.Value})
+			if _, ok := seen[point.Timestamp]; ok {
+				continue
+			}
+			seen[point.Timestamp] = struct{}{}
+			timestamps = append(timestamps, point.Timestamp)
+		}
+	}
+	sort.Float64s(timestamps)
+	return grouped, timestamps
+}
+
+func aggregateSampleLess(op parser.ItemType, left, right model.InstantSample) bool {
+	leftNaN := math.IsNaN(left.Value)
+	rightNaN := math.IsNaN(right.Value)
+	switch {
+	case leftNaN && rightNaN:
+		return model.LabelsKey(left.Metric) < model.LabelsKey(right.Metric)
+	case leftNaN:
+		return false
+	case rightNaN:
+		return true
+	}
+	switch op {
+	case parser.TOPK:
+		if left.Value != right.Value {
+			return left.Value > right.Value
+		}
+	case parser.BOTTOMK:
+		if left.Value != right.Value {
+			return left.Value < right.Value
+		}
+	default:
+		panic("unexpected aggregation selector operator")
+	}
+	return model.LabelsKey(left.Metric) < model.LabelsKey(right.Metric)
+}
+
+func formatAggregationValue(value float64) string {
+	return strconv.FormatFloat(value, 'f', -1, 64)
+}
+
 func newAggregateReducer(op parser.ItemType) (aggregateReducer, error) {
 	switch op {
 	case parser.SUM:
@@ -176,6 +388,15 @@ func newAggregateReducer(op parser.ItemType) (aggregateReducer, error) {
 func sortedBucketKeys[T any](buckets map[string]*T) []string {
 	keys := make([]string, 0, len(buckets))
 	for key := range buckets {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedMapKeys[T any](items map[string]T) []string {
+	keys := make([]string, 0, len(items))
+	for key := range items {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)

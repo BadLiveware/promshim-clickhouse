@@ -1,0 +1,16 @@
+{
+  "nextId": 43,
+  "tasks": [
+    {
+      "id": "42",
+      "subject": "Refactor range-function evaluation to generic matrix-window abstraction",
+      "description": "Implement reusable matrix->vector range-function abstraction so local range functions are added declaratively instead of bespoke switches, then wire `last_over_time` through it and keep existing behavior/tests green.",
+      "status": "completed",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776716860744,
+      "updatedAt": 1776716937858
+    }
+  ]
+}

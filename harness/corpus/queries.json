@@ -12,6 +12,12 @@
     "timeOffsetSeconds": 540
   },
   {
+    "name": "selector_offset_instant",
+    "endpoint": "query",
+    "query": "harness_up offset 60s",
+    "timeOffsetSeconds": 540
+  },
+  {
     "name": "regex_matcher_instant",
     "endpoint": "query",
     "query": "harness_up{job=~\"api|worker\"}",
@@ -22,6 +28,14 @@
     "endpoint": "query",
     "query": "1 + 2",
     "timeOffsetSeconds": 540
+  },
+  {
+    "name": "scalar_range",
+    "endpoint": "query_range",
+    "query": "1 + 2",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
   },
   {
     "name": "sum_by_job_instant",
@@ -54,6 +68,162 @@
     "timeOffsetSeconds": 540
   },
   {
+    "name": "histogram_quantile_by_job_instant",
+    "endpoint": "query",
+    "query": "histogram_quantile(0.9, sum by (le, job) (rate(harness_request_duration_seconds_bucket[5m])))",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "absent_missing_instant",
+    "endpoint": "query",
+    "query": "absent(nonexistent_metric{job=\"api\",instance=~\".*\"})",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "absent_present_instant",
+    "endpoint": "query",
+    "query": "absent(harness_up{job=\"api\"})",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "absent_over_time_missing_instant",
+    "endpoint": "query",
+    "query": "absent_over_time(nonexistent_metric{job=\"api\"}[5m])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "absent_over_time_present_instant",
+    "endpoint": "query",
+    "query": "absent_over_time(harness_up{job=\"api\"}[5m])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "sparse_selector_midpoint_instant",
+    "endpoint": "query",
+    "query": "harness_sparse_gauge{job=\"api\",instance=\"a\"}",
+    "timeOffsetSeconds": 300
+  },
+  {
+    "name": "disappearing_selector_early_instant",
+    "endpoint": "query",
+    "query": "harness_disappearing_gauge{job=\"api\",instance=\"a\"}",
+    "timeOffsetSeconds": 240
+  },
+  {
+    "name": "disappearing_selector_late_instant",
+    "endpoint": "query",
+    "query": "harness_disappearing_gauge{job=\"api\",instance=\"a\"}",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "disappearing_absent_over_time_early",
+    "endpoint": "query",
+    "query": "absent_over_time(harness_disappearing_gauge{job=\"api\",instance=\"a\"}[5m])",
+    "timeOffsetSeconds": 240
+  },
+  {
+    "name": "disappearing_absent_over_time_late",
+    "endpoint": "query",
+    "query": "absent_over_time(harness_disappearing_gauge{job=\"api\",instance=\"a\"}[5m])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "subquery_local_child_instant",
+    "endpoint": "query",
+    "query": "(harness_up * 100)[5m:60s]",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "subquery_local_aggregation_child_instant",
+    "endpoint": "query",
+    "query": "sum(harness_up)[5m:60s]",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "subquery_matrix_root_selector_instant",
+    "endpoint": "query",
+    "query": "harness_requests_total[5m:60s]",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "subquery_local_child_at_start_offset_instant",
+    "endpoint": "query",
+    "query": "(harness_up * 100)[5m:60s] @ start() offset 60s",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "subquery_local_aggregation_child_at_start_offset_instant",
+    "endpoint": "query",
+    "query": "sum(harness_up)[5m:60s] @ start() offset 60s",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "last_over_time_subquery_local_instant",
+    "endpoint": "query",
+    "query": "last_over_time((harness_up * 100)[5m:60s])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "nested_last_over_time_subquery_local_instant",
+    "endpoint": "query",
+    "query": "last_over_time(last_over_time((harness_up * 100)[5m:60s])[10m:60s])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "sum_over_time_subquery_local_instant",
+    "endpoint": "query",
+    "query": "sum_over_time((harness_up * 100)[5m:60s])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "avg_over_time_subquery_local_instant",
+    "endpoint": "query",
+    "query": "avg_over_time((harness_up * 100)[5m:60s])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "nested_sum_over_time_subquery_local_instant",
+    "endpoint": "query",
+    "query": "sum_over_time(last_over_time((harness_up * 100)[5m:60s])[10m:60s])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "max_over_time_subquery_local_instant",
+    "endpoint": "query",
+    "query": "max_over_time((harness_up * 100)[5m:60s])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "min_over_time_subquery_local_instant",
+    "endpoint": "query",
+    "query": "min_over_time((harness_up * 100)[5m:60s])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "count_over_time_subquery_local_instant",
+    "endpoint": "query",
+    "query": "count_over_time((harness_up * 100)[5m:60s])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "topk_queue_depth_instant",
+    "endpoint": "query",
+    "query": "topk(2, harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "bottomk_queue_depth_instant",
+    "endpoint": "query",
+    "query": "bottomk(2, harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "count_values_up_instant",
+    "endpoint": "query",
+    "query": "count_values(\"up_value\", harness_up)",
+    "timeOffsetSeconds": 540
+  },
+  {
     "name": "vector_scalar_instant",
     "endpoint": "query",
     "query": "harness_up * 100",
@@ -63,6 +233,48 @@
     "name": "vector_scalar_bool_instant",
     "endpoint": "query",
     "query": "harness_up == bool 1",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "vector_vector_instant",
+    "endpoint": "query",
+    "query": "harness_up + harness_up",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "vector_match_group_left_instant",
+    "endpoint": "query",
+    "query": "harness_up * on(job) group_left sum by (job) (harness_up)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "vector_match_group_right_instant",
+    "endpoint": "query",
+    "query": "sum by (job) (harness_up) * on(job) group_right harness_up",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "vector_vector_bool_matching_instant",
+    "endpoint": "query",
+    "query": "harness_up == bool on(job,instance,namespace,pod,service) harness_up",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "set_and_instant",
+    "endpoint": "query",
+    "query": "harness_up and on(job) sum by (job) (harness_up)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "set_or_instant",
+    "endpoint": "query",
+    "query": "harness_up{job=\"api\"} or on(job) harness_up{job=\"worker\"}",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "set_unless_instant",
+    "endpoint": "query",
+    "query": "harness_up unless on(job,instance,namespace,pod,service) harness_up{job=\"definitely_missing\"}",
     "timeOffsetSeconds": 540
   },
   {
@@ -81,6 +293,38 @@
     "name": "selector_range",
     "endpoint": "query_range",
     "query": "harness_up{job=\"api\"}",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "selector_offset_range",
+    "endpoint": "query_range",
+    "query": "harness_up{job=\"api\"} offset 60s",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "selector_at_start_range",
+    "endpoint": "query_range",
+    "query": "harness_up{job=\"api\"} @ start()",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "vector_offset_binary_range",
+    "endpoint": "query_range",
+    "query": "harness_up - harness_up offset 60s",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "vector_at_start_end_binary_range",
+    "endpoint": "query_range",
+    "query": "harness_up @ start() + harness_up @ end()",
     "startOffsetSeconds": 300,
     "endOffsetSeconds": 540,
     "stepSeconds": 60
@@ -110,9 +354,197 @@
     "stepSeconds": 60
   },
   {
+    "name": "histogram_quantile_by_job_range",
+    "endpoint": "query_range",
+    "query": "histogram_quantile(0.9, sum by (le, job) (rate(harness_request_duration_seconds_bucket[5m])))",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "absent_over_time_missing_range",
+    "endpoint": "query_range",
+    "query": "absent_over_time(nonexistent_metric{job=\"api\"}[5m])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "disappearing_absent_over_time_range",
+    "endpoint": "query_range",
+    "query": "absent_over_time(harness_disappearing_gauge{job=\"api\",instance=\"a\"}[5m])",
+    "startOffsetSeconds": 180,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "last_over_time_subquery_local_range",
+    "endpoint": "query_range",
+    "query": "last_over_time((harness_up * 100)[5m:60s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "nested_last_over_time_subquery_local_range",
+    "endpoint": "query_range",
+    "query": "last_over_time(last_over_time((harness_up * 100)[5m:60s])[10m:60s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "sum_over_time_subquery_local_range",
+    "endpoint": "query_range",
+    "query": "sum_over_time((harness_up * 100)[5m:60s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "avg_over_time_subquery_local_range",
+    "endpoint": "query_range",
+    "query": "avg_over_time((harness_up * 100)[5m:60s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "nested_sum_over_time_subquery_local_range",
+    "endpoint": "query_range",
+    "query": "sum_over_time(last_over_time((harness_up * 100)[5m:60s])[10m:60s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "max_over_time_subquery_local_range",
+    "endpoint": "query_range",
+    "query": "max_over_time((harness_up * 100)[5m:60s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "min_over_time_subquery_local_range",
+    "endpoint": "query_range",
+    "query": "min_over_time((harness_up * 100)[5m:60s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "count_over_time_subquery_local_range",
+    "endpoint": "query_range",
+    "query": "count_over_time((harness_up * 100)[5m:60s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "quantile_over_time_subquery_local_instant",
+    "endpoint": "query",
+    "query": "quantile_over_time(0.9, (harness_up * 100)[5m:60s])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "quantile_over_time_nested_subquery_local_instant",
+    "endpoint": "query",
+    "query": "quantile_over_time(0.9, sum_over_time((harness_up * 100)[5m:60s])[10m:60s])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "quantile_over_time_subquery_local_range",
+    "endpoint": "query_range",
+    "query": "quantile_over_time(0.9, (harness_up * 100)[5m:60s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "quantile_over_time_nested_subquery_local_range",
+    "endpoint": "query_range",
+    "query": "quantile_over_time(0.9, sum_over_time((harness_up * 100)[5m:60s])[10m:60s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "count_values_up_range",
+    "endpoint": "query_range",
+    "query": "count_values(\"up_value\", harness_up)",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "nested_matrix_binary_sum_plus_count_over_time_local_instant_range",
+    "endpoint": "query_range",
+    "query": "sum_over_time((up * 100)[5m:30s]) + count_over_time((up * 100)[5m:30s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "nested_matrix_binary_sum_plus_count_over_time_local_range",
+    "endpoint": "query_range",
+    "query": "sum_over_time((up * 100)[5m:30s]) + count_over_time((up * 100)[5m:30s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "set_and_range",
+    "endpoint": "query_range",
+    "query": "harness_up and on(job) sum by (job) (harness_up)",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "set_or_range",
+    "endpoint": "query_range",
+    "query": "harness_up{job=\"api\"} or on(job) harness_up{job=\"worker\"}",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "set_unless_range",
+    "endpoint": "query_range",
+    "query": "harness_up unless on(job,instance,namespace,pod,service) harness_up{job=\"definitely_missing\"}",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "topk_queue_depth_range",
+    "endpoint": "query_range",
+    "query": "topk(2, harness_queue_depth)",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "vector_match_group_left_range",
+    "endpoint": "query_range",
+    "query": "harness_up * on(job) group_left sum by (job) (harness_up)",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
     "name": "vector_scalar_range",
     "endpoint": "query_range",
     "query": "harness_up * 100",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "vector_vector_range",
+    "endpoint": "query_range",
+    "query": "harness_up + harness_up",
     "startOffsetSeconds": 300,
     "endOffsetSeconds": 540,
     "stepSeconds": 60
@@ -124,5 +556,39 @@
     "startOffsetSeconds": 300,
     "endOffsetSeconds": 540,
     "stepSeconds": 60
+  },
+  {
+    "name": "query_range_matrix_root_rejected",
+    "endpoint": "query_range",
+    "query": "(harness_up * 100)[5m:60s]",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "expectedStatus": "error",
+    "expectedErrorType": "bad_data",
+    "expectedErrorContains": "invalid expression type"
+  },
+  {
+    "name": "parse_failure_query",
+    "endpoint": "query",
+    "query": "sum(",
+    "expectedStatus": "error",
+    "expectedErrorType": "bad_data"
+  },
+  {
+    "name": "vector_matching_many_to_one_error",
+    "endpoint": "query",
+    "query": "harness_up * on(job) sum by (job) (harness_up)",
+    "expectedStatus": "error",
+    "expectedErrorContains": "many-to-one matching must be explicit"
+  },
+  {
+    "name": "unsupported_histogram_fraction",
+    "endpoint": "query",
+    "query": "histogram_fraction(0.9, sum by (le, job) (rate(harness_request_duration_seconds_bucket[5m])) )",
+    "expectedStatus": "error",
+    "expectedErrorContains": "histogram_fraction"
   }
 ]
+
+

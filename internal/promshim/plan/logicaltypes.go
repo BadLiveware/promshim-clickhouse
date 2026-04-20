@@ -1,6 +1,8 @@
 package plan
 
 import (
+	"time"
+
 	modelpkg "ch-observability/internal/promshim/model"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -63,10 +65,11 @@ func (p *LogicalUnaryPlan) exprString() string {
 func (p *LogicalUnaryPlan) ExprString() string { return p.exprString() }
 
 type LogicalBinaryPlan struct {
-	Expr       parser.Expr
-	Op         parser.ItemType
-	ReturnBool bool
-	LHS, RHS   LogicalPlan
+	Expr           parser.Expr
+	Op             parser.ItemType
+	VectorMatching *parser.VectorMatching
+	ReturnBool     bool
+	LHS, RHS       LogicalPlan
 }
 
 func (*LogicalBinaryPlan) logicalPlan() {}
@@ -86,11 +89,13 @@ func (p *LogicalBinaryPlan) exprString() string {
 func (p *LogicalBinaryPlan) ExprString() string { return p.exprString() }
 
 type LogicalAggregationPlan struct {
-	Expr     parser.Expr
-	Op       parser.ItemType
-	Grouping []string
-	Without  bool
-	Child    LogicalPlan
+	Expr        parser.Expr
+	Op          parser.ItemType
+	Grouping    []string
+	Without     bool
+	ParamNumber *float64
+	ParamString string
+	Child       LogicalPlan
 }
 
 func (*LogicalAggregationPlan) logicalPlan() {}
@@ -108,6 +113,165 @@ func (p *LogicalAggregationPlan) exprString() string {
 	return p.Expr.String()
 }
 func (p *LogicalAggregationPlan) ExprString() string { return p.exprString() }
+
+type LogicalHistogramQuantilePlan struct {
+	Expr     parser.Expr
+	Quantile float64
+	Child    LogicalPlan
+}
+
+func (*LogicalHistogramQuantilePlan) logicalPlan() {}
+func (p *LogicalHistogramQuantilePlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalHistogramQuantilePlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalHistogramQuantilePlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalHistogramQuantilePlan) ExprString() string { return p.exprString() }
+
+type LogicalHistogramProjectionPlan struct {
+	Expr  parser.Expr
+	Func  string
+	Child LogicalPlan
+}
+
+func (*LogicalHistogramProjectionPlan) logicalPlan() {}
+func (p *LogicalHistogramProjectionPlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalHistogramProjectionPlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalHistogramProjectionPlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalHistogramProjectionPlan) ExprString() string { return p.exprString() }
+
+type LogicalRangeFunctionPlan struct {
+	Expr  parser.Expr
+	Func  string
+	Child LogicalPlan
+}
+
+func (*LogicalRangeFunctionPlan) logicalPlan() {}
+func (p *LogicalRangeFunctionPlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalRangeFunctionPlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalRangeFunctionPlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalRangeFunctionPlan) ExprString() string { return p.exprString() }
+
+type LogicalQuantileOverTimePlan struct {
+	Expr     parser.Expr
+	Quantile float64
+	Child    LogicalPlan
+}
+
+func (*LogicalQuantileOverTimePlan) logicalPlan() {}
+func (p *LogicalQuantileOverTimePlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalQuantileOverTimePlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalQuantileOverTimePlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalQuantileOverTimePlan) ExprString() string { return p.exprString() }
+
+type LogicalAbsentPlan struct {
+	Expr         parser.Expr
+	OutputMetric map[string]string
+	Child        LogicalPlan
+}
+
+func (*LogicalAbsentPlan) logicalPlan() {}
+func (p *LogicalAbsentPlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalAbsentPlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalAbsentPlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalAbsentPlan) ExprString() string { return p.exprString() }
+
+type LogicalAbsentOverTimePlan struct {
+	Expr         parser.Expr
+	OutputMetric map[string]string
+	Child        LogicalPlan
+}
+
+func (*LogicalAbsentOverTimePlan) logicalPlan() {}
+func (p *LogicalAbsentOverTimePlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalAbsentOverTimePlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalAbsentOverTimePlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalAbsentOverTimePlan) ExprString() string { return p.exprString() }
+
+type LogicalSubqueryPlan struct {
+	Expr                    parser.Expr
+	Range                   time.Duration
+	Step                    time.Duration
+	Offset                  time.Duration
+	Timestamp               *int64
+	StartOrEnd              parser.ItemType
+	DelegatedLeafCompatible bool
+	Child                   LogicalPlan
+}
+
+func (*LogicalSubqueryPlan) logicalPlan() {}
+func (p *LogicalSubqueryPlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalSubqueryPlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalSubqueryPlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalSubqueryPlan) ExprString() string { return p.exprString() }
 
 type LogicalLabelReplacePlan struct {
 	Expr   parser.Expr

@@ -31,13 +31,16 @@ type CompareConfig struct {
 }
 
 type QuerySpec struct {
-	Name               string `json:"name"`
-	Endpoint           string `json:"endpoint"`
-	Query              string `json:"query"`
-	TimeOffsetSeconds  int64  `json:"timeOffsetSeconds,omitempty"`
-	StartOffsetSeconds int64  `json:"startOffsetSeconds,omitempty"`
-	EndOffsetSeconds   int64  `json:"endOffsetSeconds,omitempty"`
-	StepSeconds        int64  `json:"stepSeconds,omitempty"`
+	Name                  string `json:"name"`
+	Endpoint              string `json:"endpoint"`
+	Query                 string `json:"query"`
+	TimeOffsetSeconds     int64  `json:"timeOffsetSeconds,omitempty"`
+	StartOffsetSeconds    int64  `json:"startOffsetSeconds,omitempty"`
+	EndOffsetSeconds      int64  `json:"endOffsetSeconds,omitempty"`
+	StepSeconds           int64  `json:"stepSeconds,omitempty"`
+	ExpectedStatus        string `json:"expectedStatus,omitempty"`
+	ExpectedErrorType     string `json:"expectedErrorType,omitempty"`
+	ExpectedErrorContains string `json:"expectedErrorContains,omitempty"`
 }
 
 type CompareReport struct {

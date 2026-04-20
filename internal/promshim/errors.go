@@ -85,7 +85,7 @@ type planBuildError struct {
 }
 
 func (e *planBuildError) Error() string {
-	base := fmt.Sprintf("unsupported PromQL (difficulty=%s): %s", e.Support.Difficulty, e.Support.Reason)
+	base := e.UserMessage()
 	if e.Expr == nil && e.Stage == "" {
 		return fmt.Sprintf("planner cannot build plan: %s", base)
 	}
@@ -96,6 +96,10 @@ func (e *planBuildError) Error() string {
 		return fmt.Sprintf("planner cannot build plan for %T %q: %s", e.Expr, e.Expr.String(), base)
 	}
 	return fmt.Sprintf("planner cannot build plan during %s for %T %q: %s", e.Stage, e.Expr, e.Expr.String(), base)
+}
+
+func (e *planBuildError) UserMessage() string {
+	return fmt.Sprintf("unsupported PromQL (difficulty=%s): %s", e.Support.Difficulty, e.Support.Reason)
 }
 
 func (e *planBuildError) Kind() internalErrorKind {

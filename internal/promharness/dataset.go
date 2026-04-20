@@ -22,6 +22,7 @@ func GenerateDataset(cfg SeedConfig) generatedDataset {
 	instances := []string{"a", "b"}
 	namespaces := map[string]string{"api": "blue", "worker": "green"}
 
+	bucketLEValues := []string{"0.1", "0.2", "0.5", "1", "+Inf"}
 	for _, job := range jobs {
 		for _, instance := range instances {
 			common := map[string]string{
@@ -32,15 +33,49 @@ func GenerateDataset(cfg SeedConfig) generatedDataset {
 				"service":   job,
 			}
 			counter := 0.0
+			histogramBuckets := make([]float64, len(bucketLEValues))
+			histogramCount := 0.0
+			histogramSum := 0.0
 			for i := 0; i < cfg.Points; i++ {
 				timestamp := cfg.BaseTime.Add(time.Duration(i) * cfg.Step)
 				upValue := float64((i + len(job) + len(instance) + int(cfg.Seed%3)) % 2)
 				queueDepth := float64(10+i*2+len(job)+len(instance)) + rng.Float64()
 				counter += float64(1 + ((i + len(job) + len(instance)) % 4))
 
+				intervalCounts := []float64{
+					float64(1 + ((i + len(job)) % 3)),
+					float64(1 + ((i + len(instance)) % 2)),
+					float64(1 + ((i + len(job) + len(instance)) % 3)),
+					float64(1 + ((i + int(cfg.Seed%5)) % 2)),
+					float64(1 + ((i + len(job) + int(cfg.Seed%7)) % 2)),
+				}
+				running := 0.0
+				for bucketIndex, observations := range intervalCounts {
+					running += observations
+					histogramBuckets[bucketIndex] += running
+				}
+				histogramCount += running
+				histogramSum += intervalCounts[0]*0.05 + intervalCounts[1]*0.15 + intervalCounts[2]*0.35 + intervalCounts[3]*0.75 + intervalCounts[4]*1.5
+
 				builder.AddSample("harness_up", common, timestamp, upValue)
 				builder.AddSample("harness_queue_depth", common, timestamp, queueDepth)
 				builder.AddSample("harness_requests_total", common, timestamp, counter)
+				builder.AddSample("harness_request_duration_seconds_count", common, timestamp, histogramCount)
+				builder.AddSample("harness_request_duration_seconds_sum", common, timestamp, histogramSum)
+				if i%3 == 0 {
+					builder.AddSample("harness_sparse_gauge", common, timestamp, float64(100+i+len(job)+len(instance)))
+				}
+				if i < 3 {
+					builder.AddSample("harness_disappearing_gauge", common, timestamp, float64(i+1))
+				}
+				for bucketIndex, le := range bucketLEValues {
+					bucketLabels := make(map[string]string, len(common)+1)
+					for key, value := range common {
+						bucketLabels[key] = value
+					}
+					bucketLabels["le"] = le
+					builder.AddSample("harness_request_duration_seconds_bucket", bucketLabels, timestamp, histogramBuckets[bucketIndex])
+				}
 			}
 		}
 	}

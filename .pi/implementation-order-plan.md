@@ -83,6 +83,7 @@ These local repositories are part of the implementation context for the shim and
 - [x] Go shim module exists
 - [x] HTTP API contract exists and matches the current shim surface
 - [x] PromQL parsing uses the Prometheus parser/AST
+- [x] Binop fill modifiers (`fill`, `fill_left`, `fill_right`) are enabled in shim parsing/execution; this may differ from default upstream Prometheus feature-flag settings
 - [x] Supported-vs-unsupported classification exists before execution
 - [x] A first logical-plan layer now exists separately from execution-plan lowering
 - [x] `buildPlan(...)` now composes logical planning and execution-plan lowering
@@ -121,10 +122,9 @@ These local repositories are part of the implementation context for the shim and
 - [x] A first chunked local range-execution path now exists for large local range plans
 - [x] A first output-aware response limit now exists for oversized final query results
 - [x] Query/query_range success responses now stream directly instead of building one more full top-level result object graph first
-- [ ] No histogram support
-- [ ] No vector matching
-- [ ] No time modifiers
-- [ ] No subquery execution
+- [ ] No native histogram sample-type support yet (classic-bucket histogram compatibility now exists)
+- [x] Time-modifier support now exists for `offset` and `@` on supported selector-based queries
+- [ ] No full Prometheus-compatible subquery execution yet (a first delegated-only subset now exists)
 
 ---
 
@@ -144,7 +144,7 @@ These local repositories are part of the implementation context for the shim and
 ## Recommended Milestones
 
 ### Milestone A: Composable Medium Subset
-**Status: In progress**
+**Status: Done**
 
 Focus on turning the current baseline into a composable evaluator.
 
@@ -154,16 +154,16 @@ Focus on turning the current baseline into a composable evaluator.
 - label mutation helpers
 
 ### Milestone B: Dashboard-Heavy Compatibility
-**Status: Not started**
+**Status: In progress**
 
 Focus on real dashboard patterns.
 
-- histogram support
-- vector matching
-- set operators
+- histogram support (in progress)
+- vector matching (done)
+- set operators (done)
 
 ### Milestone C: Time Semantics and Long Tail
-**Status: Not started**
+**Status: In progress**
 
 Focus on deeper PromQL execution semantics.
 
@@ -214,7 +214,7 @@ This is the main prerequisite for nearly everything else. Without it, the code w
   - [x] local binary op
   - [x] local label transform
 - [ ] Feature-specific plan nodes still belong to later phases:
-  - [ ] local histogram op (Phase 5)
+  - [x] local histogram op (Phase 5)
   - [ ] time modifier (Phase 8)
 - [x] Introduce typed runtime values:
   - [x] scalar
@@ -246,12 +246,12 @@ This is the main prerequisite for nearly everything else. Without it, the code w
 ---
 
 ### Phase 1.5 — Migrate onto the new execution approach
-**Status: In progress**
+**Status: Done**
 
 #### Current repo state
 - [x] Logical planning, execution lowering, execution-strategy context, explain trees, first pushdown, and first range guardrail/chunking already exist
 - [x] Request handlers already plan through the new contextual planning path
-- [ ] The repo still mixes “feature implementation” progress with “migration to the new strategy-based execution model” progress
+- [x] The repo no longer materially mixes “feature implementation” progress with “migration to the new strategy-based execution model” progress
 - [x] Output-aware safety for large final query responses now exists via configurable response series/point limits
 - [x] Query/query_range success rendering now streams directly from runtime values instead of building a second full top-level response graph
 - [x] A deterministic differential validation harness now exists for comparing Prometheus vs promshim over the same seeded samples
@@ -300,15 +300,15 @@ This phase makes the architectural pivot explicit. The goal is to finish migrati
 - [x] Differential harness validation exists for seeded dual-write scenarios and compares Prometheus vs promshim over the same samples
 
 #### Exit criteria
-- [ ] Supported queries run through the strategy-based execution path as the clear default architecture, not as a transitional compatibility wrapper in practice
+- [x] Supported queries run through the strategy-based execution path as the clear default architecture, not as a transitional compatibility wrapper in practice
 - [x] The remaining major memory-risk path is now reduced for oversized final responses via response limits and streamed success rendering
-- [ ] Future feature phases can assume the new execution model instead of continuing the migration ad hoc
+- [x] Future feature phases can assume the new execution model instead of continuing the migration ad hoc
 - [x] Query-engine changes can be regression-checked against a deterministic Prometheus oracle over the same seeded samples
 
 ---
 
 ### Phase 2 — Generalize aggregation framework
-**Status: In progress**
+**Status: Done**
 
 #### Current repo state
 - [x] A local aggregation path exists for the first implemented aggregation subset
@@ -321,7 +321,7 @@ This phase makes the architectural pivot explicit. The goal is to finish migrati
 - [x] Native aggregation pushdown now also covers pushdown-safe unary and scalar-arithmetic transforms over delegatable leaves (for example `sum by (...) (metric * 100)` and `avg by (...) (-metric)`)
 - [x] Large local range aggregation plans can now be chunked instead of materializing one full child range at once
 - [x] A reducer/factory boundary now exists for adding more aggregators cleanly
-- [ ] Higher-order aggregators such as `topk`, `bottomk`, and `count_values` are not implemented yet
+- [x] Higher-order aggregators `topk`, `bottomk`, and `count_values` now work on the local aggregation path
 
 #### Why now
 Aggregation unlocks a large amount of dashboard compatibility and is a prerequisite for histogram-heavy query patterns.
@@ -335,9 +335,9 @@ Aggregation unlocks a large amount of dashboard compatibility and is a prerequis
 - [x] `min`
 - [x] `max`
 - [x] `avg`
-- [ ] `topk`
-- [ ] `bottomk`
-- [ ] `count_values`
+- [x] `topk`
+- [x] `bottomk`
+- [x] `count_values`
 
 #### Scope
 - [x] A first reusable local aggregation framework now exists
@@ -352,7 +352,7 @@ Aggregation unlocks a large amount of dashboard compatibility and is a prerequis
   - [x] instant vector aggregation
   - [x] matrix/range aggregation by timestamp
 - [x] First execution-strategy pushdown now exists for the implemented aggregators when their child is a delegatable leaf
-- [ ] Extend the framework to higher-order aggregators
+- [x] Extend the framework to higher-order aggregators
 
 #### Test gates
 - [x] Unit tests for some grouping behavior exist
@@ -362,9 +362,10 @@ Aggregation unlocks a large amount of dashboard compatibility and is a prerequis
   - [x] `avg(...)`
   - [x] `min(...)`
   - [x] `max(...)`
-- [ ] Medium integration tests for:
-  - [ ] `topk(...)`
-  - [ ] `bottomk(...)`
+- [x] Medium integration tests now cover:
+  - [x] `topk(...)`
+  - [x] `bottomk(...)`
+  - [x] `count_values(...)`
 - [x] Existing `sum(...)` tests remain green
 
 #### Exit criteria
@@ -373,7 +374,7 @@ Aggregation unlocks a large amount of dashboard compatibility and is a prerequis
 ---
 
 ### Phase 3 — Add scalar support and pointwise binary ops
-**Status: In progress**
+**Status: Done**
 
 #### Current repo state
 - [x] Scalar instant execution now exists
@@ -381,13 +382,13 @@ Aggregation unlocks a large amount of dashboard compatibility and is a prerequis
 - [x] Vector-scalar arithmetic now exists for the first implemented operator subset
 - [x] Vector-scalar comparison now exists for the first implemented comparison subset
 - [x] `bool` comparison mode now exists for vector-scalar comparisons
-- [x] Vector-vector and vector-matching binary expressions still fail explicitly as unsupported today
+- [x] Vector-vector and vector-matching binary expressions were intentionally out of scope for Phase 3 and are now implemented in later phases (Phase 6/7)
 
 #### Why now
 This is simpler than vector-vector matching, but it unlocks many common dashboard expressions.
 
 #### Depends on
-- [ ] Phase 1
+- [x] Phase 1
 
 #### Scope
 - [x] Add scalar execution and vector-scalar binary semantics for the current local subset
@@ -408,7 +409,7 @@ This is simpler than vector-vector matching, but it unlocks many common dashboar
   - [x] `>=`
   - [x] `<=`
 - [x] `bool` comparison mode
-- [ ] Vector-vector binary semantics remain out of scope for this phase slice
+- [x] Vector-vector binary semantics remain out of scope for this phase slice
 
 #### Example queries unlocked
 - [x] `up == 0`
@@ -420,11 +421,11 @@ This is simpler than vector-vector matching, but it unlocks many common dashboar
 - [x] Unit tests now cover scalar result evaluation and arithmetic/comparison semantics for the implemented subset
 - [x] Medium integration tests now cover representative vector-scalar queries
 - [x] Explicit tests now exist for `bool` output behavior
-- [ ] Additional tests for scalar-only range-query behavior if/when that is implemented
+- [x] Additional tests now cover scalar-only range-query behavior
 
 #### Exit criteria
-- [x] Binary operator semantics now exist for scalar-involved queries and can be reused later for vector-vector ops
-- [ ] Vector-vector matching and set semantics remain future work
+- [x] Binary operator semantics now exist for scalar-involved queries and were reused later for vector-vector ops
+- [x] Vector-vector matching and set semantics were handled in later phases (Phase 6/7)
 
 ---
 
@@ -460,14 +461,14 @@ These are medium-complexity, high-value compatibility features that do not requi
 ---
 
 ### Phase 5 — Implement histogram support
-**Status: Not started**
+**Status: In progress**
 
 #### Current repo state
 - [x] Delegated range functions such as `rate(...)` already work in the current easy subset
-- [ ] `histogram_quantile` is not implemented
-- [ ] `histogram_count` is not implemented
-- [ ] `histogram_sum` is not implemented
-- [ ] `histogram_avg` is not implemented
+- [x] `histogram_quantile` now works on classic `le` bucket vectors/matrices
+- [x] `histogram_count` now has a classic-bucket local execution path
+- [x] `histogram_sum` now has a classic-bucket local execution path
+- [x] `histogram_avg` now has a classic-bucket local execution path
 
 #### Why now
 This is one of the highest-value features for real service latency dashboards.
@@ -478,159 +479,195 @@ This is one of the highest-value features for real service latency dashboards.
 - [x] Existing delegated range-function support such as `rate(...)`
 
 #### Recommended internal order
-- [ ] `histogram_quantile`
-- [ ] `histogram_count`
-- [ ] `histogram_sum`
-- [ ] `histogram_avg`
+- [x] `histogram_quantile`
+- [x] `histogram_count`
+- [x] `histogram_sum`
+- [x] `histogram_avg`
 
 #### Scope
-- [ ] Implement histogram-oriented compatibility starting with `histogram_quantile`
-- [ ] Support classic bucket-label patterns such as `le`
-- [ ] Support expressions like:
-  - [ ] `histogram_quantile(0.9, sum by (le, job) (rate(..._bucket[5m])))`
-- [ ] Define handling for missing buckets / incomplete series
+- [x] Implement histogram-oriented compatibility starting with `histogram_quantile`
+- [x] Support classic bucket-label patterns such as `le`
+- [x] Support expressions like:
+  - [x] `histogram_quantile(0.9, sum by (le, job) (rate(..._bucket[5m])))`
+- [x] Define handling for missing buckets / incomplete series
 
 #### Test gates
-- [ ] Unit tests for quantile interpolation logic
-- [ ] Unit tests for bucket grouping behavior
-- [ ] Hard integration tests for representative histogram dashboard queries
+- [x] Unit tests for quantile interpolation logic
+- [x] Unit tests for bucket grouping behavior
+- [x] Hard integration tests for representative histogram dashboard queries
 
 #### Exit criteria
-- [ ] Service latency dashboards using classic Prometheus histogram patterns are materially more compatible
+- [x] Service latency dashboards using classic Prometheus histogram patterns are materially more compatible
 
 ---
 
 ### Phase 6 — Implement vector matching core
-**Status: Not started**
+**Status: Done**
 
 #### Current repo state
-- [x] Vector matching queries fail explicitly as unsupported today
-- [ ] No matching-key infrastructure exists yet
-- [ ] No vector-vector execution exists yet
+- [x] Vector-vector arithmetic/comparison now execute through a shared local vector-matching path
+- [x] Matching-key infrastructure now exists
+- [x] `on(...)` label matching now works
+- [x] `ignoring(...)` label matching now works
+- [x] Cardinality checks now enforce one-to-one vs many-to-one constraints
+- [x] `group_left` now works for arithmetic/comparison
+- [x] `group_right` now works for arithmetic/comparison
+- [x] Vector matching fill-value semantics now work (`fill`, `fill_left`, `fill_right`)
+- [x] Set operators are now implemented (Phase 7)
 
 #### Why now
 This is a major semantic subsystem and is best implemented after scalar binary semantics and label/grouping utilities are stable.
 
 #### Depends on
-- [ ] Phase 1
-- [ ] Phase 3
+- [x] Phase 1
+- [x] Phase 3
 
 #### Scope
-- [ ] Add vector matching infrastructure for vector-vector operations
-- [ ] Matching-key generation
-- [ ] `on(...)`
-- [ ] `ignoring(...)`
-- [ ] Cardinality checks
-- [ ] `group_left`
-- [ ] `group_right`
-- [ ] Use this infrastructure for vector-vector arithmetic and comparisons
+- [x] Add vector matching infrastructure for vector-vector operations
+- [x] Matching-key generation
+- [x] `on(...)`
+- [x] `ignoring(...)`
+- [x] Cardinality checks
+- [x] `group_left`
+- [x] `group_right`
+- [x] Use this infrastructure for vector-vector arithmetic and comparisons
 
 #### Test gates
-- [ ] Unit tests for matching key behavior
-- [ ] Unit tests for cardinality validation
-- [ ] Hard integration tests for representative kube-style join queries
+- [x] Unit tests for matching key behavior
+- [x] Unit tests for cardinality validation
+- [x] Hard integration tests for representative kube-style join queries
 
 #### Exit criteria
-- [ ] Vector-vector arithmetic/comparison can be implemented on top of shared matching infrastructure
+- [x] Vector-vector arithmetic/comparison can be implemented on top of shared matching infrastructure
 
 ---
 
 ### Phase 7 — Implement set operators
-**Status: Not started**
+**Status: Done**
 
 #### Current repo state
-- [x] Set operators fail explicitly as unsupported today
-- [ ] No set-operator evaluation exists yet
+- [x] Set operators now execute on the local planner/evaluator path
+- [x] `and` is implemented
+- [x] `or` is implemented
+- [x] `unless` is implemented
 
 #### Why now
 These should reuse the vector matching infrastructure from Phase 6.
 
 #### Depends on
-- [ ] Phase 6
+- [x] Phase 6
 
 #### Scope
-- [ ] Implement vector set operators
-- [ ] `and`
-- [ ] `or`
-- [ ] `unless`
+- [x] Implement vector set operators
+- [x] `and`
+- [x] `or`
+- [x] `unless`
 
 #### Test gates
-- [ ] Unit tests for set membership semantics
-- [ ] Hard integration tests for representative set-operator queries
+- [x] Unit tests for set membership semantics
+- [x] Hard integration tests for representative set-operator queries
 
 #### Exit criteria
-- [ ] Set operators behave consistently with the vector matching model
+- [x] Set operators behave consistently with the vector matching model
 
 ---
 
 ### Phase 8 — Implement time modifiers
-**Status: Not started**
+**Status: Done**
 
 #### Current repo state
-- [ ] `offset` is not implemented
-- [ ] `@` is not implemented
+- [x] `offset` is implemented
+- [x] `@` is implemented for supported selector-based queries
+- [x] `@ start()` / `@ end()` are resolved by the shim into concrete timestamps before delegated execution (ClickHouse parser compatibility workaround)
 
 #### Why now
 These are mostly orthogonal, but are best added after the recursive planner exists and before subqueries.
 
 #### Depends on
-- [ ] Phase 1
+- [x] Phase 1
 
 #### Recommended internal order
-- [ ] `offset`
-- [ ] `@`
+- [x] `offset`
+- [x] `@`
 
 #### Scope
-- [ ] Adjust delegated query evaluation time/range
-- [ ] Adjust local evaluation context consistently
-- [ ] Define supported combinations and validation behavior
+- [x] Adjust delegated query evaluation time/range
+- [x] Adjust local evaluation context consistently
+- [x] Define supported combinations and validation behavior
 
 #### Test gates
-- [ ] Unit tests for evaluation-time shifting
-- [ ] Integration tests for simple offset queries
-- [ ] Integration tests for `@` instant evaluation behavior
+- [x] Unit tests for evaluation-time shifting / `@ start()` / `@ end()` rewrite behavior
+- [x] Integration tests for simple offset queries
+- [x] Integration tests for `@` evaluation behavior
 
 #### Exit criteria
-- [ ] Time-shifted and fixed-time queries work without handler special-casing
+- [x] Time-shifted and fixed-time queries work without handler special-casing
 
 ---
 
 ### Phase 9 — Implement subqueries
-**Status: Not started**
+**Status: In progress (implemented target slice complete; frontier remains open)**
 
 #### Current repo state
-- [x] Subqueries fail explicitly as unsupported today
-- [ ] No subquery evaluation exists yet
+- [x] A delegated subquery subset exists for delegatable leaf-compatible inner expressions
+- [x] A local subquery execution path exists for non-delegated child expressions in instant mode
+- [x] Nested local-child subquery cases are implemented for the current subset
+- [x] Local range-mode composition now supports matrix-consuming functions: `last_over_time`, `sum_over_time`, `avg_over_time`, `max_over_time`, `min_over_time`, and `count_over_time`
+- [x] Matrix-root selector subqueries in instant mode now use local evaluation for compatibility and are covered by stable differential corpus
+- [x] Query-range explicitly rejects matrix-expression roots (including direct subquery matrix roots) with clear bad_data errors
+- [ ] Full Prometheus-compatible subquery semantics across all matrix-consuming functions/operators are not implemented yet
+- [x] Delegated `rate-family(subquery)` divergences are currently handled with explicit hard unsupported errors (no silent delegated mismatch) for:
+  - `rate`, `irate`, `increase`, `delta`, `idelta`, `deriv`, `changes`
 
 #### Why now
 Subqueries depend on a working planner, matrix model, and stable time semantics.
 
 #### Depends on
-- [ ] Phase 1
-- [ ] Preferably Phase 8
+- [x] Phase 1
+- [x] Preferably Phase 8
 
 #### Scope
-- [ ] Implement `[range:step]`
-- [ ] Implement nested matrix evaluation
-- [ ] Define local/delegated execution rules for subquery children
+- [x] Implement a first `[range:step]` delegated subset
+- [ ] Implement full nested matrix evaluation across all relevant parent operators/functions
+- [x] Define local/delegated execution rules for subquery children (delegated-leaf-compatible path + local instant-mode path)
+- [x] Add local range-mode matrix-consuming function paths (`last_over_time`, `sum_over_time`, `avg_over_time`, `max_over_time`, `min_over_time`, `count_over_time`)
+- [x] Define explicit query-range boundary behavior for matrix-root/subquery-root expressions
 
 #### Test gates
-- [ ] Unit tests for subquery planning
-- [ ] Hard integration tests for representative subquery expressions
-- [ ] Tests for nested range evaluation shapes
+- [x] Unit tests for subquery planning/support analysis
+- [x] Hard integration tests for representative subquery expressions
+- [x] Differential harness includes stable subquery corpus cases (delegated + local-child + `@ start()`/`offset` local-child instant + `last_over_time`/`sum_over_time`/`avg_over_time`/`max_over_time`/`min_over_time`/`count_over_time` nested/range cases)
+- [x] Tests for nested range evaluation shapes for the implemented subset
 
 #### Exit criteria
-- [ ] Subqueries no longer fail as unsupported for the implemented subset
+- [x] Subqueries no longer fail as unsupported for the implemented delegated + local subset
+
+#### Phase 9 closeout decision (current)
+- [x] Mark this phase as functionally complete for the implemented target set.
+- [ ] Carry forward remaining subquery frontier work into future phases.
+
+#### Remaining work after this phase (tracked separately)
+- [ ] Add additional local matrix-consuming function/operator coverage where evidence/usage requires (`quantile_over_time`, `stddev_over_time`, etc.)
+- [ ] Reduce or eliminate additional delegated-subquery divergence classes in future iterations beyond the currently explicit rate-family hard boundary.
+- [ ] Expand differential harness with further stable shapes once new classes are added and parity gates are satisfied
 
 ---
 
 ### Phase 10 — Long-tail compatibility and polish
-**Status: Not started**
+**Status: In progress**
 
 #### Current repo state
 - [x] Unsupported features already fail explicitly in many current cases
 - [x] The current HTTP contract is stable enough to preserve while internals evolve
-- [ ] The long-tail semantic gaps are not being worked through systematically yet
+- [x] A first Phase 10 slice is now landed for the absent-family:
+  - [x] `absent`
+  - [x] `absent_over_time`
+  - [x] stable harness coverage promoted for supported absent-family cases
+- [x] Deterministic sparse/disappearing-series fixture coverage now exists in the harness dataset for staleness/absence validation
+- [x] Stable parity coverage now includes sparse/disappearing selector and `absent_over_time` boundary probes
+- [x] Duplicate-labelset failures are now explicit for local unary/vector-scalar name-dropping paths
+- [x] User-facing bad_data/unsupported API messages are now less implementation-leaky for key planner/execution cases
+- [ ] Native histogram nuance work and other long-tail items remain open
 
 #### Why last
 These features are important, but they benefit from the core execution model being stable first.
@@ -639,13 +676,16 @@ These features are important, but they benefit from the core execution model bei
 - [ ] Phases 1–9 as relevant
 
 #### Candidate scope
-- [ ] `absent`
-- [ ] `absent_over_time`
-- [ ] staleness edge cases
-- [ ] stricter Prometheus-style error shaping
-- [ ] duplicate labelset edge behavior
-- [ ] native histogram nuances
-- [ ] execution/perf cleanup if needed
+- [ ] Initial Phase 10 slice (recommended order)
+  - [x] `absent`
+  - [x] `absent_over_time`
+  - [x] sparse/disappearing-series fixtures for staleness + absence validation
+  - [x] staleness edge cases
+  - [x] duplicate labelset edge behavior
+  - [x] stricter Prometheus-style error shaping
+- [ ] Deferred/gated follow-up
+  - [ ] native histogram nuances (after Phase 5 native histogram sample-type groundwork)
+  - [ ] execution/perf cleanup if needed
 
 #### Test gates
 - [ ] Add targeted regression tests for each bug/semantic gap fixed
@@ -684,16 +724,16 @@ These features are important, but they benefit from the core execution model bei
 Use this order unless target-dashboard evidence suggests otherwise:
 
 - [x] Phase 1 — recursive planner/evaluator — **Done (logical/execution split + shared helpers + first strategy/explain/guardrail/chunking layer landed)**
-- [ ] Phase 1.5 — migrate onto the new execution approach — **In progress (strategy-based execution is real, but migration/output-safety/pushdown widening remain)**
-- [ ] Phase 2 — broader aggregations — **In progress (`sum`, `count`, `min`, `max`, `avg` now have local execution, first native pushdown, and chunked local range execution support)**
-- [ ] Phase 3 — scalar + vector-scalar ops — **In progress**
-- [ ] Phase 4 — label mutation helpers — **Done**
-- [ ] Phase 5 — histogram support — **Not started**
-- [ ] Phase 6 — vector matching + vector-vector binary ops — **Not started**
-- [ ] Phase 7 — set operators — **Not started**
-- [ ] Phase 8 — `offset` and `@` — **Not started**
-- [ ] Phase 9 — subqueries — **Not started**
-- [ ] Phase 10 — long-tail compatibility and polish — **Not started**
+- [x] Phase 1.5 — migrate onto the new execution approach — **Done (strategy-based execution path, output safety, and differential harness are now established; pushdown widening remains an optimization track)**
+- [x] Phase 2 — broader aggregations — **Done**
+- [x] Phase 3 — scalar + vector-scalar ops — **Done**
+- [x] Phase 4 — label mutation helpers — **Done**
+- [ ] Phase 5 — histogram support — **In progress (`histogram_quantile` + classic-bucket histogram projections are implemented, native histogram sample-type support remains future work)**
+- [x] Phase 6 — vector matching + vector-vector binary ops — **Done (`on` / `ignoring` / `group_left` / `group_right` + cardinality checks + vector-vector arithmetic/comparison + fill modifiers now work)**
+- [x] Phase 7 — set operators — **Done**
+- [x] Phase 8 — `offset` and `@` — **Done**
+- [ ] Phase 9 — subqueries — **In progress (delegated subset + local instant-mode subset + first local range-mode composition path implemented)**
+- [ ] Phase 10 — long-tail compatibility and polish — **In progress (absent-family slice landed; staleness/duplicate-labelset/error-shaping follow-ups remain)**
 
 ---
 
@@ -736,7 +776,8 @@ metric_a * on(namespace, pod) group_left(label_x, label_y) metric_b
 
 ### Inner loop
 - [x] Unit tests exist for current planner-support classification and current `sum` semantics
-- [x] Focused integration tests exist for current `easy`, `medium`, and `hard` coverage slices
+- [x] Focused integration tests exist for current `easy`, `medium`, and `hard` coverage slices, but they currently depend on an ad hoc local ClickHouse dataset and are treated as legacy/manual smoke checks rather than the primary query-behavior acceptance gate
+- [x] Relevant tests should always be added or updated alongside feature work rather than deferred
 - [x] Difficulty grouping is preserved:
   - [x] easy
   - [x] medium
@@ -745,10 +786,14 @@ metric_a * on(namespace, pod) group_left(label_x, label_y) metric_b
 ### Checkpoints
 - [x] `gofmt -w ...`
 - [x] `go test ./...`
-- [x] Live HTTP integration tests against ClickHouse on `127.0.0.1:8123`
+- [x] Live HTTP integration tests against ClickHouse on `127.0.0.1:8123` remain available as optional/manual checks when that local dataset is relevant
 - [x] Local shim verification on `127.0.0.1:9090`
 - [x] Differential docker-compose harness with seeded dual-write into Prometheus and ClickHouse
 - [x] Query corpus diff against Prometheus direct results vs promshim -> ClickHouse results
+- [x] For query-behavior changes, the differential harness replaces the legacy `integration/promshim` suite as the required acceptance validation for now, and relevant corpus cases must be updated/added as part of validation rather than as optional follow-up
+- [ ] Known caveat: the harness Prometheus image in this repo does not enable/cover binop fill-modifier parsing semantics as a differential oracle; fill behavior is validated via shim unit/integration tests instead
+- [x] Known compatibility detail: ClickHouse PromQL parser in this setup does not accept `@ start()` / `@ end()` directly; the shim resolves these to concrete timestamps before delegated execution
+- [ ] Known caveat: subquery semantics can still diverge from Prometheus for some delegated shapes in current ClickHouse versions; `rate(subquery)` classes are currently explicitly unsupported (hard error) rather than parity-matched, and matrix-consuming functions/operators not yet implemented on the local path remain out of scope, so Phase 9 differential corpus coverage is intentionally limited to stable cases until those gaps are resolved
 
 ### Contract invariants
 - [x] HTTP API remains unchanged
@@ -761,13 +806,13 @@ metric_a * on(namespace, pod) group_left(label_x, label_y) metric_b
 ## Immediate Next Steps
 
 ### Recommended next implementation step
-- [ ] Continue Phase 1.5 by adding the deterministic docker-compose differential harness with seeded dual-write into Prometheus and ClickHouse
+- [ ] Add the next highest-value local matrix-consuming function/operator path after current set (`last_over_time`, `sum_over_time`, `avg_over_time`, `max_over_time`, `min_over_time`) based on dashboard query evidence.
 
 ### Recommended first acceptance target after that
-- [ ] Continue Phase 1.5 by expanding native SQL pushdown beyond the current leaf + unary/scalar-transform aggregation subset where it is semantically safe and measurably reduces local result size
+- [ ] Add representative corpus cases for that function/operator (instant + range + nested where applicable) after Prometheus parity is verified.
 
-### Recommended first high-value dashboard target after medium subset
-- [ ] Phase 5: `histogram_quantile`
+### Recommended follow-up after Phase 9 foundation
+- [ ] Expand long-tail compatibility fixes from Phase 10 based on observed dashboard/query gaps.
 
 ---
 
@@ -776,7 +821,10 @@ metric_a * on(namespace, pod) group_left(label_x, label_y) metric_b
 A phase is not done until:
 
 - [ ] the feature is implemented in the planner/evaluator shape intended for future reuse
+- [ ] relevant unit, integration, and other phase-appropriate tests are added or updated for the new behavior
 - [ ] unit tests cover the new semantics
-- [ ] integration tests prove the HTTP contract behavior
+- [ ] service/router tests or other phase-appropriate HTTP-contract checks cover the API behavior
+- [ ] the deterministic Prometheus-vs-promshim differential harness is run for phase work that affects query behavior, and any new relevant corpus cases are added or updated
+- [ ] for query-behavior work, do not treat the legacy `integration/promshim` suite as a substitute for the harness unless it has first been rewritten to run against the same relevant local dataset and acceptance criteria
 - [ ] existing lower-difficulty suites continue to pass
 - [ ] unsupported adjacent features still fail explicitly rather than silently misbehaving

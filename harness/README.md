@@ -18,7 +18,21 @@ This harness starts a disposable Prometheus + ClickHouse + promshim stack, gener
 
 ## Usage
 
+### One-command workflow (recommended)
+
 From the repo root:
+
+```bash
+./scripts/run-harness.sh
+```
+
+Useful options:
+
+- `--no-build` to skip rebuilding images
+- `--keep-up` to keep the stack running for inspection/debugging
+- `--init-retries <n>` to tune ClickHouse init retries
+
+### Manual workflow
 
 ```bash
 cd harness
@@ -62,13 +76,41 @@ The initial corpus lives in:
 
 - `harness/corpus/queries.json`
 
-It currently focuses on the already-implemented compatibility subset:
+It focuses on the implemented compatibility subset and the stable query set used for parity gating:
 
 - selectors and matchers
 - aggregations
 - scalar/vector-scalar behavior
-- `label_join`
-- `label_replace`
-- range equivalents
+- local label transforms (`label_join`, `label_replace`)
+- matrix-consuming local paths and supported nested compositions:
+  - `last_over_time`, `sum_over_time`, `avg_over_time`, `max_over_time`, `min_over_time`, `count_over_time`
+  - nested binary compositions over matrix functions where both sides are implemented locally
+- matrix-root selector subquery behavior (`subquery_matrix_root_selector_instant`)
+- absent-family support:
+  - `absent(...)`
+  - `absent_over_time(...)`
+- sparse/disappearing-series parity probes for staleness-sensitive selectors and absence windows
 
-Extend this corpus as new features land.
+### Stable parity status (known supported set)
+
+- `./scripts/run-harness.sh` runs the full corpus comparison.
+- Current tracked corpus currently includes 86 entries in `harness/corpus/queries.json`, of which 82 are success-case checks and 4 are explicit error probes. In the latest run they pass under their expected status.
+- Intentionally excluded / unstable query families are intentionally kept out of the stable corpus and documented in:
+  - `.pi/phase9-delegated-divergence-catalog.md`
+
+#### Excluded by design
+
+The following query families remain excluded from the stable corpus because they are known delegated-subquery divergence classes and are now explicit hard errors:
+
+- `rate(...[range:step])`
+- `irate(...[range:step])`
+- `increase(...[range:step])`
+- `delta(...[range:step])`
+- `idelta(...[range:step])`
+- `deriv(...[range:step])`
+- `changes(...[range:step])`
+
+As these are handled explicitly with `unsupported` errors, they are not suitable for success-case differential parity assertions until local implementation or delegated parity guarantees are introduced.
+
+Extend the corpus cautiously as new features land:
+- add new corpus rows only after parity is verified in `./artifacts/compare-report.json` and corresponding unit/integration coverage exists.

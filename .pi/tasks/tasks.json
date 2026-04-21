@@ -1,5 +1,5 @@
 {
-  "nextId": 90,
+  "nextId": 93,
   "tasks": [
     {
       "id": "87",
@@ -44,6 +44,50 @@
       ],
       "createdAt": 1776771214342,
       "updatedAt": 1776771948197
+    },
+    {
+      "id": "90",
+      "subject": "Add optimizer-owned selector predicate and projection state",
+      "description": "Implement Phase 4 optimizer state on selector-backed native fragments so passes can mutate effective selector predicates and projection requirements rather than only reporting strings. Include inferred/pushed matcher tracking, required tag-label state, and rewrite metadata for the current native subset.",
+      "status": "completed",
+      "activeForm": "Adding selector optimizer state",
+      "metadata": {},
+      "blocks": [
+        "91"
+      ],
+      "blockedBy": [],
+      "createdAt": 1776773369590,
+      "updatedAt": 1776773767753
+    },
+    {
+      "id": "91",
+      "subject": "Use optimizer passes to tighten selector SQL and flatten wrappers",
+      "description": "Update selector and renderer SQL generation so Phase 4 passes materially change the rendered SQL for the current native subset: push inferred predicates into deepest selector sources, avoid unnecessary tag materialization/timeSeriesTags joins where safe, and flatten redundant source wrappers while preserving semantic barriers.",
+      "status": "completed",
+      "activeForm": "Tightening selector SQL and flattening wrappers",
+      "metadata": {},
+      "blocks": [
+        "92"
+      ],
+      "blockedBy": [
+        "90"
+      ],
+      "createdAt": 1776773369591,
+      "updatedAt": 1776773767753
+    },
+    {
+      "id": "92",
+      "subject": "Add Phase 4 optimizer pass tests",
+      "description": "Add optimizer-focused tests for Phase 4 proving predicate pushdown into selector SQL, safe matcher inference, projection pushdown reducing tag materialization when safe, redundant wrapper elimination, no SELECT-star SQL, and preserved aggregation semantic barriers.",
+      "status": "completed",
+      "activeForm": "Adding Phase 4 optimizer tests",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [
+        "91"
+      ],
+      "createdAt": 1776773369591,
+      "updatedAt": 1776773767753
     }
   ]
 }

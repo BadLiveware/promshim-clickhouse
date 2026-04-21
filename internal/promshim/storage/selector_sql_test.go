@@ -61,6 +61,23 @@ func TestBuildInstantSelectorQuerySQLSupportsEqualityAndNegativeRegex(t *testing
 	}
 }
 
+func TestBuildInstantSelectorQuerySQLOmitsTagsProjectionWhenUnneeded(t *testing.T) {
+	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, 0, SelectorKindInstantVector)
+	selector.NeedTags = false
+	selector.RequireFullTags = false
+
+	sql, _, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, 1000, 2000)
+	if err != nil {
+		t.Fatalf("expected instant selector SQL, got error: %v", err)
+	}
+	if strings.Contains(sql, "arrayConcat([tuple('__name__', metric_name)]") || strings.Contains(sql, "series.tags AS tags") {
+		t.Fatalf("expected omitted tag projection, got %q", sql)
+	}
+	if !strings.Contains(sql, "CAST([], 'Array(Tuple(String, String))') AS tags") {
+		t.Fatalf("expected synthesized empty tags, got %q", sql)
+	}
+}
+
 func TestBuildRangeSelectorQuerySQLUsesStepGridAndLookback(t *testing.T) {
 	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, 0, SelectorKindInstantVector)
 

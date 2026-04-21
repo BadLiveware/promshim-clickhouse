@@ -18,22 +18,27 @@ const (
 )
 
 type SelectorSource struct {
-	Kind       SelectorKind
-	MetricName string
-	Matchers   []*labels.Matcher
-	Lookback   time.Duration
-	Offset     time.Duration
+	Kind              SelectorKind
+	MetricName        string
+	Matchers          []*labels.Matcher
+	InferredMatchers  []*labels.Matcher
+	PushedMatchers    []*labels.Matcher
+	RequireFullTags   bool
+	RequiredTagLabels []string
+	Lookback          time.Duration
+	Offset            time.Duration
 }
 
 func buildSelectorSource(expr parser.Expr) (*SelectorSource, error) {
 	switch node := expr.(type) {
 	case *parser.VectorSelector:
 		return &SelectorSource{
-			Kind:       SelectorKindInstantVector,
-			MetricName: node.Name,
-			Matchers:   cloneMatchers(node.LabelMatchers),
-			Lookback:   defaultInstantSelectorLookback,
-			Offset:     absoluteDuration(node.OriginalOffset),
+			Kind:            SelectorKindInstantVector,
+			MetricName:      node.Name,
+			Matchers:        cloneMatchers(node.LabelMatchers),
+			RequireFullTags: true,
+			Lookback:        defaultInstantSelectorLookback,
+			Offset:          absoluteDuration(node.OriginalOffset),
 		}, nil
 	case *parser.MatrixSelector:
 		vectorSelector, ok := node.VectorSelector.(*parser.VectorSelector)
@@ -41,11 +46,12 @@ func buildSelectorSource(expr parser.Expr) (*SelectorSource, error) {
 			return nil, fmt.Errorf("matrix selector is missing its vector selector")
 		}
 		return &SelectorSource{
-			Kind:       SelectorKindRangeVector,
-			MetricName: vectorSelector.Name,
-			Matchers:   cloneMatchers(vectorSelector.LabelMatchers),
-			Lookback:   node.Range,
-			Offset:     absoluteDuration(vectorSelector.OriginalOffset),
+			Kind:            SelectorKindRangeVector,
+			MetricName:      vectorSelector.Name,
+			Matchers:        cloneMatchers(vectorSelector.LabelMatchers),
+			RequireFullTags: true,
+			Lookback:        node.Range,
+			Offset:          absoluteDuration(vectorSelector.OriginalOffset),
 		}, nil
 	default:
 		return nil, nil
@@ -57,11 +63,15 @@ func cloneSelectorSource(selector *SelectorSource) *SelectorSource {
 		return nil
 	}
 	return &SelectorSource{
-		Kind:       selector.Kind,
-		MetricName: selector.MetricName,
-		Matchers:   cloneMatchers(selector.Matchers),
-		Lookback:   selector.Lookback,
-		Offset:     selector.Offset,
+		Kind:              selector.Kind,
+		MetricName:        selector.MetricName,
+		Matchers:          cloneMatchers(selector.Matchers),
+		InferredMatchers:  cloneMatchers(selector.InferredMatchers),
+		PushedMatchers:    cloneMatchers(selector.PushedMatchers),
+		RequireFullTags:   selector.RequireFullTags,
+		RequiredTagLabels: append([]string(nil), selector.RequiredTagLabels...),
+		Lookback:          selector.Lookback,
+		Offset:            selector.Offset,
 	}
 }
 

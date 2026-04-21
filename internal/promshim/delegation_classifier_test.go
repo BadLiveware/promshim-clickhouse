@@ -25,6 +25,8 @@ func TestClassifyEntireQueryDelegationRejectsCurrentUnsupportedRoots(t *testing.
 		reasonContains string
 	}{
 		{name: "scalar root", query: `1 + 2`, reasonContains: "scalar-only roots"},
+		{name: "binary vector vector", query: `up + up`, reasonContains: "binary operators"},
+		{name: "binary vector scalar", query: `up * 100`, reasonContains: "binary operators"},
 		{name: "aggregation", query: `sum by (job) (up)`, reasonContains: "aggregations"},
 		{name: "subquery", query: `sum(up)[5m:1m]`, reasonContains: "delegated subquery"},
 		{name: "range function", query: `sum_over_time(up[5m])`, reasonContains: "sum_over_time()"},

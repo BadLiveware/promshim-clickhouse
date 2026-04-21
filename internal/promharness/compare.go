@@ -67,27 +67,74 @@ func RunSeed(ctx context.Context, cfg SeedConfig) (Manifest, error) {
 		return Manifest{}, err
 	}
 
-	dataset := GenerateDataset(cfg)
-	if err := WriteToRemoteWriteEndpoint(ctx, client, cfg.PromRemoteWriteURL, dataset.Request); err != nil {
-		return Manifest{}, err
-	}
-	if err := WriteToRemoteWriteEndpoint(ctx, client, cfg.ClickHouseRemoteWriteURL, dataset.Request); err != nil {
-		return Manifest{}, err
-	}
-	if cfg.PromClickRemoteWriteURL != "" {
-		if err := WriteToRemoteWriteEndpoint(ctx, client, cfg.PromClickRemoteWriteURL, dataset.Request); err != nil {
+	variantNames := cfg.DatasetVariants
+	if len(variantNames) == 0 {
+		dataset := GenerateDataset(cfg)
+		if err := WriteToRemoteWriteEndpoint(ctx, client, cfg.PromRemoteWriteURL, dataset.Request); err != nil {
 			return Manifest{}, err
 		}
+		if err := WriteToRemoteWriteEndpoint(ctx, client, cfg.ClickHouseRemoteWriteURL, dataset.Request); err != nil {
+			return Manifest{}, err
+		}
+		if cfg.PromClickRemoteWriteURL != "" {
+			if err := WriteToRemoteWriteEndpoint(ctx, client, cfg.PromClickRemoteWriteURL, dataset.Request); err != nil {
+				return Manifest{}, err
+			}
+		}
+
+		manifest := Manifest{
+			Seed:            cfg.Seed,
+			BaseUnixSeconds: cfg.BaseTime.Unix(),
+			StepSeconds:     int64(cfg.Step / time.Second),
+			Points:          cfg.Points,
+			SeriesCount:     dataset.SeriesCount,
+			SampleCount:     dataset.SampleCount,
+			GeneratedAtUTC:  time.Now().UTC().Format(time.RFC3339),
+		}
+		if err := WriteManifest(ManifestPath(cfg.ArtifactDir), manifest); err != nil {
+			return Manifest{}, err
+		}
+		return manifest, nil
 	}
 
+	variants := make([]Manifest, 0, len(variantNames))
+	separation := datasetVariantSeparation(cfg)
+	for index, variantName := range variantNames {
+		variantCfg := cfg
+		variantCfg.DatasetVariant = variantName
+		variantCfg.BaseTime = cfg.BaseTime.Add(time.Duration(index) * separation)
+		dataset := GenerateDataset(variantCfg)
+		if err := WriteToRemoteWriteEndpoint(ctx, client, cfg.PromRemoteWriteURL, dataset.Request); err != nil {
+			return Manifest{}, err
+		}
+		if err := WriteToRemoteWriteEndpoint(ctx, client, cfg.ClickHouseRemoteWriteURL, dataset.Request); err != nil {
+			return Manifest{}, err
+		}
+		if cfg.PromClickRemoteWriteURL != "" {
+			if err := WriteToRemoteWriteEndpoint(ctx, client, cfg.PromClickRemoteWriteURL, dataset.Request); err != nil {
+				return Manifest{}, err
+			}
+		}
+		variants = append(variants, Manifest{
+			Seed:            cfg.Seed,
+			BaseUnixSeconds: variantCfg.BaseTime.Unix(),
+			StepSeconds:     int64(cfg.Step / time.Second),
+			Points:          cfg.Points,
+			SeriesCount:     dataset.SeriesCount,
+			SampleCount:     dataset.SampleCount,
+			GeneratedAtUTC:  time.Now().UTC().Format(time.RFC3339),
+			DatasetVariant:  variantName,
+		})
+	}
 	manifest := Manifest{
 		Seed:            cfg.Seed,
-		BaseUnixSeconds: cfg.BaseTime.Unix(),
+		BaseUnixSeconds: variants[0].BaseUnixSeconds,
 		StepSeconds:     int64(cfg.Step / time.Second),
 		Points:          cfg.Points,
-		SeriesCount:     dataset.SeriesCount,
-		SampleCount:     dataset.SampleCount,
+		SeriesCount:     variants[0].SeriesCount,
+		SampleCount:     variants[0].SampleCount,
 		GeneratedAtUTC:  time.Now().UTC().Format(time.RFC3339),
+		Variants:        variants,
 	}
 	if err := WriteManifest(ManifestPath(cfg.ArtifactDir), manifest); err != nil {
 		return Manifest{}, err
@@ -141,11 +188,43 @@ func subjectsForQuery(query QuerySpec, configured []compareSubject) ([]compareSu
 	return filtered, nil
 }
 
+func manifestsForQuery(query QuerySpec, configured []Manifest) ([]Manifest, error) {
+	if len(query.DatasetVariants) == 0 && len(query.ExcludeDatasetVariants) == 0 {
+		return configured, nil
+	}
+	allowed := map[string]struct{}{}
+	for _, variant := range query.DatasetVariants {
+		allowed[strings.ToLower(strings.TrimSpace(variant))] = struct{}{}
+	}
+	excluded := map[string]struct{}{}
+	for _, variant := range query.ExcludeDatasetVariants {
+		excluded[strings.ToLower(strings.TrimSpace(variant))] = struct{}{}
+	}
+	filtered := make([]Manifest, 0, len(configured))
+	for _, manifest := range configured {
+		name := manifestDatasetVariantName(manifest)
+		if len(allowed) > 0 {
+			if _, ok := allowed[name]; !ok {
+				continue
+			}
+		}
+		if _, skip := excluded[name]; skip {
+			continue
+		}
+		filtered = append(filtered, manifest)
+	}
+	if len(filtered) == 0 {
+		return nil, fmt.Errorf("query %q requested dataset variants include=%v exclude=%v but none are available", query.Name, query.DatasetVariants, query.ExcludeDatasetVariants)
+	}
+	return filtered, nil
+}
+
 func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 	manifest, err := ReadManifest(ManifestPath(cfg.ArtifactDir))
 	if err != nil {
 		return CompareReport{}, err
 	}
+	manifests := manifestVariants(manifest)
 	queries, err := LoadQueryCorpus(cfg.CorpusPath)
 	if err != nil {
 		return CompareReport{}, err
@@ -155,30 +234,31 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 	if len(subjects) == 0 {
 		return CompareReport{}, fmt.Errorf("no compare subjects configured")
 	}
-	if err := waitForDatasetAvailability(ctx, client, cfg, manifest, subjects); err != nil {
+	if err := waitForDatasetAvailability(ctx, client, cfg, manifests, subjects); err != nil {
 		return CompareReport{}, err
 	}
 
-	report := CompareReport{CorpusPath: cfg.CorpusPath, Manifest: manifest, Results: make([]QueryComparison, 0, len(queries)*len(subjects))}
+	report := CompareReport{CorpusPath: cfg.CorpusPath, Manifest: manifest, Results: make([]QueryComparison, 0, len(queries)*len(subjects)*len(manifests))}
 	var firstErr error
-	appendResult := func(query QuerySpec, variantName, subject, status, detail string) {
+	appendResult := func(query QuerySpec, variantName, datasetVariant, subject, status, detail string) {
 		severity, bucket := ClassifyComparison(status, detail)
 		report.Results = append(report.Results, QueryComparison{
-			Name:        query.Name,
-			Variant:     variantName,
-			Subject:     subject,
-			Query:       query.Query,
-			Status:      status,
-			Severity:    severity,
-			Bucket:      bucket,
-			CompareMode: InferCompareMode(query),
-			Detail:      detail,
+			Name:           query.Name,
+			Variant:        variantName,
+			DatasetVariant: datasetVariant,
+			Subject:        subject,
+			Query:          query.Query,
+			Status:         status,
+			Severity:       severity,
+			Bucket:         bucket,
+			CompareMode:    InferCompareMode(query),
+			Detail:         detail,
 		})
 	}
 	for _, query := range queries {
 		variants, err := expandQueryVariants(query)
 		if err != nil {
-			appendResult(query, "", "harness", "error", err.Error())
+			appendResult(query, "", "", "harness", "error", err.Error())
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -187,40 +267,50 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 		for _, variant := range variants {
 			querySubjects, err := subjectsForQuery(variant.Spec, subjects)
 			if err != nil {
-				appendResult(variant.Spec, variant.Variant, "harness", "error", err.Error())
+				appendResult(variant.Spec, variant.Variant, "", "harness", "error", err.Error())
 				if firstErr == nil {
 					firstErr = err
 				}
 				continue
 			}
-			promResult, err := QueryAndFetch(client, cfg.PrometheusBaseURL, manifest, variant.Spec)
+			queryManifests, err := manifestsForQuery(variant.Spec, manifests)
 			if err != nil {
-				for _, subject := range querySubjects {
-					appendResult(variant.Spec, variant.Variant, subject.Name, "error", err.Error())
-				}
+				appendResult(variant.Spec, variant.Variant, "", "harness", "error", err.Error())
 				if firstErr == nil {
 					firstErr = err
 				}
 				continue
 			}
-			for _, subject := range querySubjects {
-				subjectResult, err := QueryAndFetch(client, subject.BaseURL, manifest, variant.Spec)
+			for _, datasetManifest := range queryManifests {
+				promResult, err := QueryAndFetch(client, cfg.PrometheusBaseURL, datasetManifest, variant.Spec)
 				if err != nil {
-					appendResult(variant.Spec, variant.Variant, subject.Name, "error", err.Error())
+					for _, subject := range querySubjects {
+						appendResult(variant.Spec, variant.Variant, datasetManifest.DatasetVariant, subject.Name, "error", err.Error())
+					}
 					if firstErr == nil {
 						firstErr = err
 					}
 					continue
 				}
-				result, err := CompareQueryOutcome(variant.Spec, subject.Name, promResult, subjectResult)
-				if err != nil {
-					appendResult(variant.Spec, variant.Variant, subject.Name, result, err.Error())
-					if firstErr == nil {
-						firstErr = err
+				for _, subject := range querySubjects {
+					subjectResult, err := QueryAndFetch(client, subject.BaseURL, datasetManifest, variant.Spec)
+					if err != nil {
+						appendResult(variant.Spec, variant.Variant, datasetManifest.DatasetVariant, subject.Name, "error", err.Error())
+						if firstErr == nil {
+							firstErr = err
+						}
+						continue
 					}
-					continue
+					result, err := CompareQueryOutcome(variant.Spec, subject.Name, promResult, subjectResult)
+					if err != nil {
+						appendResult(variant.Spec, variant.Variant, datasetManifest.DatasetVariant, subject.Name, result, err.Error())
+						if firstErr == nil {
+							firstErr = err
+						}
+						continue
+					}
+					appendResult(variant.Spec, variant.Variant, datasetManifest.DatasetVariant, subject.Name, result, "")
 				}
-				appendResult(variant.Spec, variant.Variant, subject.Name, result, "")
 			}
 		}
 	}
@@ -286,27 +376,37 @@ func CompareQueryOutcome(spec QuerySpec, subject string, promResult queryResult,
 	return "ok", nil
 }
 
-func waitForDatasetAvailability(ctx context.Context, client *http.Client, cfg CompareConfig, manifest Manifest, subjects []compareSubject) error {
+func waitForDatasetAvailability(ctx context.Context, client *http.Client, cfg CompareConfig, manifests []Manifest, subjects []compareSubject) error {
 	deadline, hasDeadline := ctx.Deadline()
-	probe := QuerySpec{Name: "probe", Endpoint: "query", Query: `harness_up{job="api"}`, TimeOffsetSeconds: int64((manifest.Points - 1)) * manifest.StepSeconds}
 	for {
-		promResult, promErr := QueryAndNormalize(client, cfg.PrometheusBaseURL, manifest, probe)
-		allReady := promErr == nil && len(promResult.Vector) > 0
+		allReady := true
+		lastPromErr := error(nil)
 		lastSubjectErr := error(nil)
 		lastSubjectName := ""
-		for _, subject := range subjects {
-			subjectResult, subjectErr := QueryAndNormalize(client, subject.BaseURL, manifest, probe)
-			if subjectErr != nil || len(subjectResult.Vector) == 0 {
+		lastDatasetVariant := ""
+		for _, manifest := range manifests {
+			probe := QuerySpec{Name: "probe", Endpoint: "query", Query: `harness_up{job="api"}`, TimeOffsetSeconds: int64((manifest.Points - 1)) * manifest.StepSeconds}
+			promResult, promErr := QueryAndNormalize(client, cfg.PrometheusBaseURL, manifest, probe)
+			if promErr != nil || len(promResult.Vector) == 0 {
 				allReady = false
-				lastSubjectErr = subjectErr
-				lastSubjectName = subject.Name
+				lastPromErr = promErr
+				lastDatasetVariant = manifest.DatasetVariant
+			}
+			for _, subject := range subjects {
+				subjectResult, subjectErr := QueryAndNormalize(client, subject.BaseURL, manifest, probe)
+				if subjectErr != nil || len(subjectResult.Vector) == 0 {
+					allReady = false
+					lastSubjectErr = subjectErr
+					lastSubjectName = subject.Name
+					lastDatasetVariant = manifest.DatasetVariant
+				}
 			}
 		}
 		if allReady {
 			return nil
 		}
 		if hasDeadline && time.Now().After(deadline) {
-			return fmt.Errorf("timed out waiting for seeded dataset availability: prom=%v %s=%v", promErr, lastSubjectName, lastSubjectErr)
+			return fmt.Errorf("timed out waiting for seeded dataset availability: variant=%s prom=%v %s=%v", lastDatasetVariant, lastPromErr, lastSubjectName, lastSubjectErr)
 		}
 		select {
 		case <-ctx.Done():
@@ -317,15 +417,16 @@ func waitForDatasetAvailability(ctx context.Context, client *http.Client, cfg Co
 }
 
 type causeClusterAccumulator struct {
-	id       string
-	name     string
-	severity string
-	bucket   string
-	detail   string
-	count    int
-	variants []string
-	subjects []string
-	rows     []int
+	id              string
+	name            string
+	severity        string
+	bucket          string
+	detail          string
+	count           int
+	variants        []string
+	subjects        []string
+	datasetVariants []string
+	rows            []int
 }
 
 func annotateCauseClusters(report *CompareReport) {
@@ -358,6 +459,7 @@ func annotateCauseClusters(report *CompareReport) {
 		cluster.rows = append(cluster.rows, index)
 		cluster.variants = appendUniqueString(cluster.variants, result.Variant)
 		cluster.subjects = appendUniqueString(cluster.subjects, result.Subject)
+		cluster.datasetVariants = appendUniqueString(cluster.datasetVariants, result.DatasetVariant)
 	}
 	if len(ordered) == 0 {
 		return
@@ -369,14 +471,15 @@ func annotateCauseClusters(report *CompareReport) {
 			report.Results[row].CauseClusterSize = cluster.count
 		}
 		report.Clusters = append(report.Clusters, CompareCauseCluster{
-			ID:       cluster.id,
-			Name:     cluster.name,
-			Severity: cluster.severity,
-			Bucket:   cluster.bucket,
-			Detail:   cluster.detail,
-			Count:    cluster.count,
-			Variants: cloneStrings(cluster.variants),
-			Subjects: cloneStrings(cluster.subjects),
+			ID:              cluster.id,
+			Name:            cluster.name,
+			Severity:        cluster.severity,
+			Bucket:          cluster.bucket,
+			Detail:          cluster.detail,
+			Count:           cluster.count,
+			Variants:        cloneStrings(cluster.variants),
+			Subjects:        cloneStrings(cluster.subjects),
+			DatasetVariants: cloneStrings(cluster.datasetVariants),
 		})
 	}
 }

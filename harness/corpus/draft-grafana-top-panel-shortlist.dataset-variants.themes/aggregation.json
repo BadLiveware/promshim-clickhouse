@@ -180,18 +180,6 @@
     ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
-    "name": "draft_cand_0033_rate_family_selector",
-    "query": "rate(harness_requests_total{instance=\"a\",job=\"api\"}[5m])",
-    "startOffsetSeconds": 300,
-    "stepSeconds": 60
-  },
-  {
-    "datasetVariants": [
-      "baseline",
-      "resets_gaps"
-    ],
-    "endOffsetSeconds": 540,
-    "endpoint": "query_range",
     "name": "draft_cand_0148_rate_family_aggregation_selector",
     "query": "sum(rate(harness_requests_total{instance=~\"a\"}[5m])) by(pod)",
     "startOffsetSeconds": 300,
@@ -492,116 +480,8 @@
     ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
-    "name": "draft_cand_0164_rate_family_selector",
-    "query": "rate(harness_requests_total{job=\"apiserver\",instance=~\"a\"}[5m])",
-    "startOffsetSeconds": 300,
-    "stepSeconds": 60
-  },
-  {
-    "datasetVariants": [
-      "baseline",
-      "resets_gaps"
-    ],
-    "endOffsetSeconds": 540,
-    "endpoint": "query_range",
     "name": "draft_cand_0203_rate_family_aggregation_selector",
     "query": "avg(irate(harness_requests_total{namespace=~\"blue\",job=~\"api\"}[5m]) / (irate(harness_requests_total{namespace=~\"blue\",job=~\"api\"}[5m]) + irate(harness_requests_total{namespace=~\"blue\",job=~\"api\"}[5m]))) by(pod)",
-    "startOffsetSeconds": 300,
-    "stepSeconds": 60
-  },
-  {
-    "datasetVariants": [
-      "baseline",
-      "resets_gaps"
-    ],
-    "endOffsetSeconds": 540,
-    "endpoint": "query_range",
-    "name": "draft_cand_0223_rate_family_selector",
-    "query": "irate(harness_requests_total{job=\"api\",instance=\"a\"}[5m])",
-    "startOffsetSeconds": 300,
-    "stepSeconds": 60
-  },
-  {
-    "datasetVariants": [
-      "baseline",
-      "resets_gaps"
-    ],
-    "endOffsetSeconds": 540,
-    "endpoint": "query_range",
-    "name": "draft_cand_0224_rate_family_selector",
-    "query": "irate(harness_requests_total{instance=~\"a\"}[5m])",
-    "startOffsetSeconds": 300,
-    "stepSeconds": 60
-  },
-  {
-    "datasetVariants": [
-      "baseline",
-      "resets_gaps"
-    ],
-    "endOffsetSeconds": 540,
-    "endpoint": "query_range",
-    "name": "draft_cand_0449_rate_family_selector",
-    "query": "idelta(harness_requests_total{job=\"api\",instance=\"a\"}[5m])",
-    "startOffsetSeconds": 300,
-    "stepSeconds": 60
-  },
-  {
-    "datasetVariants": [
-      "baseline",
-      "resets_gaps"
-    ],
-    "endOffsetSeconds": 540,
-    "endpoint": "query_range",
-    "name": "draft_cand_0452_rate_family_selector",
-    "query": "increase(harness_requests_total{job=\"api\",instance=\"a\"}[5m])",
-    "startOffsetSeconds": 300,
-    "stepSeconds": 60
-  },
-  {
-    "datasetVariants": [
-      "baseline",
-      "resets_gaps"
-    ],
-    "endOffsetSeconds": 540,
-    "endpoint": "query_range",
-    "name": "draft_cand_0500_rate_family_selector",
-    "query": "rate(harness_requests_total{instance=~\"^a\",job=~\"api\"}[5m])",
-    "startOffsetSeconds": 300,
-    "stepSeconds": 60
-  },
-  {
-    "datasetVariants": [
-      "baseline",
-      "resets_gaps"
-    ],
-    "endOffsetSeconds": 540,
-    "endpoint": "query_range",
-    "name": "draft_cand_0506_rate_family_selector",
-    "query": "rate(harness_requests_total{job=~\"api\",instance=~\"a\"}[5m])",
-    "startOffsetSeconds": 300,
-    "stepSeconds": 60
-  },
-  {
-    "datasetVariants": [
-      "baseline",
-      "resets_gaps"
-    ],
-    "endOffsetSeconds": 540,
-    "endpoint": "query_range",
-    "name": "draft_cand_0012_rate_family_selector",
-    "query": "rate(harness_requests_total{instance=~\"^a\",job=~\"api\"}[1m])",
-    "startOffsetSeconds": 300,
-    "stepSeconds": 60
-  },
-  {
-    "datasetVariants": [
-      "baseline",
-      "churn_stale"
-    ],
-    "endOffsetSeconds": 540,
-    "endpoint": "query_range",
-    "name": "draft_cand_0011_range_function_selector",
-    "query": "max_over_time(harness_queue_depth{job=\"api\",instance=\"a\"}[5m])",
     "startOffsetSeconds": 300,
     "stepSeconds": 60
   },
@@ -671,12 +551,13 @@
   {
     "datasetVariants": [
       "baseline",
+      "resets_gaps",
       "churn_stale"
     ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
-    "name": "draft_cand_0419_range_function_selector",
-    "query": "avg_over_time(harness_up{job=\"prometheus-localhost\",instance=\"localhost:9090\"}[5m])",
+    "name": "draft_cand_0416_rate_family_range_function_subquery_aggregation_selector",
+    "query": "avg_over_time(sum(irate(harness_requests_total{job=\"es-search\"}[5m]))[5m:])",
     "startOffsetSeconds": 300,
     "stepSeconds": 60
   },
@@ -687,8 +568,20 @@
     ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
-    "name": "draft_cand_0505_rate_family_selector",
-    "query": "rate(harness_request_duration_seconds_sum{job=~\"api\",instance=~\"a\"}[5m]) / rate(harness_request_duration_seconds_count{job=~\"api\",instance=~\"a\"}[5m]) * 1e3",
+    "name": "draft_cand_0225_rate_family_subquery_aggregation_selector",
+    "query": "irate(sum by(pod) (harness_requests_total{namespace=~\"blue\",job=~\"api\"})[5m:])",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0242_rate_family_subquery_aggregation_selector",
+    "query": "rate(sum(harness_requests_total{job=~\"api\",namespace=~\"blue\"})[5m:])",
     "startOffsetSeconds": 300,
     "stepSeconds": 60
   },
@@ -740,6 +633,18 @@
     "endpoint": "query_range",
     "name": "draft_cand_0059_histogram_rate_family_aggregation_selector",
     "query": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m])) by(le))",
+    "startOffsetSeconds": 300,
+    "stepSeconds": 60
+  },
+  {
+    "datasetVariants": [
+      "baseline",
+      "histogram_burst"
+    ],
+    "endOffsetSeconds": 540,
+    "endpoint": "query_range",
+    "name": "draft_cand_0005_aggregation_selector",
+    "query": "sum (harness_request_duration_seconds_sum{namespace=\"blue\"})",
     "startOffsetSeconds": 300,
     "stepSeconds": 60
   },

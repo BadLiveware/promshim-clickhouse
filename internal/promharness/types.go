@@ -13,16 +13,20 @@ type SeedConfig struct {
 	Points                  int
 	BaseTime                time.Time
 	ArtifactDir             string
+	DatasetVariant          string
+	DatasetVariants         []string
 }
 
 type Manifest struct {
-	Seed            int64  `json:"seed"`
-	BaseUnixSeconds int64  `json:"baseUnixSeconds"`
-	StepSeconds     int64  `json:"stepSeconds"`
-	Points          int    `json:"points"`
-	SeriesCount     int    `json:"seriesCount"`
-	SampleCount     int    `json:"sampleCount"`
-	GeneratedAtUTC  string `json:"generatedAtUtc"`
+	Seed            int64      `json:"seed"`
+	BaseUnixSeconds int64      `json:"baseUnixSeconds"`
+	StepSeconds     int64      `json:"stepSeconds"`
+	Points          int        `json:"points"`
+	SeriesCount     int        `json:"seriesCount"`
+	SampleCount     int        `json:"sampleCount"`
+	GeneratedAtUTC  string     `json:"generatedAtUtc"`
+	DatasetVariant  string     `json:"datasetVariant,omitempty"`
+	Variants        []Manifest `json:"variants,omitempty"`
 }
 
 type CompareConfig struct {
@@ -72,6 +76,16 @@ type QuerySpec struct {
 	// Supported names today: "shim", "promclick". Empty means compare against
 	// all configured subjects.
 	Subjects []string `json:"subjects,omitempty"`
+	// DatasetVariants restricts this query row to a subset of seeded dataset
+	// variants when a multi-dataset manifest is present. Supported names today:
+	// "baseline", "resets_gaps", "churn_stale", "histogram_burst". Empty
+	// means all seeded dataset variants.
+	DatasetVariants []string `json:"datasetVariants,omitempty"`
+	// ExcludeDatasetVariants removes specific seeded dataset variants from this
+	// query row after DatasetVariants filtering. This allows broad corpora to
+	// opt into all variants by default while excluding variants that are known
+	// to be irrelevant or too noisy for one row.
+	ExcludeDatasetVariants []string `json:"excludeDatasetVariants,omitempty"`
 	// CompareMode selects how Prometheus and promshim responses are compared.
 	// "exact" (default) requires byte-for-byte value equality. "structural" only
 	// checks result type, series set, labels, timestamps, and NaN positions —
@@ -81,14 +95,15 @@ type QuerySpec struct {
 }
 
 type CompareCauseCluster struct {
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`
-	Severity string   `json:"severity,omitempty"`
-	Bucket   string   `json:"bucket,omitempty"`
-	Detail   string   `json:"detail,omitempty"`
-	Count    int      `json:"count"`
-	Variants []string `json:"variants,omitempty"`
-	Subjects []string `json:"subjects,omitempty"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Severity        string   `json:"severity,omitempty"`
+	Bucket          string   `json:"bucket,omitempty"`
+	Detail          string   `json:"detail,omitempty"`
+	Count           int      `json:"count"`
+	Variants        []string `json:"variants,omitempty"`
+	Subjects        []string `json:"subjects,omitempty"`
+	DatasetVariants []string `json:"datasetVariants,omitempty"`
 }
 
 type CompareReport struct {
@@ -101,6 +116,7 @@ type CompareReport struct {
 type QueryComparison struct {
 	Name             string `json:"name"`
 	Variant          string `json:"variant,omitempty"`
+	DatasetVariant   string `json:"datasetVariant,omitempty"`
 	CauseCluster     string `json:"causeCluster,omitempty"`
 	CauseClusterSize int    `json:"causeClusterSize,omitempty"`
 	// Subject identifies which subject-under-test this row compares against

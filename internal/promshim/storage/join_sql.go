@@ -2,8 +2,8 @@ package storage
 
 import (
 	"fmt"
-	"strings"
 
+	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -24,220 +24,258 @@ func BuildRangeBinaryVectorJoinSQL(lhsSQL string, lhsParams map[string]string, r
 }
 
 func buildBinaryVectorJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL string, rhsParams map[string]string, cfg BinaryJoinConfig, rangeMode bool) (string, map[string]string, error) {
-	valueExpr, valueFilter, err := buildBinaryValueSQL(cfg.Op, cfg.ReturnBool, "lhs.value", "rhs.value")
+	valueExpr, valueFilter, err := buildBinaryValueExpr(cfg.Op, cfg.ReturnBool, sqlb.Ident("lhs.value"), sqlb.Ident("rhs.value"))
 	if err != nil {
 		return "", nil, err
 	}
-	joinKeyExpr := buildJoinGroupExpr("original_group", cfg.VectorMatching)
-	resultTagsExpr := buildBinaryResultTagsSQL(cfg)
-	dupKeyExpr := "join_group"
-	resultGroupExpr := "result_tags"
-	joinCondition := "lhs.join_group = rhs.join_group"
-	lhsSource := lhsSQL
-	rhsSource := rhsSQL
-	resultTimestampExpr := "lhs.timestamp AS timestamp,"
+	joinOn := sqlb.Expr(sqlb.RawLit{V: "lhs.join_group = rhs.join_group"})
 	if rangeMode {
-		dupKeyExpr = "join_group, timestamp"
-		resultGroupExpr = "result_tags, timestamp"
-		joinCondition += " AND lhs.timestamp = rhs.timestamp"
-		lhsSource = flattenRangeSourceSQL(lhsSQL)
-		rhsSource = flattenRangeSourceSQL(rhsSQL)
-	} else {
-		lhsSource = strings.TrimSpace(lhsSQL)
-		rhsSource = strings.TrimSpace(rhsSQL)
+		joinOn = sqlb.RawLit{V: "lhs.join_group = rhs.join_group AND lhs.timestamp = rhs.timestamp"}
 	}
 
-	lhsCheck := cfg.JoinShape == "one_to_one" || cfg.JoinShape == "one_to_many"
-	rhsCheck := cfg.JoinShape == "one_to_one" || cfg.JoinShape == "many_to_one"
-	lhsPrepared := buildPreparedJoinSideSQL("lhs", lhsSource, joinKeyExpr, dupKeyExpr, lhsCheck)
-	rhsPrepared := buildPreparedJoinSideSQL("rhs", rhsSource, joinKeyExpr, dupKeyExpr, rhsCheck)
-	whereClause := ""
-	if valueFilter != "" {
-		whereClause = "WHERE " + valueFilter
+	lhsPrepared, err := buildPreparedJoinSideSelect("lhs", buildJoinSource(lhsSQL, rangeMode), buildJoinGroupExpr(sqlb.Ident("tags"), cfg.VectorMatching), rangeMode, cfg.JoinShape == "one_to_one" || cfg.JoinShape == "one_to_many")
+	if err != nil {
+		return "", nil, err
+	}
+	rhsPrepared, err := buildPreparedJoinSideSelect("rhs", buildJoinSource(rhsSQL, rangeMode), buildJoinGroupExpr(sqlb.Ident("tags"), cfg.VectorMatching), rangeMode, cfg.JoinShape == "one_to_one" || cfg.JoinShape == "many_to_one")
+	if err != nil {
+		return "", nil, err
 	}
 
-	joinedRows := fmt.Sprintf(`
-SELECT
-    %s AS result_tags,
-    %s
-    %s AS value
-FROM (
-%s
-) AS lhs
-INNER JOIN (
-%s
-) AS rhs
-    ON %s
-%s
-`, resultTagsExpr, resultTimestampExpr, valueExpr, indentSQL(lhsPrepared, 4), indentSQL(rhsPrepared, 4), joinCondition, whereClause)
-
-	if rangeMode {
-		params := mergeParamMaps(lhsParams, rhsParams)
-		return fmt.Sprintf(`
-SELECT
-    result_tags AS tags,
-    arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series
-FROM (
-    SELECT
-        result_tags,
-        timestamp,
-        any(value) AS value
-    FROM (
-%s
-    )
-    GROUP BY %s
-    HAVING throwIf(count() > 1, 'multiple matches for labels: grouping labels must ensure unique matches') = 0
-)
-GROUP BY result_tags
-ORDER BY result_tags
-SETTINGS allow_experimental_time_series_table = 1
-FORMAT JSONEachRow
-`, indentSQL(joinedRows, 4), resultGroupExpr), params, nil
+	joinedRows := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: buildBinaryResultTagsExpr(cfg), Alias: "result_tags"},
+			{Expr: sqlb.Ident("lhs.timestamp"), Alias: "timestamp"},
+			{Expr: valueExpr, Alias: "value"},
+		},
+		From: sqlb.Join{
+			Left:  sqlb.SubSelect{S: lhsPrepared, Alias: "lhs"},
+			Right: sqlb.SubSelect{S: rhsPrepared, Alias: "rhs"},
+			Kind:  "INNER",
+			On:    joinOn,
+		},
+		Where: valueFilter,
 	}
 
 	params := mergeParamMaps(lhsParams, rhsParams)
-	return fmt.Sprintf(`
-SELECT
-    result_tags AS tags,
-    any(timestamp) AS timestamp,
-    any(value) AS value
-FROM (
-%s
-)
-GROUP BY %s
-HAVING throwIf(count() > 1, 'multiple matches for labels: grouping labels must ensure unique matches') = 0
-ORDER BY result_tags
-SETTINGS allow_experimental_time_series_table = 1
-FORMAT JSONEachRow
-`, indentSQL(joinedRows, 4), resultGroupExpr), params, nil
+	if rangeMode {
+		grouped := &sqlb.Select{
+			Columns: []sqlb.ColExpr{
+				{Expr: sqlb.Ident("result_tags"), Alias: "result_tags"},
+				{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
+				{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("value")}}, Alias: "value"},
+			},
+			From:    sqlb.SubSelect{S: joinedRows},
+			GroupBy: []sqlb.Expr{sqlb.Ident("result_tags"), sqlb.Ident("timestamp")},
+			Having:  sqlb.RawLit{V: "throwIf(count() > 1, 'multiple matches for labels: grouping labels must ensure unique matches') = 0"},
+		}
+		outer := &sqlb.Select{
+			Columns: []sqlb.ColExpr{
+				{Expr: sqlb.Ident("result_tags"), Alias: "tags"},
+				{Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((timestamp, value)))"}, Alias: "time_series"},
+			},
+			From:    sqlb.SubSelect{S: grouped},
+			GroupBy: []sqlb.Expr{sqlb.Ident("result_tags")},
+			OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("result_tags")}},
+		}
+		sql, _, err := outer.Build()
+		if err != nil {
+			return "", nil, err
+		}
+		return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", params, nil
+	}
+
+	outer := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("result_tags"), Alias: "tags"},
+			{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("timestamp")}}, Alias: "timestamp"},
+			{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("value")}}, Alias: "value"},
+		},
+		From:    sqlb.SubSelect{S: joinedRows},
+		GroupBy: []sqlb.Expr{sqlb.Ident("result_tags")},
+		Having:  sqlb.RawLit{V: "throwIf(count() > 1, 'multiple matches for labels: grouping labels must ensure unique matches') = 0"},
+		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("result_tags")}},
+	}
+	sql, _, err := outer.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", params, nil
 }
 
-func buildPreparedJoinSideSQL(side, sourceSQL, joinKeyExpr, dupKeyExpr string, checkDuplicates bool) string {
-	joinGroupExpr := strings.ReplaceAll(joinKeyExpr, "original_group", "tags")
-	withTimestamp := strings.Contains(dupKeyExpr, "timestamp")
+func buildPreparedJoinSideSelect(side string, source sqlb.Source, joinGroupExpr sqlb.Expr, withTimestamp bool, checkDuplicates bool) (*sqlb.Select, error) {
+	joinGroup := joinGroupExpr
 	if !checkDuplicates {
-		return fmt.Sprintf(`
-SELECT
-    tags AS original_group,
-    %s AS join_group,
-    timestamp,
-    value
-FROM (
-%s
-)
-`, joinGroupExpr, indentSQL(sourceSQL, 4))
+		return &sqlb.Select{
+			Columns: []sqlb.ColExpr{
+				{Expr: sqlb.Ident("tags"), Alias: "original_group"},
+				{Expr: joinGroup, Alias: "join_group"},
+				{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
+				{Expr: sqlb.Ident("value"), Alias: "value"},
+			},
+			From: source,
+		}, nil
 	}
-	groupBy := joinGroupExpr
-	timestampExpr := "any(timestamp) AS timestamp"
+
+	columns := []sqlb.ColExpr{
+		{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("tags")}}, Alias: "original_group"},
+		{Expr: joinGroup, Alias: "join_group"},
+		{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("value")}}, Alias: "value"},
+	}
+	groupBy := []sqlb.Expr{joinGroup}
 	if withTimestamp {
-		groupBy += ", timestamp"
-		timestampExpr = "timestamp"
+		columns = []sqlb.ColExpr{
+			{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("tags")}}, Alias: "original_group"},
+			{Expr: joinGroup, Alias: "join_group"},
+			{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
+			{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("value")}}, Alias: "value"},
+		}
+		groupBy = append(groupBy, sqlb.Ident("timestamp"))
+	} else {
+		columns = []sqlb.ColExpr{
+			{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("tags")}}, Alias: "original_group"},
+			{Expr: joinGroup, Alias: "join_group"},
+			{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("timestamp")}}, Alias: "timestamp"},
+			{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("value")}}, Alias: "value"},
+		}
 	}
-	return fmt.Sprintf(`
-SELECT
-    any(tags) AS original_group,
-    %s AS join_group,
-    %s,
-    any(value) AS value
-FROM (
-%s
-)
-GROUP BY %s
-HAVING throwIf(count() > 1, 'found duplicate series for the match group on the %s hand-side of the operation') = 0
-`, joinGroupExpr, timestampExpr, indentSQL(sourceSQL, 4), groupBy, side)
+	return &sqlb.Select{
+		Columns: columns,
+		From:    source,
+		GroupBy: groupBy,
+		Having:  sqlb.RawLit{V: "throwIf(count() > 1, 'found duplicate series for the match group on the " + side + " hand-side of the operation') = 0"},
+	}, nil
 }
 
-func flattenRangeSourceSQL(sourceSQL string) string {
-	return fmt.Sprintf(`
-SELECT
-    tags,
-    point.1 AS timestamp,
-    point.2 AS value
-FROM (
-%s
-)
-ARRAY JOIN time_series AS point
-`, indentSQL(strings.TrimSpace(sourceSQL), 4))
+func buildJoinSource(sourceSQL string, rangeMode bool) sqlb.Source {
+	if !rangeMode {
+		return sqlb.RawSource{SQL: rawSubquerySQL(sourceSQL)}
+	}
+	return sqlb.SubSelect{S: flattenRangeSourceSelect(sourceSQL)}
 }
 
-func buildJoinGroupExpr(tagsExpr string, vectorMatching *parser.VectorMatching) string {
+func flattenRangeSourceSelect(sourceSQL string) *sqlb.Select {
+	return &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("tags"), Alias: "tags"},
+			{Expr: sqlb.RawLit{V: "point.1"}, Alias: "timestamp"},
+			{Expr: sqlb.RawLit{V: "point.2"}, Alias: "value"},
+		},
+		From: sqlb.ArrayJoin{
+			Base:  sqlb.RawSource{SQL: rawSubquerySQL(sourceSQL)},
+			Expr:  sqlb.Ident("time_series"),
+			Alias: "point",
+		},
+	}
+}
+
+func buildJoinGroupExpr(tagsExpr sqlb.Expr, vectorMatching *parser.VectorMatching) sqlb.Expr {
 	matching := normalizeStorageVectorMatching(vectorMatching)
 	if matching.On {
 		if len(matching.MatchingLabels) == 0 {
-			return "CAST([], 'Array(Tuple(String, String))')"
+			return sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}
 		}
-		return fmt.Sprintf("arraySort(tag -> tag.1, arrayFilter(tag -> has(%s, tag.1), %s))", sqlStringArrayLiteral(matching.MatchingLabels), tagsExpr)
+		return sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
+			sqlb.RawLit{V: "tag -> tag.1"},
+			sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(matching.MatchingLabels) + ", tag.1)"}, tagsExpr}},
+		}}
 	}
 	ignored := append([]string{labels.MetricName}, matching.MatchingLabels...)
-	return fmt.Sprintf("arraySort(tag -> tag.1, arrayFilter(tag -> NOT has(%s, tag.1), %s))", sqlStringArrayLiteral(ignored), tagsExpr)
+	return sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
+		sqlb.RawLit{V: "tag -> tag.1"},
+		sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> NOT has(" + sqlStringArrayLiteral(ignored) + ", tag.1)"}, tagsExpr}},
+	}}
 }
 
-func buildBinaryResultTagsSQL(cfg BinaryJoinConfig) string {
+func buildBinaryResultTagsExpr(cfg BinaryJoinConfig) sqlb.Expr {
 	matching := normalizeStorageVectorMatching(cfg.VectorMatching)
-	base := "lhs.original_group"
-	oneSide := "rhs.original_group"
+	base := sqlb.Expr(sqlb.Ident("lhs.original_group"))
+	oneSide := sqlb.Expr(sqlb.Ident("rhs.original_group"))
 	if cfg.JoinShape == "one_to_many" {
-		base = "rhs.original_group"
-		oneSide = "lhs.original_group"
+		base = sqlb.Ident("rhs.original_group")
+		oneSide = sqlb.Ident("lhs.original_group")
 	}
 	result := base
 	if cfg.JoinShape == "one_to_one" {
 		if matching.On {
 			if len(matching.MatchingLabels) == 0 {
-				result = "CAST([], 'Array(Tuple(String, String))')"
+				result = sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}
 			} else {
-				result = fmt.Sprintf("arraySort(tag -> tag.1, arrayFilter(tag -> has(%s, tag.1), %s))", sqlStringArrayLiteral(matching.MatchingLabels), result)
+				result = sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
+					sqlb.RawLit{V: "tag -> tag.1"},
+					sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(matching.MatchingLabels) + ", tag.1)"}, result}},
+				}}
 			}
 		} else if len(matching.MatchingLabels) > 0 {
-			result = fmt.Sprintf("arraySort(tag -> tag.1, arrayFilter(tag -> NOT has(%s, tag.1), %s))", sqlStringArrayLiteral(matching.MatchingLabels), result)
+			result = sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
+				sqlb.RawLit{V: "tag -> tag.1"},
+				sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> NOT has(" + sqlStringArrayLiteral(matching.MatchingLabels) + ", tag.1)"}, result}},
+			}}
 		}
 	}
 	if !isComparisonJoinOperator(cfg.Op) || cfg.ReturnBool {
-		result = fmt.Sprintf("arrayFilter(tag -> tag.1 != '__name__', %s)", result)
+		result = sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> tag.1 != '__name__'"}, result}}
 	}
 	if len(matching.Include) > 0 {
-		result = fmt.Sprintf("arraySort(tag -> tag.1, arrayConcat(arrayFilter(tag -> NOT has(%s, tag.1), %s), arrayFilter(tag -> has(%s, tag.1), %s)))", sqlStringArrayLiteral(matching.Include), result, sqlStringArrayLiteral(matching.Include), oneSide)
+		result = sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
+			sqlb.RawLit{V: "tag -> tag.1"},
+			sqlb.Call{Name: "arrayConcat", Args: []sqlb.Expr{
+				sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> NOT has(" + sqlStringArrayLiteral(matching.Include) + ", tag.1)"}, result}},
+				sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(matching.Include) + ", tag.1)"}, oneSide}},
+			}},
+		}}
 	}
 	return result
 }
 
-func buildBinaryValueSQL(op parser.ItemType, returnBool bool, lhsExpr, rhsExpr string) (string, string, error) {
-	condition := ""
+func buildBinaryValueExpr(op parser.ItemType, returnBool bool, lhsExpr, rhsExpr sqlb.Expr) (sqlb.Expr, sqlb.Expr, error) {
+	condition := sqlb.Expr(nil)
 	switch op {
 	case parser.ADD:
-		return lhsExpr + " + " + rhsExpr, "", nil
+		return sqlb.Binary{Op: "+", L: lhsExpr, R: rhsExpr}, nil, nil
 	case parser.SUB:
-		return lhsExpr + " - " + rhsExpr, "", nil
+		return sqlb.Binary{Op: "-", L: lhsExpr, R: rhsExpr}, nil, nil
 	case parser.MUL:
-		return lhsExpr + " * " + rhsExpr, "", nil
+		return sqlb.Binary{Op: "*", L: lhsExpr, R: rhsExpr}, nil, nil
 	case parser.DIV:
-		return lhsExpr + " / " + rhsExpr, "", nil
+		return sqlb.Binary{Op: "/", L: lhsExpr, R: rhsExpr}, nil, nil
 	case parser.MOD:
-		return fmt.Sprintf("modulo(%s, %s)", lhsExpr, rhsExpr), "", nil
+		return sqlb.Call{Name: "modulo", Args: []sqlb.Expr{lhsExpr, rhsExpr}}, nil, nil
 	case parser.POW:
-		return fmt.Sprintf("pow(%s, %s)", lhsExpr, rhsExpr), "", nil
+		return sqlb.Call{Name: "pow", Args: []sqlb.Expr{lhsExpr, rhsExpr}}, nil, nil
 	case parser.EQLC:
-		condition = lhsExpr + " = " + rhsExpr
+		condition = sqlb.Binary{Op: "=", L: lhsExpr, R: rhsExpr}
 	case parser.NEQ:
-		condition = lhsExpr + " != " + rhsExpr
+		condition = sqlb.Binary{Op: "!=", L: lhsExpr, R: rhsExpr}
 	case parser.GTR:
-		condition = lhsExpr + " > " + rhsExpr
+		condition = sqlb.Binary{Op: ">", L: lhsExpr, R: rhsExpr}
 	case parser.LSS:
-		condition = lhsExpr + " < " + rhsExpr
+		condition = sqlb.Binary{Op: "<", L: lhsExpr, R: rhsExpr}
 	case parser.GTE:
-		condition = lhsExpr + " >= " + rhsExpr
+		condition = sqlb.Binary{Op: ">=", L: lhsExpr, R: rhsExpr}
 	case parser.LTE:
-		condition = lhsExpr + " <= " + rhsExpr
+		condition = sqlb.Binary{Op: "<=", L: lhsExpr, R: rhsExpr}
 	default:
-		return "", "", fmt.Errorf("native vector join SQL for operator %q is not implemented yet", op.String())
+		return nil, nil, fmt.Errorf("native vector join SQL for operator %q is not implemented yet", op.String())
 	}
-	if condition == "" {
-		return "", "", nil
+	if condition == nil {
+		return nil, nil, nil
 	}
 	if returnBool {
-		return fmt.Sprintf("toFloat64(if(%s, 1, 0))", condition), "", nil
+		return sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{sqlb.RawLit{V: "if(" + mustBuildBinaryJoinExpr(condition) + ", 1, 0)"}}}, nil, nil
 	}
 	return lhsExpr, condition, nil
+}
+
+func mustBuildBinaryJoinExpr(expr sqlb.Expr) string {
+	sql, params, err := sqlb.BuildExpr(expr)
+	if err != nil {
+		panic(err)
+	}
+	if len(params) != 0 {
+		panic(fmt.Errorf("binary join expression unexpectedly produced params: %#v", params))
+	}
+	return sql
 }
 
 func isComparisonJoinOperator(op parser.ItemType) bool {

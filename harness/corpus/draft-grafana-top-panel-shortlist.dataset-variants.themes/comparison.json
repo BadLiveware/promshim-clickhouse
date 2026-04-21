@@ -6,8 +6,8 @@
     ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
-    "name": "draft_cand_0023_rate_family_vector_matching_aggregation_selector",
-    "query": "sum(rate(harness_requests_total[60s]) * on(instance, job) group_left harness_up{namespace=\"blue\"})",
+    "name": "draft_cand_0295_rate_family_aggregation_selector",
+    "query": "sum(increase(harness_requests_total{job=\"api\"}[5m])) by(namespace) > 0",
     "startOffsetSeconds": 300,
     "stepSeconds": 60
   },

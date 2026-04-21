@@ -19,5 +19,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if len(manifest.Variants) > 0 {
+		for _, variant := range manifest.Variants {
+			log.Printf("seeded dataset variant=%s seed=%d base=%d step=%ds points=%d series=%d samples=%d", variant.DatasetVariant, variant.Seed, variant.BaseUnixSeconds, variant.StepSeconds, variant.Points, variant.SeriesCount, variant.SampleCount)
+		}
+		return
+	}
 	log.Printf("seeded dataset: seed=%d base=%d step=%ds points=%d series=%d samples=%d", manifest.Seed, manifest.BaseUnixSeconds, manifest.StepSeconds, manifest.Points, manifest.SeriesCount, manifest.SampleCount)
 }

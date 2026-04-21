@@ -29,6 +29,7 @@ From the repo root:
 Useful options:
 
 - `--subjects <list>` to restrict compare subjects globally, e.g. `shim` or `shim,promclick`
+- `--dataset-variants <list>` to seed multiple dataset shapes in one run, e.g. `baseline,resets_gaps`
 - `--no-build` to skip rebuilding images
 - `--keep-up` to keep the stack running for inspection/debugging
 - `--init-retries <n>` to tune ClickHouse init retries
@@ -65,6 +66,13 @@ Useful environment variables:
 - `PROM_HARNESS_STEP_SECONDS`
 - `PROM_HARNESS_POINTS`
 - `PROM_HARNESS_BASE_UNIX_SECONDS` (optional; if omitted the seed job picks a recent base time and writes it to `artifacts/seed-manifest.json`)
+- `PROM_HARNESS_DATASET_VARIANTS` (optional comma-separated list such as `baseline,resets_gaps,churn_stale,histogram_burst`; when unset the harness keeps the legacy single dataset shape)
+
+Seeded dataset shapes currently include:
+- `baseline` — the default deterministic fixture
+- `resets_gaps` — counter reset plus post-midpoint sampling gaps
+- `churn_stale` — stronger series churn / staleness behavior
+- `histogram_burst` — post-midpoint histogram / latency burst behavior
 
 Comparator outputs:
 
@@ -168,8 +176,10 @@ Corpus rows can also set:
 - `"timeOffsets": [{"name": "early", "timeOffsetSeconds": 60}, ...]` for instant-query variants
 - `"rangeOffsets": [{"name": "boundary", "startOffsetSeconds": 0, "endOffsetSeconds": 240}, ...]` for range-query variants
 - `"rangeStepMatrix": true` for opt-in Layer 2 range-query step sweeps
+- `"datasetVariants": ["baseline", "resets_gaps", "churn_stale", "histogram_burst"]` to restrict a row to specific seeded dataset shapes
+- `"excludeDatasetVariants": [...]` to remove specific dataset shapes from an otherwise broad row
 
-These are sent as normal HTTP query parameters (`native_lowering_mode`, `explain=1`). Variant-expanded rows appear in `compare-report.json` as separate results sharing the base query `name` and carrying an explicit `variant` field. For repeated non-ok rows with the same base query + severity + bucket + detail, the report now also tags them with `causeCluster` and `causeClusterSize`, and emits a top-level `clusters` summary so one underlying issue can be triaged as a single cause. For `rangeStepMatrix`, the harness currently emits a small default matrix per range variant:
+These are sent as normal HTTP query parameters (`native_lowering_mode`, `explain=1`). Variant-expanded rows appear in `compare-report.json` as separate results sharing the base query `name` and carrying an explicit `variant` field. Multi-dataset runs also tag each row with `datasetVariant`. For repeated non-ok rows with the same base query + severity + bucket + detail, the report now also tags them with `causeCluster` and `causeClusterSize`, and emits a top-level `clusters` summary so one underlying issue can be triaged as a single cause. For `rangeStepMatrix`, the harness currently emits a small default matrix per range variant:
 - `step_evenly_divides_range`
 - `step_not_evenly_divides_range`
 - `step_gt_range_over_2`
@@ -177,7 +187,7 @@ These are sent as normal HTTP query parameters (`native_lowering_mode`, `explain
 
 When both `rangeOffsets` and `rangeStepMatrix` are set, the report variant name combines them (for example `boundary/step_eq_range`). This is most useful for promshim-specific rollout validation; in practice the Phase 7 corpus scopes rows to `"subjects": ["shim"]` so optional promclick behavior is not treated as a rollout gate.
 
-A small focused example corpus for Layer 1 is available at:
+A small focused example corpus for Layer 1/2 is available at:
 - `harness/corpus/phase12-harness-variants.json`
 
 Run it with:
@@ -185,6 +195,24 @@ Run it with:
 ```bash
 ./scripts/run-harness.sh --corpus phase12-harness-variants.json --subjects shim
 ```
+
+A small focused example corpus for Layer 3 dataset variants is also available at:
+- `harness/corpus/phase12-dataset-variants.json`
+
+Run it with:
+
+```bash
+./scripts/run-harness.sh --corpus phase12-dataset-variants.json --subjects shim --dataset-variants baseline,resets_gaps,churn_stale,histogram_burst
+```
+
+The broader dashboard-promotion corpora now also carry auto-annotated dataset-variant hints derived from the shortlist metadata (`families` + `retargetingHint`):
+- `harness/corpus/draft-grafana-top-panel-shortlist.json`
+- `harness/corpus/draft-grafana-top-panel-shortlist.dataset-variants.json`
+- themed splits in:
+  - `harness/corpus/draft-grafana-top-panel-shortlist.themes/`
+  - `harness/corpus/draft-grafana-top-panel-shortlist.dataset-variants.themes/`
+
+These remain exploratory/promotion-oriented corpora rather than stable gates, but they now routinely exercise reset/gap, churn/staleness, and histogram-burst shapes where the shortlist metadata suggests those behaviors are relevant.
 
 Extend the corpus cautiously as new features land:
 - add new corpus rows only after parity is verified in `./artifacts/compare-report.json` and corresponding unit/integration coverage exists.

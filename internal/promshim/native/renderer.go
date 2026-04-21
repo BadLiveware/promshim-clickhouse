@@ -2,9 +2,11 @@ package native
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -98,7 +100,11 @@ func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *NativeFragme
 		if err != nil {
 			return RenderedQuery{}, err
 		}
-		return RenderedQuery{SQL: buildInstantRangeFunctionSQL(childRendered.SQL, fragment.RangeFunction.Func), QueryParams: childRendered.QueryParams}, nil
+		sql, err := buildInstantRangeFunctionSQL(childRendered.SQL, fragment.RangeFunction.Func)
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		return RenderedQuery{SQL: sql, QueryParams: childRendered.QueryParams}, nil
 	case RenderModeRange:
 		selectorFragment := fragment.RangeFunction.Child
 		if selectorFragment != nil && selectorFragment.Kind == FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == SelectorKindRangeVector {
@@ -136,7 +142,11 @@ func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *NativeFragme
 			if err != nil {
 				return RenderedQuery{}, err
 			}
-			return RenderedQuery{SQL: buildRangeFunctionOverSubqueryRangeSQL(childRendered.SQL, fragment.RangeFunction.Func, params.StartMS, params.EndMS, params.StepMS, selectorFragment.Subquery.Range.Milliseconds(), selectorFragment.Subquery.Offset.Milliseconds()), QueryParams: childRendered.QueryParams}, nil
+			sql, err := buildRangeFunctionOverSubqueryRangeSQL(childRendered.SQL, fragment.RangeFunction.Func, params.StartMS, params.EndMS, params.StepMS, selectorFragment.Subquery.Range.Milliseconds(), selectorFragment.Subquery.Offset.Milliseconds())
+			if err != nil {
+				return RenderedQuery{}, err
+			}
+			return RenderedQuery{SQL: sql, QueryParams: childRendered.QueryParams}, nil
 		}
 		return RenderedQuery{}, fmt.Errorf("native range-mode rendering for %s currently requires a direct range-vector selector child or supported subquery child", fragment.RangeFunction.Func)
 	default:
@@ -221,7 +231,11 @@ func renderSourceFragment(cfg storage.QueryConfig, fragment *NativeFragment, par
 			if sourceWrapperIsIdentity(fragment) {
 				return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
 			}
-			return RenderedQuery{SQL: wrapInstantSourceQuery(sql, fragment.ValueExpr, fragment.TagsExpr), QueryParams: queryParams}, nil
+			wrappedSQL, err := wrapInstantSourceQuery(sql, fragment.ValueExpr, fragment.TagsExpr)
+			if err != nil {
+				return RenderedQuery{}, err
+			}
+			return RenderedQuery{SQL: wrappedSQL, QueryParams: queryParams}, nil
 		}
 		if params.ResolveSourcePromQL == nil || fragment.SourcePromQL == nil {
 			return RenderedQuery{}, fmt.Errorf("native fragment render requires a source PromQL resolver")
@@ -231,7 +245,11 @@ func renderSourceFragment(cfg storage.QueryConfig, fragment *NativeFragment, par
 			return RenderedQuery{}, err
 		}
 		sql, queryParams := storage.BuildInstantQuerySQL(cfg, promQL, params.EvaluationTimeMS)
-		return RenderedQuery{SQL: wrapInstantSourceQuery(sql, fragment.ValueExpr, fragment.TagsExpr), QueryParams: queryParams}, nil
+		wrappedSQL, err := wrapInstantSourceQuery(sql, fragment.ValueExpr, fragment.TagsExpr)
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		return RenderedQuery{SQL: wrappedSQL, QueryParams: queryParams}, nil
 	case RenderModeRange:
 		if source.Selector != nil {
 			sql, queryParams, err := storage.BuildRangeSelectorQuerySQL(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS, params.StartMS, params.EndMS, params.StepMS)
@@ -241,7 +259,11 @@ func renderSourceFragment(cfg storage.QueryConfig, fragment *NativeFragment, par
 			if sourceWrapperIsIdentity(fragment) {
 				return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
 			}
-			return RenderedQuery{SQL: wrapRangeSourceQuery(sql, fragment.ValueExpr, fragment.TagsExpr), QueryParams: queryParams}, nil
+			wrappedSQL, err := wrapRangeSourceQuery(sql, fragment.ValueExpr, fragment.TagsExpr)
+			if err != nil {
+				return RenderedQuery{}, err
+			}
+			return RenderedQuery{SQL: wrappedSQL, QueryParams: queryParams}, nil
 		}
 		if params.ResolveSourcePromQL == nil || fragment.SourcePromQL == nil {
 			return RenderedQuery{}, fmt.Errorf("native fragment render requires a source PromQL resolver")
@@ -251,7 +273,11 @@ func renderSourceFragment(cfg storage.QueryConfig, fragment *NativeFragment, par
 			return RenderedQuery{}, err
 		}
 		sql, queryParams := storage.BuildRangeQuerySQL(cfg, promQL, params.StartMS, params.EndMS, params.StepMS)
-		return RenderedQuery{SQL: wrapRangeSourceQuery(sql, fragment.ValueExpr, fragment.TagsExpr), QueryParams: queryParams}, nil
+		wrappedSQL, err := wrapRangeSourceQuery(sql, fragment.ValueExpr, fragment.TagsExpr)
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		return RenderedQuery{SQL: wrappedSQL, QueryParams: queryParams}, nil
 	default:
 		return RenderedQuery{}, fmt.Errorf("unknown render mode %q", params.Mode)
 	}
@@ -296,35 +322,43 @@ func renderAggregationSource(fragment *NativeFragment, params RenderParams) (sto
 	return storage.AggregationSource{PromQLLeaf: promQL, ValueExpr: fragment.ValueExpr, TagsExpr: fragment.TagsExpr}, nil
 }
 
-func wrapInstantSourceQuery(sourceSQL, valueExpr, tagsExpr string) string {
-	sourceTagsExpr := strings.ReplaceAll(tagsExpr, "{tags}", "tags")
-	sourceValueExpr := strings.ReplaceAll(valueExpr, "{value}", "value")
-	return fmt.Sprintf(`
-SELECT
-    %s AS tags,
-    timestamp,
-    %s AS value
-FROM (
-%s
-)
-SETTINGS allow_experimental_time_series_table = 1
-FORMAT JSONEachRow
-`, sourceTagsExpr, sourceValueExpr, localIndentSQL(trimRenderedQuerySQL(sourceSQL), 4))
+func wrapInstantSourceQuery(sourceSQL, valueExpr, tagsExpr string) (string, error) {
+	sourceTagsExpr, err := storage.CompileSourceTagsTemplate(tagsExpr, sqlb.Ident("tags"))
+	if err != nil {
+		return "", err
+	}
+	sourceValueExpr, err := storage.CompileSourceValueTemplate(valueExpr, sqlb.Ident("value"))
+	if err != nil {
+		return "", err
+	}
+	query := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sourceTagsExpr, Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sourceValueExpr, Alias: "value"}},
+		From:    rawRenderedSubquerySource(sourceSQL),
+	}
+	return buildNativeWrapperSQL(query)
 }
 
-func wrapRangeSourceQuery(sourceSQL, valueExpr, tagsExpr string) string {
-	sourceTagsExpr := strings.ReplaceAll(tagsExpr, "{tags}", "tags")
-	sourceValueExpr := strings.ReplaceAll(valueExpr, "{value}", "point.2")
-	return fmt.Sprintf(`
-SELECT
-    %s AS tags,
-    arrayMap(point -> (point.1, %s), time_series) AS time_series
-FROM (
-%s
-)
-SETTINGS allow_experimental_time_series_table = 1
-FORMAT JSONEachRow
-`, sourceTagsExpr, sourceValueExpr, localIndentSQL(trimRenderedQuerySQL(sourceSQL), 4))
+func wrapRangeSourceQuery(sourceSQL, valueExpr, tagsExpr string) (string, error) {
+	sourceTagsExpr, err := storage.CompileSourceTagsTemplate(tagsExpr, sqlb.Ident("tags"))
+	if err != nil {
+		return "", err
+	}
+	sourceValueExpr, err := storage.CompileSourceValueTemplate(valueExpr, sqlb.RawLit{V: "point.2"})
+	if err != nil {
+		return "", err
+	}
+	sourceValueSQL, params, err := sqlb.BuildExpr(sourceValueExpr)
+	if err != nil {
+		return "", err
+	}
+	if len(params) != 0 {
+		return "", fmt.Errorf("range wrapper source value template unexpectedly produced params: %#v", params)
+	}
+	query := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sourceTagsExpr, Alias: "tags"}, {Expr: sqlb.RawLit{V: "arrayMap(point -> (point.1, " + sourceValueSQL + "), time_series)"}, Alias: "time_series"}},
+		From:    rawRenderedSubquerySource(sourceSQL),
+	}
+	return buildNativeWrapperSQL(query)
 }
 
 func renderFragmentSubquery(cfg storage.QueryConfig, fragment *NativeFragment, params RenderParams, prefix string) (string, map[string]string, error) {
@@ -353,114 +387,112 @@ func namespaceRenderedQuery(sql string, queryParams map[string]string, prefix st
 	return sql, renamed, nil
 }
 
-func buildRangeFunctionOverSubqueryRangeSQL(sourceSQL, fn string, startMS, endMS, stepMS, subqueryRangeMS, subqueryOffsetMS int64) string {
+func buildRangeFunctionOverSubqueryRangeSQL(sourceSQL, fn string, startMS, endMS, stepMS, subqueryRangeMS, subqueryOffsetMS int64) (string, error) {
 	valueExpr := rangeFunctionValueExpr(fn, "window_series")
-	return fmt.Sprintf(`
-SELECT
-    final_tags AS tags,
-    arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series
-FROM (
-    SELECT
-        arrayFilter(tag -> tag.1 != '__name__', tags) AS final_tags,
-        eval_ts AS timestamp,
-        %s AS value
-    FROM (
-        SELECT
-            source.tags AS tags,
-            grid.eval_ts AS eval_ts,
-            arrayFilter(point -> tupleElement(point, 1) <= grid.eval_ts - toIntervalMillisecond(%d) AND tupleElement(point, 1) >= grid.eval_ts - toIntervalMillisecond(%d), source.time_series) AS window_series
-        FROM (
-            SELECT arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range(%d, %d + %d, %d))) AS eval_ts
-        ) AS grid
-        CROSS JOIN (
-%s
-        ) AS source
-    ) AS step_windows
-    WHERE length(window_series) > %d
-)
-GROUP BY final_tags
-ORDER BY final_tags
-SETTINGS allow_experimental_time_series_table = 1
-FORMAT JSONEachRow
-`, valueExpr, subqueryOffsetMS, subqueryOffsetMS+subqueryRangeMS, startMS, endMS, stepMS, stepMS, localIndentSQL(trimRenderedQuerySQL(sourceSQL), 8), minimumSeriesLengthForRangeFunction(fn))
+	grid := &sqlb.Select{Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: "arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range(" + strconv.FormatInt(startMS, 10) + ", " + strconv.FormatInt(endMS, 10) + " + " + strconv.FormatInt(stepMS, 10) + ", " + strconv.FormatInt(stepMS, 10) + ")))"}, Alias: "eval_ts"}}}
+	stepWindows := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("source.tags"), Alias: "tags"}, {Expr: sqlb.Ident("grid.eval_ts"), Alias: "eval_ts"}, {Expr: sqlb.RawLit{V: "arrayFilter(point -> tupleElement(point, 1) <= grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(subqueryOffsetMS, 10) + ") AND tupleElement(point, 1) >= grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(subqueryOffsetMS+subqueryRangeMS, 10) + "), source.time_series)"}, Alias: "window_series"}},
+		From:    sqlb.Join{Left: sqlb.SubSelect{S: grid, Alias: "grid"}, Right: rawRenderedSubquerySourceWithAlias(sourceSQL, "source"), Kind: "CROSS"},
+	}
+	perStep := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: "arrayFilter(tag -> tag.1 != '__name__', tags)"}, Alias: "final_tags"}, {Expr: sqlb.Ident("eval_ts"), Alias: "timestamp"}, {Expr: sqlb.RawLit{V: valueExpr}, Alias: "value"}},
+		From:    sqlb.SubSelect{S: stepWindows, Alias: "step_windows"},
+		Where:   sqlb.RawLit{V: "length(window_series) > " + strconv.Itoa(minimumSeriesLengthForRangeFunction(fn))},
+	}
+	outer := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((timestamp, value)))"}, Alias: "time_series"}},
+		From:    sqlb.SubSelect{S: perStep},
+		GroupBy: []sqlb.Expr{sqlb.Ident("final_tags")},
+		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("final_tags")}},
+	}
+	return buildNativeWrapperSQL(outer)
 }
 
-func buildInstantRangeFunctionSQL(sourceSQL, fn string) string {
-	valueExpr := rangeFunctionValueExpr(fn, "time_series")
-	return fmt.Sprintf(`
-SELECT
-    arrayFilter(tag -> tag.1 != '__name__', tags) AS tags,
-    tupleElement(arrayElement(time_series, length(time_series)), 1) AS timestamp,
-    %s AS value
-FROM (
-%s
-)
-WHERE length(time_series) > %d
-SETTINGS allow_experimental_time_series_table = 1
-FORMAT JSONEachRow
-`, valueExpr, localIndentSQL(trimRenderedQuerySQL(sourceSQL), 4), minimumSeriesLengthForRangeFunction(fn))
+func buildInstantRangeFunctionSQL(sourceSQL, fn string) (string, error) {
+	query := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: "arrayFilter(tag -> tag.1 != '__name__', tags)"}, Alias: "tags"}, {Expr: sqlb.RawLit{V: "tupleElement(arrayElement(time_series, length(time_series)), 1)"}, Alias: "timestamp"}, {Expr: sqlb.RawLit{V: rangeFunctionValueExpr(fn, "time_series")}, Alias: "value"}},
+		From:    rawRenderedSubquerySource(sourceSQL),
+		Where:   sqlb.RawLit{V: "length(time_series) > " + strconv.Itoa(minimumSeriesLengthForRangeFunction(fn))},
+	}
+	return buildNativeWrapperSQL(query)
 }
 
 func rangeFunctionValueExpr(fn, seriesExpr string) string {
-	valuesExpr := fmt.Sprintf("arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), %s)", seriesExpr)
-	timestampsExpr := fmt.Sprintf("arrayMap(point -> tupleElement(point, 1), %s)", seriesExpr)
-	hasNaN := fmt.Sprintf("arrayExists(v -> isNaN(v), %s)", valuesExpr)
-	finiteValues := fmt.Sprintf("arrayFilter(v -> NOT isNaN(v), %s)", valuesExpr)
-	seriesLength := fmt.Sprintf("length(%s)", seriesExpr)
+	series := sqlb.RawLit{V: seriesExpr}
+	valuesExpr := sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "point -> ifNull(toFloat64(tupleElement(point, 2)), nan)"}, series}}
+	timestampsExpr := sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "point -> tupleElement(point, 1)"}, series}}
+	hasNaN := sqlb.Call{Name: "arrayExists", Args: []sqlb.Expr{sqlb.RawLit{V: "v -> isNaN(v)"}, valuesExpr}}
+	finiteValues := sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "v -> NOT isNaN(v)"}, valuesExpr}}
+	seriesLength := sqlb.Call{Name: "length", Args: []sqlb.Expr{series}}
+	lenMinusOne := sqlb.RawLit{V: renderSQLExprNoParams(seriesLength) + " - 1"}
+
+	arrayElementAtLength := func(expr sqlb.Expr) sqlb.Expr {
+		return sqlb.Call{Name: "arrayElement", Args: []sqlb.Expr{expr, seriesLength}}
+	}
+	arrayElementAtLengthMinusOne := func(expr sqlb.Expr) sqlb.Expr {
+		return sqlb.Call{Name: "arrayElement", Args: []sqlb.Expr{expr, lenMinusOne}}
+	}
+	prevValues := sqlb.Call{Name: "arraySlice", Args: []sqlb.Expr{valuesExpr, sqlb.RawLit{V: "1"}, lenMinusOne}}
+	curValues := sqlb.Call{Name: "arraySlice", Args: []sqlb.Expr{valuesExpr, sqlb.RawLit{V: "2"}, lenMinusOne}}
+	counterDeltaExpr := sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "(prev, cur) -> if(cur < prev, cur, cur - prev)"}, prevValues, curValues}}}}
+	changesExpr := sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "(prev, cur) -> if(cur != prev, 1, 0)"}, prevValues, curValues}}}}}}
+	lenFiniteIsZero := sqlb.Binary{Op: "=", L: sqlb.Call{Name: "length", Args: []sqlb.Expr{finiteValues}}, R: sqlb.RawLit{V: "0"}}
+
 	switch fn {
 	case "last_over_time":
-		return fmt.Sprintf("tupleElement(arrayElement(%s, length(%s)), 2)", seriesExpr, seriesExpr)
+		return renderSQLExprNoParams(sqlb.TupleElem{X: sqlb.Call{Name: "arrayElement", Args: []sqlb.Expr{series, seriesLength}}, K: 2})
 	case "sum_over_time":
-		return fmt.Sprintf("if(%s, nan, arraySum(%s))", hasNaN, finiteValues)
+		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{hasNaN, sqlb.RawLit{V: "nan"}, sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{finiteValues}}}})
 	case "avg_over_time":
-		return fmt.Sprintf("if(%s OR length(%s) = 0, nan, arrayAvg(%s))", hasNaN, finiteValues, finiteValues)
+		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{sqlb.Binary{Op: "OR", L: hasNaN, R: lenFiniteIsZero}, sqlb.RawLit{V: "nan"}, sqlb.Call{Name: "arrayAvg", Args: []sqlb.Expr{finiteValues}}}})
 	case "min_over_time":
-		return fmt.Sprintf("if(%s OR length(%s) = 0, nan, arrayMin(%s))", hasNaN, finiteValues, finiteValues)
+		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{sqlb.Binary{Op: "OR", L: hasNaN, R: lenFiniteIsZero}, sqlb.RawLit{V: "nan"}, sqlb.Call{Name: "arrayMin", Args: []sqlb.Expr{finiteValues}}}})
 	case "max_over_time":
-		return fmt.Sprintf("if(%s OR length(%s) = 0, nan, arrayMax(%s))", hasNaN, finiteValues, finiteValues)
+		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{sqlb.Binary{Op: "OR", L: hasNaN, R: lenFiniteIsZero}, sqlb.RawLit{V: "nan"}, sqlb.Call{Name: "arrayMax", Args: []sqlb.Expr{finiteValues}}}})
 	case "count_over_time":
-		return fmt.Sprintf("toFloat64(length(%s))", seriesExpr)
+		return renderSQLExprNoParams(sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{seriesLength}})
 	case "increase":
-		prevValues := fmt.Sprintf("arraySlice(%s, 1, %s - 1)", valuesExpr, seriesLength)
-		curValues := fmt.Sprintf("arraySlice(%s, 2, %s - 1)", valuesExpr, seriesLength)
-		deltaExpr := fmt.Sprintf("arraySum(arrayMap((prev, cur) -> if(cur < prev, cur, cur - prev), %s, %s))", prevValues, curValues)
-		return fmt.Sprintf("if(%s, nan, %s)", hasNaN, deltaExpr)
+		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{hasNaN, sqlb.RawLit{V: "nan"}, counterDeltaExpr}})
 	case "changes":
-		prevValues := fmt.Sprintf("arraySlice(%s, 1, %s - 1)", valuesExpr, seriesLength)
-		curValues := fmt.Sprintf("arraySlice(%s, 2, %s - 1)", valuesExpr, seriesLength)
-		changesExpr := fmt.Sprintf("toFloat64(arraySum(arrayMap((prev, cur) -> if(cur != prev, 1, 0), %s, %s)))", prevValues, curValues)
-		return fmt.Sprintf("if(%s, nan, %s)", hasNaN, changesExpr)
+		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{hasNaN, sqlb.RawLit{V: "nan"}, changesExpr}})
 	case "rate":
-		prevValues := fmt.Sprintf("arraySlice(%s, 1, %s - 1)", valuesExpr, seriesLength)
-		curValues := fmt.Sprintf("arraySlice(%s, 2, %s - 1)", valuesExpr, seriesLength)
-		deltaExpr := fmt.Sprintf("arraySum(arrayMap((prev, cur) -> if(cur < prev, cur, cur - prev), %s, %s))", prevValues, curValues)
-		durationExpr := fmt.Sprintf("arrayElement(%s, %s) - arrayElement(%s, 1)", timestampsExpr, seriesLength, timestampsExpr)
-		return fmt.Sprintf("if(%s OR (%s) <= 0, nan, (%s) / (%s))", hasNaN, durationExpr, deltaExpr, durationExpr)
+		durationExpr := sqlb.RawLit{V: renderSQLExprNoParams(arrayElementAtLength(timestampsExpr)) + " - arrayElement(" + renderSQLExprNoParams(timestampsExpr) + ", 1)"}
+		condition := sqlb.RawLit{V: renderSQLExprNoParams(hasNaN) + " OR (" + renderSQLExprNoParams(durationExpr) + ") <= 0"}
+		resultExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(counterDeltaExpr) + ") / (" + renderSQLExprNoParams(durationExpr) + ")"}
+		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{condition, sqlb.RawLit{V: "nan"}, resultExpr}})
 	case "irate":
-		lastValue := fmt.Sprintf("arrayElement(%s, %s)", valuesExpr, seriesLength)
-		prevValue := fmt.Sprintf("arrayElement(%s, %s - 1)", valuesExpr, seriesLength)
-		lastTS := fmt.Sprintf("arrayElement(%s, %s)", timestampsExpr, seriesLength)
-		prevTS := fmt.Sprintf("arrayElement(%s, %s - 1)", timestampsExpr, seriesLength)
-		durationExpr := fmt.Sprintf("(%s) - (%s)", lastTS, prevTS)
-		deltaExpr := fmt.Sprintf("if((%s) < (%s), %s, (%s) - (%s))", lastValue, prevValue, lastValue, lastValue, prevValue)
-		return fmt.Sprintf("if(%s OR (%s) <= 0, nan, (%s) / (%s))", hasNaN, durationExpr, deltaExpr, durationExpr)
+		lastValue := arrayElementAtLength(valuesExpr)
+		prevValue := arrayElementAtLengthMinusOne(valuesExpr)
+		lastTS := arrayElementAtLength(timestampsExpr)
+		prevTS := arrayElementAtLengthMinusOne(timestampsExpr)
+		durationExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(lastTS) + ") - (" + renderSQLExprNoParams(prevTS) + ")"}
+		deltaExpr := sqlb.RawLit{V: "if((" + renderSQLExprNoParams(lastValue) + ") < (" + renderSQLExprNoParams(prevValue) + "), " + renderSQLExprNoParams(lastValue) + ", (" + renderSQLExprNoParams(lastValue) + ") - (" + renderSQLExprNoParams(prevValue) + "))"}
+		condition := sqlb.RawLit{V: renderSQLExprNoParams(hasNaN) + " OR (" + renderSQLExprNoParams(durationExpr) + ") <= 0"}
+		resultExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(deltaExpr) + ") / (" + renderSQLExprNoParams(durationExpr) + ")"}
+		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{condition, sqlb.RawLit{V: "nan"}, resultExpr}})
 	case "delta":
-		firstValue := fmt.Sprintf("arrayElement(%s, 1)", valuesExpr)
-		lastValue := fmt.Sprintf("arrayElement(%s, %s)", valuesExpr, seriesLength)
-		return fmt.Sprintf("if(isNaN(%s) OR isNaN(%s), nan, (%s) - (%s))", firstValue, lastValue, lastValue, firstValue)
+		firstValue := sqlb.Call{Name: "arrayElement", Args: []sqlb.Expr{valuesExpr, sqlb.RawLit{V: "1"}}}
+		lastValue := arrayElementAtLength(valuesExpr)
+		condition := sqlb.RawLit{V: "isNaN(" + renderSQLExprNoParams(firstValue) + ") OR isNaN(" + renderSQLExprNoParams(lastValue) + ")"}
+		resultExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(lastValue) + ") - (" + renderSQLExprNoParams(firstValue) + ")"}
+		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{condition, sqlb.RawLit{V: "nan"}, resultExpr}})
 	case "idelta":
-		lastValue := fmt.Sprintf("arrayElement(%s, %s)", valuesExpr, seriesLength)
-		prevValue := fmt.Sprintf("arrayElement(%s, %s - 1)", valuesExpr, seriesLength)
-		return fmt.Sprintf("if(isNaN(%s) OR isNaN(%s), nan, (%s) - (%s))", prevValue, lastValue, lastValue, prevValue)
+		lastValue := arrayElementAtLength(valuesExpr)
+		prevValue := arrayElementAtLengthMinusOne(valuesExpr)
+		condition := sqlb.RawLit{V: "isNaN(" + renderSQLExprNoParams(prevValue) + ") OR isNaN(" + renderSQLExprNoParams(lastValue) + ")"}
+		resultExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(lastValue) + ") - (" + renderSQLExprNoParams(prevValue) + ")"}
+		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{condition, sqlb.RawLit{V: "nan"}, resultExpr}})
 	case "deriv":
-		nExpr := fmt.Sprintf("toFloat64(%s)", seriesLength)
-		sumXExpr := fmt.Sprintf("arraySum(%s)", timestampsExpr)
-		sumYExpr := fmt.Sprintf("arraySum(%s)", valuesExpr)
-		sumXYExpr := fmt.Sprintf("arraySum(arrayMap((x, y) -> x * y, %s, %s))", timestampsExpr, valuesExpr)
-		sumX2Expr := fmt.Sprintf("arraySum(arrayMap(x -> x * x, %s))", timestampsExpr)
-		denomExpr := fmt.Sprintf("(%s) * (%s) - (%s) * (%s)", nExpr, sumX2Expr, sumXExpr, sumXExpr)
-		numerExpr := fmt.Sprintf("(%s) * (%s) - (%s) * (%s)", nExpr, sumXYExpr, sumXExpr, sumYExpr)
-		return fmt.Sprintf("if(%s OR (%s) = 0, nan, (%s) / (%s))", hasNaN, denomExpr, numerExpr, denomExpr)
+		nExpr := sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{seriesLength}}
+		sumXExpr := sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{timestampsExpr}}
+		sumYExpr := sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{valuesExpr}}
+		sumXYExpr := sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "(x, y) -> x * y"}, timestampsExpr, valuesExpr}}}}
+		sumX2Expr := sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "x -> x * x"}, timestampsExpr}}}}
+		denomExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(nExpr) + ") * (" + renderSQLExprNoParams(sumX2Expr) + ") - (" + renderSQLExprNoParams(sumXExpr) + ") * (" + renderSQLExprNoParams(sumXExpr) + ")"}
+		numerExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(nExpr) + ") * (" + renderSQLExprNoParams(sumXYExpr) + ") - (" + renderSQLExprNoParams(sumXExpr) + ") * (" + renderSQLExprNoParams(sumYExpr) + ")"}
+		condition := sqlb.RawLit{V: renderSQLExprNoParams(hasNaN) + " OR (" + renderSQLExprNoParams(denomExpr) + ") = 0"}
+		resultExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(numerExpr) + ") / (" + renderSQLExprNoParams(denomExpr) + ")"}
+		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{condition, sqlb.RawLit{V: "nan"}, resultExpr}})
 	default:
 		return "nan"
 	}
@@ -497,6 +529,36 @@ func trimRenderedQuerySQL(sql string) string {
 
 func sourceWrapperIsIdentity(fragment *NativeFragment) bool {
 	return fragment != nil && fragment.ValueExpr == "{value}" && fragment.TagsExpr == "{tags}" && !fragment.DropsMetric
+}
+
+func buildNativeWrapperSQL(query *sqlb.Select) (string, error) {
+	sql, params, err := query.Build()
+	if err != nil {
+		return "", err
+	}
+	if len(params) != 0 {
+		return "", fmt.Errorf("native wrapper SQL unexpectedly produced params: %#v", params)
+	}
+	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", nil
+}
+
+func renderSQLExprNoParams(expr sqlb.Expr) string {
+	sql, params, err := sqlb.BuildExpr(expr)
+	if err != nil {
+		panic(err)
+	}
+	if len(params) != 0 {
+		panic(fmt.Errorf("sqlb expression unexpectedly produced params: %#v", params))
+	}
+	return sql
+}
+
+func rawRenderedSubquerySource(sql string) sqlb.RawSource {
+	return rawRenderedSubquerySourceWithAlias(sql, "")
+}
+
+func rawRenderedSubquerySourceWithAlias(sql, alias string) sqlb.RawSource {
+	return sqlb.RawSource{SQL: "(\n" + localIndentSQL(trimRenderedQuerySQL(sql), 4) + "\n)", Alias: alias}
 }
 
 func selectorEffectiveMatchers(selector *SelectorSource) []*labels.Matcher {

@@ -17,11 +17,14 @@ const (
 )
 
 type SelectorSource struct {
-	Kind       SelectorKind
-	MetricName string
-	Matchers   []*labels.Matcher
-	LookbackMS int64
-	OffsetMS   int64
+	Kind              SelectorKind
+	MetricName        string
+	Matchers          []*labels.Matcher
+	NeedTags          bool
+	RequireFullTags   bool
+	RequiredTagLabels []string
+	LookbackMS        int64
+	OffsetMS          int64
 }
 
 func BuildInstantSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
@@ -92,9 +95,17 @@ func buildInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, req
 		return "", nil, err
 	}
 	tableRef := timeSeriesTableRef(cfg)
+	selectTags := "series.tags AS tags,"
+	groupBy := "d.id, series.tags"
+	orderBy := "ORDER BY tags"
+	if !selector.NeedTags {
+		selectTags = "CAST([], 'Array(Tuple(String, String))') AS tags,"
+		groupBy = "d.id"
+		orderBy = ""
+	}
 	return fmt.Sprintf(`
 SELECT
-    series.tags AS tags,
+    %s
     max(d.timestamp) AS timestamp,
     argMax(d.value, d.timestamp) AS value
 FROM timeSeriesData(%s) AS d
@@ -103,9 +114,9 @@ INNER JOIN (
 ) AS series ON d.id = series.id
 WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64})
   AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})
-GROUP BY d.id, series.tags
-ORDER BY tags
-`, tableRef, indentSQL(matchedSeriesSQL, 4)), params, nil
+GROUP BY %s
+%s
+`, selectTags, tableRef, indentSQL(matchedSeriesSQL, 4), groupBy, orderBy), params, nil
 }
 
 func buildRangeSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64) (string, map[string]string, error) {
@@ -132,9 +143,21 @@ func buildRangeInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource
 	params["param_step_ms"] = strconv.FormatInt(stepMS, 10)
 	params["param_lookback_ms"] = strconv.FormatInt(selector.LookbackMS, 10)
 	tableRef := timeSeriesTableRef(cfg)
+	gridTags := "series.tags AS tags,"
+	outerTags := "tags"
+	groupByInner := "grid.id, grid.tags, grid.eval_ts"
+	groupByOuter := "tags"
+	orderBy := "ORDER BY tags"
+	if !selector.NeedTags {
+		gridTags = "CAST([], 'Array(Tuple(String, String))') AS tags,"
+		outerTags = "CAST([], 'Array(Tuple(String, String))') AS tags"
+		groupByInner = "grid.id, grid.eval_ts"
+		groupByOuter = "tags"
+		orderBy = ""
+	}
 	return fmt.Sprintf(`
 SELECT
-    tags,
+    %s,
     arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series
 FROM (
     SELECT
@@ -144,7 +167,7 @@ FROM (
     FROM (
         SELECT
             series.id AS id,
-            series.tags AS tags,
+            %s
             arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts
         FROM (
 %s
@@ -155,11 +178,11 @@ FROM (
       AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})
       AND d.timestamp <= grid.eval_ts
       AND d.timestamp >= grid.eval_ts - toIntervalMillisecond({lookback_ms:Int64})
-    GROUP BY grid.id, grid.tags, grid.eval_ts
+    GROUP BY %s
 )
-GROUP BY tags
-ORDER BY tags
-`, indentSQL(matchedSeriesSQL, 12), tableRef), params, nil
+GROUP BY %s
+%s
+`, outerTags, gridTags, indentSQL(matchedSeriesSQL, 12), tableRef, groupByInner, groupByOuter, orderBy), params, nil
 }
 
 func buildRangeMatrixSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
@@ -168,13 +191,21 @@ func buildRangeMatrixSelectorSourceSQL(cfg QueryConfig, selector SelectorSource,
 		return "", nil, err
 	}
 	tableRef := timeSeriesTableRef(cfg)
+	selectTags := "series.tags AS tags,"
+	groupBy := "tags"
+	orderBy := "ORDER BY tags"
+	if !selector.NeedTags {
+		selectTags = "CAST([], 'Array(Tuple(String, String))') AS tags,"
+		groupBy = "tags"
+		orderBy = ""
+	}
 	return fmt.Sprintf(`
 SELECT
     tags,
     arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series
 FROM (
     SELECT
-        series.tags AS tags,
+        %s
         d.timestamp AS timestamp,
         d.value AS value
     FROM timeSeriesData(%s) AS d
@@ -184,9 +215,17 @@ FROM (
     WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64})
       AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})
 )
-GROUP BY tags
-ORDER BY tags
-`, tableRef, indentSQL(matchedSeriesSQL, 4)), params, nil
+GROUP BY %s
+%s
+`, selectTags, tableRef, indentSQL(matchedSeriesSQL, 4), groupBy, orderBy), params, nil
+}
+
+func selectorTagsExpr(selector SelectorSource) string {
+	base := "arrayConcat([tuple('__name__', metric_name)], arrayMap((k, v) -> tuple(k, v), mapKeys(tags), mapValues(tags)))"
+	if !selector.RequireFullTags && len(selector.RequiredTagLabels) > 0 {
+		return fmt.Sprintf("arraySort(tag -> tag.1, arrayFilter(tag -> has(%s, tag.1), %s))", sqlStringArrayLiteral(selector.RequiredTagLabels), base)
+	}
+	return base
 }
 
 func buildMatchedSeriesSQL(cfg QueryConfig, selector SelectorSource, prefix string, requiredStartMS, requiredEndMS int64, addTimeOverlap bool) (string, map[string]string, error) {
@@ -221,7 +260,13 @@ func buildMatchedSeriesSQL(cfg QueryConfig, selector SelectorSource, prefix stri
 		whereClauses = append(whereClauses, "max_time >= fromUnixTimestamp64Milli({required_start_ms:Int64})", "min_time <= fromUnixTimestamp64Milli({required_end_ms:Int64})")
 	}
 	builder := strings.Builder{}
-	builder.WriteString("SELECT id, arrayConcat([tuple('__name__', metric_name)], arrayMap((k, v) -> tuple(k, v), mapKeys(tags), mapValues(tags))) AS tags FROM timeSeriesTags(")
+	builder.WriteString("SELECT id")
+	if selector.NeedTags {
+		builder.WriteString(", ")
+		builder.WriteString(selectorTagsExpr(selector))
+		builder.WriteString(" AS tags")
+	}
+	builder.WriteString(" FROM timeSeriesTags(")
 	builder.WriteString(timeSeriesTableRef(cfg))
 	builder.WriteString(")")
 	if len(whereClauses) > 0 {
@@ -267,5 +312,5 @@ func timeSeriesTableRef(cfg QueryConfig) string {
 }
 
 func selectorSourceFromMatchers(metricName string, matchers []*labels.Matcher, lookback, offset time.Duration, kind SelectorKind) SelectorSource {
-	return SelectorSource{Kind: kind, MetricName: metricName, Matchers: matchers, LookbackMS: lookback.Milliseconds(), OffsetMS: offset.Milliseconds()}
+	return SelectorSource{Kind: kind, MetricName: metricName, Matchers: matchers, NeedTags: true, RequireFullTags: true, LookbackMS: lookback.Milliseconds(), OffsetMS: offset.Milliseconds()}
 }

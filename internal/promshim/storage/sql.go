@@ -73,12 +73,11 @@ func BuildInstantAggregationQuerySQLWithBounds(cfg QueryConfig, source Aggregati
 		return "", nil, err
 	}
 	tagsExpr := buildAggregationTagsSQL("tags", grouping, without)
-	sourceTagsExpr := strings.ReplaceAll(source.TagsExpr, "{tags}", "tags")
-	sourceValueExpr := strings.ReplaceAll(source.ValueExpr, "{value}", "value")
 	sourceSQL, params, err := buildInstantSourceQuerySQL(cfg, source, evaluationTimeMS, requiredStartMS, requiredEndMS)
 	if err != nil {
 		return "", nil, err
 	}
+	sourceSubquery := renderAggregationInstantSourceSubquery(source, sourceSQL)
 	return fmt.Sprintf(`
 SELECT
     grouping_tags AS tags,
@@ -97,15 +96,7 @@ GROUP BY grouping_tags
 ORDER BY grouping_tags
 SETTINGS allow_experimental_time_series_table = 1
 FORMAT JSONEachRow
-`, aggExpr, tagsExpr, indentSQL(fmt.Sprintf(`
-SELECT
-    %s AS tags,
-    timestamp,
-    %s AS value
-FROM (
-%s
-)
-`, sourceTagsExpr, sourceValueExpr, indentSQL(sourceSQL, 4)), 8)), params, nil
+`, aggExpr, tagsExpr, indentSQL(sourceSubquery, 8)), params, nil
 }
 
 func BuildRangeAggregationQuerySQL(cfg QueryConfig, source AggregationSource, startMS, endMS, stepMS int64, op parser.ItemType, grouping []string, without bool) (string, map[string]string, error) {
@@ -118,12 +109,11 @@ func BuildRangeAggregationQuerySQLWithBounds(cfg QueryConfig, source Aggregation
 		return "", nil, err
 	}
 	tagsExpr := buildAggregationTagsSQL("tags", grouping, without)
-	sourceTagsExpr := strings.ReplaceAll(source.TagsExpr, "{tags}", "tags")
-	sourceValueExpr := strings.ReplaceAll(source.ValueExpr, "{value}", "point.2")
 	sourceSQL, params, err := buildRangeSourceQuerySQL(cfg, source, requiredStartMS, requiredEndMS, startMS, endMS, stepMS)
 	if err != nil {
 		return "", nil, err
 	}
+	sourceSubquery := renderAggregationRangeSourceSubquery(source, sourceSQL)
 	return fmt.Sprintf(`
 SELECT
     tags,
@@ -147,14 +137,7 @@ GROUP BY tags
 ORDER BY tags
 SETTINGS allow_experimental_time_series_table = 1
 FORMAT JSONEachRow
-`, aggExpr, tagsExpr, indentSQL(fmt.Sprintf(`
-SELECT
-    %s AS tags,
-    arrayMap(point -> (point.1, %s), time_series) AS time_series
-FROM (
-%s
-)
-`, sourceTagsExpr, sourceValueExpr, indentSQL(sourceSQL, 4)), 8)), params, nil
+`, aggExpr, tagsExpr, indentSQL(sourceSubquery, 8)), params, nil
 }
 
 func BuildLabelsQuery(cfg QueryConfig, request *http.Request) (string, map[string]string, error) {
@@ -211,6 +194,59 @@ FORMAT JSONEachRow
 
 func baseParams(cfg QueryConfig) map[string]string {
 	return map[string]string{"param_database": cfg.Database, "param_table": cfg.Table}
+}
+
+func renderAggregationInstantSourceSubquery(source AggregationSource, sourceSQL string) string {
+	sourceValueExpr := strings.ReplaceAll(source.ValueExpr, "{value}", "value")
+	if !aggregationSourceNeedsTags(source) {
+		return fmt.Sprintf(`
+SELECT
+    timestamp,
+    %s AS value
+FROM (
+%s
+)
+`, sourceValueExpr, indentSQL(sourceSQL, 4))
+	}
+	sourceTagsExpr := strings.ReplaceAll(source.TagsExpr, "{tags}", "tags")
+	return fmt.Sprintf(`
+SELECT
+    %s AS tags,
+    timestamp,
+    %s AS value
+FROM (
+%s
+)
+`, sourceTagsExpr, sourceValueExpr, indentSQL(sourceSQL, 4))
+}
+
+func renderAggregationRangeSourceSubquery(source AggregationSource, sourceSQL string) string {
+	sourceValueExpr := strings.ReplaceAll(source.ValueExpr, "{value}", "point.2")
+	if !aggregationSourceNeedsTags(source) {
+		return fmt.Sprintf(`
+SELECT
+    arrayMap(point -> (point.1, %s), time_series) AS time_series
+FROM (
+%s
+)
+`, sourceValueExpr, indentSQL(sourceSQL, 4))
+	}
+	sourceTagsExpr := strings.ReplaceAll(source.TagsExpr, "{tags}", "tags")
+	return fmt.Sprintf(`
+SELECT
+    %s AS tags,
+    arrayMap(point -> (point.1, %s), time_series) AS time_series
+FROM (
+%s
+)
+`, sourceTagsExpr, sourceValueExpr, indentSQL(sourceSQL, 4))
+}
+
+func aggregationSourceNeedsTags(source AggregationSource) bool {
+	if source.Selector == nil {
+		return true
+	}
+	return source.Selector.NeedTags
 }
 
 func buildAggregationTagsSQL(column string, grouping []string, without bool) string {

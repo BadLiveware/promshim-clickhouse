@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -83,6 +84,9 @@ func renderSourceFragment(cfg storage.QueryConfig, fragment *NativeFragment, par
 			if err != nil {
 				return RenderedQuery{}, err
 			}
+			if sourceWrapperIsIdentity(fragment) {
+				return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
+			}
 			return RenderedQuery{SQL: wrapInstantSourceQuery(sql, fragment.ValueExpr, fragment.TagsExpr), QueryParams: queryParams}, nil
 		}
 		if params.ResolveSourcePromQL == nil || fragment.SourcePromQL == nil {
@@ -99,6 +103,9 @@ func renderSourceFragment(cfg storage.QueryConfig, fragment *NativeFragment, par
 			sql, queryParams, err := storage.BuildRangeSelectorQuerySQL(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS, params.StartMS, params.EndMS, params.StepMS)
 			if err != nil {
 				return RenderedQuery{}, err
+			}
+			if sourceWrapperIsIdentity(fragment) {
+				return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
 			}
 			return RenderedQuery{SQL: wrapRangeSourceQuery(sql, fragment.ValueExpr, fragment.TagsExpr), QueryParams: queryParams}, nil
 		}
@@ -129,11 +136,14 @@ func renderAggregationSource(fragment *NativeFragment, params RenderParams) (sto
 	if fragment.Selector != nil {
 		return storage.AggregationSource{
 			Selector: &storage.SelectorSource{
-				Kind:       storage.SelectorKind(fragment.Selector.Kind),
-				MetricName: fragment.Selector.MetricName,
-				Matchers:   cloneMatchers(fragment.Selector.Matchers),
-				LookbackMS: fragment.Selector.Lookback.Milliseconds(),
-				OffsetMS:   fragment.Selector.Offset.Milliseconds(),
+				Kind:              storage.SelectorKind(fragment.Selector.Kind),
+				MetricName:        fragment.Selector.MetricName,
+				Matchers:          selectorEffectiveMatchers(fragment.Selector),
+				NeedTags:          selectorNeedsTags(fragment.Selector),
+				RequireFullTags:   fragment.Selector.RequireFullTags,
+				RequiredTagLabels: append([]string(nil), fragment.Selector.RequiredTagLabels...),
+				LookbackMS:        fragment.Selector.Lookback.Milliseconds(),
+				OffsetMS:          fragment.Selector.Offset.Milliseconds(),
 			},
 			ValueExpr: fragment.ValueExpr,
 			TagsExpr:  fragment.TagsExpr,
@@ -181,6 +191,29 @@ FROM (
 SETTINGS allow_experimental_time_series_table = 1
 FORMAT JSONEachRow
 `, sourceTagsExpr, sourceValueExpr, localIndentSQL(strings.TrimSpace(sourceSQL), 4))
+}
+
+func sourceWrapperIsIdentity(fragment *NativeFragment) bool {
+	return fragment != nil && fragment.ValueExpr == "{value}" && fragment.TagsExpr == "{tags}" && !fragment.DropsMetric
+}
+
+func selectorEffectiveMatchers(selector *SelectorSource) []*labels.Matcher {
+	if selector == nil {
+		return nil
+	}
+	if len(selector.PushedMatchers) > 0 {
+		return cloneMatchers(selector.PushedMatchers)
+	}
+	matchers := cloneMatchers(selector.Matchers)
+	matchers = append(matchers, cloneMatchers(selector.InferredMatchers)...)
+	return matchers
+}
+
+func selectorNeedsTags(selector *SelectorSource) bool {
+	if selector == nil {
+		return true
+	}
+	return selector.RequireFullTags || len(selector.RequiredTagLabels) > 0
 }
 
 func localIndentSQL(sql string, spaces int) string {

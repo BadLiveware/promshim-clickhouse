@@ -6,7 +6,6 @@ import (
 
 	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
 	"github.com/prometheus/prometheus/model/labels"
-	"github.com/prometheus/prometheus/promql/parser"
 )
 
 type OptimizerLayer string
@@ -183,18 +182,27 @@ func applyEvaluationRangePropagation(state *optimizerState) error {
 }
 
 func applyCommonMatcherInference(state *optimizerState) error {
-	state.report.InferredPredicates = mergeUniqueStrings(state.report.InferredPredicates, inferSourcePredicates(state.fragment)...)
+	selector := baseSelectorSource(state.fragment)
+	if selector == nil {
+		return nil
+	}
+	selector.InferredMatchers = inferSourceMatchers(selector)
+	state.report.InferredPredicates = mergeUniqueStrings(state.report.InferredPredicates, matcherStrings(selector.InferredMatchers)...)
 	return nil
 }
 
 func applyLabelPredicatePushdown(state *optimizerState) error {
-	pushed := append([]string(nil), state.report.InferredPredicates...)
-	pushed = append(pushed, explicitSourcePredicates(state.fragment)...)
-	state.report.PushedPredicates = mergeUniqueStrings(state.report.PushedPredicates, pushed...)
+	selector := baseSelectorSource(state.fragment)
+	if selector == nil {
+		return nil
+	}
+	selector.PushedMatchers = mergeMatchers(selector.Matchers, selector.InferredMatchers)
+	state.report.PushedPredicates = mergeUniqueStrings(state.report.PushedPredicates, matcherStrings(selector.PushedMatchers)...)
 	return nil
 }
 
 func applyProjectionPushdown(state *optimizerState) error {
+	applySelectorProjection(state.fragment)
 	state.report.RequiredColumns = mergeUniqueStrings(state.report.RequiredColumns, requiredColumnsForFragment(state.fragment)...)
 	return nil
 }
@@ -291,30 +299,53 @@ func requiredInputBounds(fragment *NativeFragment, info *LoweringInfo, ctx Optim
 	}
 }
 
-func inferSourcePredicates(fragment *NativeFragment) []string {
-	selector := baseVectorSelector(fragment)
-	if selector == nil || selector.Name == "" {
+func inferSourceMatchers(selector *SelectorSource) []*labels.Matcher {
+	if selector == nil || selector.MetricName == "" {
 		return nil
 	}
-	return []string{fmt.Sprintf("%s=%q", labels.MetricName, selector.Name)}
+	matcher, err := labels.NewMatcher(labels.MatchEqual, labels.MetricName, selector.MetricName)
+	if err != nil {
+		return nil
+	}
+	return []*labels.Matcher{matcher}
 }
 
-func explicitSourcePredicates(fragment *NativeFragment) []string {
-	selector := baseVectorSelector(fragment)
-	if selector == nil {
-		return nil
-	}
-	predicates := make([]string, 0, len(selector.LabelMatchers))
-	for _, matcher := range selector.LabelMatchers {
+func matcherStrings(matchers []*labels.Matcher) []string {
+	predicates := make([]string, 0, len(matchers))
+	for _, matcher := range matchers {
 		if matcher == nil {
-			continue
-		}
-		if selector.Name != "" && matcher.Name == labels.MetricName && matcher.Type == labels.MatchEqual && matcher.Value == selector.Name {
 			continue
 		}
 		predicates = append(predicates, matcher.String())
 	}
 	return predicates
+}
+
+func applySelectorProjection(fragment *NativeFragment) {
+	if fragment == nil {
+		return
+	}
+	if fragment.Aggregation != nil {
+		selector := baseSelectorSource(fragment.Aggregation.Source)
+		if selector != nil {
+			switch {
+			case fragment.Aggregation.Without:
+				selector.RequireFullTags = true
+				selector.RequiredTagLabels = nil
+			case len(fragment.Aggregation.Grouping) == 0:
+				selector.RequireFullTags = false
+				selector.RequiredTagLabels = nil
+			default:
+				selector.RequireFullTags = false
+				selector.RequiredTagLabels = uniqueSortedStrings(fragment.Aggregation.Grouping)
+			}
+		}
+		return
+	}
+	if fragment.Selector != nil {
+		fragment.Selector.RequireFullTags = true
+		fragment.Selector.RequiredTagLabels = nil
+	}
 }
 
 func baseSelectorSource(fragment *NativeFragment) *SelectorSource {
@@ -328,24 +359,6 @@ func baseSelectorSource(fragment *NativeFragment) *SelectorSource {
 		return fragment.Selector
 	}
 	return nil
-}
-
-func baseVectorSelector(fragment *NativeFragment) *parser.VectorSelector {
-	if fragment == nil {
-		return nil
-	}
-	if fragment.Aggregation != nil {
-		return baseVectorSelector(fragment.Aggregation.Source)
-	}
-	switch expr := fragment.SourcePromQL.(type) {
-	case *parser.VectorSelector:
-		return expr
-	case *parser.MatrixSelector:
-		selector, _ := expr.VectorSelector.(*parser.VectorSelector)
-		return selector
-	default:
-		return nil
-	}
 }
 
 func requiredColumnsForFragment(fragment *NativeFragment) []string {
@@ -433,6 +446,29 @@ func joinNormalizationForFragment(fragment *NativeFragment) string {
 	default:
 		return "required"
 	}
+}
+
+func mergeMatchers(groups ...[]*labels.Matcher) []*labels.Matcher {
+	merged := make([]*labels.Matcher, 0)
+	seen := map[string]struct{}{}
+	for _, group := range groups {
+		for _, matcher := range group {
+			if matcher == nil {
+				continue
+			}
+			key := matcher.String()
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			merged = append(merged, labels.MustNewMatcher(matcher.Type, matcher.Name, matcher.Value))
+		}
+	}
+	return merged
+}
+
+func uniqueSortedStrings(values []string) []string {
+	return mergeUniqueStrings(nil, values...)
 }
 
 func hasTagsColumn(columns []string) bool {

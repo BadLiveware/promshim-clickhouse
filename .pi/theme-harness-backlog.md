@@ -141,96 +141,73 @@ Implemented in this phase:
 - nested aggregate operators are now handled for concrete dashboard-facing shapes.
 - affected IDs now pass: `draft_cand_0053_rate_family_vector_matching_aggregation_selector`, `draft_cand_0214_aggregation_selector`.
 
-### 2.5 `rate(...)` / `irate(...)` over subquery arguments
+### 2.5 Rate-family functions over subquery arguments
 
-#### Affected rows
-- `draft_cand_0225_rate_family_subquery_aggregation_selector`
-- `draft_cand_0242_rate_family_subquery_aggregation_selector`
-
-Implemented:
-- local planning/execution now handles subquery-arg `rate(...)` and `irate(...)` in both instant and range query modes.
-- output values intentionally follow the current shim-local semantics for this phase:
+Implemented in this phase:
+- local planning/execution now handles subquery-arg forms for:
+  - `increase(...)`
+  - `delta(...)`
+  - `idelta(...)`
+  - `changes(...)`
+  - `deriv(...)`
+  - `rate(...)`
+  - `irate(...)`
+- support works in both instant and range query modes through the local subquery execution path.
+- output handling remains deterministic:
   - metric names are dropped
-  - deterministic label ordering is preserved
-  - hard failures are limited to clear shim-specific boundaries for other subquery-arg rate-family helpers.
+  - label ordering is stable
+  - explain plans show explicit local strategy.
 
-Current handling for remaining subquery-boundary row classes:
-- `increase`, `delta`, `idelta`, `deriv`, and `changes` remain explicit `unsupported` boundaries with `subquery arguments`.
-
-Tracking:
-- `draft_cand_0225_rate_family_subquery_aggregation_selector` and `draft_cand_0242_rate_family_subquery_aggregation_selector` are now expected to succeed as supported implementations in this phase.
+Theme-impact status:
+- `draft_cand_0225_rate_family_subquery_aggregation_selector` now passes
+- `draft_cand_0242_rate_family_subquery_aggregation_selector` now passes
+- subquery and rate-family theme reports are fully green.
 
 ---
 
-## 3) Real parity bug backlog
+## 3) Resolved parity fixes
 
-### 3.1 Fix matrix `__name__` label mismatch on range-function selector path
+### 3.1 Range-function selector metric-name parity
 
-#### Affected row
-- `draft_cand_0011_range_function_selector`
-
-#### Current diff
-Prometheus and promshim both return matrix data, but promshim includes `__name__="harness_queue_depth"` in the series labels where Prometheus does not.
-
-Observed mismatch:
-- Prometheus labels:
-  - `instance`, `job`, `namespace`, `pod`, `service`
-- promshim labels:
-  - `__name__`, `instance`, `job`, `namespace`, `pod`, `service`
-
-#### Why this matters
-This is a true parity issue, not an unsupported feature. It affects result label shape and could break downstream joins, legend behavior, or equality assumptions.
-
-#### Action
-- inspect the matrix/range-function result normalization path,
-- compare with Prometheus metric-name retention/drop semantics for range selectors and matrix-producing expressions,
-- make promshim mirror Prometheus exactly for this query family.
-
-#### Done when
-- `draft_cand_0011_range_function_selector` becomes `ok`, and
-- any equivalent selector/range-function cases preserve Prometheus-consistent metric-name behavior.
+Resolved in this phase:
+- `draft_cand_0011_range_function_selector` now passes
+- local range-function outputs mirror Prometheus metric-name dropping for this theme-covered shape.
 
 ---
 
 ## Recommended execution order
 
-### First pass: remove noise and seal planner leaks
+### Completed execution order
 1. Fix or drop invalid Prometheus rows:
-   - `0151`, `0152`, `0257`
+   - `0151`, `0152`, `0257` ✅
 2. Fix the `increase(...)` range-mode leak:
-   - `0295`, `0593`, `0452`
-3. Implement `rate(...)` / `irate(...)` over subquery arguments:
-   - `0225`, `0242`
-
-### Second pass: fix real parity
+   - `0295`, `0593`, `0452` ✅
+3. Implement local support for rate-family functions over subquery arguments ✅
+   - `0225`, `0242` and the remaining local subquery-support slices for
+     `increase`, `delta`, `idelta`, `changes`, and `deriv`
 4. Fix matrix `__name__` retention mismatch:
-   - `0011`
-
-### Third pass: decide supported surface vs draft-only backlog
-5. Decide whether to implement or defer:
-   - `vector(...)` ✅ implemented
-   - `round(...)` ✅ implemented
-   - nested aggregation ✅ implemented
+   - `0011` ✅
+5. Implement theme-facing function gaps:
+   - `vector(...)` ✅
+   - `round(...)` ✅
+   - nested aggregation ✅
 
 Current remaining explicit boundary (deferred):
-- rate-family over subquery arguments for:
-  - `increase(... [subquery])`
-  - `delta(... [subquery])`
-  - `idelta(... [subquery])`
-  - `deriv(... [subquery])`
-  - `changes(... [subquery])`
+- none in the current theme-covered rate-family subquery surface.
 
 ---
 
-## Acceptance bar for a cleaner theme run
+## Acceptance bar status
 
-A good next checkpoint would be:
+Achieved in the current validation run:
 
-1. **no Prometheus parse errors** for rows still marked expected-success,
-2. **no leaked ClickHouse `NOT_IMPLEMENTED` errors** from shim planning,
+1. **no Prometheus parse errors** remain for the corrected expected-success theme rows,
+2. **no leaked ClickHouse `NOT_IMPLEMENTED` errors** remain in the addressed planner paths,
 3. the `draft_cand_0011_range_function_selector` diff is gone,
-4. all remaining failures are clearly classified as either:
-   - explicit unsupported-by-design, or
-   - real unimplemented feature work.
+4. the current theme reports are fully green.
 
-At that point the theme reports will become a much cleaner product-gap signal instead of a mixed bag of malformed rows, deliberate exclusions, and genuine shim bugs.
+Validated with:
+- `go test ./...`
+- `./scripts/run-harness.sh --theme subquery`
+- `./scripts/run-harness.sh --theme rate-family --no-build`
+- `./scripts/run-harness.sh --all-themes --no-build`

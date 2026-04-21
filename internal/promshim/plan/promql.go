@@ -101,6 +101,18 @@ func analyzeCallExpression(call *parser.Call, recurse func(parser.Expr) SupportR
 	if name == "irate" {
 		return AnalyzeIrateCall(call)
 	}
+	if name == "delta" {
+		return AnalyzeDeltaCall(call)
+	}
+	if name == "idelta" {
+		return AnalyzeIDeltaCall(call)
+	}
+	if name == "changes" {
+		return AnalyzeChangesCall(call)
+	}
+	if name == "deriv" {
+		return AnalyzeDerivCall(call)
+	}
 	if isSupportedLeafFunction(name) {
 		if isSubqueryUnsupportedFunction(name) {
 			for _, arg := range call.Args {
@@ -255,12 +267,12 @@ func AnalyzeIncreaseCall(call *parser.Call) SupportResult {
 	if call.Args[0].Type() != parser.ValueTypeMatrix {
 		return unsupported(DifficultyHard, "increase requires a matrix argument")
 	}
-	if containsSubqueryExpr(call.Args[0]) {
-		return unsupported(DifficultyHard, `function "increase" with subquery arguments is not implemented yet`)
-	}
 	child := AnalyzeExpression(call.Args[0])
 	if !child.Supported {
 		return child
+	}
+	if containsSubqueryExpr(call.Args[0]) {
+		return SupportResult{Supported: true, Difficulty: DifficultyHard}
 	}
 	return SupportResult{Supported: true, Difficulty: DifficultyMedium}
 }
@@ -282,6 +294,74 @@ func AnalyzeRateCall(call *parser.Call) SupportResult {
 	child := AnalyzeExpression(call.Args[0])
 	if !child.Supported {
 		return child
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyEasy}
+}
+
+func AnalyzeDeltaCall(call *parser.Call) SupportResult {
+	if len(call.Args) != 1 {
+		return unsupported(DifficultyHard, "delta requires one argument")
+	}
+	if call.Args[0].Type() != parser.ValueTypeMatrix {
+		return unsupported(DifficultyHard, "delta requires a matrix argument")
+	}
+	child := AnalyzeExpression(call.Args[0])
+	if !child.Supported {
+		return child
+	}
+	if containsSubqueryExpr(call.Args[0]) {
+		return SupportResult{Supported: true, Difficulty: DifficultyHard}
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyEasy}
+}
+
+func AnalyzeIDeltaCall(call *parser.Call) SupportResult {
+	if len(call.Args) != 1 {
+		return unsupported(DifficultyHard, "idelta requires one argument")
+	}
+	if call.Args[0].Type() != parser.ValueTypeMatrix {
+		return unsupported(DifficultyHard, "idelta requires a matrix argument")
+	}
+	child := AnalyzeExpression(call.Args[0])
+	if !child.Supported {
+		return child
+	}
+	if containsSubqueryExpr(call.Args[0]) {
+		return SupportResult{Supported: true, Difficulty: DifficultyHard}
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyEasy}
+}
+
+func AnalyzeChangesCall(call *parser.Call) SupportResult {
+	if len(call.Args) != 1 {
+		return unsupported(DifficultyHard, "changes requires one argument")
+	}
+	if call.Args[0].Type() != parser.ValueTypeMatrix {
+		return unsupported(DifficultyHard, "changes requires a matrix argument")
+	}
+	child := AnalyzeExpression(call.Args[0])
+	if !child.Supported {
+		return child
+	}
+	if containsSubqueryExpr(call.Args[0]) {
+		return SupportResult{Supported: true, Difficulty: DifficultyHard}
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyEasy}
+}
+
+func AnalyzeDerivCall(call *parser.Call) SupportResult {
+	if len(call.Args) != 1 {
+		return unsupported(DifficultyHard, "deriv requires one argument")
+	}
+	if call.Args[0].Type() != parser.ValueTypeMatrix {
+		return unsupported(DifficultyHard, "deriv requires a matrix argument")
+	}
+	child := AnalyzeExpression(call.Args[0])
+	if !child.Supported {
+		return child
+	}
+	if containsSubqueryExpr(call.Args[0]) {
+		return SupportResult{Supported: true, Difficulty: DifficultyHard}
 	}
 	return SupportResult{Supported: true, Difficulty: DifficultyEasy}
 }

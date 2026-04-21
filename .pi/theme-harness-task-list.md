@@ -50,11 +50,19 @@ Source: `.pi/theme-harness-backlog.md`
      - `draft_cand_0242_rate_family_subquery_aggregation_selector`
    - Implementation:
      - added local planning and execution for `rate(...)` and `irate(...)` when argument contains a subquery
-     - analyzer and planner now accept these as supported `hard` forms, while still keeping other subquery rate-family funcs explicit unsupported
+     - analyzer and planner now accept these as supported `hard` forms
      - preserved deterministic output ordering and metric-name dropping semantics
-   - Validation:
-     - added multi-layer tests in `plan`, `logical_builder`, `planner`, `exec`, and service/integration coverage
-     - updated explicit error boundaries for `increase`, `delta`, `idelta`, `deriv`, `changes`.
+
+7. **Task #60 — Finish remaining subquery rate-family support** *(completed)*
+   - Child tasks completed:
+     - `#61` `increase(... [subquery])`
+     - `#62` `delta(... [subquery])`
+     - `#63` `idelta(... [subquery])`
+     - `#64` `changes(... [subquery])`
+     - `#65` `deriv(... [subquery])`
+     - `#66` validation and tracker sync
+   - Result:
+     - the previously deferred remaining subquery rate-family surfaces now have local support in both instant and range modes.
 
 ## Progress log
 
@@ -127,16 +135,29 @@ Observed improvement:
 - `range-selector` improved to `73 ok / 5 error`
 - stable default corpus remains green (`86/86 ok`)
 
-## Task #59 — implemented `rate`/`irate` over subquery arguments
+## Task #60 — completed remaining subquery rate-family support
 
 Implementation decisions completed:
-- `rate(...)` and `irate(...)` now have first-class local plans for subquery-window inputs.
-- all remaining unsupported boundaries for subquery rate-family forms are now limited to:
-  - `increase(... [subquery])`
-  - `delta(... [subquery])`
-  - `idelta(... [subquery])`
-  - `deriv(... [subquery])`
-  - `changes(... [subquery])`
-- `draft_cand_0225_rate_family_subquery_aggregation_selector` and `draft_cand_0242_rate_family_subquery_aggregation_selector` are now expected to pass under `aggregation` theme coverage.
+- added local support for the previously deferred subquery-argument forms:
+  - `increase(...)`
+  - `delta(...)`
+  - `idelta(...)`
+  - `changes(...)`
+  - `deriv(...)`
+- retained deterministic local-output handling across the new transforms:
+  - metric-name dropping
+  - stable ordering
+  - explicit local explain plans
+- the theme-covered subquery rate-family surface no longer depends on explicit unsupported boundaries.
 
-Observed status (aggregation theme) should be re-verified after rerunning harness with the new supported paths.
+Validation completed:
+- `go test ./internal/promshim/... ./integration/promshim`
+- `go test ./...`
+- `./scripts/run-harness.sh --theme subquery`
+- `./scripts/run-harness.sh --theme rate-family --no-build`
+- `./scripts/run-harness.sh --all-themes --no-build`
+
+Observed status:
+- `subquery` theme: `3 ok`
+- `rate-family` theme: `78 ok`
+- all theme reports green in the full themed harness run.

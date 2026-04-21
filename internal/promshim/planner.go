@@ -439,6 +439,99 @@ func (p *localIncreasePlan) explain() ExplainNode {
 	return ExplainNode{Kind: "increase", Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
 }
 
+type localDeltaPlan struct {
+	Expr  string
+	Func  string
+	Child queryPlan
+}
+
+func (p *localDeltaPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	switch params.Mode {
+	case evalModeInstant:
+		childValue, err := p.Child.execute(ctx, evaluator, params)
+		if err != nil {
+			return nil, withInternalContext(err, "evaluating %s child in instant mode", p.Func)
+		}
+		var vector model.VectorValue
+		switch p.Func {
+		case "delta":
+			vector, err = exec.ApplyDelta(childValue)
+		case "idelta":
+			vector, err = exec.ApplyIDelta(childValue)
+		default:
+			return nil, newExecutionErrorf("unknown local delta function %q", p.Func)
+		}
+		if err != nil {
+			return nil, withInternalContext(fromExecError(err), "applying %s", p.Func)
+		}
+		return vector, nil
+	case evalModeRange:
+		return executeRangeVectorPlan(ctx, evaluator, params, p.Func, p.execute)
+	default:
+		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+	}
+}
+
+func (p *localDeltaPlan) explain() ExplainNode {
+	return ExplainNode{Kind: p.Func, Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
+}
+
+type localChangesPlan struct {
+	Expr  string
+	Child queryPlan
+}
+
+func (p *localChangesPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	switch params.Mode {
+	case evalModeInstant:
+		childValue, err := p.Child.execute(ctx, evaluator, params)
+		if err != nil {
+			return nil, withInternalContext(err, "evaluating changes child in instant mode")
+		}
+		vector, err := exec.ApplyChanges(childValue)
+		if err != nil {
+			return nil, withInternalContext(fromExecError(err), "applying changes")
+		}
+		return vector, nil
+	case evalModeRange:
+		return executeRangeVectorPlan(ctx, evaluator, params, "changes", p.execute)
+	default:
+		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+	}
+}
+
+func (p *localChangesPlan) explain() ExplainNode {
+	return ExplainNode{Kind: "changes", Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
+}
+
+type localDerivPlan struct {
+	Expr  string
+	Child queryPlan
+}
+
+func (p *localDerivPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	switch params.Mode {
+	case evalModeInstant:
+		childValue, err := p.Child.execute(ctx, evaluator, params)
+		if err != nil {
+			return nil, withInternalContext(err, "evaluating deriv child in instant mode")
+		}
+		vector, err := exec.ApplyDeriv(childValue)
+		if err != nil {
+			return nil, withInternalContext(fromExecError(err), "applying deriv")
+		}
+		return vector, nil
+	case evalModeRange:
+		return executeRangeVectorPlan(ctx, evaluator, params, "deriv", p.execute)
+	default:
+		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+	}
+}
+
+func (p *localDerivPlan) explain() ExplainNode {
+	return ExplainNode{Kind: "deriv", Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
+}
+
 type localQuantileOverTimePlan struct {
 	Expr     string
 	Quantile float64
@@ -1073,6 +1166,24 @@ func buildExecPlanWithContext(plan logicalPlan, ctx planContext) (queryPlan, err
 			return nil, withInternalContext(err, "building execution child plan for increase %q", node.ExprString())
 		}
 		return &localIncreasePlan{Expr: node.ExprString(), Child: child}, nil
+	case *logicalDeltaPlan:
+		child, err := buildExecPlanWithContext(node.Child, ctx)
+		if err != nil {
+			return nil, withInternalContext(err, "building execution child plan for %s %q", node.Func, node.ExprString())
+		}
+		return &localDeltaPlan{Expr: node.ExprString(), Func: node.Func, Child: child}, nil
+	case *logicalChangesPlan:
+		child, err := buildExecPlanWithContext(node.Child, ctx)
+		if err != nil {
+			return nil, withInternalContext(err, "building execution child plan for changes %q", node.ExprString())
+		}
+		return &localChangesPlan{Expr: node.ExprString(), Child: child}, nil
+	case *logicalDerivPlan:
+		child, err := buildExecPlanWithContext(node.Child, ctx)
+		if err != nil {
+			return nil, withInternalContext(err, "building execution child plan for deriv %q", node.ExprString())
+		}
+		return &localDerivPlan{Expr: node.ExprString(), Child: child}, nil
 	case *logicalQuantileOverTimePlan:
 		child, err := buildExecPlanWithContext(node.Child, ctx)
 		if err != nil {

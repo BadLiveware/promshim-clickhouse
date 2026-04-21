@@ -148,39 +148,6 @@ func TestQueryExplainRejectsMissingQuery(t *testing.T) {
 	}
 }
 
-func TestQueryRejectsUnsupportedSubqueryDeltaWithCleanUserFacingError(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=delta(up%5B5m%3A30s%5D)", nil)
-	res := httptest.NewRecorder()
-	handler.ServeHTTP(res, req)
-
-	if res.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d: %s", res.Code, res.Body.String())
-	}
-
-	var body struct {
-		Status    string `json:"status"`
-		ErrorType string `json:"errorType"`
-		Error     string `json:"error"`
-	}
-	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if body.ErrorType != "unsupported" {
-		t.Fatalf("expected unsupported error type, got %#v", body)
-	}
-	if body.Error != `unsupported PromQL (difficulty=hard): function "delta" with subquery arguments is not implemented yet` {
-		t.Fatalf("unexpected unsupported message: %#v", body)
-	}
-	if strings.Contains(body.Error, "planner cannot build plan") || strings.Contains(body.Error, "call planning") {
-		t.Fatalf("did not expect internal planner context in response: %#v", body)
-	}
-}
-
 func TestQueryRangeExplainBuildsIncreasePlan(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
@@ -209,6 +176,49 @@ func TestQueryRangeExplainBuildsIncreasePlan(t *testing.T) {
 	}
 	if body.Data.Plan.Kind != "increase" || body.Data.Plan.Strategy != "local" {
 		t.Fatalf("expected local increase plan, got %#v", body.Data.Plan)
+	}
+}
+
+func TestQueryExplainBuildsIncreaseDeltaIDeltaChangesAndDerivPlansForSubquerySelector(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testQueries := []string{
+		"increase(sum(up)%5B5m%3A%5D)",
+		"delta(sum(up)%5B5m%3A%5D)",
+		"idelta(sum(up)%5B5m%3A%5D)",
+		"changes(sum(up)%5B5m%3A%5D)",
+		"deriv(sum(up)%5B5m%3A%5D)",
+	}
+	for _, query := range testQueries {
+		res := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query="+query, nil)
+		handler.ServeHTTP(res, req)
+
+		if res.Code != http.StatusOK {
+			t.Fatalf("expected 200 for %q, got %d: %s", query, res.Code, res.Body.String())
+		}
+
+		var body struct {
+			Status string `json:"status"`
+			Data   struct {
+				Plan ExplainNode `json:"plan"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Status != "success" {
+			t.Fatalf("expected success response for %q, got %#v", query, body)
+		}
+		if body.Data.Plan.Strategy != "local" {
+			t.Fatalf("expected local plan for %q, got %#v", query, body.Data.Plan)
+		}
+		if body.Data.Plan.Kind != "increase" && body.Data.Plan.Kind != "delta" && body.Data.Plan.Kind != "idelta" && body.Data.Plan.Kind != "changes" && body.Data.Plan.Kind != "deriv" {
+			t.Fatalf("expected increase/delta/idelta/changes/deriv plan for %q, got %#v", query, body.Data.Plan)
+		}
 	}
 }
 

@@ -1055,27 +1055,99 @@ func TestBuildPlanRejectsUnsupportedAggregationParameterExpression(t *testing.T)
 	}
 }
 
-func TestBuildPlanRejectsRateFamilySubqueryArgs(t *testing.T) {
-	for _, fn := range []string{"increase", "delta", "idelta", "deriv", "changes"} {
-		exprText := fmt.Sprintf("%s(up[5m:30s])", fn)
-		expr, err := plan.ParseExpression(exprText)
-		if err != nil {
-			t.Fatalf("parse %q failed: %v", exprText, err)
-		}
-		_, err = buildPlan(expr)
-		if err == nil {
-			t.Fatalf("expected unsupported build error for %q", exprText)
-		}
-		var buildErr *planBuildError
-		if !errors.As(err, &buildErr) {
-			t.Fatalf("expected planBuildError for %q, got %T (%v)", exprText, err, err)
-		}
-		if buildErr.Support.Difficulty != plan.DifficultyHard {
-			t.Fatalf("expected hard difficulty for %q, got %s", exprText, buildErr.Support.Difficulty)
-		}
-		if !strings.Contains(buildErr.Support.Reason, "subquery arguments") || !strings.Contains(buildErr.Support.Reason, fn) {
-			t.Fatalf("unexpected reason for %q: %q", exprText, buildErr.Support.Reason)
-		}
+func TestBuildPlanBuildsIncreasePlanForSubqueryArg(t *testing.T) {
+	expr, err := plan.ParseExpression("increase(sum(up)[5m:])")
+	if err != nil {
+		t.Fatal(err)
+	}
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected local plan for increase subquery, got error: %v", err)
+	}
+	increasePlan, ok := execPlan.(*localIncreasePlan)
+	if !ok {
+		t.Fatalf("expected localIncreasePlan, got %T", execPlan)
+	}
+	if _, ok := increasePlan.Child.(*localSubqueryPlan); !ok {
+		t.Fatalf("expected local subquery child, got %T", increasePlan.Child)
+	}
+}
+
+func TestBuildPlanBuildsDeltaPlanForSubqueryArg(t *testing.T) {
+	expr, err := plan.ParseExpression("delta(sum(up)[5m:])")
+	if err != nil {
+		t.Fatal(err)
+	}
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected local plan for delta subquery, got error: %v", err)
+	}
+	deltaPlan, ok := execPlan.(*localDeltaPlan)
+	if !ok {
+		t.Fatalf("expected localDeltaPlan, got %T", execPlan)
+	}
+	if deltaPlan.Func != "delta" {
+		t.Fatalf("expected delta function, got %q", deltaPlan.Func)
+	}
+	if _, ok := deltaPlan.Child.(*localSubqueryPlan); !ok {
+		t.Fatalf("expected local subquery child, got %T", deltaPlan.Child)
+	}
+}
+
+func TestBuildPlanBuildsIDeltaPlanForSubqueryArg(t *testing.T) {
+	expr, err := plan.ParseExpression("idelta(sum(up)[5m:])")
+	if err != nil {
+		t.Fatal(err)
+	}
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected local plan for idelta subquery, got error: %v", err)
+	}
+	deltaPlan, ok := execPlan.(*localDeltaPlan)
+	if !ok {
+		t.Fatalf("expected localDeltaPlan, got %T", execPlan)
+	}
+	if deltaPlan.Func != "idelta" {
+		t.Fatalf("expected idelta function, got %q", deltaPlan.Func)
+	}
+	if _, ok := deltaPlan.Child.(*localSubqueryPlan); !ok {
+		t.Fatalf("expected local subquery child, got %T", deltaPlan.Child)
+	}
+}
+
+func TestBuildPlanBuildsChangesPlanForSubqueryArg(t *testing.T) {
+	expr, err := plan.ParseExpression("changes(sum(up)[5m:])")
+	if err != nil {
+		t.Fatal(err)
+	}
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected local plan for changes subquery, got error: %v", err)
+	}
+	changesPlan, ok := execPlan.(*localChangesPlan)
+	if !ok {
+		t.Fatalf("expected localChangesPlan, got %T", execPlan)
+	}
+	if _, ok := changesPlan.Child.(*localSubqueryPlan); !ok {
+		t.Fatalf("expected local subquery child, got %T", changesPlan.Child)
+	}
+}
+
+func TestBuildPlanBuildsDerivPlanForSubqueryArg(t *testing.T) {
+	expr, err := plan.ParseExpression("deriv(sum(up)[5m:])")
+	if err != nil {
+		t.Fatal(err)
+	}
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected local plan for deriv subquery, got error: %v", err)
+	}
+	derivPlan, ok := execPlan.(*localDerivPlan)
+	if !ok {
+		t.Fatalf("expected localDerivPlan, got %T", execPlan)
+	}
+	if _, ok := derivPlan.Child.(*localSubqueryPlan); !ok {
+		t.Fatalf("expected local subquery child, got %T", derivPlan.Child)
 	}
 }
 
@@ -1103,27 +1175,85 @@ func TestBuildPlanBuildsRatePlanForSubqueryArg(t *testing.T) {
 	}
 }
 
-func TestBuildPlanRejectsRateFamilySubqueryArgsInsideAggregate(t *testing.T) {
-	for _, fn := range []string{"increase", "delta", "idelta", "deriv", "changes"} {
-		exprText := fmt.Sprintf("sum(%s(up[5m:30s]))", fn)
-		expr, err := plan.ParseExpression(exprText)
-		if err != nil {
-			t.Fatalf("parse %q failed: %v", exprText, err)
-		}
-		_, err = buildPlan(expr)
-		if err == nil {
-			t.Fatalf("expected unsupported build error for %q", exprText)
-		}
-		var buildErr *planBuildError
-		if !errors.As(err, &buildErr) {
-			t.Fatalf("expected planBuildError for %q, got %T (%v)", exprText, err, err)
-		}
-		if buildErr.Support.Difficulty != plan.DifficultyHard {
-			t.Fatalf("expected hard difficulty for %q, got %s", exprText, buildErr.Support.Difficulty)
-		}
-		if !strings.Contains(buildErr.Support.Reason, "subquery arguments") || !strings.Contains(buildErr.Support.Reason, fn) {
-			t.Fatalf("unexpected reason for %q: %q", exprText, buildErr.Support.Reason)
-		}
+func TestBuildPlanWithContextCreatesDeltaPlanForSubqueryInRangeMode(t *testing.T) {
+	expr, err := plan.ParseExpression("delta(sum(up)[5m:])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+	if err != nil {
+		t.Fatalf("expected local delta plan, got error: %v", err)
+	}
+	deltaPlan, ok := execPlan.(*localDeltaPlan)
+	if !ok {
+		t.Fatalf("expected localDeltaPlan, got %T", execPlan)
+	}
+	if deltaPlan.Func != "delta" {
+		t.Fatalf("expected delta func, got %q", deltaPlan.Func)
+	}
+	if _, ok := deltaPlan.Child.(*localSubqueryPlan); !ok {
+		t.Fatalf("expected local subquery child, got %T", deltaPlan.Child)
+	}
+}
+
+func TestBuildPlanWithContextCreatesIDeltaPlanForSubqueryInRangeMode(t *testing.T) {
+	expr, err := plan.ParseExpression("idelta(sum(up)[5m:])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+	if err != nil {
+		t.Fatalf("expected local idelta plan, got error: %v", err)
+	}
+	deltaPlan, ok := execPlan.(*localDeltaPlan)
+	if !ok {
+		t.Fatalf("expected localDeltaPlan, got %T", execPlan)
+	}
+	if deltaPlan.Func != "idelta" {
+		t.Fatalf("expected idelta func, got %q", deltaPlan.Func)
+	}
+	if _, ok := deltaPlan.Child.(*localSubqueryPlan); !ok {
+		t.Fatalf("expected local subquery child, got %T", deltaPlan.Child)
+	}
+}
+
+func TestBuildPlanWithContextCreatesChangesPlanForSubqueryInRangeMode(t *testing.T) {
+	expr, err := plan.ParseExpression("changes(sum(up)[5m:])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+	if err != nil {
+		t.Fatalf("expected local changes plan, got error: %v", err)
+	}
+	changesPlan, ok := execPlan.(*localChangesPlan)
+	if !ok {
+		t.Fatalf("expected localChangesPlan, got %T", execPlan)
+	}
+	if _, ok := changesPlan.Child.(*localSubqueryPlan); !ok {
+		t.Fatalf("expected local subquery child, got %T", changesPlan.Child)
+	}
+}
+
+func TestBuildPlanWithContextCreatesDerivPlanForSubqueryInRangeMode(t *testing.T) {
+	expr, err := plan.ParseExpression("deriv(sum(up)[5m:])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+	if err != nil {
+		t.Fatalf("expected local deriv plan, got error: %v", err)
+	}
+	derivPlan, ok := execPlan.(*localDerivPlan)
+	if !ok {
+		t.Fatalf("expected localDerivPlan, got %T", execPlan)
+	}
+	if _, ok := derivPlan.Child.(*localSubqueryPlan); !ok {
+		t.Fatalf("expected local subquery child, got %T", derivPlan.Child)
 	}
 }
 
@@ -1161,6 +1291,25 @@ func TestBuildPlanWithContextCreatesIncreasePlanInRangeMode(t *testing.T) {
 	}
 	if _, ok := execPlan.(*localIncreasePlan); !ok {
 		t.Fatalf("expected localIncreasePlan, got %T", execPlan)
+	}
+}
+
+func TestBuildPlanWithContextCreatesIncreasePlanForSubqueryInRangeMode(t *testing.T) {
+	expr, err := plan.ParseExpression("increase(sum(up)[5m:])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+	if err != nil {
+		t.Fatalf("expected local increase plan, got error: %v", err)
+	}
+	increasePlan, ok := execPlan.(*localIncreasePlan)
+	if !ok {
+		t.Fatalf("expected localIncreasePlan, got %T", execPlan)
+	}
+	if _, ok := increasePlan.Child.(*localSubqueryPlan); !ok {
+		t.Fatalf("expected local subquery child, got %T", increasePlan.Child)
 	}
 }
 

@@ -534,28 +534,8 @@ func TestAnalyzeExpressionSupportsNestedSubqueryViaLastOverTime(t *testing.T) {
 	}
 }
 
-func TestAnalyzeExpressionRejectsDelegationSensitiveLeafFunctionsWithSubquery(t *testing.T) {
-	for _, fn := range []string{"increase", "delta", "idelta", "deriv", "changes"} {
-		exprText := fmt.Sprintf("%s(up[5m:30s])", fn)
-		expr, err := ParseExpression(exprText)
-		if err != nil {
-			t.Fatal(err)
-		}
-		result := AnalyzeExpression(expr)
-		if result.Supported {
-			t.Fatalf("expected unsupported %s(subquery) expression, got %#v", fn, result)
-		}
-		if result.Difficulty != DifficultyHard {
-			t.Fatalf("expected hard difficulty for %s(subquery) rejection, got %s", fn, result.Difficulty)
-		}
-		if result.Reason == "" {
-			t.Fatal("expected unsupported reason")
-		}
-	}
-}
-
 func TestAnalyzeExpressionSupportsRateFamilyWithSubquery(t *testing.T) {
-	for _, fn := range []string{"rate", "irate"} {
+	for _, fn := range []string{"increase", "delta", "idelta", "changes", "deriv", "rate", "irate"} {
 		exprText := fmt.Sprintf("%s(sum(up)[5m:])", fn)
 		expr, err := ParseExpression(exprText)
 		if err != nil {
@@ -567,29 +547,6 @@ func TestAnalyzeExpressionSupportsRateFamilyWithSubquery(t *testing.T) {
 		}
 		if result.Difficulty != DifficultyHard {
 			t.Fatalf("expected hard difficulty for %s subquery support, got %s", fn, result.Difficulty)
-		}
-	}
-}
-
-func TestAnalyzeExpressionRejectsDelegationSensitiveLeafFunctionsNestedInAggregateWithSubquery(t *testing.T) {
-	for _, fn := range []string{"increase", "delta", "idelta", "deriv", "changes"} {
-		exprText := fmt.Sprintf("sum(%s(up[5m:30s]))", fn)
-		expr, err := ParseExpression(exprText)
-		if err != nil {
-			t.Fatal(err)
-		}
-		result := AnalyzeExpression(expr)
-		if result.Supported {
-			t.Fatalf("expected unsupported %s wrapped in aggregate, got %#v", fn, result)
-		}
-		if result.Difficulty != DifficultyHard {
-			t.Fatalf("expected hard difficulty for %s nested wrapper rejection, got %s", fn, result.Difficulty)
-		}
-		if result.Reason == "" {
-			t.Fatal("expected unsupported reason")
-		}
-		if !strings.Contains(result.Reason, fn) {
-			t.Fatalf("expected unsupported reason to mention %q, got %q", fn, result.Reason)
 		}
 	}
 }

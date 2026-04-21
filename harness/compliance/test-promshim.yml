@@ -8,7 +8,7 @@ query_time_parameters:
   # Pin end_time inside the fixture window. Target: FIXTURE_END - 5min
   # (leaves margin for the corpus's [1h] lookback and first-scrape noise).
   # Edit this after running `docker compose stop prometheus`.
-  end_time: '2026-04-21T23:25:00Z'
+  end_time: '2026-04-21T21:45:42Z'
   range_in_seconds: 600
   resolution_in_seconds: 10
 

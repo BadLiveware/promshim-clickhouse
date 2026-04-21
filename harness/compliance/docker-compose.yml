@@ -1,0 +1,69 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.3.9.8
+    environment:
+      CLICKHOUSE_PASSWORD: otel
+    ports:
+      - "28123:8123"
+      - "29092:9092"
+    volumes:
+      - ../clickhouse/config.d/prometheus.xml:/etc/clickhouse-server/config.d/prometheus.xml:ro
+      - ../clickhouse/users.d/timeseries.xml:/etc/clickhouse-server/users.d/timeseries.xml:ro
+      - clickhouse_data:/var/lib/clickhouse
+
+  clickhouse-init:
+    image: clickhouse/clickhouse-server:26.3.9.8
+    depends_on:
+      - clickhouse
+    volumes:
+      - ../clickhouse/init.sql:/init.sql:ro
+    entrypoint:
+      - /bin/bash
+      - -ec
+      - |
+        for i in $(seq 1 60); do
+          clickhouse-client --host clickhouse --user default --password otel --query 'SELECT 1' && break
+          sleep 1
+        done
+        clickhouse-client --host clickhouse --user default --password otel --multiquery < /init.sql
+    restart: "no"
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-remote-write-receiver
+      - --web.enable-admin-api
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=10y
+      - --enable-feature=promql-binop-fill-modifiers
+    ports:
+      - "29090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+  promshim:
+    build:
+      context: ../..
+      dockerfile: harness/Dockerfile
+      target: promshim
+    depends_on:
+      - clickhouse
+    environment:
+      PROM_SHIM_CLICKHOUSE_ENDPOINT: http://clickhouse:8123/
+      PROM_SHIM_CLICKHOUSE_DATABASE: observability
+      PROM_SHIM_CLICKHOUSE_TABLE: prometheus
+      PROM_SHIM_CLICKHOUSE_USERNAME: default
+      PROM_SHIM_CLICKHOUSE_PASSWORD: otel
+      PROM_SHIM_LISTEN_ADDR: :9090
+      PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES: 100000
+      PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES: 10000
+      PROM_SHIM_MAX_RESPONSE_SERIES: 100000
+      PROM_SHIM_MAX_RESPONSE_POINTS: 2000000
+    ports:
+      - "29091:9090"
+
+volumes:
+  clickhouse_data:
+  prometheus_data:

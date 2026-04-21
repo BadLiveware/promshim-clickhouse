@@ -6,8 +6,12 @@ This directory contains the native SQL lowering plan split into execution-ordere
 
 [00-status-and-drift.md](./00-status-and-drift.md) records where the
 codebase actually is (as of 2026-04-21) versus where this plan originally
-assumed it would be. The architecture still holds; Phase 1 and Phase 6 have
-drifted and are now interpreted through that chunk.
+assumed it would be, and captures the strategic framing (this shim is a
+bridge until ClickHouse's native PromQL on TimeSeries is production-ready;
+delegation is whole-query-or-nothing; retirement direction is path 2 →
+path 1 at the query level). The architecture still holds. Phase 1 has
+shipped; Phase 6 split into 6a/6b, with 6b still pending — both
+interpreted through that chunk.
 
 If you want the pre-Phase-1 execution baseline for this repo, also read
 [phase-0-baseline.md](./phase-0-baseline.md). It freezes the semantic
@@ -17,10 +21,13 @@ starter differential corpus used for this roadmap.
 ## Reading / execution order
 
 1. [00-status-and-drift.md](./00-status-and-drift.md)
+   - strategic intent (bridge to upstream PromQL on TimeSeries)
    - current state of the codebase
-   - the three execution paths (delegated / native SQL / local)
-   - what Phase 1 actually delivered and what it still owes
+   - the three execution paths (delegated / native SQL / local), with
+     delegation defined as whole-query-or-nothing
+   - Phase 1 delivered
    - policy for local vs native range functions
+   - adapter-layer requirement for TimeSeries inner-table column shapes
 
 2. [01-context-and-guardrails.md](./01-context-and-guardrails.md)
    - why this work exists
@@ -54,17 +61,18 @@ starter differential corpus used for this roadmap.
 
 ## Recommended narrow first slice
 
-If the goal is to prove the architecture quickly, prioritize this subset first:
+Phase 1 is done. To prove the architecture end-to-end, prioritize this
+subset next:
 
-1. Phase 1 analysis scaffolding (now a **type-extraction refactor** of
-   lowerability logic currently inlined in the planner — see
-   [00-status-and-drift.md](./00-status-and-drift.md))
-2. Phase 3 selector lowering
+1. Phase 2 — generalized `nativeSubtreePlan` consuming the delivered
+   `LoweringInfo` / `NativeFragment` types
+2. Phase 3 selector lowering, with the TimeSeries column-shape adapter
+   layer noted in [00-status-and-drift.md](./00-status-and-drift.md)
 3. Phase 4 initial optimizer passes:
    - evaluation-range propagation
    - common matcher inference + label pushdown
    - projection pushdown with no `SELECT *`
 4. explain improvements
-5. shadow mode
+5. shadow mode with whole-AST capability gating
 
 That slice already proves the architecture on common dashboard shapes before full join and range-heavy support lands.

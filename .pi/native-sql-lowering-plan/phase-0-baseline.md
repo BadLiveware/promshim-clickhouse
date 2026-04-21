@@ -3,8 +3,11 @@
 ## Why this file exists
 
 The split native SQL lowering plan starts its numbered implementation phases at
-Phase 1, but there is still a small amount of **pre-Phase-1 groundwork** that
-needs to be frozen before the type-extraction refactor begins.
+Phase 1. Phase 1 has since shipped (see
+[`00-status-and-drift.md`](./00-status-and-drift.md) and
+[`04-phase-1-analysis-scaffolding.md`](./04-phase-1-analysis-scaffolding.md)),
+but the pre-Phase-1 groundwork captured here remains the baseline reference
+for every later phase.
 
 In this repo, `phase 0` means the concrete preparatory work called out in
 [`01-context-and-guardrails.md`](./01-context-and-guardrails.md):
@@ -94,15 +97,18 @@ Current behavior snapshot:
 - delegated path: `delegatedExprPlan`
 - native path: `nativeAggregationPlan`
 - local path: `internal/promshim/exec/*` via the various `local*Plan` nodes
-- `buildExecPlanWithContext(...)` is where logical nodes currently become
-  delegated/native/local execution nodes
-- `decideNativeAggregationPushdown(...)` is the current ad-hoc lowerability
-  gate for the existing narrow native path
-- `buildNativeAggregationSource(...)` performs the current special-case source
-  extraction for aggregation pushdown
+- `buildExecPlanWithContext(...)` is where logical nodes become
+  delegated/native/local execution nodes, now reading lowerability from
+  the `native.Analysis` produced by Phase 1 rather than recomputing it
+  inline
+- `decideNativeAggregationPushdown(...)` remains the aggregation-specific
+  decision, but now consumes the shared analysis output
+- `buildNativeAggregationSource(...)` performs the current special-case
+  source extraction for aggregation pushdown
 
-This is the main seam that Phase 1 will refactor: it currently mixes
-"can lower" decisions with "which execution node gets built" decisions.
+The inlined lowerability seam that the original plan flagged as a Phase 1
+refactor target has been resolved. The remaining seam — a
+general-purpose `nativeSubtreePlan` — is Phase 2's concern.
 
 ### 3. Native SQL entry points that exist today
 
@@ -137,11 +143,10 @@ Current behavior snapshot:
 - `/api/v1/query_explain` and `/api/v1/query_range_explain` expose the chosen
   execution plan
 - normal query endpoints also support `explain=1`
-- explain currently shows chosen strategy/kind/reason/estimate, but does not
-  expose reusable planner analysis metadata yet
-
-Phase 1 should extend explain visibility, but must preserve the current API
-shape.
+- explain now surfaces chosen strategy/kind/reason/estimate plus the
+  `LoweringInfo.ExplainInfo()` projection (lowerability, fallback reason,
+  fragment kind, aggregation eligibility, required lookback/offset,
+  subquery step-grid flag, label lineage) for Phase 1–tracked nodes
 
 ### 5. Local semantic oracle
 
@@ -235,7 +240,7 @@ The minimum validation bar for the phase-0 artifacts is:
 
 Phase 0 does **not**:
 
-- introduce `NativeLoweringInfo` or fragment IR types
+- introduce `LoweringInfo` or fragment IR types (Phase 1; now delivered)
 - change runtime execution-path selection
 - add new native SQL lowering behavior
 - change explain envelopes

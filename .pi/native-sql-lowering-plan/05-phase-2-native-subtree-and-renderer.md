@@ -1,14 +1,13 @@
 # 05 — Phase 2 native subtree and renderer skeleton
 
-## Prerequisite
+## Prerequisite — met
 
-Phase 1 type extraction must land first. This phase consumes
-`NativeLoweringInfo` and `NativeFragment`, which do not exist in the
-codebase yet (see [00-status-and-drift.md](./00-status-and-drift.md) and
+Phase 1 has shipped. `LoweringInfo` (originally written as
+`NativeLoweringInfo`) and `NativeFragment` live in
+`internal/promshim/native/types.go`, along with the `Analyze` walker
+that produces them (see
 [04-phase-1-analysis-scaffolding.md](./04-phase-1-analysis-scaffolding.md)).
-Attempting to introduce `nativeSubtreePlan` before the analysis types are
-extracted will reproduce the inlined-decision pattern that Phase 1 is
-meant to remove.
+This phase consumes them directly; no further refactor gate.
 
 ## Goal
 Replace the aggregation-specific native node with a general native subtree execution node.

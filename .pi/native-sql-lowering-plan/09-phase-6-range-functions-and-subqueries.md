@@ -120,6 +120,21 @@ For each operator moved from path 3 to path 2:
   differential test against Prometheus / the delegated path becomes the
   primary correctness guarantee going forward
 
+### Further retirement — up the execution ladder
+
+The strategic endgame (see
+[00-status-and-drift.md](./00-status-and-drift.md)) is that queries move
+up the execution priority ladder as ClickHouse's native PromQL evaluator
+on the TimeSeries engine gains coverage. A path-2 native lowering for a
+range function becomes less load-bearing once upstream `prometheusQuery`
+supports that function well enough that whole queries using it qualify
+for rung 1 (entire-query delegation). The path-2 implementation is not
+removed while there are still queries that combine it with
+non-delegatable operators — those continue to use rung 2 — but its role
+shifts from "primary evaluator" to "fallback for mixed plans". Track
+each path-2 operator's upstream support status in the capability map
+used by the entire-query classifier so the shift is visible in explain.
+
 ## Validation
 - unit tests for time-window propagation
 - integration tests for subquery examples

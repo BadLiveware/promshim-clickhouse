@@ -11,8 +11,14 @@ import (
 	promlabels "github.com/prometheus/prometheus/model/labels"
 )
 
+// defaultInfoMetricName mirrors Prometheus's default info() lookup target when
+// no positive __name__ matcher is supplied. The shim currently treats target_info
+// as the default convention and supports explicit metric-name matchers as an
+// override.
 const defaultInfoMetricName = "target_info"
 
+// infoIdentifyingLabels mirrors Prometheus's current hard-coded identifying
+// labels for info() matching.
 var infoIdentifyingLabels = []string{"instance", "job"}
 
 func ApplyInfo(input, info model.RuntimeValue, selectorMatchers []*promlabels.Matcher) (model.VectorValue, error) {

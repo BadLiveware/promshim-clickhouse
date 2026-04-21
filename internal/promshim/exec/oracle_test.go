@@ -12,20 +12,22 @@ func TestLocalRangeOperatorInventoryIncludesCurrentRangeAndCounterSurface(t *tes
 		t.Fatal("expected non-empty local range operator inventory")
 	}
 	want := map[string]string{
-		"last_over_time":     "internal/promshim/exec/rangefunc.go",
-		"sum_over_time":      "internal/promshim/exec/rangefunc.go",
-		"avg_over_time":      "internal/promshim/exec/rangefunc.go",
-		"max_over_time":      "internal/promshim/exec/rangefunc.go",
-		"min_over_time":      "internal/promshim/exec/rangefunc.go",
-		"count_over_time":    "internal/promshim/exec/rangefunc.go",
-		"quantile_over_time": "internal/promshim/exec/rangefunc.go",
-		"rate":               "internal/promshim/exec/rate.go",
-		"irate":              "internal/promshim/exec/rate.go",
-		"increase":           "internal/promshim/exec/increase.go",
-		"delta":              "internal/promshim/exec/delta.go",
-		"idelta":             "internal/promshim/exec/delta.go",
-		"changes":            "internal/promshim/exec/changes.go",
-		"deriv":              "internal/promshim/exec/deriv.go",
+		"last_over_time":               "internal/promshim/exec/rangefunc.go",
+		"sum_over_time":                "internal/promshim/exec/rangefunc.go",
+		"avg_over_time":                "internal/promshim/exec/rangefunc.go",
+		"max_over_time":                "internal/promshim/exec/rangefunc.go",
+		"min_over_time":                "internal/promshim/exec/rangefunc.go",
+		"count_over_time":              "internal/promshim/exec/rangefunc.go",
+		"quantile_over_time":           "internal/promshim/exec/rangefunc.go",
+		"rate":                         "internal/promshim/exec/rate.go",
+		"irate":                        "internal/promshim/exec/rate.go",
+		"increase":                     "internal/promshim/exec/increase.go",
+		"delta":                        "internal/promshim/exec/delta.go",
+		"idelta":                       "internal/promshim/exec/delta.go",
+		"changes":                      "internal/promshim/exec/changes.go",
+		"deriv":                        "internal/promshim/exec/deriv.go",
+		"double_exponential_smoothing": "internal/promshim/exec/smoothing.go",
+		"holt_winters":                 "internal/promshim/exec/smoothing.go",
 	}
 	seen := map[string]LocalRangeOperatorDescriptor{}
 	for _, item := range inventory {

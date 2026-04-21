@@ -65,8 +65,10 @@ type BinaryJoinFragment struct {
 }
 
 type RangeFunctionFragment struct {
-	Func  string
-	Child *NativeFragment
+	Func         string
+	ParamNumber  *float64
+	ParamNumbers []*float64
+	Child        *NativeFragment
 }
 
 type SubqueryFragment struct {

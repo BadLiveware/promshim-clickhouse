@@ -2,6 +2,7 @@ package plan
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/prometheus/prometheus/promql/parser"
@@ -21,7 +22,10 @@ type SupportResult struct {
 	Reason     string
 }
 
+var holtWintersAliasPattern = regexp.MustCompile(`\bholt_winters\s*\(`)
+
 func ParseExpression(query string) (parser.Expr, error) {
+	query = holtWintersAliasPattern.ReplaceAllString(query, "double_exponential_smoothing(")
 	p := parser.NewParser(parser.Options{EnableBinopFillModifiers: true, EnableExperimentalFunctions: true})
 	return p.ParseExpr(query)
 }
@@ -125,6 +129,15 @@ func analyzeCallExpression(call *parser.Call, recurse func(parser.Expr) SupportR
 	if name == "deriv" {
 		return AnalyzeDerivCall(call)
 	}
+	if name == "resets" {
+		return AnalyzeRangeFunctionCall(name, call)
+	}
+	if name == "predict_linear" {
+		return AnalyzePredictLinearCall(call)
+	}
+	if name == "double_exponential_smoothing" || name == "holt_winters" {
+		return AnalyzeDoubleExponentialSmoothingCall(call)
+	}
 	if isSupportedLeafFunction(name) {
 		if isSubqueryUnsupportedFunction(name) {
 			for _, arg := range call.Args {
@@ -153,8 +166,10 @@ func analyzeCallExpression(call *parser.Call, recurse func(parser.Expr) SupportR
 		return AnalyzeHistogramFractionCall(call)
 	case "histogram_count", "histogram_sum", "histogram_avg":
 		return AnalyzeHistogramProjectionCall(name, call)
-	case "last_over_time", "sum_over_time", "avg_over_time", "max_over_time", "min_over_time", "count_over_time", "stddev_over_time", "stdvar_over_time", "present_over_time":
+	case "last_over_time", "sum_over_time", "avg_over_time", "max_over_time", "min_over_time", "count_over_time", "stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time", "resets":
 		return AnalyzeRangeFunctionCall(name, call)
+	case "predict_linear":
+		return AnalyzePredictLinearCall(call)
 	case "quantile_over_time":
 		return AnalyzeQuantileOverTimeCall(call)
 	case "absent":
@@ -399,6 +414,62 @@ func AnalyzeDerivCall(call *parser.Call) SupportResult {
 		return SupportResult{Supported: true, Difficulty: DifficultyHard}
 	}
 	return SupportResult{Supported: true, Difficulty: DifficultyEasy}
+}
+
+func AnalyzePredictLinearCall(call *parser.Call) SupportResult {
+	if len(call.Args) != 2 {
+		return unsupported(DifficultyHard, "predict_linear requires two arguments")
+	}
+	if call.Args[0].Type() != parser.ValueTypeMatrix {
+		return unsupported(DifficultyHard, "predict_linear requires a matrix argument")
+	}
+	if call.Args[1].Type() != parser.ValueTypeScalar {
+		return unsupported(DifficultyHard, "predict_linear requires a scalar duration argument")
+	}
+	if _, ok := unwrapTransparentExpr(call.Args[1]).(*parser.NumberLiteral); !ok {
+		return unsupported(DifficultyHard, "predict_linear currently requires a literal scalar duration argument")
+	}
+	child := AnalyzeExpression(call.Args[0])
+	if !child.Supported {
+		return child
+	}
+	if containsSubqueryExpr(call.Args[0]) {
+		return SupportResult{Supported: true, Difficulty: DifficultyHard}
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyHard}
+}
+
+func AnalyzeDoubleExponentialSmoothingCall(call *parser.Call) SupportResult {
+	if len(call.Args) != 3 {
+		return unsupported(DifficultyHard, "double_exponential_smoothing requires three arguments")
+	}
+	if call.Args[0].Type() != parser.ValueTypeMatrix {
+		return unsupported(DifficultyHard, "double_exponential_smoothing requires a matrix argument")
+	}
+	if call.Args[1].Type() != parser.ValueTypeScalar || call.Args[2].Type() != parser.ValueTypeScalar {
+		return unsupported(DifficultyHard, "double_exponential_smoothing requires scalar smoothing and trend factors")
+	}
+	sfExpr := unwrapTransparentExpr(call.Args[1])
+	tfExpr := unwrapTransparentExpr(call.Args[2])
+	sf, ok := sfExpr.(*parser.NumberLiteral)
+	if !ok {
+		return unsupported(DifficultyHard, "double_exponential_smoothing currently requires a literal scalar smoothing factor")
+	}
+	tf, ok := tfExpr.(*parser.NumberLiteral)
+	if !ok {
+		return unsupported(DifficultyHard, "double_exponential_smoothing currently requires a literal scalar trend factor")
+	}
+	if sf.Val <= 0 || sf.Val >= 1 {
+		return unsupported(DifficultyHard, "double_exponential_smoothing smoothing factor must be between 0 and 1 exclusive")
+	}
+	if tf.Val <= 0 || tf.Val >= 1 {
+		return unsupported(DifficultyHard, "double_exponential_smoothing trend factor must be between 0 and 1 exclusive")
+	}
+	child := AnalyzeExpression(call.Args[0])
+	if !child.Supported {
+		return child
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyHard}
 }
 
 func AnalyzeIrateCall(call *parser.Call) SupportResult {
@@ -764,7 +835,7 @@ func unwrapTransparentExpr(expr parser.Expr) parser.Expr {
 
 func isSupportedLeafFunction(name string) bool {
 	switch name {
-	case "rate", "irate", "increase", "delta", "idelta", "deriv", "changes",
+	case "rate", "irate", "increase", "delta", "idelta", "deriv", "changes", "resets",
 		"abs", "ceil", "floor", "sgn",
 		"exp", "ln", "log2", "log10", "sqrt",
 		"sin", "cos", "tan", "asin", "acos", "atan",
@@ -780,7 +851,7 @@ func isSupportedLeafFunction(name string) bool {
 
 func isSubqueryUnsupportedFunction(name string) bool {
 	switch name {
-	case "increase", "delta", "idelta", "deriv", "changes":
+	case "increase", "delta", "idelta", "deriv", "changes", "resets":
 		return true
 	default:
 		return false

@@ -182,6 +182,53 @@ func TestApplyPresentOverTimeInstantReturnsOnePerNonEmptySeries(t *testing.T) {
 	}
 }
 
+func TestApplyMadOverTimeInstantComputesMedianAbsoluteDeviation(t *testing.T) {
+	input := model.MatrixValue{Series: []model.RangeSeries{
+		{Metric: map[string]string{"job": "api", "instance": "a"}, Values: []model.RangePoint{{Timestamp: 10, Value: 1}, {Timestamp: 20, Value: 2}, {Timestamp: 30, Value: 3}}},
+		{Metric: map[string]string{"job": "api", "instance": "b"}, Values: []model.RangePoint{{Timestamp: 10, Value: 5}}},
+		{Metric: map[string]string{"job": "api", "instance": "c"}, Values: []model.RangePoint{{Timestamp: 10, Value: math.NaN()}, {Timestamp: 20, Value: 2}, {Timestamp: 30, Value: 3}}},
+	}}
+	vector, err := ApplyRangeFunctionInstant("mad_over_time", input)
+	if err != nil {
+		t.Fatalf("expected mad_over_time instant result, got error: %v", err)
+	}
+	if len(vector.Samples) != 3 {
+		t.Fatalf("expected three output samples, got %#v", vector.Samples)
+	}
+	if vector.Samples[0].Metric["instance"] != "a" || vector.Samples[0].Value != 1 {
+		t.Fatalf("unexpected monotonic MAD sample: %#v", vector.Samples[0])
+	}
+	if vector.Samples[1].Metric["instance"] != "b" || vector.Samples[1].Value != 0 {
+		t.Fatalf("unexpected single-point MAD sample: %#v", vector.Samples[1])
+	}
+	if vector.Samples[2].Metric["instance"] != "c" || vector.Samples[2].Value != 0 {
+		t.Fatalf("expected mixed NaN MAD sample to follow quantile ordering semantics, got %#v", vector.Samples[2])
+	}
+	if _, ok := vector.Samples[0].Metric["__name__"]; ok {
+		t.Fatalf("did not expect __name__ in mad_over_time output: %#v", vector.Samples[0].Metric)
+	}
+}
+
+func TestApplyResetsInstantCountsCounterResetsWhileSkippingNaNs(t *testing.T) {
+	input := model.MatrixValue{Series: []model.RangeSeries{
+		{Metric: map[string]string{"job": "api", "instance": "a"}, Values: []model.RangePoint{{Timestamp: 10, Value: 1}, {Timestamp: 20, Value: 3}, {Timestamp: 30, Value: 2}, {Timestamp: 40, Value: 5}, {Timestamp: 50, Value: 1}}},
+		{Metric: map[string]string{"job": "api", "instance": "b"}, Values: []model.RangePoint{{Timestamp: 10, Value: 5}, {Timestamp: 20, Value: math.NaN()}, {Timestamp: 30, Value: 4}}},
+	}}
+	vector, err := ApplyRangeFunctionInstant("resets", input)
+	if err != nil {
+		t.Fatalf("expected resets instant result, got error: %v", err)
+	}
+	if len(vector.Samples) != 2 {
+		t.Fatalf("expected two output samples, got %#v", vector.Samples)
+	}
+	if vector.Samples[0].Metric["instance"] != "a" || vector.Samples[0].Value != 2 {
+		t.Fatalf("expected two resets for series a, got %#v", vector.Samples[0])
+	}
+	if vector.Samples[1].Metric["instance"] != "b" || vector.Samples[1].Value != 1 {
+		t.Fatalf("expected NaN-skipping reset count for series b, got %#v", vector.Samples[1])
+	}
+}
+
 func TestApplyQuantileOverTimeInstantComputesMedianPerSeries(t *testing.T) {
 	input := model.MatrixValue{Series: []model.RangeSeries{
 		{Metric: map[string]string{"job": "api", "instance": "a"}, Values: []model.RangePoint{{Timestamp: 10, Value: 3}, {Timestamp: 20, Value: 1}, {Timestamp: 30, Value: 2}}},

@@ -266,9 +266,11 @@ func (p *localHistogramProjectionPlan) explain() ExplainNode {
 }
 
 type localRangeFunctionPlan struct {
-	Expr  string
-	Func  string
-	Child queryPlan
+	Expr         string
+	Func         string
+	ParamNumber  *float64
+	ParamNumbers []*float64
+	Child        queryPlan
 }
 
 func (p *localRangeFunctionPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
@@ -278,7 +280,28 @@ func (p *localRangeFunctionPlan) execute(ctx context.Context, evaluator *evaluat
 		if err != nil {
 			return nil, withInternalContext(err, "evaluating %s child in instant mode", p.Func)
 		}
-		vector, err := exec.ApplyRangeFunctionInstant(p.Func, childValue)
+		var (
+			vector model.VectorValue
+		)
+		if p.Func == "predict_linear" {
+			if p.ParamNumber == nil {
+				return nil, newExecutionErrorf("predict_linear requires a duration parameter")
+			}
+			vector, err = exec.ApplyPredictLinear(*p.ParamNumber, childValue, exec.EvalParams{
+				Mode:           toExecEvalMode(params.Mode),
+				EvaluationTime: params.EvaluationTime,
+				Start:          params.Start,
+				End:            params.End,
+				Step:           params.Step,
+			})
+		} else if p.Func == "double_exponential_smoothing" || p.Func == "holt_winters" {
+			if len(p.ParamNumbers) != 2 || p.ParamNumbers[0] == nil || p.ParamNumbers[1] == nil {
+				return nil, newExecutionErrorf("%s requires smoothing and trend parameters", p.Func)
+			}
+			vector, err = exec.ApplyDoubleExponentialSmoothing(*p.ParamNumbers[0], *p.ParamNumbers[1], childValue)
+		} else {
+			vector, err = exec.ApplyRangeFunctionInstant(p.Func, childValue)
+		}
 		if err != nil {
 			return nil, withInternalContext(fromExecError(err), "applying %s in instant mode", p.Func)
 		}
@@ -1153,6 +1176,25 @@ func cloneInt64Pointer(value *int64) *int64 {
 	return &cloned
 }
 
+func cloneFloat64Pointer(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneFloat64Pointers(values []*float64) []*float64 {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]*float64, 0, len(values))
+	for _, value := range values {
+		out = append(out, cloneFloat64Pointer(value))
+	}
+	return out
+}
+
 func defaultSubqueryStep(params evalParams) time.Duration {
 	if params.Step > 0 {
 		return params.Step
@@ -1362,7 +1404,7 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx planContext, analysis *nati
 		if err != nil {
 			return nil, withInternalContext(err, "building execution child plan for %s %q", node.Func, node.ExprString())
 		}
-		return annotateQueryPlan(&localRangeFunctionPlan{Expr: node.ExprString(), Func: node.Func, Child: child}, analysis.InfoFor(node)), nil
+		return annotateQueryPlan(&localRangeFunctionPlan{Expr: node.ExprString(), Func: node.Func, ParamNumber: cloneFloat64Pointer(node.ParamNumber), ParamNumbers: cloneFloat64Pointers(node.ParamNumbers), Child: child}, analysis.InfoFor(node)), nil
 	case *logicalVectorPlan:
 		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
 		if err != nil {

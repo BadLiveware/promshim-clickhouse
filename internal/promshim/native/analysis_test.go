@@ -372,7 +372,7 @@ func TestAnalyzeChangesAndDerivOverSubqueryMarkNativeLowerable(t *testing.T) {
 }
 
 func TestAnalyzeTier1AdditionalRangeFunctionsMarkNativeLowerable(t *testing.T) {
-	for _, fn := range []string{"stddev_over_time", "stdvar_over_time", "present_over_time"} {
+	for _, fn := range []string{"stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time", "resets"} {
 		callExpr := mustParseExpr(t, fn+`(up[5m])`)
 		call, ok := callExpr.(*parser.Call)
 		if !ok {
@@ -386,6 +386,46 @@ func TestAnalyzeTier1AdditionalRangeFunctionsMarkNativeLowerable(t *testing.T) {
 		if info.Fragment == nil || info.Fragment.RangeFunction == nil || info.Fragment.RangeFunction.Func != fn {
 			t.Fatalf("expected native %s fragment, got %#v", fn, info)
 		}
+	}
+}
+
+func TestAnalyzePredictLinearMarksNativeLowerable(t *testing.T) {
+	callExpr := mustParseExpr(t, `predict_linear(up[5m], 60)`)
+	call, ok := callExpr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected call expr, got %T", callExpr)
+	}
+	duration := 60.0
+	logical := &planpkg.LogicalRangeFunctionPlan{Expr: call, Func: "predict_linear", ParamNumber: &duration, Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+	info := Analyze(logical).InfoFor(logical)
+	if info == nil || !info.NativeLowerable {
+		t.Fatalf("expected predict_linear to be native-lowerable, got %#v", info)
+	}
+	if info.Fragment == nil || info.Fragment.RangeFunction == nil || info.Fragment.RangeFunction.Func != "predict_linear" {
+		t.Fatalf("expected native predict_linear fragment, got %#v", info)
+	}
+	if info.Fragment.RangeFunction.ParamNumber == nil || *info.Fragment.RangeFunction.ParamNumber != 60 {
+		t.Fatalf("expected predict_linear duration param, got %#v", info.Fragment.RangeFunction)
+	}
+}
+
+func TestAnalyzeDoubleExponentialSmoothingMarksNativeLowerable(t *testing.T) {
+	callExpr := mustParseExpr(t, `double_exponential_smoothing(up[5m], 0.5, 0.3)`)
+	call, ok := callExpr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected call expr, got %T", callExpr)
+	}
+	sf, tf := 0.5, 0.3
+	logical := &planpkg.LogicalRangeFunctionPlan{Expr: call, Func: "double_exponential_smoothing", ParamNumbers: []*float64{&sf, &tf}, Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+	info := Analyze(logical).InfoFor(logical)
+	if info == nil || !info.NativeLowerable {
+		t.Fatalf("expected double_exponential_smoothing to be native-lowerable, got %#v", info)
+	}
+	if info.Fragment == nil || info.Fragment.RangeFunction == nil || info.Fragment.RangeFunction.Func != "double_exponential_smoothing" {
+		t.Fatalf("expected native smoothing fragment, got %#v", info)
+	}
+	if len(info.Fragment.RangeFunction.ParamNumbers) != 2 || *info.Fragment.RangeFunction.ParamNumbers[0] != 0.5 || *info.Fragment.RangeFunction.ParamNumbers[1] != 0.3 {
+		t.Fatalf("expected smoothing params, got %#v", info.Fragment.RangeFunction)
 	}
 }
 

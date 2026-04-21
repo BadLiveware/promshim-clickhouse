@@ -127,7 +127,7 @@ func maybeBuildNativeRangeFunctionPlan(node *logicalRangeFunctionPlan, ctx planC
 		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
 			return nil, false, nil
 		}
-		if !nativeplan.IsSupportedNativeRangeModeForDirectSelector(info.Fragment) && !nativeplan.IsSupportedNativeRangeModeForAggregateOverTimeSubquery(info.Fragment) {
+		if !nativeplan.IsSupportedNativeRangeModeForDirectSelector(info.Fragment) && !nativeplan.IsSupportedNativeRangeModeForWindowedArraysSubquery(info.Fragment) {
 			return nil, false, nil
 		}
 		return maybeBuildNativeRangeLikePlanAllowRange(node, node.Func, node.ExprString(), ctx, analysis, true)

@@ -371,7 +371,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		info.Children = []*LoweringInfo{child}
 		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageUnknown)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
-		info.NativeReason = "quantile_over_time currently stays on the local execution path until native range lowering lands"
+		info.NativeReason = "quantile_over_time intentionally stays on the local execution path; see keep-local note in .pi/native-sql-lowering-plan/13-keep-local-quantile-over-time.md"
 		return info
 	case *planpkg.LogicalAbsentPlan:
 		child := a.walk(n.Child)

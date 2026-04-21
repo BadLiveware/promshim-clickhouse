@@ -1,0 +1,92 @@
+[
+  {
+    "name": "phase7_prefer_delegated_whole_query_instant",
+    "endpoint": "query",
+    "query": "harness_up{job=\"api\"}",
+    "timeOffsetSeconds": 540,
+    "nativeLoweringMode": "prefer",
+    "subjects": ["shim"]
+  },
+  {
+    "name": "phase7_off_local_fallback_instant",
+    "endpoint": "query",
+    "query": "sum by (job) (harness_up)",
+    "timeOffsetSeconds": 540,
+    "nativeLoweringMode": "off",
+    "subjects": ["shim"]
+  },
+  {
+    "name": "phase7_explain_query_endpoint_instant",
+    "endpoint": "query",
+    "query": "harness_up{job=\"api\"}",
+    "timeOffsetSeconds": 540,
+    "nativeLoweringMode": "explain",
+    "subjects": ["shim"]
+  },
+  {
+    "name": "phase7_shadow_query_endpoint_instant",
+    "endpoint": "query",
+    "query": "sum by (job) (harness_up)",
+    "timeOffsetSeconds": 540,
+    "nativeLoweringMode": "shadow",
+    "subjects": ["shim"]
+  },
+  {
+    "name": "phase7_explicit_explain_flag_instant",
+    "endpoint": "query",
+    "query": "sum by (job) (harness_up)",
+    "timeOffsetSeconds": 540,
+    "explain": true,
+    "subjects": ["shim"]
+  },
+  {
+    "name": "phase7_prefer_native_range_query",
+    "endpoint": "query_range",
+    "query": "sum_over_time(harness_queue_depth[5m])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "nativeLoweringMode": "prefer",
+    "subjects": ["shim"]
+  },
+  {
+    "name": "phase7_off_range_query",
+    "endpoint": "query_range",
+    "query": "sum_over_time(harness_queue_depth[5m])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "nativeLoweringMode": "off",
+    "subjects": ["shim"]
+  },
+  {
+    "name": "phase7_explain_range_query",
+    "endpoint": "query_range",
+    "query": "sum_over_time(harness_queue_depth[5m])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "nativeLoweringMode": "explain",
+    "subjects": ["shim"]
+  },
+  {
+    "name": "phase7_shadow_range_query",
+    "endpoint": "query_range",
+    "query": "sum_over_time(harness_queue_depth[5m])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "nativeLoweringMode": "shadow",
+    "subjects": ["shim"]
+  },
+  {
+    "name": "phase7_explicit_explain_flag_range",
+    "endpoint": "query_range",
+    "query": "sum_over_time(harness_queue_depth[5m])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "explain": true,
+    "subjects": ["shim"]
+  }
+]

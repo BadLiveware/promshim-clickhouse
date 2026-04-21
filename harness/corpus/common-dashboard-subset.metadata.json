@@ -1,0 +1,41 @@
+{
+  "name": "common-dashboard-subset",
+  "sourceCorpus": "harness/corpus/draft-grafana-top-panel-shortlist.json",
+  "description": "Stable common dashboard differential subset carved from the draft top-panel shortlist by excluding currently known shim failures.",
+  "includedCount": 92,
+  "excludedCount": 8,
+  "excludedCandidates": [
+    {
+      "name": "draft_cand_0005_aggregation_selector",
+      "reason": "native range aggregation selector query currently errors in ClickHouse (NOT_AN_AGGREGATE)"
+    },
+    {
+      "name": "draft_cand_0032_aggregation_selector",
+      "reason": "native range aggregation selector query currently errors in ClickHouse (NOT_AN_AGGREGATE)"
+    },
+    {
+      "name": "draft_cand_0040_aggregation_selector",
+      "reason": "range selector parity mismatch (matrix series length mismatch)"
+    },
+    {
+      "name": "draft_cand_0177_aggregation_selector",
+      "reason": "native range aggregation selector query currently errors in ClickHouse (NOT_AN_AGGREGATE)"
+    },
+    {
+      "name": "draft_cand_0202_aggregation_selector",
+      "reason": "native range aggregation selector query currently errors in ClickHouse (NOT_AN_AGGREGATE)"
+    },
+    {
+      "name": "draft_cand_0322_rate_family_aggregation_selector",
+      "reason": "rate-family/range-selector parity mismatch (matrix series length mismatch)"
+    },
+    {
+      "name": "draft_cand_0474_aggregation_selector",
+      "reason": "binary arithmetic / aggregation parity mismatch (matrix series length mismatch)"
+    },
+    {
+      "name": "draft_cand_0663_selector",
+      "reason": "range comparison still hits delegated ClickHouse BinaryOperator NOT_IMPLEMENTED path"
+    }
+  ]
+}

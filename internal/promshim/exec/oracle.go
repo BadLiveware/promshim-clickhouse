@@ -57,11 +57,12 @@ var localRangeOperatorInventory = []LocalRangeOperatorDescriptor{
 		SemanticRules: []string{"counts raw samples in the range window", "drops metric name in the output"},
 	},
 	{
-		Name:          "quantile_over_time",
-		File:          "internal/promshim/exec/rangefunc.go",
-		Category:      "range_vector",
-		PrometheusRef: "promql/functions.go:quantile_over_time",
-		SemanticRules: []string{"computes quantile over raw samples in the range window", "drops metric name in the output"},
+		Name:             "quantile_over_time",
+		File:             "internal/promshim/exec/rangefunc.go",
+		Category:         "range_vector",
+		PrometheusRef:    "promql/functions.go:quantile_over_time",
+		SemanticRules:    []string{"computes quantile over raw samples in the range window", "drops metric name in the output"},
+		KnownDivergences: []string{"explicit keep-local design note: see .pi/native-sql-lowering-plan/13-keep-local-quantile-over-time.md"},
 	},
 	{
 		Name:             "rate",

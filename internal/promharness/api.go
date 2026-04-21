@@ -100,6 +100,12 @@ func buildQueryURL(baseURL string, manifest Manifest, spec QuerySpec) (string, e
 	base := time.Unix(manifest.BaseUnixSeconds, 0).UTC()
 	query := parsed.Query()
 	query.Set("query", spec.Query)
+	if spec.Explain {
+		query.Set("explain", "1")
+	}
+	if mode := strings.TrimSpace(spec.NativeLoweringMode); mode != "" {
+		query.Set("native_lowering_mode", mode)
+	}
 	switch spec.Endpoint {
 	case "query":
 		parsed.Path = "/api/v1/query"

@@ -161,10 +161,11 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 
 	report := CompareReport{CorpusPath: cfg.CorpusPath, Manifest: manifest, Results: make([]QueryComparison, 0, len(queries)*len(subjects))}
 	var firstErr error
-	appendResult := func(query QuerySpec, subject, status, detail string) {
+	appendResult := func(query QuerySpec, variantName, subject, status, detail string) {
 		severity, bucket := ClassifyComparison(status, detail)
 		report.Results = append(report.Results, QueryComparison{
 			Name:        query.Name,
+			Variant:     variantName,
 			Subject:     subject,
 			Query:       query.Query,
 			Status:      status,
@@ -175,44 +176,55 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 		})
 	}
 	for _, query := range queries {
-		querySubjects, err := subjectsForQuery(query, subjects)
+		variants, err := expandQueryVariants(query)
 		if err != nil {
-			appendResult(query, "harness", "error", err.Error())
+			appendResult(query, "", "harness", "error", err.Error())
 			if firstErr == nil {
 				firstErr = err
 			}
 			continue
 		}
-		promResult, err := QueryAndFetch(client, cfg.PrometheusBaseURL, manifest, query)
-		if err != nil {
+		for _, variant := range variants {
+			querySubjects, err := subjectsForQuery(variant.Spec, subjects)
+			if err != nil {
+				appendResult(variant.Spec, variant.Variant, "harness", "error", err.Error())
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+			promResult, err := QueryAndFetch(client, cfg.PrometheusBaseURL, manifest, variant.Spec)
+			if err != nil {
+				for _, subject := range querySubjects {
+					appendResult(variant.Spec, variant.Variant, subject.Name, "error", err.Error())
+				}
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
 			for _, subject := range querySubjects {
-				appendResult(query, subject.Name, "error", err.Error())
-			}
-			if firstErr == nil {
-				firstErr = err
-			}
-			continue
-		}
-		for _, subject := range querySubjects {
-			subjectResult, err := QueryAndFetch(client, subject.BaseURL, manifest, query)
-			if err != nil {
-				appendResult(query, subject.Name, "error", err.Error())
-				if firstErr == nil {
-					firstErr = err
+				subjectResult, err := QueryAndFetch(client, subject.BaseURL, manifest, variant.Spec)
+				if err != nil {
+					appendResult(variant.Spec, variant.Variant, subject.Name, "error", err.Error())
+					if firstErr == nil {
+						firstErr = err
+					}
+					continue
 				}
-				continue
-			}
-			result, err := CompareQueryOutcome(query, subject.Name, promResult, subjectResult)
-			if err != nil {
-				appendResult(query, subject.Name, result, err.Error())
-				if firstErr == nil {
-					firstErr = err
+				result, err := CompareQueryOutcome(variant.Spec, subject.Name, promResult, subjectResult)
+				if err != nil {
+					appendResult(variant.Spec, variant.Variant, subject.Name, result, err.Error())
+					if firstErr == nil {
+						firstErr = err
+					}
+					continue
 				}
-				continue
+				appendResult(variant.Spec, variant.Variant, subject.Name, result, "")
 			}
-			appendResult(query, subject.Name, result, "")
 		}
 	}
+	annotateCauseClusters(&report)
 	if err := writeCompareReport(cfg.ArtifactDir, report); err != nil && firstErr == nil {
 		firstErr = err
 	}
@@ -302,6 +314,92 @@ func waitForDatasetAvailability(ctx context.Context, client *http.Client, cfg Co
 		case <-time.After(time.Second):
 		}
 	}
+}
+
+type causeClusterAccumulator struct {
+	id       string
+	name     string
+	severity string
+	bucket   string
+	detail   string
+	count    int
+	variants []string
+	subjects []string
+	rows     []int
+}
+
+func annotateCauseClusters(report *CompareReport) {
+	if report == nil || len(report.Results) == 0 {
+		return
+	}
+	clusters := map[string]*causeClusterAccumulator{}
+	ordered := make([]*causeClusterAccumulator, 0)
+	perQueryCauseIndex := map[string]int{}
+	for index := range report.Results {
+		result := &report.Results[index]
+		if result.Status == "ok" {
+			continue
+		}
+		key := strings.Join([]string{result.Name, result.Severity, result.Bucket, result.Detail}, "\x00")
+		cluster, ok := clusters[key]
+		if !ok {
+			perQueryCauseIndex[result.Name]++
+			cluster = &causeClusterAccumulator{
+				id:       fmt.Sprintf("%s/cause-%d", result.Name, perQueryCauseIndex[result.Name]),
+				name:     result.Name,
+				severity: result.Severity,
+				bucket:   result.Bucket,
+				detail:   result.Detail,
+			}
+			clusters[key] = cluster
+			ordered = append(ordered, cluster)
+		}
+		cluster.count++
+		cluster.rows = append(cluster.rows, index)
+		cluster.variants = appendUniqueString(cluster.variants, result.Variant)
+		cluster.subjects = appendUniqueString(cluster.subjects, result.Subject)
+	}
+	if len(ordered) == 0 {
+		return
+	}
+	report.Clusters = make([]CompareCauseCluster, 0, len(ordered))
+	for _, cluster := range ordered {
+		for _, row := range cluster.rows {
+			report.Results[row].CauseCluster = cluster.id
+			report.Results[row].CauseClusterSize = cluster.count
+		}
+		report.Clusters = append(report.Clusters, CompareCauseCluster{
+			ID:       cluster.id,
+			Name:     cluster.name,
+			Severity: cluster.severity,
+			Bucket:   cluster.bucket,
+			Detail:   cluster.detail,
+			Count:    cluster.count,
+			Variants: cloneStrings(cluster.variants),
+			Subjects: cloneStrings(cluster.subjects),
+		})
+	}
+}
+
+func appendUniqueString(values []string, candidate string) []string {
+	if strings.TrimSpace(candidate) == "" {
+		return values
+	}
+	for _, existing := range values {
+		if existing == candidate {
+			return values
+		}
+	}
+	return append(values, candidate)
+}
+
+func cloneStrings(src []string) []string {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]string, len(src))
+	copy(out, src)
+	return out
 }
 
 func writeCompareReport(dir string, report CompareReport) error {

@@ -1,8 +1,15 @@
 package promharness
 
 import (
+	"context"
+	"fmt"
 	"math"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestCompareQueryOutcomeSupportsExpectedErrorMatching(t *testing.T) {
@@ -78,4 +85,92 @@ func TestSubjectsForQueryRejectsUnavailableSubjects(t *testing.T) {
 	if _, err := subjectsForQuery(QuerySpec{Name: "phase6-row", Subjects: []string{"promclick"}}, configured); err == nil {
 		t.Fatal("expected unavailable subject filter to fail")
 	}
+}
+
+func TestRunCompareExpandsNamedVariantsIntoReportRows(t *testing.T) {
+	tempDir := t.TempDir()
+	manifest := Manifest{BaseUnixSeconds: 1700000000, StepSeconds: 60, Points: 10}
+	if err := WriteManifest(ManifestPath(tempDir), manifest); err != nil {
+		t.Fatal(err)
+	}
+	corpusPath := filepath.Join(tempDir, "corpus.json")
+	if err := os.WriteFile(corpusPath, []byte(`[
+  {
+    "name": "variant_query",
+    "endpoint": "query",
+    "query": "up",
+    "timeOffsets": [
+      {"name": "early", "timeOffsetSeconds": 60},
+      {"name": "late", "timeOffsetSeconds": 540}
+    ],
+    "subjects": ["shim"]
+  }
+]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"job":"api"},"value":[1,"1"]}]}}`)
+	}))
+	defer server.Close()
+
+	report, err := RunCompare(contextWithTimeout(t), CompareConfig{
+		PrometheusBaseURL: server.URL,
+		PromshimBaseURL:   server.URL,
+		CorpusPath:        corpusPath,
+		ArtifactDir:       tempDir,
+		Timeout:           2 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Results) != 2 {
+		t.Fatalf("expected two compare results for two variants, got %#v", report.Results)
+	}
+	if report.Results[0].Name != "variant_query" || report.Results[0].Variant != "early" || report.Results[0].Status != "ok" {
+		t.Fatalf("unexpected first variant row: %#v", report.Results[0])
+	}
+	if report.Results[1].Name != "variant_query" || report.Results[1].Variant != "late" || report.Results[1].Status != "ok" {
+		t.Fatalf("unexpected second variant row: %#v", report.Results[1])
+	}
+}
+
+func TestAnnotateCauseClustersGroupsRepeatedVariantFailures(t *testing.T) {
+	report := CompareReport{Results: []QueryComparison{
+		{Name: "base_query", Variant: "early", Subject: "shim", Status: "diff", Severity: "p1", Bucket: "series-mismatch", Detail: "matrix points length mismatch"},
+		{Name: "base_query", Variant: "late", Subject: "shim", Status: "diff", Severity: "p1", Bucket: "series-mismatch", Detail: "matrix points length mismatch"},
+		{Name: "base_query", Variant: "late", Subject: "promclick", Status: "diff", Severity: "p1", Bucket: "series-mismatch", Detail: "matrix points length mismatch"},
+		{Name: "other_query", Subject: "shim", Status: "ok", Severity: "ok", Bucket: "ok"},
+	}}
+
+	annotateCauseClusters(&report)
+
+	if len(report.Clusters) != 1 {
+		t.Fatalf("expected one cause cluster, got %#v", report.Clusters)
+	}
+	cluster := report.Clusters[0]
+	if cluster.ID != "base_query/cause-1" || cluster.Count != 3 {
+		t.Fatalf("unexpected cluster summary: %#v", cluster)
+	}
+	if len(cluster.Variants) != 2 || cluster.Variants[0] != "early" || cluster.Variants[1] != "late" {
+		t.Fatalf("unexpected cluster variants: %#v", cluster)
+	}
+	if len(cluster.Subjects) != 2 {
+		t.Fatalf("unexpected cluster subjects: %#v", cluster)
+	}
+	for _, row := range report.Results[:3] {
+		if row.CauseCluster != "base_query/cause-1" || row.CauseClusterSize != 3 {
+			t.Fatalf("expected clustered failing row, got %#v", row)
+		}
+	}
+	if report.Results[3].CauseCluster != "" || report.Results[3].CauseClusterSize != 0 {
+		t.Fatalf("expected ok row to stay uncluttered, got %#v", report.Results[3])
+	}
+}
+
+func contextWithTimeout(t *testing.T) (ctx context.Context) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	t.Cleanup(cancel)
+	return ctx
 }

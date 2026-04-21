@@ -106,14 +106,43 @@ It focuses on the implemented compatibility subset and the stable query set used
 
 Some query families are still unsuitable for all-subject success-case parity assertions because optional promclick support diverges or does not implement them yet, especially subquery-backed rate-family cases. Where native promshim support is stable and Prometheus-backed parity is useful, the stable corpus now carries shim-only rows rather than treating optional promclick behavior as a blocker.
 
+### Common dashboard differential subset
+
+The current **stable** repo-owned common dashboard differential subset is:
+
+- `harness/corpus/common-dashboard-subset.json`
+- `harness/corpus/common-dashboard-subset.metadata.json`
+
+It is carved from the broader exploratory top-panel shortlist corpus:
+
+- `harness/corpus/draft-grafana-top-panel-shortlist.json`
+- themed splits in `harness/corpus/draft-grafana-top-panel-shortlist.themes/`
+
+The stable subset excludes the currently known failing shortlist candidates and is the corpus to use when you want a dashboard-focused differential gate that is expected to stay green.
+
+Run the stable subset with:
+
+```bash
+./scripts/run-harness.sh --corpus common-dashboard-subset.json --subjects shim
+```
+
+For broader exploratory dashboard coverage, run the themed shortlist with:
+
+```bash
+./scripts/run-harness.sh --all-themes --subjects shim
+```
+
+That command runs the themed splits (`selector`, `aggregation`, `rate-family`, `range-selector`, `histogram`, `binary-arithmetic`, `comparison`, `set-operator`, `subquery`, `vector-matching`, `label-mutation`, `range-function`) and writes one compare report per theme into `harness/artifacts/`. The full shortlist is useful for promotion planning and gap discovery; the stable common-dashboard subset is the current gate.
+
 ### Native SQL lowering starter corpus
 
-For the native SQL lowering roadmap there is also a smaller focused starter corpus:
+For the native SQL lowering roadmap there are also smaller focused corpora:
 
 - `harness/corpus/native-lowering-starter.json`
 - `harness/corpus/native-lowering-starter.metadata.json`
+- `harness/corpus/phase7-rollout.json`
 
-This corpus is intended for frequent runs while the planner/type-extraction and native-lowering work is in flight. It keeps a small baseline across the first roadmap buckets:
+The native-lowering starter corpus is intended for frequent runs while the planner/type-extraction and native-lowering work is in flight. It keeps a small baseline across the first roadmap buckets:
 
 - selectors
 - aggregations
@@ -125,6 +154,36 @@ Run it with:
 
 ```bash
 ./scripts/run-harness.sh --corpus native-lowering-starter.json
+```
+
+The Phase 7 rollout corpus is a smaller shim-only parity check for rollout controls on the normal query endpoints. It exercises `native_lowering_mode=off|prefer|explain|shadow` and explicit `explain=1` requests on queries where the served result should still match Prometheus exactly:
+
+```bash
+./scripts/run-harness.sh --corpus phase7-rollout.json --subjects shim
+```
+
+Corpus rows can also set:
+- `"nativeLoweringMode": "off|explain|shadow|prefer|force_supported"`
+- `"explain": true`
+- `"timeOffsets": [{"name": "early", "timeOffsetSeconds": 60}, ...]` for instant-query variants
+- `"rangeOffsets": [{"name": "boundary", "startOffsetSeconds": 0, "endOffsetSeconds": 240}, ...]` for range-query variants
+- `"rangeStepMatrix": true` for opt-in Layer 2 range-query step sweeps
+
+These are sent as normal HTTP query parameters (`native_lowering_mode`, `explain=1`). Variant-expanded rows appear in `compare-report.json` as separate results sharing the base query `name` and carrying an explicit `variant` field. For repeated non-ok rows with the same base query + severity + bucket + detail, the report now also tags them with `causeCluster` and `causeClusterSize`, and emits a top-level `clusters` summary so one underlying issue can be triaged as a single cause. For `rangeStepMatrix`, the harness currently emits a small default matrix per range variant:
+- `step_evenly_divides_range`
+- `step_not_evenly_divides_range`
+- `step_gt_range_over_2`
+- `step_eq_range`
+
+When both `rangeOffsets` and `rangeStepMatrix` are set, the report variant name combines them (for example `boundary/step_eq_range`). This is most useful for promshim-specific rollout validation; in practice the Phase 7 corpus scopes rows to `"subjects": ["shim"]` so optional promclick behavior is not treated as a rollout gate.
+
+A small focused example corpus for Layer 1 is available at:
+- `harness/corpus/phase12-harness-variants.json`
+
+Run it with:
+
+```bash
+./scripts/run-harness.sh --corpus phase12-harness-variants.json --subjects shim
 ```
 
 Extend the corpus cautiously as new features land:

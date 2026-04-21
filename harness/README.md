@@ -72,7 +72,7 @@ Comparator outputs:
 
 ## Query corpus
 
-The initial corpus lives in:
+The main stable corpus lives in:
 
 - `harness/corpus/queries.json`
 
@@ -111,6 +111,27 @@ The following query families remain excluded from the stable corpus because they
 - `changes(...[range:step])`
 
 As these are handled explicitly with `unsupported` errors, they are not suitable for success-case differential parity assertions until local implementation or delegated parity guarantees are introduced.
+
+### Native SQL lowering starter corpus
+
+For the native SQL lowering roadmap there is also a smaller focused starter corpus:
+
+- `harness/corpus/native-lowering-starter.json`
+- `harness/corpus/native-lowering-starter.metadata.json`
+
+This corpus is intended for frequent runs while the planner/type-extraction and native-lowering work is in flight. It keeps a small baseline across the first roadmap buckets:
+
+- selectors
+- aggregations
+- joins / vector matching
+- counters / rate family
+- subqueries
+
+Run it with:
+
+```bash
+./scripts/run-harness.sh --corpus native-lowering-starter.json
+```
 
 Extend the corpus cautiously as new features land:
 - add new corpus rows only after parity is verified in `./artifacts/compare-report.json` and corresponding unit/integration coverage exists.

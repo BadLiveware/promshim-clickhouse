@@ -1,4 +1,41 @@
 {
-  "nextId": 72,
-  "tasks": []
+  "nextId": 81,
+  "tasks": [
+    {
+      "id": "78",
+      "subject": "Introduce native subtree plan and fragment renderer skeleton",
+      "description": "Implement Phase 2 by replacing the aggregation-specific native execution node with a general nativeSubtreePlan that executes rendered native fragments. Keep the initial supported subset narrow: selectors, scalar literals as source constants, unary arithmetic, scalar/vector arithmetic, and simple aggregations.",
+      "status": "pending",
+      "activeForm": "Introducing native subtree plan and renderer",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776767456089,
+      "updatedAt": 1776767456089
+    },
+    {
+      "id": "79",
+      "subject": "Route simple native aggregation through fragment builder",
+      "description": "Build a fragment-builder layer in internal/promshim/native that lowers the currently supported subset into an internal fragment IR and renders SQL separately. Re-express the current native aggregation pushdown as a special case of the new general native subtree mechanism without changing supported query shapes.",
+      "status": "pending",
+      "activeForm": "Routing simple native aggregation through fragment builder",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776767456089,
+      "updatedAt": 1776767456089
+    },
+    {
+      "id": "80",
+      "subject": "Adapt native plan explain and tests for subtree execution",
+      "description": "Update explain output and native-plan tests to validate native subtree selection and SQL rendering under the Phase 2 architecture. Add renderer-focused tests or snapshots for the narrow supported subset.",
+      "status": "pending",
+      "activeForm": "Adapting explain and tests for subtree execution",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776767456090,
+      "updatedAt": 1776767456090
+    }
+  ]
 }

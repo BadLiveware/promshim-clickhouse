@@ -9,6 +9,11 @@ codebase actually is (as of 2026-04-21) versus where this plan originally
 assumed it would be. The architecture still holds; Phase 1 and Phase 6 have
 drifted and are now interpreted through that chunk.
 
+If you want the pre-Phase-1 execution baseline for this repo, also read
+[phase-0-baseline.md](./phase-0-baseline.md). It freezes the semantic
+guardrails, inventories the current touchpoints, and points at the focused
+starter differential corpus used for this roadmap.
+
 ## Reading / execution order
 
 1. [00-status-and-drift.md](./00-status-and-drift.md)

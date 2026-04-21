@@ -19,6 +19,8 @@ Options:
   --theme <name>        Run against a single themed corpus from draft-grafana-top-panel-shortlist.themes/.
   --all-themes          Run against every theme corpus in sequence (seeds once, compares per theme).
                         Per-theme reports are written to artifacts/compare-report-{theme}.json.
+  --corpus <path>       Run against a specific corpus JSON relative to harness/corpus/
+                        (for example: native-lowering-starter.json).
   --no-build            Skip image build step.
   --keep-up             Keep containers/network/volumes after completion.
   --init-retries <n>    Retry attempts for clickhouse-init (default: 10).
@@ -50,6 +52,7 @@ KEEP_UP=0
 INIT_RETRIES=10
 THEME=""
 ALL_THEMES=0
+CUSTOM_CORPUS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -60,6 +63,10 @@ while [[ $# -gt 0 ]]; do
     --all-themes)
       ALL_THEMES=1
       shift
+      ;;
+    --corpus)
+      CUSTOM_CORPUS="$2"
+      shift 2
       ;;
     --no-build)
       BUILD_IMAGES=0
@@ -91,9 +98,18 @@ if [[ -n "$THEME" ]] && (( ALL_THEMES == 1 )); then
   fatal "--theme and --all-themes are mutually exclusive"
 fi
 
+if [[ -n "$CUSTOM_CORPUS" ]] && { [[ -n "$THEME" ]] || (( ALL_THEMES == 1 )); }; then
+  fatal "--corpus cannot be combined with --theme or --all-themes"
+fi
+
 CORPUS_PATH_OVERRIDE=""
 if [[ -n "$THEME" ]]; then
   CORPUS_PATH_OVERRIDE="/app/harness/corpus/draft-grafana-top-panel-shortlist.themes/${THEME}.json"
+elif [[ -n "$CUSTOM_CORPUS" ]]; then
+  if [[ ! -f "${HARNESS_DIR}/corpus/${CUSTOM_CORPUS}" ]]; then
+    fatal "Corpus file not found under harness/corpus/: ${CUSTOM_CORPUS}"
+  fi
+  CORPUS_PATH_OVERRIDE="/app/harness/corpus/${CUSTOM_CORPUS}"
 fi
 
 THEMES_HOST_DIR="${HARNESS_DIR}/corpus/draft-grafana-top-panel-shortlist.themes"

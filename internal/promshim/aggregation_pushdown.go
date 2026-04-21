@@ -1,6 +1,6 @@
 package promshim
 
-import "github.com/prometheus/prometheus/promql/parser"
+import nativeplan "ch-observability/internal/promshim/native"
 
 type nativeAggregationEligibility struct {
 	Eligible bool
@@ -9,34 +9,33 @@ type nativeAggregationEligibility struct {
 }
 
 func decideNativeAggregationPushdown(node *logicalAggregationPlan, ctx planContext) nativeAggregationEligibility {
+	return decideNativeAggregationPushdownFromAnalysis(node, nativeplan.Analyze(node), ctx)
+}
+
+func decideNativeAggregationPushdownFromAnalysis(node *logicalAggregationPlan, analysis *nativeplan.Analysis, ctx planContext) nativeAggregationEligibility {
 	if node == nil {
 		return nativeAggregationEligibility{Reason: "aggregation pushdown requires an aggregation node"}
 	}
 	if !ctx.PreferNativeAggregationPushdown {
 		return nativeAggregationEligibility{Reason: "native aggregation pushdown is disabled for this request context"}
 	}
-	if !isNativeAggregationOperatorSupported(node.Op) {
-		return nativeAggregationEligibility{Reason: "aggregation operator is not supported by native SQL pushdown"}
+	info := analysis.InfoFor(node)
+	if info == nil || info.Aggregation == nil {
+		return nativeAggregationEligibility{Reason: "native aggregation analysis metadata is unavailable for this node"}
 	}
-	source, ok := buildNativeAggregationSource(node.Child)
+	if !info.Aggregation.Eligible {
+		return nativeAggregationEligibility{Reason: info.Aggregation.Reason}
+	}
+	source, ok := nativeAggregationSourceFromLowering(info)
 	if !ok {
-		return nativeAggregationEligibility{Reason: "aggregation child is not pushdown-safe; native pushdown currently requires one delegatable leaf with only unary or scalar arithmetic transforms"}
+		return nativeAggregationEligibility{Reason: "native aggregation analysis did not produce a source fragment"}
 	}
 	if result := analyzeDelegatedExprSupportForContext(source.PromQLLeaf, ctx); !result.Supported {
 		return nativeAggregationEligibility{Reason: result.Reason}
 	}
 	return nativeAggregationEligibility{
 		Eligible: true,
-		Reason:   "pushing aggregation into native ClickHouse SQL over a delegatable leaf-compatible child to avoid materializing the full child result in Go",
+		Reason:   info.Aggregation.Reason,
 		Source:   source,
-	}
-}
-
-func isNativeAggregationOperatorSupported(op parser.ItemType) bool {
-	switch op {
-	case parser.SUM, parser.COUNT, parser.MIN, parser.MAX, parser.AVG:
-		return true
-	default:
-		return false
 	}
 }

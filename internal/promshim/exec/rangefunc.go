@@ -61,7 +61,7 @@ func applySumOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, error)
 		if hasNaN {
 			sum = math.NaN()
 		}
-		out = append(out, model.InstantSample{Metric: model.CloneMetric(series.Metric), Timestamp: last.Timestamp, Value: sum})
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: sum})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		left := model.LabelsKey(out[i].Metric)
@@ -99,7 +99,7 @@ func applyAvgOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, error)
 		if hasNaN {
 			value = math.NaN()
 		}
-		out = append(out, model.InstantSample{Metric: model.CloneMetric(series.Metric), Timestamp: last.Timestamp, Value: value})
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: value})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		left := model.LabelsKey(out[i].Metric)
@@ -120,7 +120,7 @@ func applyCountOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, erro
 			continue
 		}
 		last := series.Values[len(series.Values)-1]
-		out = append(out, model.InstantSample{Metric: model.CloneMetric(series.Metric), Timestamp: last.Timestamp, Value: count})
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: count})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		left := model.LabelsKey(out[i].Metric)
@@ -160,7 +160,7 @@ func applyMaxOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, error)
 		if hasNaN {
 			value = math.NaN()
 		}
-		out = append(out, model.InstantSample{Metric: model.CloneMetric(series.Metric), Timestamp: last.Timestamp, Value: value})
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: value})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		left := model.LabelsKey(out[i].Metric)
@@ -200,7 +200,7 @@ func applyMinOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, error)
 		if hasNaN {
 			value = math.NaN()
 		}
-		out = append(out, model.InstantSample{Metric: model.CloneMetric(series.Metric), Timestamp: last.Timestamp, Value: value})
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: value})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		left := model.LabelsKey(out[i].Metric)
@@ -220,7 +220,7 @@ func applyLastOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, error
 			continue
 		}
 		last := series.Values[len(series.Values)-1]
-		out = append(out, model.InstantSample{Metric: model.CloneMetric(series.Metric), Timestamp: last.Timestamp, Value: last.Value})
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: last.Value})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		left := model.LabelsKey(out[i].Metric)
@@ -245,7 +245,7 @@ func applyQuantileOverTimeMatrix(quantile float64, matrix model.MatrixValue) []m
 		}
 		quantileValue := calculateQuantileFromValues(quantile, values)
 		last := series.Values[len(series.Values)-1]
-		out = append(out, model.InstantSample{Metric: model.CloneMetric(series.Metric), Timestamp: last.Timestamp, Value: quantileValue})
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: quantileValue})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		left := model.LabelsKey(out[i].Metric)

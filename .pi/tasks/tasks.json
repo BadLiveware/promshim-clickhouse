@@ -1,4 +1,17 @@
 {
-  "nextId": 54,
-  "tasks": []
+  "nextId": 60,
+  "tasks": [
+    {
+      "id": "59",
+      "subject": "Add local support for rate/irate over subquery ranges",
+      "description": "Implement local planning/execution for rate(...) and irate(...) when their argument is a subquery expression (e.g. draft_cand_0225 and draft_cand_0242). Keep matrix-selector-with-subquery-step semantics working in query_range via local subquery + executeRangeVectorPlan. Add plan/analyzer/pruning updates to allow rate/irate subquery forms while keeping other rate-family subquery forms unsupported. Add unit tests for analyze, logical/execution planning, exec transforms, and service/API behavior; update hard integration assertions accordingly.",
+      "status": "completed",
+      "activeForm": "", 
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776760327730,
+      "updatedAt": 1776760327730
+    }
+  ]
 }

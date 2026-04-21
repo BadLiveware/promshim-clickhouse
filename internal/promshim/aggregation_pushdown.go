@@ -22,6 +22,9 @@ func decideNativeAggregationPushdown(node *logicalAggregationPlan, ctx planConte
 	if !ok {
 		return nativeAggregationEligibility{Reason: "aggregation child is not pushdown-safe; native pushdown currently requires one delegatable leaf with only unary or scalar arithmetic transforms"}
 	}
+	if result := analyzeDelegatedExprSupportForContext(source.PromQLLeaf, ctx); !result.Supported {
+		return nativeAggregationEligibility{Reason: result.Reason}
+	}
 	return nativeAggregationEligibility{
 		Eligible: true,
 		Reason:   "pushing aggregation into native ClickHouse SQL over a delegatable leaf-compatible child to avoid materializing the full child result in Go",

@@ -265,6 +265,88 @@ func TestBuildPlanCreatesHistogramProjectionPlan(t *testing.T) {
 	}
 }
 
+func TestBuildPlanCreatesIncreasePlan(t *testing.T) {
+	expr, err := plan.ParseExpression("increase(up[5m])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected increase plan, got error: %v", err)
+	}
+	increasePlan, ok := execPlan.(*localIncreasePlan)
+	if !ok {
+		t.Fatalf("expected localIncreasePlan, got %T", execPlan)
+	}
+	if _, ok := increasePlan.Child.(*delegatedExprPlan); !ok {
+		t.Fatalf("expected delegated child, got %T", increasePlan.Child)
+	}
+}
+
+func TestBuildPlanCreatesVectorPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("vector(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected vector plan, got error: %v", err)
+	}
+	vectorPlan, ok := execPlan.(*localVectorPlan)
+	if !ok {
+		t.Fatalf("expected localVectorPlan, got %T", execPlan)
+	}
+	if _, ok := vectorPlan.Child.(*scalarLiteralPlan); !ok {
+		t.Fatalf("expected scalar child for vector(), got %T", vectorPlan.Child)
+	}
+}
+
+func TestBuildPlanCreatesRoundPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("round(up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected round plan, got error: %v", err)
+	}
+	roundPlan, ok := execPlan.(*localRoundPlan)
+	if !ok {
+		t.Fatalf("expected localRoundPlan, got %T", execPlan)
+	}
+	if roundPlan.Decimals != nil {
+		t.Fatalf("expected nil decimals for round(up), got %#v", roundPlan.Decimals)
+	}
+	if _, ok := roundPlan.Child.(*delegatedExprPlan); !ok {
+		t.Fatalf("expected delegated vector child for round(), got %T", roundPlan.Child)
+	}
+}
+
+func TestBuildPlanCreatesNestedAggregationPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("count(count by (job) (up))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected nested aggregation plan, got error: %v", err)
+	}
+	outer, ok := execPlan.(*localAggregationPlan)
+	if !ok {
+		t.Fatalf("expected localAggregationPlan, got %T", execPlan)
+	}
+	if outer.Op != parser.COUNT {
+		t.Fatalf("expected outer count op, got %v", outer.Op)
+	}
+	if _, ok := outer.Child.(*localAggregationPlan); !ok {
+		t.Fatalf("expected local aggregation child, got %T", outer.Child)
+	}
+}
+
 func TestBuildPlanCreatesLastOverTimePlan(t *testing.T) {
 	expr, err := plan.ParseExpression("last_over_time(up[5m])")
 	if err != nil {
@@ -974,7 +1056,7 @@ func TestBuildPlanRejectsUnsupportedAggregationParameterExpression(t *testing.T)
 }
 
 func TestBuildPlanRejectsRateFamilySubqueryArgs(t *testing.T) {
-	for _, fn := range []string{"rate", "irate", "increase", "delta", "idelta", "deriv", "changes"} {
+	for _, fn := range []string{"increase", "delta", "idelta", "deriv", "changes"} {
 		exprText := fmt.Sprintf("%s(up[5m:30s])", fn)
 		expr, err := plan.ParseExpression(exprText)
 		if err != nil {
@@ -997,8 +1079,32 @@ func TestBuildPlanRejectsRateFamilySubqueryArgs(t *testing.T) {
 	}
 }
 
+func TestBuildPlanBuildsRatePlanForSubqueryArg(t *testing.T) {
+	for _, fn := range []string{"rate", "irate"} {
+		exprText := fmt.Sprintf("%s(sum(up)[5m:])", fn)
+		expr, err := plan.ParseExpression(exprText)
+		if err != nil {
+			t.Fatalf("parse %q failed: %v", exprText, err)
+		}
+		execPlan, err := buildPlan(expr)
+		if err != nil {
+			t.Fatalf("expected local plan for %q, got error: %v", exprText, err)
+		}
+		ratePlan, ok := execPlan.(*localRatePlan)
+		if !ok {
+			t.Fatalf("expected localRatePlan for %q, got %T", exprText, execPlan)
+		}
+		if ratePlan.Func != fn {
+			t.Fatalf("expected %q function, got %q", fn, ratePlan.Func)
+		}
+		if _, ok := ratePlan.Child.(*localSubqueryPlan); !ok {
+			t.Fatalf("expected local subquery child for %q, got %T", exprText, ratePlan.Child)
+		}
+	}
+}
+
 func TestBuildPlanRejectsRateFamilySubqueryArgsInsideAggregate(t *testing.T) {
-	for _, fn := range []string{"rate", "irate", "increase", "delta", "idelta", "deriv", "changes"} {
+	for _, fn := range []string{"increase", "delta", "idelta", "deriv", "changes"} {
 		exprText := fmt.Sprintf("sum(%s(up[5m:30s]))", fn)
 		expr, err := plan.ParseExpression(exprText)
 		if err != nil {
@@ -1018,6 +1124,62 @@ func TestBuildPlanRejectsRateFamilySubqueryArgsInsideAggregate(t *testing.T) {
 		if !strings.Contains(buildErr.Support.Reason, "subquery arguments") || !strings.Contains(buildErr.Support.Reason, fn) {
 			t.Fatalf("unexpected reason for %q: %q", exprText, buildErr.Support.Reason)
 		}
+	}
+}
+
+func TestBuildPlanWithContextCreatesRatePlanForSubqueryInRangeMode(t *testing.T) {
+	expr, err := plan.ParseExpression("rate(sum(up)[5m:])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+	if err != nil {
+		t.Fatalf("expected local rate plan, got error: %v", err)
+	}
+	ratePlan, ok := execPlan.(*localRatePlan)
+	if !ok {
+		t.Fatalf("expected localRatePlan, got %T", execPlan)
+	}
+	if ratePlan.Func != "rate" {
+		t.Fatalf("expected rate func, got %q", ratePlan.Func)
+	}
+	if _, ok := ratePlan.Child.(*localSubqueryPlan); !ok {
+		t.Fatalf("expected local subquery child, got %T", ratePlan.Child)
+	}
+}
+
+func TestBuildPlanWithContextCreatesIncreasePlanInRangeMode(t *testing.T) {
+	expr, err := plan.ParseExpression("increase(up[5m])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+	if err != nil {
+		t.Fatalf("expected increase plan, got error: %v", err)
+	}
+	if _, ok := execPlan.(*localIncreasePlan); !ok {
+		t.Fatalf("expected localIncreasePlan, got %T", execPlan)
+	}
+}
+
+func TestBuildPlanWithContextCreatesLocalAggregationOverIncreaseInRangeMode(t *testing.T) {
+	expr, err := plan.ParseExpression("sum(increase(up[5m]))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, PreferNativeAggregationPushdown: true})
+	if err != nil {
+		t.Fatalf("expected aggregation over increase plan, got error: %v", err)
+	}
+	agg, ok := execPlan.(*localAggregationPlan)
+	if !ok {
+		t.Fatalf("expected localAggregationPlan, got %T", execPlan)
+	}
+	if _, ok := agg.Child.(*localIncreasePlan); !ok {
+		t.Fatalf("expected localIncreasePlan child, got %T", agg.Child)
 	}
 }
 
@@ -1050,6 +1212,110 @@ func TestLocalSubqueryPlanExecutesChildAcrossInstantWindow(t *testing.T) {
 	}
 	if len(calls) != 3 {
 		t.Fatalf("expected three child evaluations, got %d", len(calls))
+	}
+}
+
+func TestLocalVectorPlanInstant(t *testing.T) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, _ evalParams) (model.RuntimeValue, error) {
+		return model.ScalarValue{Timestamp: 12.5, Value: 4}, nil
+	}}
+	plan := &localVectorPlan{Expr: "vector(1)", Child: child}
+
+	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeInstant, EvaluationTime: time.Unix(10, 0).UTC()})
+	if err != nil {
+		t.Fatalf("expected successful vector instant execution, got error: %v", err)
+	}
+	vector, ok := value.(model.VectorValue)
+	if !ok {
+		t.Fatalf("expected vector result, got %T", value)
+	}
+	if len(vector.Samples) != 1 {
+		t.Fatalf("expected one vector sample, got %#v", vector.Samples)
+	}
+	if vector.Samples[0].Value != 4 || vector.Samples[0].Timestamp != 12.5 {
+		t.Fatalf("unexpected vector sample: %#v", vector.Samples)
+	}
+	if len(vector.Samples[0].Metric) != 0 {
+		t.Fatalf("expected empty metric map, got %#v", vector.Samples[0].Metric)
+	}
+}
+
+func TestLocalVectorPlanRangeMode(t *testing.T) {
+	calls := 0
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+		calls++
+		return model.ScalarValue{Timestamp: float64(params.EvaluationTime.Unix()), Value: 1}, nil
+	}}
+	plan := &localVectorPlan{Expr: "vector(1)", Child: child}
+
+	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("expected successful vector range execution, got error: %v", err)
+	}
+	matrix, ok := value.(model.MatrixValue)
+	if !ok {
+		t.Fatalf("expected matrix result, got %T", value)
+	}
+	if len(matrix.Series) != 1 {
+		t.Fatalf("expected one vector series, got %#v", matrix.Series)
+	}
+	if len(matrix.Series[0].Values) != 3 {
+		t.Fatalf("expected three range samples, got %#v", matrix.Series[0].Values)
+	}
+	if calls != 3 {
+		t.Fatalf("expected child evaluated at each step, got %d", calls)
+	}
+}
+
+func TestLocalRoundPlanInstant(t *testing.T) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, _ evalParams) (model.RuntimeValue, error) {
+		return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"__name__": "a"}, Timestamp: 1, Value: 1.2}}}, nil
+	}}
+	plan := &localRoundPlan{Expr: "round(up)", Child: child}
+
+	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeInstant, EvaluationTime: time.Unix(10, 0).UTC()})
+	if err != nil {
+		t.Fatalf("expected successful round instant execution, got error: %v", err)
+	}
+	vector, ok := value.(model.VectorValue)
+	if !ok {
+		t.Fatalf("expected vector result, got %T", value)
+	}
+	if len(vector.Samples) != 1 {
+		t.Fatalf("expected one output sample, got %#v", vector.Samples)
+	}
+	if vector.Samples[0].Value != 1 {
+		t.Fatalf("expected rounded value 1, got %#v", vector.Samples[0].Value)
+	}
+	if _, ok := vector.Samples[0].Metric["__name__"]; ok {
+		t.Fatalf("expected __name__ dropped, got %#v", vector.Samples[0].Metric)
+	}
+}
+
+func TestLocalRoundPlanRangeMode(t *testing.T) {
+	plan := &localRoundPlan{Expr: "round(up)", Child: testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+		if params.EvaluationTime.Unix()%60 == 0 {
+			return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: float64(params.EvaluationTime.Unix()), Value: 2.7}}}, nil
+		}
+		return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: float64(params.EvaluationTime.Unix()), Value: 1.2}}}, nil
+	}}}
+
+	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("expected successful range round execution, got error: %v", err)
+	}
+	matrix, ok := value.(model.MatrixValue)
+	if !ok {
+		t.Fatalf("expected matrix result, got %T", value)
+	}
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
+		t.Fatalf("expected one rounded series with three points, got %#v", matrix.Series)
+	}
+	if matrix.Series[0].Values[0].Timestamp != 120 || matrix.Series[0].Values[2].Timestamp != 180 {
+		t.Fatalf("unexpected range timestamps: %#v", matrix.Series[0].Values)
+	}
+	if matrix.Series[0].Values[0].Value != 3 || matrix.Series[0].Values[1].Value != 1 || matrix.Series[0].Values[2].Value != 3 {
+		t.Fatalf("unexpected rounded series values: %#v", matrix.Series[0].Values)
 	}
 }
 

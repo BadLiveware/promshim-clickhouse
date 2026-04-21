@@ -47,7 +47,7 @@ func TestQueryExplainReturnsDelegatedWholeQueryPlanWhenClassifierAllowsIt(t *tes
 }
 
 func TestQueryRangeExplainReturnsLocalFallbackReason(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestQueryRangeExplainReturnsLocalFallbackReason(t *testing.T) {
 }
 
 func TestQueryRangeExplainBuildsVectorAndRoundPlans(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestQueryExplainRejectsMissingQuery(t *testing.T) {
 }
 
 func TestQueryRangeExplainBuildsIncreasePlan(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestQueryRangeExplainBuildsIncreasePlan(t *testing.T) {
 }
 
 func TestQueryRangeExplainBuildsNativeAggregateOverTimePlan(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestQueryRangeExplainBuildsNativeAggregateOverTimePlan(t *testing.T) {
 }
 
 func TestQueryRangeExplainBuildsNativeCounterRangePlans(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +247,7 @@ func TestQueryRangeExplainBuildsNativeCounterRangePlans(t *testing.T) {
 }
 
 func TestQueryRangeExplainBuildsNativeRangePlansForSubquery(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +280,7 @@ func TestQueryRangeExplainBuildsNativeRangePlansForSubquery(t *testing.T) {
 }
 
 func TestQueryExplainBuildsIncreaseDeltaIDeltaChangesAndDerivPlansForSubquerySelector(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +327,7 @@ func TestQueryExplainBuildsIncreaseDeltaIDeltaChangesAndDerivPlansForSubquerySel
 }
 
 func TestQueryExplainBuildsRateAndIratePlansForSubquerySelectors(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func TestQueryRejectsMalformedHistogramFractionAsBadData(t *testing.T) {
 }
 
 func TestQueryExplainBuildsHistogramFractionPlan(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,13 +568,13 @@ func TestQueryExplainReportsEntireQueryDelegationEligibility(t *testing.T) {
 	}
 }
 
-func TestQueryExplainReportsAggregationAsNotEligibleForEntireQueryDelegation(t *testing.T) {
+func TestQueryExplainReportsScalarRootAsNotEligibleForEntireQueryDelegation(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", ClickHouseVersion: "26.3"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=sum%20by%20(job)%20(up)", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=1%20%2B%202", nil)
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 
@@ -593,8 +593,8 @@ func TestQueryExplainReportsAggregationAsNotEligibleForEntireQueryDelegation(t *
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Data.EntireQueryDelegation.Eligible || !strings.Contains(body.Data.EntireQueryDelegation.Reason, "aggregations") {
-		t.Fatalf("expected aggregation query to be reported ineligible, got %#v", body.Data.EntireQueryDelegation)
+	if body.Data.EntireQueryDelegation.Eligible || !strings.Contains(body.Data.EntireQueryDelegation.Reason, "scalar-only roots") {
+		t.Fatalf("expected scalar-only root query to be reported ineligible, got %#v", body.Data.EntireQueryDelegation)
 	}
 }
 

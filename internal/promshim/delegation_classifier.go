@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/plan"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -15,6 +14,12 @@ type delegationClassifierResult struct {
 	ClickHouseVersion string `json:"clickHouseVersion,omitempty"`
 }
 
+// classifyEntireQueryDelegation decides whether the entire expression can be
+// handed to ClickHouse as a single prometheusQuery()/prometheusQueryRange()
+// call. The classifier is an explicit allowlist of constructs that compliance
+// has verified against the target ClickHouse version. New constructs graduate
+// from the native-SQL tier into whole-query delegation only after compliance
+// confirms ClickHouse matches Prometheus semantics.
 func classifyEntireQueryDelegation(expr parser.Expr, clickHouseVersion string) delegationClassifierResult {
 	version := normalizeClickHouseVersion(clickHouseVersion)
 	if expr == nil {
@@ -23,11 +28,40 @@ func classifyEntireQueryDelegation(expr parser.Expr, clickHouseVersion string) d
 	if expr.Type() == parser.ValueTypeScalar {
 		return delegationClassifierResult{Eligible: false, Reason: fmt.Sprintf("ClickHouse %s whole-query delegation does not support scalar-only roots", version), ClickHouseVersion: version}
 	}
-	result := plan.AnalyzeDelegatableExpression(expr)
-	if !result.Supported {
-		return delegationClassifierResult{Eligible: false, Reason: result.Reason, ClickHouseVersion: version}
+	if reason := unsupportedDelegationReason(expr, version); reason != "" {
+		return delegationClassifierResult{Eligible: false, Reason: reason, ClickHouseVersion: version}
 	}
 	return delegationClassifierResult{Eligible: true, ClickHouseVersion: version}
+}
+
+// unsupportedDelegationReason returns a human-readable reason if the
+// expression contains any construct not yet verified for whole-query
+// delegation. It returns "" when the entire expression is on the allowlist.
+func unsupportedDelegationReason(node parser.Node, version string) string {
+	if node == nil {
+		return ""
+	}
+	switch typed := node.(type) {
+	case *parser.VectorSelector, *parser.MatrixSelector:
+		return ""
+	case *parser.ParenExpr:
+		return unsupportedDelegationReason(typed.Expr, version)
+	case *parser.StepInvariantExpr:
+		return unsupportedDelegationReason(typed.Expr, version)
+	case *parser.AggregateExpr:
+		return fmt.Sprintf("ClickHouse %s whole-query delegation does not yet allow aggregations", version)
+	case *parser.SubqueryExpr:
+		return fmt.Sprintf("ClickHouse %s whole-query delegation does not yet allow subqueries", version)
+	case *parser.BinaryExpr:
+		return fmt.Sprintf("ClickHouse %s whole-query delegation does not yet allow binary operators", version)
+	case *parser.UnaryExpr:
+		return fmt.Sprintf("ClickHouse %s whole-query delegation does not yet allow unary operators", version)
+	case *parser.Call:
+		return fmt.Sprintf("ClickHouse %s whole-query delegation does not yet allow %s()", version, strings.ToLower(typed.Func.Name))
+	case *parser.NumberLiteral, *parser.StringLiteral:
+		return fmt.Sprintf("ClickHouse %s whole-query delegation does not support literal roots", version)
+	}
+	return fmt.Sprintf("ClickHouse %s whole-query delegation does not yet allow %T", version, node)
 }
 
 func normalizeClickHouseVersion(raw string) string {

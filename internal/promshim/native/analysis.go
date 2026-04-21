@@ -1062,7 +1062,7 @@ func composePointwiseSourceTemplate(template, childValueExpr string) string {
 	if childValueExpr == "" || childValueExpr == "{value}" {
 		return template
 	}
-	return strings.ReplaceAll(template, "{value}", wrapValueExpr(childValueExpr))
+	return strings.NewReplacer("{value}", wrapValueExpr(childValueExpr)).Replace(template)
 }
 
 func sortedKeys(values map[string]LabelLineageState) []string {

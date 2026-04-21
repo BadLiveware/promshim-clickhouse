@@ -45,11 +45,13 @@ Neither `labels.Hash()` nor `labels.StableHash()` reproduces that order — both
 
 Both return correct results but exceed the compliance tester's hard-coded 10s HTTP timeout (`comparer.go:78`).
 
-**Root cause.** These go through the delegated path — the shim issues one request to ClickHouse's `prometheusQueryRange`, and the work happens there. Nested subqueries are inherently O(outer_steps × inner_steps); CH's experimental PromQL engine evaluates the inner expression per subquery step without batching.
+**Root cause.** These queries hit **rung 3** (native-SQL matrix source + local execution): the whole-query classifier rejects any root that isn't a plain selector, so `max_over_time(...)[5m:10s]` and `avg_over_time(rate(...)[2m:10s])` fall through to subtree-plus-local. The Go planner fans out an outer evaluation per step, each invoking an inner subquery evaluation per inner step — O(outer × inner) shim-issued ClickHouse queries. Profiling a single `avg_over_time(rate(...)[2m:10s])` run showed ~793 ClickHouse requests issued by the shim; the slowness is on **our** side, not ClickHouse's. Correctness is fine because each fan-out call evaluates the correct inner window; only the issue count and round-trip cost blow the compliance tester's budget.
 
-**Impact.** 2/539 = 0.4%. Correctness is fine; only timing-sensitive.
+**Impact.** 2/539 = 0.4%.
 
-**Expected to retire.** Consistent with the shim's strategic intent (bridge, not destination): these go away as ClickHouse's PromQL implementation matures — no shim code needs to change.
+**Expected to retire along two axes:**
+1. **Shim-side (rung 2 coverage):** teach native SQL to transpile these subquery shapes into a single ClickHouse query (no fan-out). Aligns with the shim's strategic intent — move queries from rung 3 (subtree+local) up to rung 2 (native SQL).
+2. **Upstream (rung 1 coverage):** as ClickHouse's `prometheusQueryRange` verifies parity on these constructs, the whole-query classifier adds them to the allowlist and they graduate to rung 1 — the shim stops touching them.
 
 ## Fixture
 

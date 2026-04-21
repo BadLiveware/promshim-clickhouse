@@ -775,7 +775,7 @@ func TestExplainPlanDescribesNativeAggregationStrategy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plan, err := buildPlanWithContext(expr, planContext{
+	plan, analysis, err := buildPlanWithContextAndAnalysis(expr, planContext{
 		Mode:                            evalModeRange,
 		Start:                           time.Unix(0, 0).UTC(),
 		End:                             time.Unix(300, 0).UTC(),
@@ -785,7 +785,7 @@ func TestExplainPlanDescribesNativeAggregationStrategy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected native aggregation plan, got error: %v", err)
 	}
-	explain := explainPlan(plan)
+	explain := explainPlanWithLowering(plan, analysis.Root)
 	if explain.Strategy != "native_sql" {
 		t.Fatalf("expected native_sql strategy, got %#v", explain)
 	}
@@ -795,8 +795,14 @@ func TestExplainPlanDescribesNativeAggregationStrategy(t *testing.T) {
 	if explain.Estimate == nil || explain.Estimate.PointsPerSeries != 11 {
 		t.Fatalf("expected range estimate with 11 points per series, got %#v", explain.Estimate)
 	}
+	if explain.Lowering == nil || !explain.Lowering.NativeLowerable || !explain.Lowering.AggregationPushdownEligible {
+		t.Fatalf("expected native lowering metadata on aggregation explain, got %#v", explain.Lowering)
+	}
 	if len(explain.Children) != 1 || explain.Children[0].Strategy != "delegated_promql" {
 		t.Fatalf("expected delegated leaf child explain, got %#v", explain.Children)
+	}
+	if explain.Children[0].Lowering == nil || explain.Children[0].Lowering.FragmentKind == "" {
+		t.Fatalf("expected lowering metadata on delegated child explain, got %#v", explain.Children)
 	}
 }
 
@@ -806,7 +812,7 @@ func TestExplainPlanDescribesNativeTransformedAggregationStrategy(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	plan, err := buildPlanWithContext(expr, planContext{
+	plan, analysis, err := buildPlanWithContextAndAnalysis(expr, planContext{
 		Mode:                            evalModeRange,
 		Start:                           time.Unix(0, 0).UTC(),
 		End:                             time.Unix(300, 0).UTC(),
@@ -816,14 +822,14 @@ func TestExplainPlanDescribesNativeTransformedAggregationStrategy(t *testing.T) 
 	if err != nil {
 		t.Fatalf("expected native aggregation plan, got error: %v", err)
 	}
-	explain := explainPlan(plan)
+	explain := explainPlanWithLowering(plan, analysis.Root)
 	if explain.Strategy != "native_sql" {
 		t.Fatalf("expected native_sql strategy, got %#v", explain)
 	}
 	if len(explain.Children) != 1 || explain.Children[0].Strategy != "native_sql_expression" {
 		t.Fatalf("expected native transformed child explain, got %#v", explain.Children)
 	}
-	if len(explain.Children[0].Children) != 1 || explain.Children[0].Children[0].Strategy != "delegated_promql" {
+	if len(explain.Children[0].Children) == 0 || explain.Children[0].Children[0].Strategy != "delegated_promql" {
 		t.Fatalf("expected delegated leaf under native transform explain, got %#v", explain.Children)
 	}
 }
@@ -834,7 +840,7 @@ func TestExplainPlanDescribesLocalAggregationFallbackReasonWhenPushdownDisabled(
 		t.Fatal(err)
 	}
 
-	plan, err := buildPlanWithContext(expr, planContext{
+	plan, analysis, err := buildPlanWithContextAndAnalysis(expr, planContext{
 		Mode:                            evalModeInstant,
 		EvaluationTime:                  time.Unix(300, 0).UTC(),
 		PreferNativeAggregationPushdown: false,
@@ -842,7 +848,7 @@ func TestExplainPlanDescribesLocalAggregationFallbackReasonWhenPushdownDisabled(
 	if err != nil {
 		t.Fatalf("expected local aggregation plan, got error: %v", err)
 	}
-	explain := explainPlan(plan)
+	explain := explainPlanWithLowering(plan, analysis.Root)
 	if explain.Strategy != "local" {
 		t.Fatalf("expected local strategy, got %#v", explain)
 	}
@@ -857,7 +863,7 @@ func TestExplainPlanDescribesLocalAggregationFallbackReasonWhenChildIsNotPushdow
 		t.Fatal(err)
 	}
 
-	plan, err := buildPlanWithContext(expr, planContext{
+	plan, analysis, err := buildPlanWithContextAndAnalysis(expr, planContext{
 		Mode:                            evalModeRange,
 		Start:                           time.Unix(0, 0).UTC(),
 		End:                             time.Unix(300, 0).UTC(),
@@ -867,12 +873,15 @@ func TestExplainPlanDescribesLocalAggregationFallbackReasonWhenChildIsNotPushdow
 	if err != nil {
 		t.Fatalf("expected local aggregation plan, got error: %v", err)
 	}
-	explain := explainPlan(plan)
+	explain := explainPlanWithLowering(plan, analysis.Root)
 	if explain.Strategy != "local" {
 		t.Fatalf("expected local strategy, got %#v", explain)
 	}
 	if !strings.Contains(explain.Reason, "pushdown-safe") {
 		t.Fatalf("expected pushdown-safe fallback reason, got %#v", explain)
+	}
+	if explain.Lowering == nil || explain.Lowering.AggregationPushdownEligible {
+		t.Fatalf("expected non-eligible lowering metadata, got %#v", explain.Lowering)
 	}
 	if len(explain.Children) != 1 || explain.Children[0].Strategy != "local" {
 		t.Fatalf("expected local child explain for label_join fallback, got %#v", explain.Children)

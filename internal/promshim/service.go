@@ -8,6 +8,7 @@ import (
 
 	httpapi "github.com/BadLiveware/promshim-ch/internal/promshim/httpapi"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/plan"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -39,7 +40,7 @@ func NewHandler(opts Options) (http.Handler, error) {
 }
 
 func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQueryRequest) (*httpapi.Response, *httpapi.APIError) {
-	_, evaluationTime, plan, apiErr := h.buildInstantPlan(req)
+	_, evaluationTime, plan, analysis, apiErr := h.buildInstantPlan(req)
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -59,7 +60,7 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 		return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{
 			"status": "success",
 			"data":   map[string]any{"resultType": resultType, "result": result},
-			"plan":   explainPlan(plan),
+			"plan":   explainPlanWithLowering(plan, analysis.Root),
 		}}, nil
 	}
 	return &httpapi.Response{Stream: func(w http.ResponseWriter) error {
@@ -68,7 +69,7 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 }
 
 func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryRequest) (*httpapi.Response, *httpapi.APIError) {
-	_, start, end, step, plan, apiErr := h.buildRangePlan(req)
+	_, start, end, step, plan, analysis, apiErr := h.buildRangePlan(req)
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -88,7 +89,7 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 		return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{
 			"status": "success",
 			"data":   map[string]any{"resultType": resultType, "result": result},
-			"plan":   explainPlan(plan),
+			"plan":   explainPlanWithLowering(plan, analysis.Root),
 		}}, nil
 	}
 	return &httpapi.Response{Stream: func(w http.ResponseWriter) error {
@@ -97,7 +98,7 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 }
 
 func (h *queryService) ExplainInstant(_ context.Context, req httpapi.InstantQueryRequest) (*httpapi.Response, *httpapi.APIError) {
-	query, evaluationTime, plan, apiErr := h.buildInstantPlan(req)
+	query, evaluationTime, plan, analysis, apiErr := h.buildInstantPlan(req)
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -107,13 +108,13 @@ func (h *queryService) ExplainInstant(_ context.Context, req httpapi.InstantQuer
 			"mode":           string(evalModeInstant),
 			"query":          query,
 			"evaluationTime": evaluationTime.UTC().Format(time.RFC3339Nano),
-			"plan":           explainPlan(plan),
+			"plan":           explainPlanWithLowering(plan, analysis.Root),
 		},
 	}}, nil
 }
 
 func (h *queryService) ExplainRange(_ context.Context, req httpapi.RangeQueryRequest) (*httpapi.Response, *httpapi.APIError) {
-	query, start, end, step, plan, apiErr := h.buildRangePlan(req)
+	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(req)
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -125,7 +126,7 @@ func (h *queryService) ExplainRange(_ context.Context, req httpapi.RangeQueryReq
 			"start": start.UTC().Format(time.RFC3339Nano),
 			"end":   end.UTC().Format(time.RFC3339Nano),
 			"step":  step.String(),
-			"plan":  explainPlan(plan),
+			"plan":  explainPlanWithLowering(plan, analysis.Root),
 		},
 	}}, nil
 }
@@ -207,59 +208,59 @@ func enforceResponseLimits(value model.RuntimeValue, opts Options) error {
 	return nil
 }
 
-func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string, time.Time, queryPlan, *httpapi.APIError) {
+func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string, time.Time, queryPlan, *nativeplan.Analysis, *httpapi.APIError) {
 	query := req.Query
 	if query == "" {
-		return "", time.Time{}, nil, badRequestHTTPError("missing required parameter 'query'")
+		return "", time.Time{}, nil, nil, badRequestHTTPError("missing required parameter 'query'")
 	}
 	expr, err := plan.ParseExpression(query)
 	if err != nil {
-		return "", time.Time{}, nil, badRequestHTTPError(err.Error())
+		return "", time.Time{}, nil, nil, badRequestHTTPError(err.Error())
 	}
 	evaluationTime := time.Now().UTC()
 	if req.Time != "" {
 		evaluationTime, err = model.ParsePrometheusTimestamp(req.Time)
 		if err != nil {
-			return "", time.Time{}, nil, badRequestHTTPError(err.Error())
+			return "", time.Time{}, nil, nil, badRequestHTTPError(err.Error())
 		}
 	}
-	plan, err := buildPlanWithContext(expr, planContext{Mode: evalModeInstant, EvaluationTime: evaluationTime, PreferNativeAggregationPushdown: true, MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries})
+	plan, analysis, err := buildPlanWithContextAndAnalysis(expr, planContext{Mode: evalModeInstant, EvaluationTime: evaluationTime, PreferNativeAggregationPushdown: true, MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries})
 	if err != nil {
-		return "", time.Time{}, nil, apiErrorToHTTP(err)
+		return "", time.Time{}, nil, nil, apiErrorToHTTP(err)
 	}
-	return query, evaluationTime, plan, nil
+	return query, evaluationTime, plan, analysis, nil
 }
 
-func (h *queryService) buildRangePlan(req httpapi.RangeQueryRequest) (string, time.Time, time.Time, time.Duration, queryPlan, *httpapi.APIError) {
+func (h *queryService) buildRangePlan(req httpapi.RangeQueryRequest) (string, time.Time, time.Time, time.Duration, queryPlan, *nativeplan.Analysis, *httpapi.APIError) {
 	query := req.Query
 	if query == "" {
-		return "", time.Time{}, time.Time{}, 0, nil, badRequestHTTPError("missing required parameter 'query'")
+		return "", time.Time{}, time.Time{}, 0, nil, nil, badRequestHTTPError("missing required parameter 'query'")
 	}
 	expr, err := plan.ParseExpression(query)
 	if err != nil {
-		return "", time.Time{}, time.Time{}, 0, nil, badRequestHTTPError(err.Error())
+		return "", time.Time{}, time.Time{}, 0, nil, nil, badRequestHTTPError(err.Error())
 	}
 	if expr.Type() != parser.ValueTypeScalar && expr.Type() != parser.ValueTypeVector {
-		return "", time.Time{}, time.Time{}, 0, nil, badRequestHTTPError(fmt.Sprintf("invalid expression type %q for range query, must be scalar or instant vector", expr.Type()))
+		return "", time.Time{}, time.Time{}, 0, nil, nil, badRequestHTTPError(fmt.Sprintf("invalid expression type %q for range query, must be scalar or instant vector", expr.Type()))
 	}
 	start, err := model.ParsePrometheusTimestamp(req.Start)
 	if err != nil {
-		return "", time.Time{}, time.Time{}, 0, nil, badRequestHTTPError(err.Error())
+		return "", time.Time{}, time.Time{}, 0, nil, nil, badRequestHTTPError(err.Error())
 	}
 	end, err := model.ParsePrometheusTimestamp(req.End)
 	if err != nil {
-		return "", time.Time{}, time.Time{}, 0, nil, badRequestHTTPError(err.Error())
+		return "", time.Time{}, time.Time{}, 0, nil, nil, badRequestHTTPError(err.Error())
 	}
 	if end.Before(start) {
-		return "", time.Time{}, time.Time{}, 0, nil, badRequestHTTPError("end must be greater than or equal to start")
+		return "", time.Time{}, time.Time{}, 0, nil, nil, badRequestHTTPError("end must be greater than or equal to start")
 	}
 	step, err := model.ParsePrometheusDuration(req.Step)
 	if err != nil {
-		return "", time.Time{}, time.Time{}, 0, nil, badRequestHTTPError(err.Error())
+		return "", time.Time{}, time.Time{}, 0, nil, nil, badRequestHTTPError(err.Error())
 	}
-	plan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: start, End: end, Step: step, PreferNativeAggregationPushdown: true, MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries})
+	plan, analysis, err := buildPlanWithContextAndAnalysis(expr, planContext{Mode: evalModeRange, Start: start, End: end, Step: step, PreferNativeAggregationPushdown: true, MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries})
 	if err != nil {
-		return "", time.Time{}, time.Time{}, 0, nil, apiErrorToHTTP(err)
+		return "", time.Time{}, time.Time{}, 0, nil, nil, apiErrorToHTTP(err)
 	}
-	return query, start, end, step, plan, nil
+	return query, start, end, step, plan, analysis, nil
 }

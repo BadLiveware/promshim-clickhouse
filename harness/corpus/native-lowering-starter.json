@@ -1,0 +1,109 @@
+[
+  {
+    "name": "native_lowering_selector_instant",
+    "endpoint": "query",
+    "query": "harness_up",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "native_lowering_selector_matcher_instant",
+    "endpoint": "query",
+    "query": "harness_up{job=\"api\"}",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "native_lowering_selector_offset_instant",
+    "endpoint": "query",
+    "query": "harness_up offset 60s",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "native_lowering_selector_range",
+    "endpoint": "query_range",
+    "query": "harness_up{job=\"api\"}",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "native_lowering_sum_by_job_instant",
+    "endpoint": "query",
+    "query": "sum by (job) (harness_up)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "native_lowering_sum_by_job_range",
+    "endpoint": "query_range",
+    "query": "sum by (job) (harness_up)",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "native_lowering_sum_by_job_scaled_instant",
+    "endpoint": "query",
+    "query": "sum by (job) (harness_up * 100)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "native_lowering_avg_by_job_negated_range",
+    "endpoint": "query_range",
+    "query": "avg by (job) (-harness_queue_depth)",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "native_lowering_vector_vector_instant",
+    "endpoint": "query",
+    "query": "harness_up + harness_up",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "native_lowering_vector_match_group_left_instant",
+    "endpoint": "query",
+    "query": "harness_up * on(job) group_left sum by (job) (harness_up)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "native_lowering_rate_selector_instant",
+    "endpoint": "query",
+    "query": "rate(harness_requests_total{job=\"api\"}[5m])",
+    "timeOffsetSeconds": 540,
+    "compareMode": "structural"
+  },
+  {
+    "name": "native_lowering_sum_rate_by_job_instant",
+    "endpoint": "query",
+    "query": "sum by (job) (rate(harness_requests_total[5m]))",
+    "timeOffsetSeconds": 540,
+    "compareMode": "structural"
+  },
+  {
+    "name": "native_lowering_increase_selector_instant",
+    "endpoint": "query",
+    "query": "increase(harness_requests_total{job=\"api\"}[5m])",
+    "timeOffsetSeconds": 540,
+    "compareMode": "structural"
+  },
+  {
+    "name": "native_lowering_subquery_matrix_root_selector_instant",
+    "endpoint": "query",
+    "query": "harness_requests_total[5m:60s]",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "native_lowering_subquery_local_child_instant",
+    "endpoint": "query",
+    "query": "(harness_up * 100)[5m:60s]",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "native_lowering_last_over_time_subquery_range",
+    "endpoint": "query_range",
+    "query": "last_over_time((harness_up * 100)[5m:60s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  }
+]

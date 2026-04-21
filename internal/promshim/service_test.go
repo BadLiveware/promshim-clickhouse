@@ -41,6 +41,9 @@ func TestQueryExplainReturnsNativePlan(t *testing.T) {
 	if body.Data.Plan.Strategy != "native_sql" {
 		t.Fatalf("expected native_sql plan, got %#v", body.Data.Plan)
 	}
+	if body.Data.Plan.Lowering == nil || !body.Data.Plan.Lowering.AggregationPushdownEligible {
+		t.Fatalf("expected lowering metadata in explain response, got %#v", body.Data.Plan)
+	}
 }
 
 func TestQueryRangeExplainReturnsLocalFallbackReason(t *testing.T) {

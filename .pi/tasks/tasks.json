@@ -1,93 +1,53 @@
 {
-  "nextId": 93,
+  "nextId": 128,
   "tasks": [
     {
-      "id": "87",
-      "subject": "Add typed native selector fragment and matcher model",
-      "description": "Implement Phase 3 selector lowering metadata in internal/promshim/native by extending leaf fragments with repo-owned selector source information, typed matchers, time-bound requirements, and explicit instant/range selector contracts. Keep this scoped to selector leaves used by the current native subset.",
+      "id": "124",
+      "subject": "Assess remaining Phase 6 harness promotion work",
+      "description": "Assessed the remaining Phase 6 harness/promotion work. The remaining implementation work was not additional native lowering; it was harness-side promotion plumbing and stable-corpus promotion for the now-green Phase 6 shim rows. Identified the smallest in-scope work: add subject filtering so optional promclick behavior does not block shim-native promotions, then promote the missing stable Phase 6 rows.",
       "status": "completed",
-      "activeForm": "Adding typed selector fragment model",
-      "metadata": {},
-      "blocks": [
-        "88"
-      ],
-      "blockedBy": [],
-      "createdAt": 1776771214341,
-      "updatedAt": 1776771948197
-    },
-    {
-      "id": "88",
-      "subject": "Implement repo-owned selector SQL rendering and matcher lowering",
-      "description": "Add storage/native SQL builders that render selector sources using timeSeriesData(...) and related TimeSeries relations, compile metric/equality/inequality/regex/negative-regex matchers into typed predicates, and apply evaluation-range bounds from native analysis.",
-      "status": "completed",
-      "activeForm": "Implementing selector SQL rendering",
-      "metadata": {},
-      "blocks": [
-        "89"
-      ],
-      "blockedBy": [
-        "87"
-      ],
-      "createdAt": 1776771214342,
-      "updatedAt": 1776771948197
-    },
-    {
-      "id": "89",
-      "subject": "Route native subtree rendering through selector sources and add tests",
-      "description": "Update native fragment rendering so current native aggregation/unary/scalar-arithmetic paths use repo-owned selector leaf sources instead of delegated PromQL, then add tests for matcher-to-SQL lowering, selector output contracts, bounded fetches, and native explain/render behavior.",
-      "status": "completed",
-      "activeForm": "Routing native rendering through selector sources",
+      "activeForm": "Assessing remaining Phase 6 harness promotion work",
       "metadata": {},
       "blocks": [],
-      "blockedBy": [
-        "88"
-      ],
-      "createdAt": 1776771214342,
-      "updatedAt": 1776771948197
-    },
-    {
-      "id": "90",
-      "subject": "Add optimizer-owned selector predicate and projection state",
-      "description": "Implement Phase 4 optimizer state on selector-backed native fragments so passes can mutate effective selector predicates and projection requirements rather than only reporting strings. Include inferred/pushed matcher tracking, required tag-label state, and rewrite metadata for the current native subset.",
-      "status": "completed",
-      "activeForm": "Adding selector optimizer state",
-      "metadata": {},
-      "blocks": [
-        "91"
-      ],
       "blockedBy": [],
-      "createdAt": 1776773369590,
-      "updatedAt": 1776773767753
+      "createdAt": 1776780518455,
+      "updatedAt": 1776781197397
     },
     {
-      "id": "91",
-      "subject": "Use optimizer passes to tighten selector SQL and flatten wrappers",
-      "description": "Update selector and renderer SQL generation so Phase 4 passes materially change the rendered SQL for the current native subset: push inferred predicates into deepest selector sources, avoid unnecessary tag materialization/timeSeriesTags joins where safe, and flatten redundant source wrappers while preserving semantic barriers.",
+      "id": "125",
+      "subject": "Add per-query harness subject filtering",
+      "description": "Added harness subject selection globally and per query. scripts/run-harness.sh now supports --subjects, compare config honors PROM_HARNESS_SUBJECTS, and corpus rows can declare \"subjects\": [\"shim\"] or similar to restrict optional subjects. Added promharness tests and updated harness README accordingly.",
       "status": "completed",
-      "activeForm": "Tightening selector SQL and flattening wrappers",
-      "metadata": {},
-      "blocks": [
-        "92"
-      ],
-      "blockedBy": [
-        "90"
-      ],
-      "createdAt": 1776773369591,
-      "updatedAt": 1776773767753
-    },
-    {
-      "id": "92",
-      "subject": "Add Phase 4 optimizer pass tests",
-      "description": "Add optimizer-focused tests for Phase 4 proving predicate pushdown into selector SQL, safe matcher inference, projection pushdown reducing tag materialization when safe, redundant wrapper elimination, no SELECT-star SQL, and preserved aggregation semantic barriers.",
-      "status": "completed",
-      "activeForm": "Adding Phase 4 optimizer tests",
+      "activeForm": "Adding per-query harness subject filtering",
       "metadata": {},
       "blocks": [],
-      "blockedBy": [
-        "91"
-      ],
-      "createdAt": 1776773369591,
-      "updatedAt": 1776773767753
+      "blockedBy": [],
+      "createdAt": 1776780595451,
+      "updatedAt": 1776781197398
+    },
+    {
+      "id": "126",
+      "subject": "Promote stable Phase 6 native rows into the main harness corpus",
+      "description": "Promoted the missing stable Phase 6 native rows from harness/corpus/native-lowering-starter.json into harness/corpus/queries.json: rate selector instant/range, increase selector instant/range, sum by(job)(rate(...)) instant, sum_over_time selector range, count_over_time selector range, and rate(subquery) range. Rows that are only meaningful against promshim today are scoped to subjects=[\"shim\"].",
+      "status": "completed",
+      "activeForm": "Promoting stable Phase 6 native rows",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776780603580,
+      "updatedAt": 1776781197398
+    },
+    {
+      "id": "127",
+      "subject": "Validate full stable corpus after Phase 6 promotion",
+      "description": "Validated the promotion work with go test ./internal/promharness/... ./internal/promshim/... and harness runs. The promoted Phase 6 stable-corpus rows are green in shim-only stable-corpus runs (./scripts/run-harness.sh --subjects shim). Full all-subject corpus runs still carry unrelated optional promclick divergences and some unrelated non-Phase-6 shim mismatches, which were recorded honestly rather than treated as Phase 6 blockers.",
+      "status": "completed",
+      "activeForm": "Validating the full stable corpus",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776780607120,
+      "updatedAt": 1776781197398
     }
   ]
 }

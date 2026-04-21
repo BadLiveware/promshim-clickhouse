@@ -25,6 +25,8 @@ type ExplainNode struct {
 	MaterializedColumns []string                `json:"materializedColumns,omitempty"`
 	SemanticBarriers    []string                `json:"semanticBarriers,omitempty"`
 	RenderedSQL         string                  `json:"renderedSQL,omitempty"`
+	JoinShape           string                  `json:"joinShape,omitempty"`
+	JoinLabels          []string                `json:"joinLabels,omitempty"`
 	Children            []ExplainNode           `json:"children,omitempty"`
 }
 

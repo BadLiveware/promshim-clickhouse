@@ -21,6 +21,8 @@ Options:
                         Per-theme reports are written to artifacts/compare-report-{theme}.json.
   --corpus <path>       Run against a specific corpus JSON relative to harness/corpus/
                         (for example: native-lowering-starter.json).
+  --subjects <list>     Restrict compare subjects to a comma-separated subset
+                        (for example: shim or shim,promclick).
   --no-build            Skip image build step.
   --keep-up             Keep containers/network/volumes after completion.
   --init-retries <n>    Retry attempts for clickhouse-init (default: 10).
@@ -53,6 +55,7 @@ INIT_RETRIES=10
 THEME=""
 ALL_THEMES=0
 CUSTOM_CORPUS=""
+SUBJECTS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -66,6 +69,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --corpus)
       CUSTOM_CORPUS="$2"
+      shift 2
+      ;;
+    --subjects)
+      SUBJECTS="$2"
       shift 2
       ;;
     --no-build)
@@ -185,6 +192,9 @@ docker compose --profile jobs run --rm seed
 run_compare() {
   local corpus_path="$1" report_dest="$2" label="$3"
   local env_args=(-e "PROM_HARNESS_CORPUS_PATH=${corpus_path}")
+  if [[ -n "$SUBJECTS" ]]; then
+    env_args+=(-e "PROM_HARNESS_SUBJECTS=${SUBJECTS}")
+  fi
   log "Running compare: ${label}"
   docker compose --profile jobs run --rm "${env_args[@]}" compare || true
   if [[ "${report_dest}" != "${HARNESS_DIR}/artifacts/compare-report.json" ]]; then

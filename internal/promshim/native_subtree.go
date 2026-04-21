@@ -5,6 +5,7 @@ import (
 
 	"ch-observability/internal/promshim/model"
 	nativeplan "ch-observability/internal/promshim/native"
+	planpkg "ch-observability/internal/promshim/plan"
 	"ch-observability/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -57,14 +58,20 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, evaluator *evaluator, p
 	}
 	defer response.Body.Close()
 
-	switch params.Mode {
-	case evalModeInstant:
+	switch {
+	case params.Mode == evalModeInstant && p.Fragment != nil && p.Fragment.OutputKind == nativeplan.OutputKindRangeMatrix:
+		series, err := decodeRangeSeries(response.Body)
+		if err != nil {
+			return nil, withInternalContext(err, "decoding native subtree instant matrix result for %q", p.Expr)
+		}
+		return model.MatrixValue{Series: series}, nil
+	case params.Mode == evalModeInstant:
 		samples, err := decodeInstantSamples(response.Body)
 		if err != nil {
 			return nil, withInternalContext(err, "decoding native subtree instant result for %q", p.Expr)
 		}
 		return model.VectorValue{Samples: samples}, nil
-	case evalModeRange:
+	case params.Mode == evalModeRange:
 		series, err := decodeRangeSeries(response.Body)
 		if err != nil {
 			return nil, withInternalContext(err, "decoding native subtree range result for %q", p.Expr)
@@ -81,7 +88,7 @@ func (p *nativeSubtreePlan) explain() ExplainNode {
 	if p.OptimizationReport != nil {
 		report = p.OptimizationReport
 	}
-	return ExplainNode{
+	explain := ExplainNode{
 		Kind:                p.Kind,
 		Strategy:            "native_sql",
 		Expr:                p.Expr,
@@ -96,6 +103,208 @@ func (p *nativeSubtreePlan) explain() ExplainNode {
 		SemanticBarriers:    append([]string(nil), report.SemanticBarriers...),
 		RenderedSQL:         report.RenderedSQL,
 	}
+	if p.Fragment != nil && p.Fragment.BinaryJoin != nil {
+		explain.JoinShape = p.Fragment.BinaryJoin.JoinShape
+		if matching := p.Fragment.BinaryJoin.VectorMatching; matching != nil {
+			explain.JoinLabels = append([]string(nil), matching.MatchingLabels...)
+		}
+	}
+	return explain
+}
+
+func maybeBuildNativeRangeFunctionPlan(node *logicalRangeFunctionPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+	if ctx.Mode == evalModeRange {
+		info := analysis.InfoFor(node)
+		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
+			return nil, false, nil
+		}
+		if !nativeplan.IsSupportedNativeRangeModeForDirectSelector(info.Fragment) && !nativeplan.IsSupportedNativeRangeModeForAggregateOverTimeSubquery(info.Fragment) {
+			return nil, false, nil
+		}
+		return maybeBuildNativeRangeLikePlanAllowRange(node, node.Func, node.ExprString(), ctx, analysis, true)
+	}
+	return maybeBuildNativeRangeLikePlan(node, node.Func, node.ExprString(), ctx, analysis)
+}
+
+func maybeBuildNativeRatePlan(node *logicalRatePlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+	if ctx.Mode == evalModeRange {
+		info := analysis.InfoFor(node)
+		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
+			return nil, false, nil
+		}
+		if !nativeplan.IsSupportedNativeRangeModeForDirectSelector(info.Fragment) && !nativeplan.IsSupportedNativeRangeModeForCounterSubquery(info.Fragment) {
+			return nil, false, nil
+		}
+		return maybeBuildNativeRangeLikePlanAllowRange(node, node.Func, node.ExprString(), ctx, analysis, true)
+	}
+	return maybeBuildNativeRangeLikePlan(node, node.Func, node.ExprString(), ctx, analysis)
+}
+
+func maybeBuildNativeIncreasePlan(node *logicalIncreasePlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+	if ctx.Mode == evalModeRange {
+		info := analysis.InfoFor(node)
+		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
+			return nil, false, nil
+		}
+		if !nativeplan.IsSupportedNativeRangeModeForDirectSelector(info.Fragment) && !nativeplan.IsSupportedNativeRangeModeForCounterSubquery(info.Fragment) {
+			return nil, false, nil
+		}
+		return maybeBuildNativeRangeLikePlanAllowRange(node, "increase", node.ExprString(), ctx, analysis, true)
+	}
+	return maybeBuildNativeRangeLikePlan(node, "increase", node.ExprString(), ctx, analysis)
+}
+
+func maybeBuildNativeDeltaPlan(node *logicalDeltaPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+	if ctx.Mode == evalModeRange {
+		info := analysis.InfoFor(node)
+		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
+			return nil, false, nil
+		}
+		if !nativeplan.IsSupportedNativeRangeModeForDirectSelector(info.Fragment) && !nativeplan.IsSupportedNativeRangeModeForCounterSubquery(info.Fragment) {
+			return nil, false, nil
+		}
+		return maybeBuildNativeRangeLikePlanAllowRange(node, node.Func, node.ExprString(), ctx, analysis, true)
+	}
+	return maybeBuildNativeRangeLikePlan(node, node.Func, node.ExprString(), ctx, analysis)
+}
+
+func maybeBuildNativeChangesPlan(node *logicalChangesPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+	if ctx.Mode == evalModeRange {
+		info := analysis.InfoFor(node)
+		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
+			return nil, false, nil
+		}
+		if !nativeplan.IsSupportedNativeRangeModeForDirectSelector(info.Fragment) && !nativeplan.IsSupportedNativeRangeModeForCounterSubquery(info.Fragment) {
+			return nil, false, nil
+		}
+		return maybeBuildNativeRangeLikePlanAllowRange(node, "changes", node.ExprString(), ctx, analysis, true)
+	}
+	return maybeBuildNativeRangeLikePlan(node, "changes", node.ExprString(), ctx, analysis)
+}
+
+func maybeBuildNativeDerivPlan(node *logicalDerivPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+	if ctx.Mode == evalModeRange {
+		info := analysis.InfoFor(node)
+		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
+			return nil, false, nil
+		}
+		if !nativeplan.IsSupportedNativeRangeModeForDirectSelector(info.Fragment) && !nativeplan.IsSupportedNativeRangeModeForCounterSubquery(info.Fragment) {
+			return nil, false, nil
+		}
+		return maybeBuildNativeRangeLikePlanAllowRange(node, "deriv", node.ExprString(), ctx, analysis, true)
+	}
+	return maybeBuildNativeRangeLikePlan(node, "deriv", node.ExprString(), ctx, analysis)
+}
+
+func maybeBuildNativeRangeLikePlan(node planpkg.LogicalPlan, kind, expr string, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+	return maybeBuildNativeRangeLikePlanAllowRange(node, kind, expr, ctx, analysis, false)
+}
+
+func maybeBuildNativeRangeLikePlanAllowRange(node planpkg.LogicalPlan, kind, expr string, ctx planContext, analysis *nativeplan.Analysis, allowRange bool) (queryPlan, bool, error) {
+	if ctx.Mode != evalModeInstant && !(allowRange && ctx.Mode == evalModeRange) {
+		return nil, false, nil
+	}
+	info := analysis.InfoFor(node)
+	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindRangeFunction {
+		return nil, false, nil
+	}
+	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{
+		Mode:             renderModeForPlanContext(ctx),
+		EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(),
+		StartMS:          ctx.Start.UnixMilli(),
+		EndMS:            ctx.End.UnixMilli(),
+		StepMS:           ctx.Step.Milliseconds(),
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	renderMode := renderModeForPlanContext(ctx)
+	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{
+		Mode:             renderMode,
+		EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(),
+		StartMS:          ctx.Start.UnixMilli(),
+		EndMS:            ctx.End.UnixMilli(),
+		StepMS:           ctx.Step.Milliseconds(),
+		RequiredStartMS:  optimized.Report.RequiredInputStartMS,
+		RequiredEndMS:    optimized.Report.RequiredInputEndMS,
+		ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
+			return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+		},
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if err := nativeplan.ApplyRenderedSQLMetadata(optimized.Report, renderMode, rendered.SQL); err != nil {
+		return nil, false, err
+	}
+	children := []ExplainNode{}
+	for _, child := range info.Children {
+		if child == nil {
+			continue
+		}
+		children = append(children, explainNativeAggregationSource(child))
+	}
+	return &nativeSubtreePlan{
+		Kind:               kind,
+		Expr:               expr,
+		Reason:             info.NativeReason,
+		Estimate:           estimateRangePlan(ctx),
+		Children:           children,
+		Fragment:           optimized.Fragment,
+		OptimizationReport: optimized.Report,
+	}, true, nil
+}
+
+func maybeBuildNativeBinaryPlan(node *logicalBinaryPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+	info := analysis.InfoFor(node)
+	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin {
+		return nil, false, nil
+	}
+	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{
+		Mode:             renderModeForPlanContext(ctx),
+		EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(),
+		StartMS:          ctx.Start.UnixMilli(),
+		EndMS:            ctx.End.UnixMilli(),
+		StepMS:           ctx.Step.Milliseconds(),
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	renderMode := renderModeForPlanContext(ctx)
+	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{
+		Mode:             renderMode,
+		EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(),
+		StartMS:          ctx.Start.UnixMilli(),
+		EndMS:            ctx.End.UnixMilli(),
+		StepMS:           ctx.Step.Milliseconds(),
+		RequiredStartMS:  optimized.Report.RequiredInputStartMS,
+		RequiredEndMS:    optimized.Report.RequiredInputEndMS,
+		ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
+			return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+		},
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if err := nativeplan.ApplyRenderedSQLMetadata(optimized.Report, renderMode, rendered.SQL); err != nil {
+		return nil, false, err
+	}
+	children := []ExplainNode{}
+	for _, child := range info.Children {
+		if child == nil {
+			continue
+		}
+		children = append(children, explainNativeAggregationSource(child))
+	}
+	return &nativeSubtreePlan{
+		Kind:               "binary",
+		Expr:               node.ExprString(),
+		Reason:             info.NativeReason,
+		Estimate:           estimateRangePlan(ctx),
+		Children:           children,
+		Fragment:           optimized.Fragment,
+		OptimizationReport: optimized.Report,
+	}, true, nil
 }
 
 func maybeBuildNativeAggregationPlan(node *logicalAggregationPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {

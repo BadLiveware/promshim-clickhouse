@@ -177,8 +177,105 @@ func TestQueryRangeExplainBuildsIncreasePlan(t *testing.T) {
 	if body.Status != "success" {
 		t.Fatalf("expected success response, got %#v", body)
 	}
-	if body.Data.Plan.Kind != "increase" || body.Data.Plan.Strategy != "local" {
-		t.Fatalf("expected local increase plan, got %#v", body.Data.Plan)
+	if body.Data.Plan.Kind != "increase" || body.Data.Plan.Strategy != "native_sql" {
+		t.Fatalf("expected native increase plan, got %#v", body.Data.Plan)
+	}
+}
+
+func TestQueryRangeExplainBuildsNativeAggregateOverTimePlan(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query=sum_over_time(up%5B5m%5D)&start=0&end=300&step=60", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Plan ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "success" {
+		t.Fatalf("expected success response, got %#v", body)
+	}
+	if body.Data.Plan.Kind != "sum_over_time" || body.Data.Plan.Strategy != "native_sql" {
+		t.Fatalf("expected native sum_over_time plan, got %#v", body.Data.Plan)
+	}
+}
+
+func TestQueryRangeExplainBuildsNativeCounterRangePlans(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, query := range []string{"rate(up%5B5m%5D)", "changes(up%5B5m%5D)", "deriv(up%5B5m%5D)"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=60", nil)
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+
+		if res.Code != http.StatusOK {
+			t.Fatalf("expected 200 for %q, got %d: %s", query, res.Code, res.Body.String())
+		}
+
+		var body struct {
+			Status string `json:"status"`
+			Data   struct {
+				Plan ExplainNode `json:"plan"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Status != "success" {
+			t.Fatalf("expected success response for %q, got %#v", query, body)
+		}
+		if body.Data.Plan.Strategy != "native_sql" {
+			t.Fatalf("expected native counter range plan for %q, got %#v", query, body.Data.Plan)
+		}
+	}
+}
+
+func TestQueryRangeExplainBuildsNativeRangePlansForSubquery(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, query := range []string{"sum_over_time(sum(up)%5B5m%3A1m%5D)", "rate(sum(up)%5B5m%3A1m%5D)", "increase(sum(up)%5B5m%3A1m%5D)", "changes(sum(up)%5B5m%3A1m%5D)"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=60", nil)
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+
+		if res.Code != http.StatusOK {
+			t.Fatalf("expected 200 for %q, got %d: %s", query, res.Code, res.Body.String())
+		}
+
+		var body struct {
+			Status string `json:"status"`
+			Data   struct {
+				Plan ExplainNode `json:"plan"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Status != "success" {
+			t.Fatalf("expected success response for %q, got %#v", query, body)
+		}
+		if body.Data.Plan.Strategy != "native_sql" {
+			t.Fatalf("expected native subquery-backed range plan for %q, got %#v", query, body.Data.Plan)
+		}
 	}
 }
 
@@ -216,8 +313,12 @@ func TestQueryExplainBuildsIncreaseDeltaIDeltaChangesAndDerivPlansForSubquerySel
 		if body.Status != "success" {
 			t.Fatalf("expected success response for %q, got %#v", query, body)
 		}
-		if body.Data.Plan.Strategy != "local" {
-			t.Fatalf("expected local plan for %q, got %#v", query, body.Data.Plan)
+		expectStrategy := "local"
+		if strings.Contains(query, "increase(") || strings.Contains(query, "delta(") || strings.Contains(query, "idelta(") || strings.Contains(query, "changes(") || strings.Contains(query, "deriv(") {
+			expectStrategy = "native_sql"
+		}
+		if body.Data.Plan.Strategy != expectStrategy {
+			t.Fatalf("expected %s plan for %q, got %#v", expectStrategy, query, body.Data.Plan)
 		}
 		if body.Data.Plan.Kind != "increase" && body.Data.Plan.Kind != "delta" && body.Data.Plan.Kind != "idelta" && body.Data.Plan.Kind != "changes" && body.Data.Plan.Kind != "deriv" {
 			t.Fatalf("expected increase/delta/idelta/changes/deriv plan for %q, got %#v", query, body.Data.Plan)
@@ -257,8 +358,8 @@ func TestQueryExplainBuildsRateAndIratePlansForSubquerySelectors(t *testing.T) {
 		if body.Status != "success" {
 			t.Fatalf("expected success response for %q, got %#v", query, body)
 		}
-		if body.Data.Plan.Strategy != "local" {
-			t.Fatalf("expected local plan for %q, got %#v", query, body.Data.Plan)
+		if body.Data.Plan.Strategy != "native_sql" {
+			t.Fatalf("expected native_sql plan for %q, got %#v", query, body.Data.Plan)
 		}
 		if body.Data.Plan.Kind != "rate" && body.Data.Plan.Kind != "irate" {
 			t.Fatalf("expected rate-like plan for %q, got %#v", query, body.Data.Plan)
@@ -324,6 +425,12 @@ func TestQueryExplainBuildsHistogramFractionPlan(t *testing.T) {
 	}
 	if body.Data.Plan.Kind != "histogram_fraction" || body.Data.Plan.Strategy != "local" {
 		t.Fatalf("expected local histogram_fraction plan, got %#v", body.Data.Plan)
+	}
+	if len(body.Data.Plan.Children) != 1 || body.Data.Plan.Children[0].Strategy != "local" {
+		t.Fatalf("expected local aggregation child under histogram_fraction, got %#v", body.Data.Plan.Children)
+	}
+	if len(body.Data.Plan.Children[0].Children) != 1 || body.Data.Plan.Children[0].Children[0].Strategy != "native_sql" {
+		t.Fatalf("expected native rate child under histogram_fraction aggregation, got %#v", body.Data.Plan.Children)
 	}
 }
 

@@ -1077,6 +1077,11 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx planContext, analysis *nati
 		}
 		return annotateQueryPlan(&localUnaryPlan{Expr: node.ExprString(), Op: node.Op, Child: child}, analysis.InfoFor(node)), nil
 	case *logicalBinaryPlan:
+		if nativePlan, ok, err := maybeBuildNativeBinaryPlan(node, ctx, analysis); err != nil {
+			return nil, withInternalContext(err, "building native subtree plan for binary expression %q", node.ExprString())
+		} else if ok {
+			return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+		}
 		lhs, err := buildExecPlanWithAnalysis(node.LHS, ctx, analysis)
 		if err != nil {
 			return nil, withInternalContext(err, "building execution left operand plan for binary expression %q", node.ExprString())
@@ -1126,6 +1131,11 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx planContext, analysis *nati
 		}
 		return annotateQueryPlan(&localHistogramProjectionPlan{Expr: node.ExprString(), Func: node.Func, Child: child}, analysis.InfoFor(node)), nil
 	case *logicalRangeFunctionPlan:
+		if nativePlan, ok, err := maybeBuildNativeRangeFunctionPlan(node, ctx, analysis); err != nil {
+			return nil, withInternalContext(err, "building native subtree plan for %s %q", node.Func, node.ExprString())
+		} else if ok {
+			return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+		}
 		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
 		if err != nil {
 			return nil, withInternalContext(err, "building execution child plan for %s %q", node.Func, node.ExprString())
@@ -1144,30 +1154,55 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx planContext, analysis *nati
 		}
 		return annotateQueryPlan(&localRoundPlan{Expr: node.ExprString(), Decimals: node.Decimals, Child: child}, analysis.InfoFor(node)), nil
 	case *logicalRatePlan:
+		if nativePlan, ok, err := maybeBuildNativeRatePlan(node, ctx, analysis); err != nil {
+			return nil, withInternalContext(err, "building native subtree plan for %s %q", node.Func, node.ExprString())
+		} else if ok {
+			return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+		}
 		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
 		if err != nil {
 			return nil, withInternalContext(err, "building execution child plan for %s %q", node.Func, node.ExprString())
 		}
 		return annotateQueryPlan(&localRatePlan{Expr: node.ExprString(), Func: node.Func, Child: child}, analysis.InfoFor(node)), nil
 	case *logicalIncreasePlan:
+		if nativePlan, ok, err := maybeBuildNativeIncreasePlan(node, ctx, analysis); err != nil {
+			return nil, withInternalContext(err, "building native subtree plan for increase %q", node.ExprString())
+		} else if ok {
+			return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+		}
 		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
 		if err != nil {
 			return nil, withInternalContext(err, "building execution child plan for increase %q", node.ExprString())
 		}
 		return annotateQueryPlan(&localIncreasePlan{Expr: node.ExprString(), Child: child}, analysis.InfoFor(node)), nil
 	case *logicalDeltaPlan:
+		if nativePlan, ok, err := maybeBuildNativeDeltaPlan(node, ctx, analysis); err != nil {
+			return nil, withInternalContext(err, "building native subtree plan for %s %q", node.Func, node.ExprString())
+		} else if ok {
+			return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+		}
 		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
 		if err != nil {
 			return nil, withInternalContext(err, "building execution child plan for %s %q", node.Func, node.ExprString())
 		}
 		return annotateQueryPlan(&localDeltaPlan{Expr: node.ExprString(), Func: node.Func, Child: child}, analysis.InfoFor(node)), nil
 	case *logicalChangesPlan:
+		if nativePlan, ok, err := maybeBuildNativeChangesPlan(node, ctx, analysis); err != nil {
+			return nil, withInternalContext(err, "building native subtree plan for changes %q", node.ExprString())
+		} else if ok {
+			return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+		}
 		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
 		if err != nil {
 			return nil, withInternalContext(err, "building execution child plan for changes %q", node.ExprString())
 		}
 		return annotateQueryPlan(&localChangesPlan{Expr: node.ExprString(), Child: child}, analysis.InfoFor(node)), nil
 	case *logicalDerivPlan:
+		if nativePlan, ok, err := maybeBuildNativeDerivPlan(node, ctx, analysis); err != nil {
+			return nil, withInternalContext(err, "building native subtree plan for deriv %q", node.ExprString())
+		} else if ok {
+			return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+		}
 		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
 		if err != nil {
 			return nil, withInternalContext(err, "building execution child plan for deriv %q", node.ExprString())

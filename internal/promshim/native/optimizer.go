@@ -355,6 +355,12 @@ func baseSelectorSource(fragment *NativeFragment) *SelectorSource {
 	if fragment.Aggregation != nil {
 		return baseSelectorSource(fragment.Aggregation.Source)
 	}
+	if fragment.RangeFunction != nil {
+		return baseSelectorSource(fragment.RangeFunction.Child)
+	}
+	if fragment.Subquery != nil {
+		return baseSelectorSource(fragment.Subquery.Child)
+	}
 	if fragment.Selector != nil {
 		return fragment.Selector
 	}
@@ -366,11 +372,20 @@ func requiredColumnsForFragment(fragment *NativeFragment) []string {
 		return nil
 	}
 	columns := []string{"value"}
+	if fragment.OutputKind == OutputKindRangeMatrix {
+		columns = []string{"time_series"}
+	}
 	if fragmentRequiresTags(fragment) {
 		columns = append(columns, "tags")
 	}
 	if fragment.Aggregation != nil {
 		columns = append(columns, requiredColumnsForFragment(fragment.Aggregation.Source)...)
+	}
+	if fragment.RangeFunction != nil {
+		columns = append(columns, requiredColumnsForFragment(fragment.RangeFunction.Child)...)
+	}
+	if fragment.Subquery != nil {
+		columns = append(columns, requiredColumnsForFragment(fragment.Subquery.Child)...)
 	}
 	return mergeUniqueStrings(nil, columns...)
 }
@@ -379,7 +394,7 @@ func fragmentRequiresTags(fragment *NativeFragment) bool {
 	if fragment == nil {
 		return false
 	}
-	if fragment.Aggregation != nil {
+	if fragment.Aggregation != nil || fragment.RangeFunction != nil || fragment.Subquery != nil {
 		return true
 	}
 	switch fragment.OutputKind {
@@ -393,6 +408,9 @@ func fragmentRequiresTags(fragment *NativeFragment) bool {
 func baseMaterializedColumnsForFragment(fragment *NativeFragment) []string {
 	if fragment == nil {
 		return nil
+	}
+	if fragment.OutputKind == OutputKindRangeMatrix {
+		return []string{"time_series"}
 	}
 	return []string{"value"}
 }
@@ -429,6 +447,12 @@ func semanticBarriersForFragment(fragment *NativeFragment) []string {
 	barriers := []string{}
 	if fragment.Kind == FragmentKindAggregation {
 		barriers = append(barriers, "aggregation_boundary")
+	}
+	if fragment.Kind == FragmentKindSubquery {
+		barriers = append(barriers, "subquery_step_grid")
+	}
+	if fragment.Kind == FragmentKindRangeFunction {
+		barriers = append(barriers, "range_window_materialization_boundary")
 	}
 	if fragment.DropsMetric || (fragment.Aggregation != nil && fragment.Aggregation.Source != nil && fragment.Aggregation.Source.DropsMetric) {
 		barriers = append(barriers, "metric_name_lineage_change")

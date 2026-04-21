@@ -5,17 +5,34 @@
 This phase split in practice. See
 [00-status-and-drift.md](./00-status-and-drift.md) for the long form.
 
-- **Path 3 (local) implementations of the first range-function subset have
-  already landed** under `internal/promshim/exec/` (`rate`, `irate`,
-  `increase`, `delta`, `changes`, `deriv`, `*_over_time`, histogram
-  helpers), along with local subquery step-grid evaluation. This work
-  unblocked the conformance harness but took these operators off the
-  native lowering track that the original Phase 6 described.
-- **Path 2 (native SQL) lowering for these same operators has not
-  started**. That is the remaining, harder part of this phase.
+Current status as of 2026-04-21:
 
-The phase is therefore restructured into 6a (contain path 3) and 6b
-(deliver path 2). The policy from the status chunk applies:
+- **Phase 6a is delivered.** The local range / counter implementations
+  remain in `internal/promshim/exec/` as the correctness oracle, and the
+  test-only oracle interfaces needed by native differential tests are in
+  place.
+- **Phase 6b is delivered for the current supported subset.** Native SQL
+  lowering now covers the planned direct-selector and supported
+  subquery-backed range-function subset for both instant and range mode,
+  including the aggregate-over-time functions and the first counter
+  subset.
+- **Stable harness promotion has started.** The stable corpus in
+  `harness/corpus/queries.json` now includes promoted Phase 6 native rows
+  for:
+  - `rate`
+  - `increase`
+  - `sum_over_time`
+  - `count_over_time`
+  - `rate(sum by (...) (...)[range:step])`
+- **Optional promclick behavior is not a blocker for these promotions.**
+  Rows that rely on functionality promclick does not support are marked
+  with `"subjects": ["shim"]`; Prometheus remains the oracle in those
+  runs.
+- **Local retirement has not happened yet.** The local path stays in
+  place as the oracle until the observation / retirement work described
+  below is completed during rollout.
+
+The policy from the status chunk still applies:
 
 1. keep the local implementations as correctness oracle
 2. add no net-new local range / counter functions unless the conformance
@@ -108,6 +125,17 @@ correctness oracle until each native replacement is promoted.
 
 ## Promotion and retirement
 
+Current checkpoint:
+
+- The promoted Phase 6 stable-corpus rows now live in
+  `harness/corpus/queries.json`.
+- These rows are expected to stay green in Prometheus-vs-shim harness
+  runs; use `--subjects shim` when validating this promotion set if
+  optional promclick support is not relevant to the query.
+- The local implementations are intentionally still present. This phase
+  finishes native lowering and initial promotion, but does **not** retire
+  the path-3 oracle yet.
+
 For each operator moved from path 3 to path 2:
 
 - differential test must run on the supported corpus for a promotion
@@ -148,3 +176,7 @@ used by the entire-query classifier so the shift is visible in explain.
   [12-harness-parametrization.md](./12-harness-parametrization.md)
   (Layer 1 before the first native aggregate-over-time lowering, Layer 2
   before the first native `rate` / `increase` / `delta` lowering)
+- promoted Phase 6 stable rows now live in `harness/corpus/queries.json`
+  and are validated via the harness against Prometheus; rows that are not
+  meaningful for optional promclick comparison are explicitly scoped to
+  `"subjects": ["shim"]`

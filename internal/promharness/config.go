@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -40,11 +41,36 @@ func LoadCompareConfigFromEnv() (CompareConfig, error) {
 		PrometheusBaseURL: getenv("PROM_HARNESS_PROM_URL", "http://prometheus:9090"),
 		PromshimBaseURL:   getenv("PROM_HARNESS_SHIM_URL", "http://promshim:9090"),
 		PromClickBaseURL:  getenv("PROM_HARNESS_PROMCLICK_URL", ""),
+		Subjects:          parseSubjects(getenv("PROM_HARNESS_SUBJECTS", "")),
 		CorpusPath:        getenv("PROM_HARNESS_CORPUS_PATH", "/workspace/harness/corpus/queries.json"),
 		ArtifactDir:       getenv("PROM_HARNESS_ARTIFACT_DIR", "/artifacts"),
 		Timeout:           time.Duration(getenvInt("PROM_HARNESS_TIMEOUT_SECONDS", 30)) * time.Second,
 	}
 	return cfg, nil
+}
+
+func parseSubjects(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	subjects := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
+	for _, part := range parts {
+		subject := strings.ToLower(strings.TrimSpace(part))
+		if subject == "" {
+			continue
+		}
+		if _, ok := seen[subject]; ok {
+			continue
+		}
+		seen[subject] = struct{}{}
+		subjects = append(subjects, subject)
+	}
+	if len(subjects) == 0 {
+		return nil
+	}
+	return subjects
 }
 
 func ManifestPath(dir string) string {

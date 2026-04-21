@@ -7,6 +7,7 @@ import (
 
 	planpkg "ch-observability/internal/promshim/plan"
 	"ch-observability/internal/promshim/storage"
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -130,9 +131,35 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 				}
 				return info
 			}
+		case lhs.Fragment != nil && rhs.Fragment != nil && lhs.OutputKind == OutputKindInstantVector && rhs.OutputKind == OutputKindInstantVector:
+			joinShape, ok := supportedNativeVectorJoinShape(n.VectorMatching)
+			if ok && isSupportedNativeVectorJoinOp(n.Op, n.VectorMatching) {
+				dropsMetric := nativeVectorJoinDropsMetricName(n.Op, n.ReturnBool)
+				resultLineage := nativeVectorJoinLabelLineage(lhs.LabelLineage, rhs.LabelLineage, normalizeVectorMatching(n.VectorMatching), n.Op, n.ReturnBool)
+				if dropsMetric {
+					resultLineage = withMetricNameState(resultLineage, LabelLineageDropped)
+				}
+				info.NativeLowerable = true
+				info.NativeReason = "vector-vector binary join can lower to native SQL for the supported matching subset"
+				info.LabelLineage = resultLineage
+				info.Fragment = &NativeFragment{
+					Kind:        FragmentKindBinaryVectorJoin,
+					OutputKind:  outputKind,
+					DropsMetric: dropsMetric,
+					BinaryJoin: &BinaryJoinFragment{
+						Op:             n.Op,
+						ReturnBool:     n.ReturnBool,
+						VectorMatching: cloneVectorMatching(n.VectorMatching),
+						JoinShape:      joinShape,
+						LHS:            lhs.Fragment,
+						RHS:            rhs.Fragment,
+					},
+				}
+				return info
+			}
 		}
 
-		info.NativeReason = "binary expression currently lowers natively only for scalar/vector arithmetic over a lowerable child source"
+		info.NativeReason = "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children"
 		return info
 	case *planpkg.LogicalAggregationPlan:
 		child := a.walk(n.Child)
@@ -146,9 +173,9 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		if !isSupportedNativeAggregation(n.Op) {
 			eligible = false
 			reason = "aggregation operator is not supported by native SQL pushdown"
-		} else if child.Fragment == nil {
+		} else if child.Fragment == nil || !isSupportedAggregationSourceFragment(child.Fragment) {
 			eligible = false
-			reason = "aggregation child is not pushdown-safe; native pushdown currently requires one delegatable leaf with only unary or scalar arithmetic transforms"
+			reason = "aggregation child is not pushdown-safe; native pushdown currently requires one selector source with unary/scalar transforms or an already-supported aggregation source"
 		}
 		info.Aggregation = &AggregationSupport{Eligible: eligible, Reason: reason, Source: child.Fragment}
 		if eligible {
@@ -194,8 +221,22 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		child := a.walk(n.Child)
 		info.NodeType = n.Func
 		info.Children = []*LoweringInfo{child}
-		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageUnknown)
+		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageDropped)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+		if isSupportedNativeAggregateOverTime(n.Func) && child.Fragment != nil && child.OutputKind == OutputKindRangeMatrix && isSupportedNativeRangeChildFragment(child.Fragment) {
+			info.NativeLowerable = true
+			info.NativeReason = fmt.Sprintf("range function %q can lower to native SQL for the first aggregate-over-time subset", n.Func)
+			info.Fragment = &NativeFragment{
+				Kind:        FragmentKindRangeFunction,
+				OutputKind:  OutputKindInstantVector,
+				DropsMetric: true,
+				RangeFunction: &RangeFunctionFragment{
+					Func:  n.Func,
+					Child: child.Fragment,
+				},
+			}
+			return info
+		}
 		info.NativeReason = fmt.Sprintf("range function %q currently stays on the local execution path until native range lowering lands", n.Func)
 		return info
 	case *planpkg.LogicalVectorPlan:
@@ -218,40 +259,110 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		child := a.walk(n.Child)
 		info.NodeType = n.Func
 		info.Children = []*LoweringInfo{child}
-		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageUnknown)
+		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageDropped)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+		if isSupportedNativeCounterRangeFunction(n.Func) && child.Fragment != nil && child.OutputKind == OutputKindRangeMatrix && isSupportedNativeRangeChildFragment(child.Fragment) {
+			info.NativeLowerable = true
+			info.NativeReason = fmt.Sprintf("%s can lower to native SQL for the initial counter/range subset", n.Func)
+			info.Fragment = &NativeFragment{
+				Kind:        FragmentKindRangeFunction,
+				OutputKind:  OutputKindInstantVector,
+				DropsMetric: true,
+				RangeFunction: &RangeFunctionFragment{
+					Func:  n.Func,
+					Child: child.Fragment,
+				},
+			}
+			return info
+		}
 		info.NativeReason = fmt.Sprintf("%s currently stays on the local execution path until native range lowering lands", n.Func)
 		return info
 	case *planpkg.LogicalIncreasePlan:
 		child := a.walk(n.Child)
 		info.NodeType = "increase"
 		info.Children = []*LoweringInfo{child}
-		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageUnknown)
+		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageDropped)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+		if isSupportedNativeCounterRangeFunction("increase") && child.Fragment != nil && child.OutputKind == OutputKindRangeMatrix && isSupportedNativeRangeChildFragment(child.Fragment) {
+			info.NativeLowerable = true
+			info.NativeReason = "increase can lower to native SQL for the initial counter/range subset"
+			info.Fragment = &NativeFragment{
+				Kind:        FragmentKindRangeFunction,
+				OutputKind:  OutputKindInstantVector,
+				DropsMetric: true,
+				RangeFunction: &RangeFunctionFragment{
+					Func:  "increase",
+					Child: child.Fragment,
+				},
+			}
+			return info
+		}
 		info.NativeReason = "increase currently stays on the local execution path until native range lowering lands"
 		return info
 	case *planpkg.LogicalDeltaPlan:
 		child := a.walk(n.Child)
 		info.NodeType = n.Func
 		info.Children = []*LoweringInfo{child}
-		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageUnknown)
+		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageDropped)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+		if isSupportedNativeCounterRangeFunction(n.Func) && child.Fragment != nil && child.OutputKind == OutputKindRangeMatrix && isSupportedNativeRangeChildFragment(child.Fragment) {
+			info.NativeLowerable = true
+			info.NativeReason = fmt.Sprintf("%s can lower to native SQL for the initial counter/range subset", n.Func)
+			info.Fragment = &NativeFragment{
+				Kind:        FragmentKindRangeFunction,
+				OutputKind:  OutputKindInstantVector,
+				DropsMetric: true,
+				RangeFunction: &RangeFunctionFragment{
+					Func:  n.Func,
+					Child: child.Fragment,
+				},
+			}
+			return info
+		}
 		info.NativeReason = fmt.Sprintf("%s currently stays on the local execution path until native range lowering lands", n.Func)
 		return info
 	case *planpkg.LogicalChangesPlan:
 		child := a.walk(n.Child)
 		info.NodeType = "changes"
 		info.Children = []*LoweringInfo{child}
-		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageUnknown)
+		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageDropped)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+		if isSupportedNativeCounterRangeFunction("changes") && child.Fragment != nil && child.OutputKind == OutputKindRangeMatrix && isSupportedNativeRangeChildFragment(child.Fragment) {
+			info.NativeLowerable = true
+			info.NativeReason = "changes can lower to native SQL for the initial counter/range subset"
+			info.Fragment = &NativeFragment{
+				Kind:        FragmentKindRangeFunction,
+				OutputKind:  OutputKindInstantVector,
+				DropsMetric: true,
+				RangeFunction: &RangeFunctionFragment{
+					Func:  "changes",
+					Child: child.Fragment,
+				},
+			}
+			return info
+		}
 		info.NativeReason = "changes currently stays on the local execution path until native range lowering lands"
 		return info
 	case *planpkg.LogicalDerivPlan:
 		child := a.walk(n.Child)
 		info.NodeType = "deriv"
 		info.Children = []*LoweringInfo{child}
-		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageUnknown)
+		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageDropped)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+		if isSupportedNativeCounterRangeFunction("deriv") && child.Fragment != nil && child.OutputKind == OutputKindRangeMatrix && isSupportedNativeRangeChildFragment(child.Fragment) {
+			info.NativeLowerable = true
+			info.NativeReason = "deriv can lower to native SQL for the initial counter/range subset"
+			info.Fragment = &NativeFragment{
+				Kind:        FragmentKindRangeFunction,
+				OutputKind:  OutputKindInstantVector,
+				DropsMetric: true,
+				RangeFunction: &RangeFunctionFragment{
+					Func:  "deriv",
+					Child: child.Fragment,
+				},
+			}
+			return info
+		}
 		info.NativeReason = "deriv currently stays on the local execution path until native range lowering lands"
 		return info
 	case *planpkg.LogicalQuantileOverTimePlan:
@@ -284,6 +395,23 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		info.Children = []*LoweringInfo{child}
 		info.LabelLineage = passthroughLabelLineage(child.LabelLineage)
 		info.TimeRequirements = subqueryTimeRequirements(child.TimeRequirements, n.Range, n.Offset)
+		if child.Fragment != nil && child.OutputKind == OutputKindInstantVector && isSupportedNativeSubqueryChildFragment(child.Fragment) {
+			info.NativeLowerable = true
+			info.NativeReason = "subquery step-grid execution can lower to native SQL for selector-backed instant-vector children"
+			info.Fragment = &NativeFragment{
+				Kind:       FragmentKindSubquery,
+				OutputKind: OutputKindRangeMatrix,
+				Subquery: &SubqueryFragment{
+					Range:      n.Range,
+					Step:       n.Step,
+					Offset:     n.Offset,
+					Timestamp:  cloneInt64Pointer(n.Timestamp),
+					StartOrEnd: n.StartOrEnd,
+					Child:      child.Fragment,
+				},
+			}
+			return info
+		}
 		info.NativeReason = "subquery step-grid execution currently stays on the local/delegated paths until native range lowering lands"
 		return info
 	case *planpkg.LogicalLabelReplacePlan:
@@ -333,9 +461,188 @@ func boolState(condition bool, ifTrue, ifFalse LabelLineageState) LabelLineageSt
 	return ifFalse
 }
 
+func isSupportedNativeAggregateOverTime(name string) bool {
+	switch name {
+	case "last_over_time", "sum_over_time", "avg_over_time", "min_over_time", "max_over_time", "count_over_time":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedNativeCounterRangeFunction(name string) bool {
+	switch name {
+	case "rate", "irate", "increase", "delta", "idelta", "changes", "deriv":
+		return true
+	default:
+		return false
+	}
+}
+
 func isSupportedNativeAggregation(op parser.ItemType) bool {
 	switch op {
 	case parser.SUM, parser.COUNT, parser.MIN, parser.MAX, parser.AVG:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsSupportedNativeRangeModeForDirectSelector(fragment *NativeFragment) bool {
+	if fragment == nil || fragment.RangeFunction == nil || fragment.RangeFunction.Child == nil {
+		return false
+	}
+	child := fragment.RangeFunction.Child
+	return child.Kind == FragmentKindLeafSource && child.Selector != nil && child.Selector.Kind == SelectorKindRangeVector
+}
+
+func IsSupportedNativeRangeModeForAggregateOverTimeSubquery(fragment *NativeFragment) bool {
+	if fragment == nil || fragment.RangeFunction == nil || fragment.RangeFunction.Child == nil {
+		return false
+	}
+	if !isSupportedNativeAggregateOverTime(fragment.RangeFunction.Func) {
+		return false
+	}
+	child := fragment.RangeFunction.Child
+	return child.Kind == FragmentKindSubquery && child.Subquery != nil && child.Subquery.Child != nil
+}
+
+func IsSupportedNativeRangeModeForCounterSubquery(fragment *NativeFragment) bool {
+	if fragment == nil || fragment.RangeFunction == nil || fragment.RangeFunction.Child == nil {
+		return false
+	}
+	if !isSupportedNativeCounterRangeFunction(fragment.RangeFunction.Func) {
+		return false
+	}
+	child := fragment.RangeFunction.Child
+	return child.Kind == FragmentKindSubquery && child.Subquery != nil && child.Subquery.Child != nil
+}
+
+func isSupportedNativeRangeChildFragment(fragment *NativeFragment) bool {
+	if fragment == nil {
+		return false
+	}
+	switch fragment.Kind {
+	case FragmentKindLeafSource, FragmentKindSubquery:
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedNativeSubqueryChildFragment(fragment *NativeFragment) bool {
+	if fragment == nil {
+		return false
+	}
+	switch fragment.Kind {
+	case FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindAggregation, FragmentKindBinaryVectorJoin:
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedAggregationSourceFragment(fragment *NativeFragment) bool {
+	if fragment == nil {
+		return false
+	}
+	switch fragment.Kind {
+	case FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindAggregation:
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedNativeVectorJoinOp(op parser.ItemType, matching *parser.VectorMatching) bool {
+	if isSetOperator(op) {
+		return false
+	}
+	normalized := normalizeVectorMatching(matching)
+	if normalized.Card == parser.CardManyToMany {
+		return false
+	}
+	switch op {
+	case parser.ADD, parser.SUB, parser.MUL, parser.DIV, parser.MOD, parser.POW,
+		parser.EQLC, parser.NEQ, parser.GTR, parser.LSS, parser.GTE, parser.LTE:
+		return true
+	default:
+		return false
+	}
+}
+
+func supportedNativeVectorJoinShape(matching *parser.VectorMatching) (string, bool) {
+	normalized := normalizeVectorMatching(matching)
+	switch normalized.Card {
+	case parser.CardOneToOne:
+		return JoinShapeOneToOne, true
+	case parser.CardManyToOne:
+		return JoinShapeManyToOne, true
+	case parser.CardOneToMany:
+		return JoinShapeOneToMany, true
+	default:
+		return "", false
+	}
+}
+
+func nativeVectorJoinDropsMetricName(op parser.ItemType, returnBool bool) bool {
+	return !isComparisonBinaryOperator(op) || returnBool
+}
+
+func nativeVectorJoinLabelLineage(lhs, rhs LabelLineage, matching *parser.VectorMatching, op parser.ItemType, returnBool bool) LabelLineage {
+	normalized := normalizeVectorMatching(matching)
+	result := passthroughLabelLineage(lhs)
+	if normalized.Card == parser.CardOneToMany {
+		result = passthroughLabelLineage(rhs)
+	}
+	if normalized.Card == parser.CardOneToOne {
+		if normalized.On {
+			kept := map[string]LabelLineageState{}
+			for _, label := range normalized.MatchingLabels {
+				if label == labels.MetricName {
+					continue
+				}
+				if state, ok := result.Known[label]; ok {
+					kept[label] = state
+				}
+			}
+			result.Known = kept
+			result.Wildcard = LabelLineageDropped
+		} else {
+			for _, label := range normalized.MatchingLabels {
+				delete(result.Known, label)
+			}
+		}
+	}
+	for _, label := range normalized.Include {
+		if label == labels.MetricName {
+			continue
+		}
+		if state, ok := rhs.Known[label]; ok {
+			result.Known[label] = state
+		} else {
+			result.Known[label] = LabelLineageCopied
+		}
+	}
+	if nativeVectorJoinDropsMetricName(op, returnBool) {
+		result.MetricName = LabelLineageDropped
+		result.Known[labels.MetricName] = LabelLineageDropped
+	}
+	return result
+}
+
+func isComparisonBinaryOperator(op parser.ItemType) bool {
+	switch op {
+	case parser.EQLC, parser.NEQ, parser.GTR, parser.LSS, parser.GTE, parser.LTE:
+		return true
+	default:
+		return false
+	}
+}
+
+func isSetOperator(op parser.ItemType) bool {
+	switch op {
+	case parser.LAND, parser.LOR, parser.LUNLESS:
 		return true
 	default:
 		return false

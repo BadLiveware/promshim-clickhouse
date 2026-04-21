@@ -54,3 +54,28 @@ func TestCompareNormalizedResultsRejectsDifferentVectorValues(t *testing.T) {
 		t.Fatal("expected mismatch error")
 	}
 }
+
+func TestConfiguredSubjectsHonorsGlobalFilter(t *testing.T) {
+	subjects := configuredSubjects(CompareConfig{PromshimBaseURL: "http://shim", PromClickBaseURL: "http://promclick", Subjects: []string{"shim"}})
+	if len(subjects) != 1 || subjects[0].Name != "shim" {
+		t.Fatalf("expected only shim subject, got %#v", subjects)
+	}
+}
+
+func TestSubjectsForQueryHonorsPerQueryFilter(t *testing.T) {
+	configured := []compareSubject{{Name: "shim", BaseURL: "http://shim"}, {Name: "promclick", BaseURL: "http://promclick"}}
+	subjects, err := subjectsForQuery(QuerySpec{Name: "phase6-row", Subjects: []string{"shim"}}, configured)
+	if err != nil {
+		t.Fatalf("expected per-query subject filter to resolve, got %v", err)
+	}
+	if len(subjects) != 1 || subjects[0].Name != "shim" {
+		t.Fatalf("expected only shim subject, got %#v", subjects)
+	}
+}
+
+func TestSubjectsForQueryRejectsUnavailableSubjects(t *testing.T) {
+	configured := []compareSubject{{Name: "shim", BaseURL: "http://shim"}}
+	if _, err := subjectsForQuery(QuerySpec{Name: "phase6-row", Subjects: []string{"promclick"}}, configured); err == nil {
+		t.Fatal("expected unavailable subject filter to fail")
+	}
+}

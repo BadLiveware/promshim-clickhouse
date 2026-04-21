@@ -87,6 +87,40 @@
     "compareMode": "structural"
   },
   {
+    "name": "native_lowering_rate_selector_range",
+    "endpoint": "query_range",
+    "query": "rate(harness_requests_total{job=\"api\"}[5m])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "compareMode": "structural"
+  },
+  {
+    "name": "native_lowering_increase_selector_range",
+    "endpoint": "query_range",
+    "query": "increase(harness_requests_total{job=\"api\"}[5m])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "compareMode": "structural"
+  },
+  {
+    "name": "native_lowering_sum_over_time_selector_range",
+    "endpoint": "query_range",
+    "query": "sum_over_time(harness_queue_depth{job=\"api\"}[5m])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "native_lowering_count_over_time_selector_range",
+    "endpoint": "query_range",
+    "query": "count_over_time(harness_up{job=\"api\"}[5m])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
     "name": "native_lowering_subquery_matrix_root_selector_instant",
     "endpoint": "query",
     "query": "harness_requests_total[5m:60s]",
@@ -105,5 +139,22 @@
     "startOffsetSeconds": 300,
     "endOffsetSeconds": 540,
     "stepSeconds": 60
+  },
+  {
+    "name": "native_lowering_sum_over_time_subquery_range",
+    "endpoint": "query_range",
+    "query": "sum_over_time((harness_up * 100)[5m:60s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "native_lowering_rate_subquery_range",
+    "endpoint": "query_range",
+    "query": "rate(sum by (job) (harness_requests_total)[5m:60s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "compareMode": "structural"
   }
 ]

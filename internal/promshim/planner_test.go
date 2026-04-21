@@ -265,6 +265,28 @@ func TestBuildPlanCreatesHistogramProjectionPlan(t *testing.T) {
 	}
 }
 
+func TestBuildPlanCreatesHistogramFractionPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("histogram_fraction(0, 1, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected histogram_fraction plan, got error: %v", err)
+	}
+	histogramPlan, ok := execPlan.(*localHistogramFractionPlan)
+	if !ok {
+		t.Fatalf("expected localHistogramFractionPlan, got %T", execPlan)
+	}
+	if histogramPlan.Lower != 0 || histogramPlan.Upper != 1 {
+		t.Fatalf("expected bounds [0,1], got [%v,%v]", histogramPlan.Lower, histogramPlan.Upper)
+	}
+	if _, ok := histogramPlan.Child.(*localAggregationPlan); !ok {
+		t.Fatalf("expected local aggregation child, got %T", histogramPlan.Child)
+	}
+}
+
 func TestBuildPlanCreatesIncreasePlan(t *testing.T) {
 	expr, err := plan.ParseExpression("increase(up[5m])")
 	if err != nil {
@@ -577,8 +599,8 @@ func TestBuildPlanRejectsNonLiteralHistogramQuantileParameter(t *testing.T) {
 	}
 }
 
-func TestBuildPlanRejectsHistogramFractionUnsupported(t *testing.T) {
-	expr, err := plan.ParseExpression("histogram_fraction(0, 1, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
+func TestBuildPlanRejectsNonLiteralHistogramFractionBound(t *testing.T) {
+	expr, err := plan.ParseExpression("histogram_fraction(time(), 1, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -591,11 +613,8 @@ func TestBuildPlanRejectsHistogramFractionUnsupported(t *testing.T) {
 	if !errors.As(err, &buildErr) {
 		t.Fatalf("expected planBuildError, got %T (%v)", err, err)
 	}
-	if buildErr.Support.Supported {
-		t.Fatalf("expected unsupported histogram_fraction")
-	}
-	if !strings.Contains(buildErr.Support.Reason, "histogram_fraction") {
-		t.Fatalf("unexpected unsupported reason for histogram_fraction: %#v", buildErr.Support)
+	if !strings.Contains(buildErr.Support.Reason, "literal scalar lower bound") {
+		t.Fatalf("unexpected reason for histogram_fraction bound rejection: %#v", buildErr.Support)
 	}
 }
 

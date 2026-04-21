@@ -224,17 +224,31 @@ func TestAnalyzeExpressionRejectsNonLiteralHistogramQuantileParameter(t *testing
 	}
 }
 
-func TestAnalyzeExpressionRejectsHistogramFractionUnsupported(t *testing.T) {
+func TestAnalyzeExpressionSupportsHistogramFraction(t *testing.T) {
 	expr, err := ParseExpression("histogram_fraction(0, 1, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := AnalyzeExpression(expr)
-	if result.Supported {
-		t.Fatalf("expected unsupported histogram_fraction expression, got %#v", result)
+	if !result.Supported {
+		t.Fatalf("expected supported histogram_fraction expression, got %#v", result)
 	}
-	if !strings.Contains(result.Reason, "histogram_fraction") {
-		t.Fatalf("expected histogram_fraction in unsupported reason, got %#v", result)
+	if result.Difficulty != DifficultyHard {
+		t.Fatalf("expected hard difficulty for histogram_fraction, got %s", result.Difficulty)
+	}
+}
+
+func TestAnalyzeExpressionRejectsNonLiteralHistogramFractionBounds(t *testing.T) {
+	expr, err := ParseExpression("histogram_fraction(time(), 1, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := AnalyzeExpression(expr)
+	if result.Supported {
+		t.Fatalf("expected unsupported histogram_fraction bound expression, got %#v", result)
+	}
+	if !strings.Contains(result.Reason, "literal scalar lower bound") {
+		t.Fatalf("expected literal lower bound reason, got %#v", result)
 	}
 }
 

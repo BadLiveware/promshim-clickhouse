@@ -557,3 +557,33 @@ func TestHardHistogramQuantileClassicBucketRangeQuery(t *testing.T) {
 		}
 	}
 }
+
+func TestHardHistogramFractionClassicBucketInstantQuery(t *testing.T) {
+	f := requireFixture(t)
+	payload, err := f.getJSON("/api/v1/query?query=histogram_fraction(0,0.9,%20sum%20by%20(le,job)%20(rate(coredns_dns_request_size_bytes_bucket%5B5m%5D)))")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := requireVectorRows(t, payload)
+	for _, row := range rows {
+		metric := row.(map[string]any)["metric"].(map[string]any)
+		if _, ok := metric["le"]; ok {
+			t.Fatalf("did not expect le label in histogram_fraction output, got %#v", metric)
+		}
+	}
+}
+
+func TestHardHistogramFractionClassicBucketRangeQuery(t *testing.T) {
+	f := requireFixture(t)
+	payload, err := f.getJSON("/api/v1/query_range?query=histogram_fraction(0,0.9,%20sum%20by%20(le,job)%20(rate(coredns_dns_request_size_bytes_bucket%5B5m%5D)))&start=2026-04-20T11:33:00Z&end=2026-04-20T11:35:00Z&step=30s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := requireMatrixRows(t, payload)
+	for _, row := range rows {
+		metric := row.(map[string]any)["metric"].(map[string]any)
+		if _, ok := metric["le"]; ok {
+			t.Fatalf("did not expect le label in histogram_fraction range output, got %#v", metric)
+		}
+	}
+}

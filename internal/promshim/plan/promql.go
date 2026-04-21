@@ -137,6 +137,8 @@ func analyzeCallExpression(call *parser.Call, recurse func(parser.Expr) SupportR
 		return AnalyzeLabelJoinCall(call)
 	case "histogram_quantile":
 		return AnalyzeHistogramQuantileCall(call)
+	case "histogram_fraction":
+		return AnalyzeHistogramFractionCall(call)
 	case "histogram_count", "histogram_sum", "histogram_avg":
 		return AnalyzeHistogramProjectionCall(name, call)
 	case "last_over_time", "sum_over_time", "avg_over_time", "max_over_time", "min_over_time", "count_over_time":
@@ -147,8 +149,6 @@ func analyzeCallExpression(call *parser.Call, recurse func(parser.Expr) SupportR
 		return AnalyzeAbsentCall(call)
 	case "absent_over_time":
 		return AnalyzeAbsentOverTimeCall(call)
-	case "histogram_fraction":
-		return unsupported(DifficultyHard, fmt.Sprintf("function %q is not implemented yet", name))
 	default:
 		return unsupported(DifficultyMedium, fmt.Sprintf("function %q is not implemented yet", name))
 	}
@@ -240,6 +240,29 @@ func AnalyzeHistogramProjectionCall(name string, call *parser.Call) SupportResul
 		return unsupported(DifficultyHard, fmt.Sprintf("%s requires a vector histogram argument", name))
 	}
 	child := AnalyzeExpression(call.Args[0])
+	if !child.Supported {
+		return child
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyHard}
+}
+
+func AnalyzeHistogramFractionCall(call *parser.Call) SupportResult {
+	if len(call.Args) != 3 {
+		return unsupported(DifficultyHard, "histogram_fraction requires three arguments")
+	}
+	if call.Args[0].Type() != parser.ValueTypeScalar || call.Args[1].Type() != parser.ValueTypeScalar {
+		return unsupported(DifficultyHard, "histogram_fraction requires scalar lower and upper bound arguments")
+	}
+	if _, ok := unwrapTransparentExpr(call.Args[0]).(*parser.NumberLiteral); !ok {
+		return unsupported(DifficultyHard, "histogram_fraction currently requires a literal scalar lower bound")
+	}
+	if _, ok := unwrapTransparentExpr(call.Args[1]).(*parser.NumberLiteral); !ok {
+		return unsupported(DifficultyHard, "histogram_fraction currently requires a literal scalar upper bound")
+	}
+	if call.Args[2].Type() != parser.ValueTypeVector {
+		return unsupported(DifficultyHard, "histogram_fraction requires a vector histogram argument")
+	}
+	child := AnalyzeExpression(call.Args[2])
 	if !child.Supported {
 		return child
 	}

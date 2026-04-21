@@ -46,6 +46,19 @@ func ApplyHistogramCountRuntimeValue(value model.RuntimeValue) (model.RuntimeVal
 	}
 }
 
+func ApplyHistogramFractionRuntimeValue(lower, upper float64, value model.RuntimeValue) (model.RuntimeValue, error) {
+	switch typed := value.(type) {
+	case model.VectorValue:
+		return model.VectorValue{Samples: histogramFractionInstantSamples(typed.Samples, lower, upper)}, nil
+	case model.MatrixValue:
+		return model.MatrixValue{Series: applyClassicHistogramRange(typed.Series, func(samples []model.InstantSample) []model.InstantSample {
+			return histogramFractionInstantSamples(samples, lower, upper)
+		})}, nil
+	default:
+		return nil, executionf("histogram_fraction requires vector or matrix input, got %T", value)
+	}
+}
+
 func ApplyHistogramSumRuntimeValue(value model.RuntimeValue) (model.RuntimeValue, error) {
 	switch typed := value.(type) {
 	case model.VectorValue:
@@ -99,6 +112,12 @@ func histogramQuantileInstantSamples(samples []model.InstantSample, quantile flo
 
 func histogramCountInstantSamples(samples []model.InstantSample) []model.InstantSample {
 	return mapClassicHistogramInstant(samples, classicBucketCount)
+}
+
+func histogramFractionInstantSamples(samples []model.InstantSample, lower, upper float64) []model.InstantSample {
+	return mapClassicHistogramInstant(samples, func(buckets []classicHistogramBucket) float64 {
+		return classicBucketFraction(lower, upper, buckets)
+	})
 }
 
 func histogramSumInstantSamples(samples []model.InstantSample) []model.InstantSample {
@@ -232,6 +251,76 @@ func classicBucketCount(buckets []classicHistogramBucket) float64 {
 	}
 	ensureMonotonicClassicBuckets(buckets)
 	return buckets[len(buckets)-1].Count
+}
+
+func classicBucketFraction(lower, upper float64, buckets []classicHistogramBucket) float64 {
+	if len(buckets) < 2 || !hasInfUpperBound(buckets) {
+		return math.NaN()
+	}
+	ensureMonotonicClassicBuckets(buckets)
+
+	count := buckets[len(buckets)-1].Count
+	if count == 0 || math.IsNaN(lower) || math.IsNaN(upper) {
+		return math.NaN()
+	}
+	if lower >= upper {
+		return 0
+	}
+
+	var (
+		rank, lowerRank, upperRank float64
+		lowerSet, upperSet         bool
+	)
+
+	lowerBound := 0.0
+	if buckets[0].UpperBound <= 0 {
+		lowerBound = math.Inf(-1)
+	}
+
+	for i, bucket := range buckets {
+		if i > 0 {
+			lowerBound = buckets[i-1].UpperBound
+		}
+		upperBound := bucket.UpperBound
+
+		interpolateLinearly := func(v float64) float64 {
+			if lowerBound == math.Inf(-1) {
+				return bucket.Count
+			}
+			return rank + (bucket.Count-rank)*(v-lowerBound)/(upperBound-lowerBound)
+		}
+
+		if !lowerSet && lowerBound >= lower {
+			lowerRank = rank
+			lowerSet = true
+		}
+		if !upperSet && lowerBound >= upper {
+			upperRank = rank
+			upperSet = true
+		}
+		if lowerSet && upperSet {
+			break
+		}
+		if !lowerSet && lowerBound < lower && upperBound > lower {
+			lowerRank = interpolateLinearly(lower)
+			lowerSet = true
+		}
+		if !upperSet && lowerBound < upper && upperBound > upper {
+			upperRank = interpolateLinearly(upper)
+			upperSet = true
+		}
+		if lowerSet && upperSet {
+			break
+		}
+		rank = bucket.Count
+	}
+	if !lowerSet || lowerRank > count {
+		lowerRank = count
+	}
+	if !upperSet || upperRank > count {
+		upperRank = count
+	}
+	return (upperRank - lowerRank) / count
 }
 
 func classicBucketSumEstimate(buckets []classicHistogramBucket) float64 {

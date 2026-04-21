@@ -255,7 +255,7 @@ func TestRenderFragmentBuildsInstantDerivSQLForSubquery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected rendered SQL, got error: %v", err)
 	}
-	if !strings.Contains(rendered.SQL, "arraySum(arrayMap((x, y) -> x * y") || !strings.Contains(rendered.SQL, "/ ((toFloat64(length(time_series))") {
+	if !strings.Contains(rendered.SQL, "arrayReduce('simpleLinearRegression'") || !strings.Contains(rendered.SQL, "toUnixTimestamp64Milli(ts)") {
 		t.Fatalf("expected deriv regression expression in SQL, got %q", rendered.SQL)
 	}
 	if !strings.Contains(rendered.SQL, "WHERE length(time_series) > 1") {
@@ -373,6 +373,23 @@ func TestRenderFragmentBuildsRangeSumOverTimeSQLForSubquery(t *testing.T) {
 	}
 }
 
+func TestRangeRequiredBoundsForChildIncludesSelectorOffset(t *testing.T) {
+	fragment := &NativeFragment{
+		Kind:       FragmentKindLeafSource,
+		OutputKind: OutputKindRangeMatrix,
+		Selector:   &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute, Offset: time.Minute},
+		ValueExpr:  "{value}",
+		TagsExpr:   "{tags}",
+	}
+	startMS, endMS := rangeRequiredBoundsForChild(fragment, 0, 300000)
+	if got, want := startMS, int64(-360000); got != want {
+		t.Fatalf("expected start bound %d, got %d", want, got)
+	}
+	if got, want := endMS, int64(240000); got != want {
+		t.Fatalf("expected end bound %d, got %d", want, got)
+	}
+}
+
 func TestRenderFragmentBuildsRangeRateSQLForSubquery(t *testing.T) {
 	fragment := &NativeFragment{
 		Kind:       FragmentKindRangeFunction,
@@ -420,6 +437,143 @@ func TestRenderFragmentBuildsRangeRateSQLForSubquery(t *testing.T) {
 	}
 	if !strings.Contains(rendered.SQL, "arrayFilter(point -> tupleElement(point, 1) <= grid.eval_ts") {
 		t.Fatalf("expected subquery window filtering in SQL, got %q", rendered.SQL)
+	}
+}
+
+func TestRenderFragmentBuildsRangeFunctionSQLForOffsetSelectorUsesShiftedRequiredBounds(t *testing.T) {
+	fragment := &NativeFragment{
+		Kind:       FragmentKindRangeFunction,
+		OutputKind: OutputKindInstantVector,
+		RangeFunction: &RangeFunctionFragment{
+			Func: "sum_over_time",
+			Child: &NativeFragment{
+				Kind:       FragmentKindLeafSource,
+				OutputKind: OutputKindRangeMatrix,
+				Selector:   &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute, Offset: time.Minute},
+				ValueExpr:  "{value}",
+				TagsExpr:   "{tags}",
+			},
+		},
+	}
+
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
+		Mode:            RenderModeRange,
+		StartMS:         0,
+		EndMS:           300000,
+		StepMS:          30000,
+		RequiredStartMS: -360000,
+		RequiredEndMS:   240000,
+	})
+	if err != nil {
+		t.Fatalf("expected rendered SQL, got error: %v", err)
+	}
+	if !strings.Contains(rendered.SQL, "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64})") {
+		t.Fatalf("expected shifted required start bound in SQL, got %q", rendered.SQL)
+	}
+	if !strings.Contains(rendered.SQL, "grid.eval_ts - toIntervalMillisecond(60000)") {
+		t.Fatalf("expected offset-adjusted eval window in SQL, got %q", rendered.SQL)
+	}
+	if !strings.Contains(rendered.SQL, "grid.eval_ts - toIntervalMillisecond(360000)") {
+		t.Fatalf("expected shifted required start bound in SQL, got %q", rendered.SQL)
+	}
+}
+
+func TestRenderFragmentBuildsRangeSubqueryUsingInnerStepAndExpandedEnvelope(t *testing.T) {
+	fragment := &NativeFragment{
+		Kind:       FragmentKindRangeFunction,
+		OutputKind: OutputKindInstantVector,
+		RangeFunction: &RangeFunctionFragment{
+			Func: "sum_over_time",
+			Child: &NativeFragment{
+				Kind:       FragmentKindSubquery,
+				OutputKind: OutputKindRangeMatrix,
+				Subquery: &SubqueryFragment{
+					Range:  5 * time.Minute,
+					Step:   time.Minute,
+					Offset: time.Minute,
+					Child: &NativeFragment{
+						Kind:       FragmentKindLeafSource,
+						OutputKind: OutputKindInstantVector,
+						Selector:   &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "up", Lookback: defaultInstantSelectorLookback},
+						ValueExpr:  "{value}",
+						TagsExpr:   "{tags}",
+					},
+				},
+			},
+		},
+	}
+
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
+		Mode:            RenderModeRange,
+		StartMS:         0,
+		EndMS:           300000,
+		StepMS:          30000,
+		RequiredStartMS: -660000,
+		RequiredEndMS:   240000,
+	})
+	if err != nil {
+		t.Fatalf("expected rendered SQL, got error: %v", err)
+	}
+	if got, want := rendered.QueryParams["param_step_ms"], "60000"; got != want {
+		t.Fatalf("expected inner subquery step %q, got %#v", want, rendered.QueryParams)
+	}
+	if got, want := rendered.QueryParams["param_start_ms"], "-360000"; got != want {
+		t.Fatalf("expected expanded subquery start %q, got %#v", want, rendered.QueryParams)
+	}
+	if got, want := rendered.QueryParams["param_end_ms"], "240000"; got != want {
+		t.Fatalf("expected expanded subquery end %q, got %#v", want, rendered.QueryParams)
+	}
+	if got, want := rendered.QueryParams["param_required_start_ms"], "-660000"; got != want {
+		t.Fatalf("expected child required start %q, got %#v", want, rendered.QueryParams)
+	}
+	if got, want := rendered.QueryParams["param_required_end_ms"], "240000"; got != want {
+		t.Fatalf("expected child required end %q, got %#v", want, rendered.QueryParams)
+	}
+	if !strings.Contains(rendered.SQL, "grid.eval_ts - toIntervalMillisecond(360000)") {
+		t.Fatalf("expected 5m subquery window in SQL, got %q", rendered.SQL)
+	}
+	if !strings.Contains(rendered.SQL, "grid.eval_ts - toIntervalMillisecond(60000)") {
+		t.Fatalf("expected 1m subquery offset in SQL, got %q", rendered.SQL)
+	}
+}
+
+func TestRenderFragmentDefaultsMissingSubqueryStepToOneMinute(t *testing.T) {
+	fragment := &NativeFragment{
+		Kind:       FragmentKindRangeFunction,
+		OutputKind: OutputKindInstantVector,
+		RangeFunction: &RangeFunctionFragment{
+			Func: "sum_over_time",
+			Child: &NativeFragment{
+				Kind:       FragmentKindSubquery,
+				OutputKind: OutputKindRangeMatrix,
+				Subquery: &SubqueryFragment{
+					Range: 5 * time.Minute,
+					Step:  0,
+					Child: &NativeFragment{
+						Kind:       FragmentKindLeafSource,
+						OutputKind: OutputKindInstantVector,
+						Selector:   &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "up", Lookback: defaultInstantSelectorLookback},
+						ValueExpr:  "{value}",
+						TagsExpr:   "{tags}",
+					},
+				},
+			},
+		},
+	}
+
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
+		Mode:            RenderModeRange,
+		StartMS:         0,
+		EndMS:           300000,
+		StepMS:          30000,
+		RequiredStartMS: -600000,
+		RequiredEndMS:   300000,
+	})
+	if err != nil {
+		t.Fatalf("expected rendered SQL, got error: %v", err)
+	}
+	if got, want := rendered.QueryParams["param_step_ms"], "60000"; got != want {
+		t.Fatalf("expected default subquery step %q, got %#v", want, rendered.QueryParams)
 	}
 }
 
@@ -630,6 +784,58 @@ func TestRenderFragmentBuildsScalarConvertSQL(t *testing.T) {
 	for _, check := range checks {
 		if !strings.Contains(sqlb.NormalizeSQL(rangeRendered.SQL), sqlb.NormalizeSQL(check)) {
 			t.Fatalf("expected scalar convert range SQL to contain %q, got %q", check, rangeRendered.SQL)
+		}
+	}
+}
+
+func TestRenderFragmentBuildsAbsentSQL(t *testing.T) {
+	fragment := &NativeFragment{Kind: FragmentKindAbsent, OutputKind: OutputKindInstantVector, Absent: &AbsentFragment{Func: "absent", OutputMetric: map[string]string{"job": "api"}, Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindInstantVector, Selector: &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "up", Lookback: defaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
+
+	instant, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456})
+	if err != nil {
+		t.Fatalf("expected absent instant SQL, got error: %v", err)
+	}
+	instantChecks := []string{"count() AS sample_count", "WHERE probe.sample_count = 0", "fromUnixTimestamp64Milli({evaluation_ms:Int64}) AS timestamp", "tuple('job', 'api')"}
+	for _, check := range instantChecks {
+		if !strings.Contains(sqlb.NormalizeSQL(instant.SQL), sqlb.NormalizeSQL(check)) {
+			t.Fatalf("expected absent instant SQL to contain %q, got %q", check, instant.SQL)
+		}
+	}
+
+	rangeRendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000})
+	if err != nil {
+		t.Fatalf("expected absent range SQL, got error: %v", err)
+	}
+	rangeChecks := []string{"ARRAY JOIN absent_child.time_series AS point", "ifNull(present.sample_count, 0) = 0", "groupArray((timestamp, value))", "tuple('job', 'api')"}
+	for _, check := range rangeChecks {
+		if !strings.Contains(sqlb.NormalizeSQL(rangeRendered.SQL), sqlb.NormalizeSQL(check)) {
+			t.Fatalf("expected absent range SQL to contain %q, got %q", check, rangeRendered.SQL)
+		}
+	}
+}
+
+func TestRenderFragmentBuildsAbsentOverTimeSQL(t *testing.T) {
+	fragment := &NativeFragment{Kind: FragmentKindAbsent, OutputKind: OutputKindInstantVector, Absent: &AbsentFragment{Func: "absent_over_time", OutputMetric: map[string]string{"job": "api"}, Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindRangeMatrix, Selector: &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
+
+	instant, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: -300000, RequiredEndMS: 123456})
+	if err != nil {
+		t.Fatalf("expected absent_over_time instant SQL, got error: %v", err)
+	}
+	instantChecks := []string{"ARRAY JOIN absent_child.time_series AS point", "count() AS sample_count", "WHERE probe.sample_count = 0"}
+	for _, check := range instantChecks {
+		if !strings.Contains(sqlb.NormalizeSQL(instant.SQL), sqlb.NormalizeSQL(check)) {
+			t.Fatalf("expected absent_over_time instant SQL to contain %q, got %q", check, instant.SQL)
+		}
+	}
+
+	rangeRendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 60000, RequiredStartMS: -300000, RequiredEndMS: 300000})
+	if err != nil {
+		t.Fatalf("expected absent_over_time range SQL, got error: %v", err)
+	}
+	rangeChecks := []string{"sum(length(window_series)) AS sample_count", "arrayFilter(point -> tupleElement(point, 1) <= grid.eval_ts", "ifNull(present.sample_count, 0) = 0", "tuple('job', 'api')"}
+	for _, check := range rangeChecks {
+		if !strings.Contains(sqlb.NormalizeSQL(rangeRendered.SQL), sqlb.NormalizeSQL(check)) {
+			t.Fatalf("expected absent_over_time range SQL to contain %q, got %q", check, rangeRendered.SQL)
 		}
 	}
 }

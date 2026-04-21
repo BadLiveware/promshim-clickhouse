@@ -39,13 +39,21 @@ func LoadSeedConfigFromEnv() (SeedConfig, error) {
 
 func LoadCompareConfigFromEnv() (CompareConfig, error) {
 	cfg := CompareConfig{
-		PrometheusBaseURL: getenv("PROM_HARNESS_PROM_URL", "http://prometheus:9090"),
-		PromshimBaseURL:   getenv("PROM_HARNESS_SHIM_URL", "http://promshim:9090"),
-		PromClickBaseURL:  getenv("PROM_HARNESS_PROMCLICK_URL", ""),
-		Subjects:          parseSubjects(getenv("PROM_HARNESS_SUBJECTS", "")),
-		CorpusPath:        getenv("PROM_HARNESS_CORPUS_PATH", "/workspace/harness/corpus/queries.json"),
-		ArtifactDir:       getenv("PROM_HARNESS_ARTIFACT_DIR", "/artifacts"),
-		Timeout:           time.Duration(getenvInt("PROM_HARNESS_TIMEOUT_SECONDS", 30)) * time.Second,
+		PrometheusBaseURL:         getenv("PROM_HARNESS_PROM_URL", "http://prometheus:9090"),
+		PromshimBaseURL:           getenv("PROM_HARNESS_SHIM_URL", "http://promshim:9090"),
+		PromClickBaseURL:          getenv("PROM_HARNESS_PROMCLICK_URL", ""),
+		Subjects:                  parseSubjects(getenv("PROM_HARNESS_SUBJECTS", "")),
+		DefaultNativeLoweringMode: strings.ToLower(strings.TrimSpace(getenv("PROM_HARNESS_NATIVE_LOWERING_MODE", ""))),
+		CorpusPath:                getenv("PROM_HARNESS_CORPUS_PATH", "/workspace/harness/corpus/queries.json"),
+		ArtifactDir:               getenv("PROM_HARNESS_ARTIFACT_DIR", "/artifacts"),
+		Timeout:                   time.Duration(getenvInt("PROM_HARNESS_TIMEOUT_SECONDS", 30)) * time.Second,
+	}
+	if cfg.DefaultNativeLoweringMode != "" {
+		switch cfg.DefaultNativeLoweringMode {
+		case "off", "explain", "shadow", "prefer", "force_supported":
+		default:
+			return CompareConfig{}, fmt.Errorf("invalid PROM_HARNESS_NATIVE_LOWERING_MODE %q", cfg.DefaultNativeLoweringMode)
+		}
 	}
 	return cfg, nil
 }

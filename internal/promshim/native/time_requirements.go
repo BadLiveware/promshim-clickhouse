@@ -23,15 +23,17 @@ func combineTimeRequirements(requirements ...TimeRequirements) TimeRequirements 
 func leafTimeRequirements(expr parser.Expr) TimeRequirements {
 	switch node := expr.(type) {
 	case *parser.VectorSelector:
-		offset := absoluteDuration(node.OriginalOffset)
-		return TimeRequirements{Lookback: offset, Offset: offset}
+		return TimeRequirements{
+			Lookback: defaultInstantSelectorLookback,
+			Offset:   absoluteDuration(node.OriginalOffset),
+		}
 	case *parser.MatrixSelector:
 		vector, _ := node.VectorSelector.(*parser.VectorSelector)
 		offset := time.Duration(0)
 		if vector != nil {
 			offset = absoluteDuration(vector.OriginalOffset)
 		}
-		return TimeRequirements{Lookback: node.Range + offset, Offset: offset}
+		return TimeRequirements{Lookback: node.Range, Offset: offset}
 	default:
 		return TimeRequirements{}
 	}
@@ -39,10 +41,8 @@ func leafTimeRequirements(expr parser.Expr) TimeRequirements {
 
 func subqueryTimeRequirements(child TimeRequirements, subqueryRange, offset time.Duration) TimeRequirements {
 	result := child
-	result.Lookback += absoluteDuration(subqueryRange) + absoluteDuration(offset)
-	if absOffset := absoluteDuration(offset); absOffset > result.Offset {
-		result.Offset = absOffset
-	}
+	result.Lookback += absoluteDuration(subqueryRange)
+	result.Offset += absoluteDuration(offset)
 	result.NeedsSubqueryStepGrid = true
 	return result
 }

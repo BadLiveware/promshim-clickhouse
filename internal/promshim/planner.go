@@ -2,6 +2,7 @@ package promshim
 
 import (
 	"context"
+	"math"
 	"sort"
 	"time"
 
@@ -1246,11 +1247,17 @@ func (e *evaluator) executeDelegated(ctx context.Context, expr parser.Expr, para
 			if err != nil {
 				return nil, withInternalContext(err, "decoding delegated instant vector result for %q", expr.String())
 			}
+			if isBareSelectorExpr(expr) {
+				samples = dropNaNInstantSamples(samples)
+			}
 			return model.VectorValue{Samples: samples}, nil
 		case parser.ValueTypeMatrix:
 			series, err := decodeRangeSeries(response.Body)
 			if err != nil {
 				return nil, withInternalContext(err, "decoding delegated instant matrix result for %q", expr.String())
+			}
+			if isBareSelectorExpr(expr) {
+				series = dropNaNRangePoints(series)
 			}
 			return model.MatrixValue{Series: series}, nil
 		default:
@@ -1268,10 +1275,58 @@ func (e *evaluator) executeDelegated(ctx context.Context, expr parser.Expr, para
 		if err != nil {
 			return nil, withInternalContext(err, "decoding delegated range matrix result for %q", expr.String())
 		}
+		if isBareSelectorExpr(expr) {
+			series = dropNaNRangePoints(series)
+		}
 		return model.MatrixValue{Series: series}, nil
 	default:
 		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
 	}
+}
+
+func isBareSelectorExpr(expr parser.Expr) bool {
+	switch expr.(type) {
+	case *parser.VectorSelector, *parser.MatrixSelector:
+		return true
+	default:
+		return false
+	}
+}
+
+func dropNaNInstantSamples(samples []model.InstantSample) []model.InstantSample {
+	if len(samples) == 0 {
+		return samples
+	}
+	out := samples[:0]
+	for _, s := range samples {
+		if math.IsNaN(s.Value) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func dropNaNRangePoints(series []model.RangeSeries) []model.RangeSeries {
+	if len(series) == 0 {
+		return series
+	}
+	out := series[:0]
+	for _, s := range series {
+		filtered := s.Values[:0]
+		for _, p := range s.Values {
+			if math.IsNaN(p.Value) {
+				continue
+			}
+			filtered = append(filtered, p)
+		}
+		if len(filtered) == 0 {
+			continue
+		}
+		s.Values = filtered
+		out = append(out, s)
+	}
+	return out
 }
 
 func buildPlan(expr parser.Expr) (queryPlan, error) {
@@ -1322,6 +1377,13 @@ func buildExecPlanWithContext(plan logicalPlan, ctx planContext) (queryPlan, err
 func buildExecPlanWithAnalysis(plan logicalPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, error) {
 	switch node := plan.(type) {
 	case *logicalLeafExprPlan:
+		if ctx.allowsNativePlanning() && ctx.NativeLoweringMode.forcesNativeRoot() {
+			if nativePlan, ok, err := maybeBuildNativeLeafPlan(node, ctx, analysis); err != nil {
+				return nil, withInternalContext(err, "building native subtree plan for leaf %q", node.ExprString())
+			} else if ok {
+				return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+			}
+		}
 		if err := ensureDelegatedExprSupportedForContext(node.Expr, ctx, "delegated leaf planning"); err != nil {
 			return nil, err
 		}
@@ -1549,12 +1611,26 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx planContext, analysis *nati
 		}
 		return annotateQueryPlan(&localQuantileOverTimePlan{Expr: node.ExprString(), Quantile: node.Quantile, Child: child}, analysis.InfoFor(node)), nil
 	case *logicalAbsentPlan:
+		if ctx.allowsNativePlanning() {
+			if nativePlan, ok, err := maybeBuildNativeAbsentPlan(node, ctx, analysis); err != nil {
+				return nil, withInternalContext(err, "building native subtree plan for absent %q", node.ExprString())
+			} else if ok {
+				return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+			}
+		}
 		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
 		if err != nil {
 			return nil, withInternalContext(err, "building execution child plan for absent %q", node.ExprString())
 		}
 		return annotateQueryPlan(&localAbsentPlan{Expr: node.ExprString(), OutputMetric: model.CloneMetric(node.OutputMetric), Child: child}, analysis.InfoFor(node)), nil
 	case *logicalAbsentOverTimePlan:
+		if ctx.allowsNativePlanning() {
+			if nativePlan, ok, err := maybeBuildNativeAbsentOverTimePlan(node, ctx, analysis); err != nil {
+				return nil, withInternalContext(err, "building native subtree plan for absent_over_time %q", node.ExprString())
+			} else if ok {
+				return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+			}
+		}
 		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
 		if err != nil {
 			return nil, withInternalContext(err, "building execution child plan for absent_over_time %q", node.ExprString())

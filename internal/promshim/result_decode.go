@@ -80,7 +80,8 @@ func rawPromValueToFloat64(raw json.RawMessage) (float64, error) {
 		if err := json.Unmarshal(raw, &text); err != nil {
 			return 0, err
 		}
-		if strings.EqualFold(text, "nan") {
+		normalized := strings.ToLower(text)
+		if normalized == "nan" || normalized == "-nan" || normalized == "+nan" {
 			return math.NaN(), nil
 		}
 		return strconv.ParseFloat(text, 64)

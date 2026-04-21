@@ -2,6 +2,7 @@ package promshim
 
 import (
 	"context"
+	"time"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
 	nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
@@ -78,6 +79,10 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, evaluator *evaluator, p
 		samples, err := decodeInstantSamples(response.Body)
 		if err != nil {
 			return nil, withInternalContext(err, "decoding native subtree instant result for %q", p.Expr)
+		}
+		evalTimestamp := float64(params.EvaluationTime.UnixNano()) / float64(time.Second)
+		for i := range samples {
+			samples[i].Timestamp = evalTimestamp
 		}
 		return model.VectorValue{Samples: samples}, nil
 	case params.Mode == evalModeRange:
@@ -209,6 +214,10 @@ func maybeBuildNativeRangeLikePlan(node planpkg.LogicalPlan, kind, expr string, 
 	return maybeBuildNativeRangeLikePlanAllowRange(node, kind, expr, ctx, analysis, false)
 }
 
+func rejectRangeModeFixedTemporalAnchor(ctx planContext, fragment *nativeplan.NativeFragment) bool {
+	return ctx.Mode == evalModeRange && nativeplan.HasFixedTemporalAnchor(fragment)
+}
+
 func maybeBuildNativeRangeLikePlanAllowRange(node planpkg.LogicalPlan, kind, expr string, ctx planContext, analysis *nativeplan.Analysis, allowRange bool) (queryPlan, bool, error) {
 	if ctx.Mode != evalModeInstant && !(allowRange && ctx.Mode == evalModeRange) {
 		return nil, false, nil
@@ -226,6 +235,9 @@ func maybeBuildNativeRangeLikePlanAllowRange(node planpkg.LogicalPlan, kind, exp
 	})
 	if err != nil {
 		return nil, false, err
+	}
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+		return nil, false, nil
 	}
 	renderMode := renderModeForPlanContext(ctx)
 	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{
@@ -264,6 +276,34 @@ func maybeBuildNativeRangeLikePlanAllowRange(node planpkg.LogicalPlan, kind, exp
 	}, true, nil
 }
 
+func maybeBuildNativeLeafPlan(node *logicalLeafExprPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+	if ctx.Mode != evalModeInstant && ctx.Mode != evalModeRange {
+		return nil, false, nil
+	}
+	info := analysis.InfoFor(node)
+	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindLeafSource {
+		return nil, false, nil
+	}
+	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	if err != nil {
+		return nil, false, err
+	}
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+		return nil, false, nil
+	}
+	renderMode := renderModeForPlanContext(ctx)
+	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
+		return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+	}})
+	if err != nil {
+		return nil, false, err
+	}
+	if err := nativeplan.ApplyRenderedSQLMetadata(optimized.Report, renderMode, rendered.SQL); err != nil {
+		return nil, false, err
+	}
+	return &nativeSubtreePlan{Kind: "leaf", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Fragment: optimized.Fragment, OptimizationReport: optimized.Report}, true, nil
+}
+
 func maybeBuildNativeSourcePlan(node *logicalPointwiseFunctionPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
 	if ctx.Mode != evalModeInstant && ctx.Mode != evalModeRange {
 		return nil, false, nil
@@ -280,6 +320,9 @@ func maybeBuildNativeSourcePlan(node *logicalPointwiseFunctionPlan, ctx planCont
 	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
+	}
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+		return nil, false, nil
 	}
 	renderMode := renderModeForPlanContext(ctx)
 	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
@@ -313,6 +356,9 @@ func maybeBuildNativeInfoPlan(node *logicalInfoPlan, ctx planContext, analysis *
 	if err != nil {
 		return nil, false, err
 	}
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+		return nil, false, nil
+	}
 	renderMode := renderModeForPlanContext(ctx)
 	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
 		return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
@@ -345,6 +391,9 @@ func maybeBuildNativeScalarConvertPlan(node *logicalScalarConvertPlan, ctx planC
 	if err != nil {
 		return nil, false, err
 	}
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+		return nil, false, nil
+	}
 	renderMode := renderModeForPlanContext(ctx)
 	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
 		return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
@@ -365,6 +414,49 @@ func maybeBuildNativeScalarConvertPlan(node *logicalScalarConvertPlan, ctx planC
 	return &nativeSubtreePlan{Kind: "scalar", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report}, true, nil
 }
 
+func maybeBuildNativeAbsentPlan(node *logicalAbsentPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+	return maybeBuildNativeAbsentLikePlan(node, "absent", node.ExprString(), ctx, analysis)
+}
+
+func maybeBuildNativeAbsentOverTimePlan(node *logicalAbsentOverTimePlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+	return maybeBuildNativeAbsentLikePlan(node, "absent_over_time", node.ExprString(), ctx, analysis)
+}
+
+func maybeBuildNativeAbsentLikePlan(node planpkg.LogicalPlan, kind, expr string, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+	if ctx.Mode != evalModeInstant && ctx.Mode != evalModeRange {
+		return nil, false, nil
+	}
+	info := analysis.InfoFor(node)
+	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindAbsent || info.Fragment.Absent == nil {
+		return nil, false, nil
+	}
+	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	if err != nil {
+		return nil, false, err
+	}
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+		return nil, false, nil
+	}
+	renderMode := renderModeForPlanContext(ctx)
+	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
+		return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+	}})
+	if err != nil {
+		return nil, false, err
+	}
+	if err := nativeplan.ApplyRenderedSQLMetadata(optimized.Report, renderMode, rendered.SQL); err != nil {
+		return nil, false, err
+	}
+	children := []ExplainNode{}
+	for _, child := range info.Children {
+		if child == nil {
+			continue
+		}
+		children = append(children, explainNativeAggregationSource(child))
+	}
+	return &nativeSubtreePlan{Kind: kind, Expr: expr, Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report}, true, nil
+}
+
 func maybeBuildNativeScalarBuiltinPlan(node *logicalScalarBuiltinPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
 	if ctx.Mode != evalModeInstant && ctx.Mode != evalModeRange {
 		return nil, false, nil
@@ -376,6 +468,9 @@ func maybeBuildNativeScalarBuiltinPlan(node *logicalScalarBuiltinPlan, ctx planC
 	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
+	}
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+		return nil, false, nil
 	}
 	renderMode := renderModeForPlanContext(ctx)
 	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
@@ -404,6 +499,9 @@ func maybeBuildNativeBinaryPlan(node *logicalBinaryPlan, ctx planContext, analys
 	})
 	if err != nil {
 		return nil, false, err
+	}
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+		return nil, false, nil
 	}
 	renderMode := renderModeForPlanContext(ctx)
 	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{
@@ -456,6 +554,9 @@ func maybeBuildNativeAggregationPlan(node *logicalAggregationPlan, ctx planConte
 	})
 	if err != nil {
 		return nil, false, err
+	}
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+		return nil, false, nil
 	}
 	renderMode := nativeplan.RenderModeInstant
 	if ctx.Mode == evalModeRange {

@@ -12,6 +12,18 @@ import (
 	"time"
 )
 
+func TestEffectiveQuerySpecAppliesDefaultNativeLoweringMode(t *testing.T) {
+	spec := effectiveQuerySpec(CompareConfig{DefaultNativeLoweringMode: "force_supported"}, QuerySpec{Name: "native-row", Endpoint: "query", Query: "harness_up"})
+	if spec.NativeLoweringMode != "force_supported" {
+		t.Fatalf("expected default native lowering mode to be applied, got %#v", spec)
+	}
+
+	explicit := effectiveQuerySpec(CompareConfig{DefaultNativeLoweringMode: "force_supported"}, QuerySpec{Name: "explicit-row", Endpoint: "query", Query: "harness_up", NativeLoweringMode: "shadow"})
+	if explicit.NativeLoweringMode != "shadow" {
+		t.Fatalf("expected explicit native lowering mode to win, got %#v", explicit)
+	}
+}
+
 func TestCompareQueryOutcomeSupportsExpectedErrorMatching(t *testing.T) {
 	status, err := CompareQueryOutcome(QuerySpec{
 		Name:                  "matrix-root-range-query",

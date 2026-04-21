@@ -188,6 +188,41 @@ func TestAnalyzeScalarBuiltinMarksNativeLowerable(t *testing.T) {
 	}
 }
 
+func TestAnalyzeAbsentMarksNativeLowerable(t *testing.T) {
+	callExpr := mustParseExpr(t, `absent(up{job="api"})`)
+	call, ok := callExpr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected call expr, got %T", callExpr)
+	}
+	logical := &planpkg.LogicalAbsentPlan{Expr: call, OutputMetric: map[string]string{"job": "api"}, Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+	info := Analyze(logical).InfoFor(logical)
+	if info == nil || !info.NativeLowerable {
+		t.Fatalf("expected absent() to be native-lowerable, got %#v", info)
+	}
+	if info.Fragment == nil || info.Fragment.Kind != FragmentKindAbsent || info.Fragment.Absent == nil || info.Fragment.Absent.Func != "absent" {
+		t.Fatalf("expected absent fragment, got %#v", info)
+	}
+	if got := info.Fragment.Absent.OutputMetric["job"]; got != "api" {
+		t.Fatalf("expected derived output metric to be preserved, got %#v", info.Fragment.Absent.OutputMetric)
+	}
+}
+
+func TestAnalyzeAbsentOverTimeMarksNativeLowerableForRangeSelectorChild(t *testing.T) {
+	callExpr := mustParseExpr(t, `absent_over_time(up{job="api"}[5m])`)
+	call, ok := callExpr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected call expr, got %T", callExpr)
+	}
+	logical := &planpkg.LogicalAbsentOverTimePlan{Expr: call, OutputMetric: map[string]string{"job": "api"}, Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+	info := Analyze(logical).InfoFor(logical)
+	if info == nil || !info.NativeLowerable {
+		t.Fatalf("expected absent_over_time() to be native-lowerable, got %#v", info)
+	}
+	if info.Fragment == nil || info.Fragment.Kind != FragmentKindAbsent || info.Fragment.Absent == nil || info.Fragment.Absent.Func != "absent_over_time" {
+		t.Fatalf("expected absent_over_time fragment, got %#v", info)
+	}
+}
+
 func TestAnalyzeLabelJoinMarksSyntheticDestination(t *testing.T) {
 	callExpr := mustParseExpr(t, `label_join(up, "joined", "/", "job", "namespace")`)
 	call, ok := callExpr.(*parser.Call)
@@ -465,7 +500,7 @@ func TestAnalyzeSubqueryAccumulatesTimeRequirements(t *testing.T) {
 	if info == nil {
 		t.Fatal("expected lowering info")
 	}
-	if want := 6 * time.Minute; info.TimeRequirements.Lookback != want {
+	if want := 10 * time.Minute; info.TimeRequirements.Lookback != want {
 		t.Fatalf("expected lookback %s, got %s", want, info.TimeRequirements.Lookback)
 	}
 	if want := 1 * time.Minute; info.TimeRequirements.Offset != want {
@@ -476,7 +511,7 @@ func TestAnalyzeSubqueryAccumulatesTimeRequirements(t *testing.T) {
 	}
 }
 
-func TestAnalyzeLeafTracksOffsetLookback(t *testing.T) {
+func TestAnalyzeLeafTracksInstantSelectorLookbackAndOffset(t *testing.T) {
 	expr := mustParseExpr(t, `up offset 90s`)
 	leaf := &planpkg.LogicalLeafExprPlan{Expr: expr}
 
@@ -484,8 +519,54 @@ func TestAnalyzeLeafTracksOffsetLookback(t *testing.T) {
 	if info == nil {
 		t.Fatal("expected lowering info")
 	}
-	if want := 90 * time.Second; info.TimeRequirements.Lookback != want || info.TimeRequirements.Offset != want {
-		t.Fatalf("expected 90s lookback+offset, got %#v", info.TimeRequirements)
+	if want := 5 * time.Minute; info.TimeRequirements.Lookback != want {
+		t.Fatalf("expected 5m instant-selector lookback, got %#v", info.TimeRequirements)
+	}
+	if want := 90 * time.Second; info.TimeRequirements.Offset != want {
+		t.Fatalf("expected 90s offset, got %#v", info.TimeRequirements)
+	}
+}
+
+func TestAnalyzeSubqueryAccumulatesChildAndOwnOffsetsSeparatelyFromLookback(t *testing.T) {
+	subqueryExpr := mustParseExpr(t, `(up offset 90s * 100)[5m:1m] offset 1m`)
+	subquery, ok := subqueryExpr.(*parser.SubqueryExpr)
+	if !ok {
+		t.Fatalf("expected subquery expr, got %T", subqueryExpr)
+	}
+	innerExpr := subquery.Expr
+	if paren, ok := innerExpr.(*parser.ParenExpr); ok {
+		innerExpr = paren.Expr
+	}
+	binaryExpr, ok := innerExpr.(*parser.BinaryExpr)
+	if !ok {
+		t.Fatalf("expected binary subquery child, got %T", subquery.Expr)
+	}
+	scalarExpr, ok := binaryExpr.RHS.(*parser.NumberLiteral)
+	if !ok {
+		t.Fatalf("expected scalar rhs, got %T", binaryExpr.RHS)
+	}
+	logical := &planpkg.LogicalSubqueryPlan{
+		Expr:   subquery,
+		Range:  subquery.Range,
+		Step:   subquery.Step,
+		Offset: subquery.OriginalOffset,
+		Child: &planpkg.LogicalBinaryPlan{
+			Expr: binaryExpr,
+			Op:   binaryExpr.Op,
+			LHS:  &planpkg.LogicalLeafExprPlan{Expr: binaryExpr.LHS},
+			RHS:  &planpkg.LogicalScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
+		},
+	}
+
+	info := Analyze(logical).InfoFor(logical)
+	if info == nil {
+		t.Fatal("expected lowering info")
+	}
+	if want := 10 * time.Minute; info.TimeRequirements.Lookback != want {
+		t.Fatalf("expected 10m lookback (5m selector + 5m subquery range), got %#v", info.TimeRequirements)
+	}
+	if want := 150 * time.Second; info.TimeRequirements.Offset != want {
+		t.Fatalf("expected accumulated 150s offset, got %#v", info.TimeRequirements)
 	}
 }
 

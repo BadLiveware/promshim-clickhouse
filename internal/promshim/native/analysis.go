@@ -222,7 +222,12 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		child := a.walk(n.Child)
 		info.NodeType = n.Func
 		info.Children = []*LoweringInfo{child}
-		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageDropped)
+		preservesName := rangeFunctionPreservesMetricName(n.Func)
+		metricNameState := LabelLineageDropped
+		if preservesName {
+			metricNameState = child.LabelLineage.MetricName
+		}
+		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), metricNameState)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
 		if isSupportedNativeAggregateOverTime(n.Func) && child.Fragment != nil && child.OutputKind == OutputKindRangeMatrix && isSupportedNativeRangeChildFragment(child.Fragment) {
 			info.NativeLowerable = true
@@ -230,7 +235,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 			info.Fragment = &NativeFragment{
 				Kind:        FragmentKindRangeFunction,
 				OutputKind:  OutputKindInstantVector,
-				DropsMetric: true,
+				DropsMetric: !preservesName,
 				RangeFunction: &RangeFunctionFragment{
 					Func:        n.Func,
 					ParamNumber: cloneFloat64Pointer(n.ParamNumber),
@@ -344,7 +349,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 			if template, ok := nativePointwiseSourceTemplate(n.Func, n.ParamNumbers); ok && child.Fragment != nil && isSupportedAggregationSourceFragment(child.Fragment) {
 				info.NativeLowerable = true
 				info.NativeReason = fmt.Sprintf("%s can lower to a native SQL source expression", n.Func)
-				info.Fragment = &NativeFragment{Kind: FragmentKindUnarySourceExpr, OutputKind: child.Fragment.OutputKind, SourcePromQL: child.Fragment.SourcePromQL, Selector: cloneSelectorSource(child.Fragment.Selector), ValueExpr: template, TagsExpr: tagsExprForMetricDrop(true), DropsMetric: true}
+				info.Fragment = &NativeFragment{Kind: FragmentKindUnarySourceExpr, OutputKind: child.Fragment.OutputKind, SourcePromQL: child.Fragment.SourcePromQL, Selector: cloneSelectorSource(child.Fragment.Selector), ValueExpr: composePointwiseSourceTemplate(template, child.Fragment.ValueExpr), TagsExpr: tagsExprForMetricDrop(true), DropsMetric: true}
 				return info
 			}
 		} else if isSupportedNativeSyntheticDateFunction(n.Func) {
@@ -503,7 +508,22 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		info.Children = []*LoweringInfo{child}
 		info.LabelLineage = syntheticOutputLineage(n.OutputMetric)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
-		info.NativeReason = "absent() currently stays on the local execution path"
+		if child.Fragment != nil && child.OutputKind == OutputKindInstantVector {
+			info.NativeLowerable = true
+			info.NativeReason = "absent() can lower to native SQL by testing whether the lowerable child instant vector returns any rows"
+			info.Fragment = &NativeFragment{
+				Kind:        FragmentKindAbsent,
+				OutputKind:  OutputKindInstantVector,
+				DropsMetric: true,
+				Absent: &AbsentFragment{
+					Func:         "absent",
+					OutputMetric: cloneStringMap(n.OutputMetric),
+					Child:        child.Fragment,
+				},
+			}
+			return info
+		}
+		info.NativeReason = "absent() currently requires a lowerable instant-vector child to run fully in native SQL"
 		return info
 	case *planpkg.LogicalAbsentOverTimePlan:
 		child := a.walk(n.Child)
@@ -511,7 +531,22 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		info.Children = []*LoweringInfo{child}
 		info.LabelLineage = syntheticOutputLineage(n.OutputMetric)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
-		info.NativeReason = "absent_over_time currently stays on the local execution path"
+		if child.Fragment != nil && child.OutputKind == OutputKindRangeMatrix && isSupportedNativeRangeChildFragment(child.Fragment) {
+			info.NativeLowerable = true
+			info.NativeReason = "absent_over_time can lower to native SQL by testing whether the lowerable range child window contains any samples"
+			info.Fragment = &NativeFragment{
+				Kind:        FragmentKindAbsent,
+				OutputKind:  OutputKindInstantVector,
+				DropsMetric: true,
+				Absent: &AbsentFragment{
+					Func:         "absent_over_time",
+					OutputMetric: cloneStringMap(n.OutputMetric),
+					Child:        child.Fragment,
+				},
+			}
+			return info
+		}
+		info.NativeReason = "absent_over_time currently requires a lowerable range-selector/subquery child to run fully in native SQL"
 		return info
 	case *planpkg.LogicalSubqueryPlan:
 		child := a.walk(n.Child)
@@ -735,6 +770,9 @@ func nativePointwiseSourceTemplate(name string, paramNumbers []*float64) (string
 		return "toFloat64(toYear(toDateTime(toInt64({value}), 'UTC')))", true
 	case "clamp":
 		if len(paramNumbers) == 2 && paramNumbers[0] != nil && paramNumbers[1] != nil {
+			if *paramNumbers[0] > *paramNumbers[1] {
+				return "", false
+			}
 			return fmt.Sprintf("greatest(%s, least(%s, {value}))", storage.NativeFloatLiteral(*paramNumbers[0]), storage.NativeFloatLiteral(*paramNumbers[1])), true
 		}
 	case "clamp_min":
@@ -757,6 +795,15 @@ func isSupportedNativeAggregateOverTime(name string) bool {
 	default:
 		return false
 	}
+}
+
+// rangeFunctionPreservesMetricName reports whether the range function returns a
+// sample from the original series (preserving __name__) rather than a derived
+// aggregation. Only last_over_time has this property among the supported range
+// functions; everything else (rate/increase/delta/*_over_time/deriv/...) drops
+// the metric name because the returned value is a new quantity.
+func rangeFunctionPreservesMetricName(name string) bool {
+	return name == "last_over_time"
 }
 
 func isSupportedNativeCounterRangeFunction(name string) bool {
@@ -1009,6 +1056,13 @@ func tagsExprForMetricDrop(dropMetric bool) string {
 
 func wrapValueExpr(expr string) string {
 	return "(" + expr + ")"
+}
+
+func composePointwiseSourceTemplate(template, childValueExpr string) string {
+	if childValueExpr == "" || childValueExpr == "{value}" {
+		return template
+	}
+	return strings.ReplaceAll(template, "{value}", wrapValueExpr(childValueExpr))
 }
 
 func sortedKeys(values map[string]LabelLineageState) []string {

@@ -367,7 +367,7 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 	delegation := classifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion)
 	var plan queryPlan
 	var analysis *nativeplan.Analysis
-	if mode != NativeLoweringModeOff && delegation.Eligible {
+	if mode != NativeLoweringModeOff && delegation.Eligible && !mode.forcesNativeRoot() {
 		plan, analysis, err = buildEntireQueryDelegatedPlan(expr)
 		if err != nil {
 			return "", time.Time{}, nil, nil, apiErrorToHTTP(err)
@@ -422,7 +422,7 @@ func (h *queryService) buildRangePlan(req httpapi.RangeQueryRequest) (string, ti
 	delegation := classifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion)
 	var plan queryPlan
 	var analysis *nativeplan.Analysis
-	if mode != NativeLoweringModeOff && delegation.Eligible {
+	if mode != NativeLoweringModeOff && delegation.Eligible && !mode.forcesNativeRoot() {
 		plan, analysis, err = buildEntireQueryDelegatedPlan(expr)
 		if err != nil {
 			return "", time.Time{}, time.Time{}, 0, nil, nil, apiErrorToHTTP(err)

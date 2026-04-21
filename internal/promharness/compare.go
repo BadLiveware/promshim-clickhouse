@@ -219,6 +219,14 @@ func manifestsForQuery(query QuerySpec, configured []Manifest) ([]Manifest, erro
 	return filtered, nil
 }
 
+func effectiveQuerySpec(cfg CompareConfig, spec QuerySpec) QuerySpec {
+	if strings.TrimSpace(spec.NativeLoweringMode) != "" || strings.TrimSpace(cfg.DefaultNativeLoweringMode) == "" {
+		return spec
+	}
+	spec.NativeLoweringMode = cfg.DefaultNativeLoweringMode
+	return spec
+}
+
 func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 	manifest, err := ReadManifest(ManifestPath(cfg.ArtifactDir))
 	if err != nil {
@@ -265,6 +273,7 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 			continue
 		}
 		for _, variant := range variants {
+			variant.Spec = effectiveQuerySpec(cfg, variant.Spec)
 			querySubjects, err := subjectsForQuery(variant.Spec, subjects)
 			if err != nil {
 				appendResult(variant.Spec, variant.Variant, "", "harness", "error", err.Error())

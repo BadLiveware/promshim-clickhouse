@@ -132,6 +132,38 @@ func TestBuildRangeWindowSelectorQuerySQLUsesStepGridAndRangeWindow(t *testing.T
 	}
 }
 
+func TestBuildRangeWindowSelectorQuerySQLUsesInclusiveTemporalBounds(t *testing.T) {
+	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, time.Minute, SelectorKindRangeVector)
+
+	sql, _, err := BuildRangeWindowSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -360000, 240000, 0, 300000, 30000, "arraySum(arrayMap(point -> point.2, window_series))", 0)
+	if err != nil {
+		t.Fatalf("expected range window selector SQL, got error: %v", err)
+	}
+	if !strings.Contains(sql, "d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64})") {
+		t.Fatalf("expected inclusive right-edge bound in SQL, got %q", sql)
+	}
+	if !strings.Contains(sql, "d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})") {
+		t.Fatalf("expected inclusive left-edge bound in SQL, got %q", sql)
+	}
+}
+
+func TestBuildRangeSelectorQuerySQLUsesStepGridLookbackAndOffset(t *testing.T) {
+	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, time.Minute, SelectorKindInstantVector)
+
+	sql, params, err := BuildRangeSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -360000, 240000, 0, 300000, 30000)
+	if err != nil {
+		t.Fatalf("expected range selector SQL, got error: %v", err)
+	}
+	for _, expected := range []string{"d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64})", "d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected %q in SQL, got %q", expected, sql)
+		}
+	}
+	if params["param_lookback_ms"] != "300000" || params["param_offset_ms"] != "60000" {
+		t.Fatalf("expected lookback/offset params, got %#v", params)
+	}
+}
+
 func TestBuildRangeSelectorQuerySQLUsesStepGridAndLookback(t *testing.T) {
 	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, 0, SelectorKindInstantVector)
 
@@ -139,13 +171,13 @@ func TestBuildRangeSelectorQuerySQLUsesStepGridAndLookback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected range selector SQL, got error: %v", err)
 	}
-	for _, expected := range []string{"arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts", "argMax(d.value, d.timestamp)", "toIntervalMillisecond({lookback_ms:Int64})", "GROUP BY grid.id, grid.tags, grid.eval_ts"} {
+	for _, expected := range []string{"arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts", "argMax(d.value, d.timestamp)", "toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})", "GROUP BY grid.id, grid.tags, grid.eval_ts"} {
 		if !strings.Contains(sql, expected) {
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)
 		}
 	}
-	if params["param_lookback_ms"] != "300000" {
-		t.Fatalf("expected 5m lookback param, got %#v", params)
+	if params["param_lookback_ms"] != "300000" || params["param_offset_ms"] != "0" {
+		t.Fatalf("expected 5m lookback and zero offset params, got %#v", params)
 	}
 }
 

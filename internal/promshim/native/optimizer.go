@@ -6,6 +6,7 @@ import (
 
 	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/promql/parser"
 )
 
 type OptimizerLayer string
@@ -246,6 +247,9 @@ func normalizeTrivialSourceExpressions(fragment *NativeFragment) *NativeFragment
 	if normalized.Aggregation != nil {
 		normalized.Aggregation.Source = normalizeTrivialSourceExpressions(normalized.Aggregation.Source)
 	}
+	if normalized.Absent != nil {
+		normalized.Absent.Child = normalizeTrivialSourceExpressions(normalized.Absent.Child)
+	}
 	if normalized.Kind == FragmentKindUnarySourceExpr && normalized.ValueExpr == "{value}" && normalized.TagsExpr == "{tags}" && !normalized.DropsMetric {
 		normalized.Kind = FragmentKindLeafSource
 	}
@@ -260,6 +264,9 @@ func flattenRedundantWrappers(fragment *NativeFragment) *NativeFragment {
 	if flattened.Aggregation != nil {
 		flattened.Aggregation.Source = flattenRedundantWrappers(flattened.Aggregation.Source)
 	}
+	if flattened.Absent != nil {
+		flattened.Absent.Child = flattenRedundantWrappers(flattened.Absent.Child)
+	}
 	if flattened.Kind == FragmentKindUnarySourceExpr && flattened.ValueExpr == "{value}" && flattened.TagsExpr == "{tags}" && !flattened.DropsMetric {
 		flattened.Kind = FragmentKindLeafSource
 	}
@@ -272,17 +279,24 @@ func requiredInputBounds(fragment *NativeFragment, info *LoweringInfo, ctx Optim
 	}
 	lookbackMS := int64(0)
 	offsetMS := int64(0)
+	selector := baseSelectorSource(fragment)
 	if info != nil {
 		lookbackMS = info.TimeRequirements.Lookback.Milliseconds()
 		offsetMS = info.TimeRequirements.Offset.Milliseconds()
 	}
-	if selector := baseSelectorSource(fragment); selector != nil {
-		lookbackMS = selector.Lookback.Milliseconds()
-		offsetMS = selector.Offset.Milliseconds()
+	if lookbackMS == 0 && offsetMS == 0 {
+		if selector != nil {
+			lookbackMS = selector.Lookback.Milliseconds()
+			offsetMS = selector.Offset.Milliseconds()
+		}
 	}
 	switch ctx.Mode {
 	case RenderModeInstant:
-		endMS := ctx.EvaluationTimeMS - offsetMS
+		anchorMS := ctx.EvaluationTimeMS
+		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment, selector, ctx); ok {
+			anchorMS = resolved
+		}
+		endMS := anchorMS - offsetMS
 		startMS := endMS - lookbackMS
 		return startMS, endMS, true
 	case RenderModeRange:
@@ -296,6 +310,89 @@ func requiredInputBounds(fragment *NativeFragment, info *LoweringInfo, ctx Optim
 		endMS := ctx.EvaluationTimeMS - offsetMS
 		startMS := endMS - lookbackMS
 		return startMS, endMS, true
+	}
+}
+
+func resolvedFragmentAnchorTimeMS(fragment *NativeFragment, selector *SelectorSource, ctx OptimizationContext) (int64, bool) {
+	if fragment == nil {
+		return resolvedSelectorAnchorTimeMS(selector, ctx)
+	}
+	if fragment.Subquery != nil {
+		if fragment.Subquery.Timestamp != nil {
+			return *fragment.Subquery.Timestamp, true
+		}
+		switch fragment.Subquery.StartOrEnd {
+		case parser.START:
+			if ctx.Mode == RenderModeRange {
+				return ctx.StartMS, true
+			}
+			return ctx.EvaluationTimeMS, true
+		case parser.END:
+			if ctx.Mode == RenderModeRange {
+				return ctx.EndMS, true
+			}
+			return ctx.EvaluationTimeMS, true
+		}
+		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.Subquery.Child, nil, ctx); ok {
+			return resolved, true
+		}
+	}
+	if fragment.Aggregation != nil {
+		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.Aggregation.Source, nil, ctx); ok {
+			return resolved, true
+		}
+	}
+	if fragment.RangeFunction != nil {
+		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.RangeFunction.Child, nil, ctx); ok {
+			return resolved, true
+		}
+	}
+	if fragment.BinaryJoin != nil {
+		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.BinaryJoin.LHS, nil, ctx); ok {
+			return resolved, true
+		}
+		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.BinaryJoin.RHS, nil, ctx); ok {
+			return resolved, true
+		}
+	}
+	if fragment.ScalarConvert != nil {
+		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.ScalarConvert.Child, nil, ctx); ok {
+			return resolved, true
+		}
+	}
+	if fragment.InfoJoin != nil {
+		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.InfoJoin.Child, nil, ctx); ok {
+			return resolved, true
+		}
+	}
+	if fragment.Absent != nil {
+		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.Absent.Child, nil, ctx); ok {
+			return resolved, true
+		}
+	}
+	return resolvedSelectorAnchorTimeMS(selector, ctx)
+}
+
+func resolvedSelectorAnchorTimeMS(selector *SelectorSource, ctx OptimizationContext) (int64, bool) {
+	if selector == nil {
+		return 0, false
+	}
+	if selector.Timestamp != nil {
+		return *selector.Timestamp, true
+	}
+	switch selector.StartOrEnd {
+	case parser.START:
+		if ctx.Mode == RenderModeRange {
+			return ctx.StartMS, true
+		}
+		return ctx.EvaluationTimeMS, true
+	case parser.END:
+		if ctx.Mode == RenderModeRange {
+			return ctx.EndMS, true
+		}
+		return ctx.EvaluationTimeMS, true
+	default:
+		return 0, false
 	}
 }
 
@@ -367,6 +464,9 @@ func baseSelectorSource(fragment *NativeFragment) *SelectorSource {
 	if fragment.InfoJoin != nil {
 		return baseSelectorSource(fragment.InfoJoin.Child)
 	}
+	if fragment.Absent != nil {
+		return baseSelectorSource(fragment.Absent.Child)
+	}
 	if fragment.Selector != nil {
 		return fragment.Selector
 	}
@@ -398,6 +498,9 @@ func requiredColumnsForFragment(fragment *NativeFragment) []string {
 	}
 	if fragment.InfoJoin != nil {
 		columns = append(columns, requiredColumnsForFragment(fragment.InfoJoin.Child)...)
+	}
+	if fragment.Absent != nil {
+		columns = append(columns, requiredColumnsForFragment(fragment.Absent.Child)...)
 	}
 	return mergeUniqueStrings(nil, columns...)
 }
@@ -472,6 +575,9 @@ func semanticBarriersForFragment(fragment *NativeFragment) []string {
 	if fragment.Kind == FragmentKindRangeFunction {
 		barriers = append(barriers, "range_window_materialization_boundary")
 	}
+	if fragment.Kind == FragmentKindAbsent && fragment.Absent != nil && fragment.Absent.Func == "absent_over_time" {
+		barriers = append(barriers, "range_window_materialization_boundary")
+	}
 	if fragment.DropsMetric || (fragment.Aggregation != nil && fragment.Aggregation.Source != nil && fragment.Aggregation.Source.DropsMetric) {
 		barriers = append(barriers, "metric_name_lineage_change")
 	}
@@ -483,7 +589,7 @@ func joinNormalizationForFragment(fragment *NativeFragment) string {
 		return "not_applicable"
 	}
 	switch fragment.Kind {
-	case FragmentKindAggregation, FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindSyntheticSeries, FragmentKindScalarConvert, FragmentKindInfoJoin:
+	case FragmentKindAggregation, FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindSyntheticSeries, FragmentKindScalarConvert, FragmentKindInfoJoin, FragmentKindAbsent:
 		return "not_applicable"
 	default:
 		return "required"

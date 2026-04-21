@@ -412,6 +412,30 @@ func applyNativeChangesDerivFamilyForTest(name string, matrix model.MatrixValue)
 	return model.VectorValue{Samples: out}, nil
 }
 
+func TestCounterFamilyNativeDifferentialsCoverInclusiveBoundaryWindows(t *testing.T) {
+	matrix := model.MatrixValue{Series: []model.RangeSeries{
+		{Metric: map[string]string{"__name__": "requests_total", "job": "boundary"}, Values: []model.RangePoint{{Timestamp: 0, Value: 10}, {Timestamp: 300, Value: 16}}},
+		{Metric: map[string]string{"__name__": "gauge", "job": "boundary-gauge"}, Values: []model.RangePoint{{Timestamp: 0, Value: 2}, {Timestamp: 300, Value: 5}}},
+	}}
+	for _, fn := range []string{"rate", "increase", "delta", "changes", "deriv"} {
+		t.Run(fn, func(t *testing.T) {
+			oracle, ok := exec.LocalRangeOracleForTest(fn)
+			if !ok {
+				t.Fatalf("expected local oracle for %q", fn)
+			}
+			want, err := oracle(matrix)
+			if err != nil {
+				t.Fatalf("local oracle for %q returned error: %v", fn, err)
+			}
+			got, err := applyNativeCounterFamilyForTest(fn, matrix)
+			if err != nil {
+				t.Fatalf("native helper for %q returned error: %v", fn, err)
+			}
+			assertVectorEqual(t, fn, want, got)
+		})
+	}
+}
+
 func TestCounterFamilyNativeDifferentialsCoverResetAndEdgeCases(t *testing.T) {
 	cases := []struct {
 		name   string

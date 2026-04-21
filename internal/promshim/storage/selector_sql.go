@@ -91,7 +91,7 @@ func BuildRangeWindowSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, 
 	windowed := &sqlb.Select{
 		Columns: []sqlb.ColExpr{{Expr: windowTagsExpr, Alias: "tags"}, {Expr: sqlb.Ident("grid.eval_ts"), Alias: "eval_ts"}, {Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((d.timestamp, d.value)))"}, Alias: "window_series"}},
 		From:    sqlb.Join{Left: sqlb.SubSelect{S: grid, Alias: "grid"}, Right: sqlb.RawSource{SQL: "timeSeriesData(" + timeSeriesTableRef(cfg) + ")", Alias: "d"}, Kind: "INNER", On: sqlb.RawLit{V: "d.id = grid.id"}},
-		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64}) AND d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})"},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64}) AND d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64}) AND " + staleNaNFilterSQL("d.value")},
 		GroupBy: groupByWindow,
 	}
 	perStep := &sqlb.Select{
@@ -186,6 +186,7 @@ func buildInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, req
 		},
 		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})"},
 		GroupBy: groupBy,
+		Having:  sqlb.RawLit{V: "NOT isNaN(value)"},
 		OrderBy: orderBy,
 	}
 	sql, _, err := query.Build()
@@ -218,6 +219,7 @@ func buildRangeInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource
 	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
 	params["param_step_ms"] = strconv.FormatInt(stepMS, 10)
 	params["param_lookback_ms"] = strconv.FormatInt(selector.LookbackMS, 10)
+	params["param_offset_ms"] = strconv.FormatInt(selector.OffsetMS, 10)
 
 	gridTagsExpr := sqlb.Expr(sqlb.Ident("series.tags"))
 	innerTagsExpr := sqlb.Expr(sqlb.Ident("grid.tags"))
@@ -252,8 +254,9 @@ func buildRangeInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource
 			Kind:  "INNER",
 			On:    sqlb.RawLit{V: "d.id = grid.id"},
 		},
-		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND d.timestamp <= grid.eval_ts AND d.timestamp >= grid.eval_ts - toIntervalMillisecond({lookback_ms:Int64})"},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64}) AND d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})"},
 		GroupBy: groupByInner,
+		Having:  sqlb.RawLit{V: "NOT isNaN(value)"},
 	}
 	outer := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
@@ -294,7 +297,7 @@ func buildRangeMatrixSelectorSourceSQL(cfg QueryConfig, selector SelectorSource,
 			Kind:  "INNER",
 			On:    sqlb.RawLit{V: "d.id = series.id"},
 		},
-		Where: sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})"},
+		Where: sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value")},
 	}
 	outer := &sqlb.Select{
 		Columns: []sqlb.ColExpr{

@@ -106,6 +106,23 @@ func ApplyBinaryRuntimeValue(op parser.ItemType, lhs, rhs model.RuntimeValue, ve
 			}
 			return model.MatrixValue{Series: series}, nil
 		case model.MatrixValue:
+			leftIsScalar := isRangeScalarMatrix(left)
+			rightIsScalar := isRangeScalarMatrix(right)
+			if vectorMatching == nil && leftIsScalar != rightIsScalar {
+				var scalar, vector []model.RangeSeries
+				swap := false
+				if leftIsScalar {
+					scalar, vector = left.Series, right.Series
+					swap = true
+				} else {
+					scalar, vector = right.Series, left.Series
+				}
+				series, err := ensureUniqueRangeLabelsets(applyScalarMatrixBinaryRange(op, vector, scalar[0], swap, returnBool))
+				if err != nil {
+					return nil, err
+				}
+				return model.MatrixValue{Series: series}, nil
+			}
 			series, err := applyVectorVectorBinaryRange(op, left.Series, right.Series, vectorMatching, returnBool)
 			if err != nil {
 				return nil, err
@@ -226,6 +243,57 @@ func applyVectorScalarBinaryRange(op parser.ItemType, series []model.RangeSeries
 		for _, point := range item.Values {
 			vectorValue := point.Value
 			lhs, rhs := vectorValue, scalar
+			if swap {
+				lhs, rhs = rhs, lhs
+			}
+			binaryValue := applyScalarBinary(op, lhs, rhs)
+			keep := true
+			outputValue := binaryValue
+			if isComparisonBinaryOperator(op) {
+				comparisonKept := binaryValue != 0
+				if !returnBool {
+					outputValue = vectorValue
+					keep = comparisonKept
+				} else {
+					outputValue = boolToFloat(comparisonKept)
+				}
+			}
+			if !keep {
+				continue
+			}
+			values = append(values, model.RangePoint{Timestamp: point.Timestamp, Value: outputValue})
+		}
+		if len(values) == 0 {
+			continue
+		}
+		result = append(result, model.RangeSeries{Metric: metric, Values: values})
+	}
+	return result
+}
+
+func isRangeScalarMatrix(m model.MatrixValue) bool {
+	return len(m.Series) == 1 && len(m.Series[0].Metric) == 0
+}
+
+func applyScalarMatrixBinaryRange(op parser.ItemType, series []model.RangeSeries, scalar model.RangeSeries, swap, returnBool bool) []model.RangeSeries {
+	scalarByTimestamp := make(map[float64]float64, len(scalar.Values))
+	for _, point := range scalar.Values {
+		scalarByTimestamp[point.Timestamp] = point.Value
+	}
+	result := make([]model.RangeSeries, 0, len(series))
+	for _, item := range series {
+		values := make([]model.RangePoint, 0, len(item.Values))
+		metric := model.CloneMetric(item.Metric)
+		if !isComparisonBinaryOperator(op) || returnBool {
+			metric = model.DropMetricName(metric)
+		}
+		for _, point := range item.Values {
+			scalarValue, ok := scalarByTimestamp[point.Timestamp]
+			if !ok {
+				continue
+			}
+			vectorValue := point.Value
+			lhs, rhs := vectorValue, scalarValue
 			if swap {
 				lhs, rhs = rhs, lhs
 			}

@@ -757,6 +757,148 @@ func TestQueryExplainHonorsNativeLoweringModeOff(t *testing.T) {
 	}
 }
 
+func TestQueryRangeExplainForceSupportedRejectsAnchoredAggregationRoot(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	url := "/api/v1/query_range_explain?query=sum%20by%20(job)%20(up%20%40%20start())&start=0&end=300&step=30&native_lowering_mode=force_supported"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code == http.StatusOK {
+		t.Fatalf("expected non-200 for anchored force_supported range request, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status    string `json:"status"`
+		ErrorType string `json:"errorType"`
+		Error     string `json:"error"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.ErrorType != "unsupported" {
+		t.Fatalf("expected unsupported error type, got %#v", body)
+	}
+	if !strings.Contains(body.Error, "force_supported") {
+		t.Fatalf("expected force_supported message, got %#v", body)
+	}
+}
+
+func TestQueryExplainForceSupportedPrefersNativeRootOverDelegation(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	url := "/api/v1/query_explain?query=up&native_lowering_mode=force_supported"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200 for native force_supported selector explain, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Plan ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Plan.Strategy != "native_sql" {
+		t.Fatalf("expected native_sql root under force_supported, got %#v", body.Data.Plan)
+	}
+}
+
+func TestQueryRangeExplainForceSupportedPrefersNativeRootOverDelegation(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	url := "/api/v1/query_range_explain?query=up&start=0&end=300&step=30&native_lowering_mode=force_supported"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200 for range native force_supported selector explain, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Plan ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Plan.Strategy != "native_sql" {
+		t.Fatalf("expected native_sql root under range force_supported, got %#v", body.Data.Plan)
+	}
+}
+
+func TestQueryExplainForceSupportedAcceptsAbsentNativeRoot(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	url := "/api/v1/query_explain?query=absent(up%7Bjob%3D%22api%22%7D)&native_lowering_mode=force_supported"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200 for force_supported absent explain, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Plan ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Plan.Strategy != "native_sql" || body.Data.Plan.Kind != "absent" {
+		t.Fatalf("expected native absent root under force_supported, got %#v", body.Data.Plan)
+	}
+}
+
+func TestQueryRangeExplainForceSupportedAcceptsAbsentOverTimeNativeRoot(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	url := "/api/v1/query_range_explain?query=absent_over_time(up%7Bjob%3D%22api%22%7D%5B5m%5D)&start=0&end=300&step=30&native_lowering_mode=force_supported"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200 for force_supported absent_over_time range explain, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Plan ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Plan.Strategy != "native_sql" || body.Data.Plan.Kind != "absent_over_time" {
+		t.Fatalf("expected native absent_over_time root under force_supported, got %#v", body.Data.Plan)
+	}
+}
+
 func TestQueryExplainForceSupportedRejectsNonNativeRoot(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {

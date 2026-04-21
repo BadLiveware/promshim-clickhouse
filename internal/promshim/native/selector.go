@@ -27,6 +27,8 @@ type SelectorSource struct {
 	RequiredTagLabels []string
 	Lookback          time.Duration
 	Offset            time.Duration
+	Timestamp         *int64
+	StartOrEnd        parser.ItemType
 }
 
 func buildSelectorSource(expr parser.Expr) (*SelectorSource, error) {
@@ -39,6 +41,8 @@ func buildSelectorSource(expr parser.Expr) (*SelectorSource, error) {
 			RequireFullTags: true,
 			Lookback:        defaultInstantSelectorLookback,
 			Offset:          absoluteDuration(node.OriginalOffset),
+			Timestamp:       cloneInt64Pointer(node.Timestamp),
+			StartOrEnd:      node.StartOrEnd,
 		}, nil
 	case *parser.MatrixSelector:
 		vectorSelector, ok := node.VectorSelector.(*parser.VectorSelector)
@@ -52,6 +56,8 @@ func buildSelectorSource(expr parser.Expr) (*SelectorSource, error) {
 			RequireFullTags: true,
 			Lookback:        node.Range,
 			Offset:          absoluteDuration(vectorSelector.OriginalOffset),
+			Timestamp:       cloneInt64Pointer(vectorSelector.Timestamp),
+			StartOrEnd:      vectorSelector.StartOrEnd,
 		}, nil
 	default:
 		return nil, nil
@@ -72,6 +78,8 @@ func cloneSelectorSource(selector *SelectorSource) *SelectorSource {
 		RequiredTagLabels: append([]string(nil), selector.RequiredTagLabels...),
 		Lookback:          selector.Lookback,
 		Offset:            selector.Offset,
+		Timestamp:         cloneInt64Pointer(selector.Timestamp),
+		StartOrEnd:        selector.StartOrEnd,
 	}
 }
 

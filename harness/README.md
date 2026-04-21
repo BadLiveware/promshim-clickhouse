@@ -30,6 +30,7 @@ Useful options:
 
 - `--subjects <list>` to restrict compare subjects globally, e.g. `shim` or `shim,promclick`
 - `--dataset-variants <list>` to seed multiple dataset shapes in one run, e.g. `baseline,resets_gaps`
+- `--native-only` to force `native_lowering_mode=force_supported` for every query row that does not already set an explicit mode
 - `--no-build` to skip rebuilding images
 - `--keep-up` to keep the stack running for inspection/debugging
 - `--init-retries <n>` to tune ClickHouse init retries
@@ -169,6 +170,45 @@ The Phase 7 rollout corpus is a smaller shim-only parity check for rollout contr
 ```bash
 ./scripts/run-harness.sh --corpus phase7-rollout.json --subjects shim
 ```
+
+### Path 2 measurement prerequisites corpus
+
+A dedicated native-only measurement corpus now lives at:
+
+- `harness/corpus/path2-measurement-prereqs.json`
+- `harness/corpus/path2-measurement-prereqs.metadata.json`
+
+It combines:
+
+- the existing native-lowering starter rows
+- explicit expected-error probes
+- range step / time offset expansion rows
+- dataset-variant parity rows for reset/gap, churn/staleness, and histogram-burst shapes
+
+Run it with:
+
+```bash
+./scripts/run-harness.sh \
+  --corpus path2-measurement-prereqs.json \
+  --subjects shim \
+  --native-only \
+  --dataset-variants baseline,resets_gaps,churn_stale,histogram_burst
+```
+
+This is the shortest command that exercises the P0/P1/P2 measurement prerequisites in one harness pass without relying on silent local fallback.
+
+To align the Path 2 inventory with the read-only Prometheus compliance query suite without changing `harness/compliance/prom-compliance/`, generate the compliance-alignment report with:
+
+```bash
+go run ./cmd/promshim-promql-compliance
+```
+
+That writes:
+
+- `.pi/path2-promql-compliance-alignment.json`
+- `.pi/path2-promql-compliance-alignment.md`
+
+and expands the upstream `promql-test-queries.yml` variant matrix so the current Path 2 measurement surface can be compared against the same query families the compliance suite expects.
 
 Corpus rows can also set:
 - `"nativeLoweringMode": "off|explain|shadow|prefer|force_supported"`

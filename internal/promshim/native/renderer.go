@@ -2,6 +2,7 @@ package native
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -48,6 +49,8 @@ func RenderFragment(cfg storage.QueryConfig, fragment *NativeFragment, params Re
 		return renderScalarConvertFragment(cfg, fragment, params)
 	case FragmentKindInfoJoin:
 		return renderInfoJoinFragment(cfg, fragment, params)
+	case FragmentKindAbsent:
+		return renderAbsentFragment(cfg, fragment, params)
 	case FragmentKindSubquery:
 		return renderSubqueryFragment(cfg, fragment, params)
 	case FragmentKindRangeFunction:
@@ -106,7 +109,7 @@ func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *NativeFragme
 		if err != nil {
 			return RenderedQuery{}, err
 		}
-		sql, err := buildInstantRangeFunctionSQL(childRendered.SQL, fragment.RangeFunction.Func, fragment.RangeFunction.ParamNumber, fragment.RangeFunction.ParamNumbers, params.EvaluationTimeMS)
+		sql, err := buildInstantRangeFunctionSQL(childRendered.SQL, fragment.RangeFunction.Func, fragment.RangeFunction.ParamNumber, fragment.RangeFunction.ParamNumbers, params.EvaluationTimeMS, rangeFunctionChildRangeMS(fragment.RangeFunction.Child))
 		if err != nil {
 			return RenderedQuery{}, err
 		}
@@ -428,6 +431,146 @@ func renderInfoJoinFragment(cfg storage.QueryConfig, fragment *NativeFragment, p
 	}
 }
 
+func renderAbsentFragment(cfg storage.QueryConfig, fragment *NativeFragment, params RenderParams) (RenderedQuery, error) {
+	if fragment == nil || fragment.Absent == nil || fragment.Absent.Child == nil {
+		return RenderedQuery{}, fmt.Errorf("absent fragment is missing child metadata")
+	}
+	queryParams := map[string]string{}
+	tagsSQL := outputMetricTagsSQL(fragment.Absent.OutputMetric)
+	switch fragment.Absent.Func {
+	case "absent":
+		childSQL, childParams, err := renderFragmentSubquery(cfg, fragment.Absent.Child, params, "absent_child")
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		mergeRenderedQueryParams(queryParams, childParams)
+		switch params.Mode {
+		case RenderModeInstant:
+			queryParams["param_evaluation_ms"] = strconv.FormatInt(params.EvaluationTimeMS, 10)
+			sql := "SELECT " + tagsSQL + " AS tags, fromUnixTimestamp64Milli({evaluation_ms:Int64}) AS timestamp, toFloat64(1) AS value FROM (SELECT count() AS sample_count FROM (" + childSQL + ") AS absent_child) AS probe WHERE probe.sample_count = 0\nFORMAT JSONEachRow\n"
+			return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
+		case RenderModeRange:
+			queryParams["param_start_ms"] = strconv.FormatInt(params.StartMS, 10)
+			queryParams["param_end_ms"] = strconv.FormatInt(params.EndMS, 10)
+			queryParams["param_step_ms"] = strconv.FormatInt(params.StepMS, 10)
+			presenceSQL := "SELECT point.1 AS timestamp, count() AS sample_count FROM (" + childSQL + ") AS absent_child ARRAY JOIN absent_child.time_series AS point GROUP BY point.1"
+			return RenderedQuery{SQL: buildRangeAbsentSeriesSQL(tagsSQL, presenceSQL), QueryParams: queryParams}, nil
+		default:
+			return RenderedQuery{}, fmt.Errorf("unknown render mode %q", params.Mode)
+		}
+	case "absent_over_time":
+		switch params.Mode {
+		case RenderModeInstant:
+			childSQL, childParams, err := renderFragmentSubquery(cfg, fragment.Absent.Child, params, "absent_child")
+			if err != nil {
+				return RenderedQuery{}, err
+			}
+			mergeRenderedQueryParams(queryParams, childParams)
+			queryParams["param_evaluation_ms"] = strconv.FormatInt(params.EvaluationTimeMS, 10)
+			sql := "SELECT " + tagsSQL + " AS tags, fromUnixTimestamp64Milli({evaluation_ms:Int64}) AS timestamp, toFloat64(1) AS value FROM (SELECT count() AS sample_count FROM (" + childSQL + ") AS absent_child ARRAY JOIN absent_child.time_series AS point) AS probe WHERE probe.sample_count = 0\nFORMAT JSONEachRow\n"
+			return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
+		case RenderModeRange:
+			queryParams["param_start_ms"] = strconv.FormatInt(params.StartMS, 10)
+			queryParams["param_end_ms"] = strconv.FormatInt(params.EndMS, 10)
+			queryParams["param_step_ms"] = strconv.FormatInt(params.StepMS, 10)
+			windowedSQL, childParams, err := renderAbsentOverTimeWindowedSource(cfg, fragment.Absent.Child, params)
+			if err != nil {
+				return RenderedQuery{}, err
+			}
+			mergeRenderedQueryParams(queryParams, childParams)
+			presenceSQL := "SELECT eval_ts AS timestamp, sum(length(window_series)) AS sample_count FROM (" + trimRenderedQuerySQL(windowedSQL) + ") AS absent_windows GROUP BY eval_ts"
+			return RenderedQuery{SQL: buildRangeAbsentSeriesSQL(tagsSQL, presenceSQL), QueryParams: queryParams}, nil
+		default:
+			return RenderedQuery{}, fmt.Errorf("unknown render mode %q", params.Mode)
+		}
+	default:
+		return RenderedQuery{}, fmt.Errorf("absent fragment function %q is not implemented yet", fragment.Absent.Func)
+	}
+}
+
+func renderAbsentOverTimeWindowedSource(cfg storage.QueryConfig, child *NativeFragment, params RenderParams) (string, map[string]string, error) {
+	if child == nil {
+		return "", nil, fmt.Errorf("absent_over_time child fragment is missing")
+	}
+	if child.Kind == FragmentKindLeafSource && child.Selector != nil && child.Selector.Kind == SelectorKindRangeVector {
+		childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
+		rendered, err := RenderFragment(cfg, child, RenderParams{Mode: RenderModeRange, StartMS: params.StartMS, EndMS: params.EndMS, StepMS: params.StepMS, RequiredStartMS: childRequiredStartMS, RequiredEndMS: childRequiredEndMS, ResolveSourcePromQL: params.ResolveSourcePromQL})
+		if err != nil {
+			return "", nil, err
+		}
+		namespacedSQL, namespacedParams, err := namespaceRenderedQuery(trimRenderedQuerySQL(rendered.SQL), rendered.QueryParams, "absent_window_child")
+		if err != nil {
+			return "", nil, err
+		}
+		windowedSQL, err := buildWindowedArraysSourceSQL(namespacedSQL, params.StartMS, params.EndMS, params.StepMS, child.Selector.Lookback.Milliseconds(), child.Selector.Offset.Milliseconds())
+		if err != nil {
+			return "", nil, err
+		}
+		return windowedSQL, namespacedParams, nil
+	}
+	if child.Kind == FragmentKindSubquery && child.Subquery != nil && child.Subquery.Child != nil {
+		subqueryStep := child.Subquery.Step
+		if subqueryStep <= 0 {
+			subqueryStep = time.Minute
+		}
+		expandedEndMS := params.EndMS - child.Subquery.Offset.Milliseconds()
+		expandedStartMS := params.StartMS - child.Subquery.Offset.Milliseconds() - child.Subquery.Range.Milliseconds()
+		childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(child.Subquery.Child, expandedStartMS, expandedEndMS)
+		rendered, err := RenderFragment(cfg, child.Subquery.Child, RenderParams{Mode: RenderModeRange, StartMS: expandedStartMS, EndMS: expandedEndMS, StepMS: subqueryStep.Milliseconds(), RequiredStartMS: childRequiredStartMS, RequiredEndMS: childRequiredEndMS, ResolveSourcePromQL: params.ResolveSourcePromQL})
+		if err != nil {
+			return "", nil, err
+		}
+		namespacedSQL, namespacedParams, err := namespaceRenderedQuery(trimRenderedQuerySQL(rendered.SQL), rendered.QueryParams, "absent_window_child")
+		if err != nil {
+			return "", nil, err
+		}
+		windowedSQL, err := buildWindowedArraysSourceSQL(namespacedSQL, params.StartMS, params.EndMS, params.StepMS, child.Subquery.Range.Milliseconds(), child.Subquery.Offset.Milliseconds())
+		if err != nil {
+			return "", nil, err
+		}
+		return windowedSQL, namespacedParams, nil
+	}
+	return "", nil, fmt.Errorf("native range-mode rendering for absent_over_time currently requires a direct range-vector selector child or supported subquery child")
+}
+
+func mergeRenderedQueryParams(dst, src map[string]string) {
+	for key, value := range src {
+		dst[key] = value
+	}
+}
+
+func buildRangeAbsentSeriesSQL(tagsSQL, presenceSQL string) string {
+	return "SELECT tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series FROM (" +
+		"SELECT " + tagsSQL + " AS tags, grid.timestamp AS timestamp, toFloat64(1) AS value FROM (" + buildTimestampGridSQL() + ") AS grid LEFT JOIN (" + presenceSQL + ") AS present ON present.timestamp = grid.timestamp WHERE ifNull(present.sample_count, 0) = 0 ORDER BY timestamp" +
+		") AS missing_steps GROUP BY tags HAVING length(time_series) > 0\nFORMAT JSONEachRow\n"
+}
+
+func buildTimestampGridSQL() string {
+	return "SELECT arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS timestamp"
+}
+
+func outputMetricTagsSQL(metric map[string]string) string {
+	if len(metric) == 0 {
+		return "CAST([], 'Array(Tuple(String, String))')"
+	}
+	keys := make([]string, 0, len(metric))
+	for key := range metric {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	items := make([]string, 0, len(keys))
+	for _, key := range keys {
+		items = append(items, "tuple("+sqlStringLiteral(key)+", "+sqlStringLiteral(metric[key])+")")
+	}
+	return "CAST([" + strings.Join(items, ", ") + "], 'Array(Tuple(String, String))')"
+}
+
+func sqlStringLiteral(value string) string {
+	escaped := strings.ReplaceAll(value, "\\", "\\\\")
+	escaped = strings.ReplaceAll(escaped, "'", "\\'")
+	return "'" + escaped + "'"
+}
+
 func forceFragmentFullTags(fragment *NativeFragment) {
 	if fragment == nil {
 		return
@@ -453,6 +596,9 @@ func forceFragmentFullTags(fragment *NativeFragment) {
 	if fragment.BinaryJoin != nil {
 		forceFragmentFullTags(fragment.BinaryJoin.LHS)
 		forceFragmentFullTags(fragment.BinaryJoin.RHS)
+	}
+	if fragment.Absent != nil {
+		forceFragmentFullTags(fragment.Absent.Child)
 	}
 }
 
@@ -580,9 +726,9 @@ func buildRangeFunctionOverWindowedArraysSQL(sourceSQL, fn string, paramNumber *
 	if err != nil {
 		return "", err
 	}
-	valueExpr := rangeFunctionValueExpr(fn, "window_series", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))")
+	valueExpr := rangeFunctionValueExpr(fn, "window_series", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", rangeMS)
 	perStep := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: "arrayFilter(tag -> tag.1 != '__name__', tags)"}, Alias: "final_tags"}, {Expr: sqlb.Ident("eval_ts"), Alias: "timestamp"}, {Expr: sqlb.RawLit{V: valueExpr}, Alias: "value"}},
+		Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: rangeFunctionTagsExpr(fn)}, Alias: "final_tags"}, {Expr: sqlb.Ident("eval_ts"), Alias: "timestamp"}, {Expr: sqlb.RawLit{V: valueExpr}, Alias: "value"}},
 		From:    rawRenderedSubquerySourceWithAlias(trimRenderedQuerySQL(windowedSourceSQL), "step_windows"),
 		Where:   sqlb.RawLit{V: "length(window_series) > " + strconv.Itoa(minimumSeriesLengthForRangeFunction(fn))},
 	}
@@ -595,20 +741,65 @@ func buildRangeFunctionOverWindowedArraysSQL(sourceSQL, fn string, paramNumber *
 	return buildNativeWrapperSQL(outer)
 }
 
-func buildInstantRangeFunctionSQL(sourceSQL, fn string, paramNumber *float64, paramNumbers []*float64, evaluationTimeMS int64) (string, error) {
+func buildInstantRangeFunctionSQL(sourceSQL, fn string, paramNumber *float64, paramNumbers []*float64, evaluationTimeMS int64, rangeMS int64) (string, error) {
 	timestampExpr := "tupleElement(arrayElement(time_series, length(time_series)), 1)"
 	if fn == "predict_linear" {
 		timestampExpr = "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"
 	}
 	query := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: "arrayFilter(tag -> tag.1 != '__name__', tags)"}, Alias: "tags"}, {Expr: sqlb.RawLit{V: timestampExpr}, Alias: "timestamp"}, {Expr: sqlb.RawLit{V: rangeFunctionValueExpr(fn, "time_series", paramNumber, paramNumbers, "arrayMap(point -> tupleElement(point, 1), time_series)", strconv.FormatInt(evaluationTimeMS, 10))}, Alias: "value"}},
+		Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: rangeFunctionTagsExpr(fn)}, Alias: "tags"}, {Expr: sqlb.RawLit{V: timestampExpr}, Alias: "timestamp"}, {Expr: sqlb.RawLit{V: rangeFunctionValueExpr(fn, "time_series", paramNumber, paramNumbers, "arrayMap(point -> tupleElement(point, 1), time_series)", strconv.FormatInt(evaluationTimeMS, 10), rangeMS)}, Alias: "value"}},
 		From:    rawRenderedSubquerySource(sourceSQL),
 		Where:   sqlb.RawLit{V: "length(time_series) > " + strconv.Itoa(minimumSeriesLengthForRangeFunction(fn))},
 	}
 	return buildNativeWrapperSQL(query)
 }
 
-func rangeFunctionValueExpr(fn, seriesExpr string, paramNumber *float64, paramNumbers []*float64, timestampsSourceExpr string, interceptTimeMSExpr string) string {
+func rangeFunctionTagsExpr(fn string) string {
+	if rangeFunctionPreservesMetricName(fn) {
+		return "tags"
+	}
+	return "arrayFilter(tag -> tag.1 != '__name__', tags)"
+}
+
+// extrapolationFactorSQL builds a ClickHouse expression for Prometheus's
+// rate/delta/increase extrapolation factor. Returns 1.0 when rangeMS <= 0
+// (caller unable to supply window duration) or the sample count is insufficient.
+// Mirrors extrapolatedRate in prometheus/promql/functions.go.
+func extrapolationFactorSQL(timestampsExpr sqlb.Expr, seriesLength sqlb.Expr, evalTimeMSExpr string, rangeMS int64) string {
+	if rangeMS <= 0 {
+		return "1.0"
+	}
+	tsSQL := renderSQLExprNoParams(timestampsExpr)
+	lenSQL := renderSQLExprNoParams(seriesLength)
+	firstMS := "toFloat64(toUnixTimestamp64Milli(arrayElement(" + tsSQL + ", 1)))"
+	lastMS := "toFloat64(toUnixTimestamp64Milli(arrayElement(" + tsSQL + ", " + lenSQL + ")))"
+	sampledMS := "((" + lastMS + ") - (" + firstMS + "))"
+	avgMS := "((" + sampledMS + ") / greatest(toFloat64(" + lenSQL + ") - 1, 1))"
+	threshold := "((" + avgMS + ") * 1.1)"
+	rangeStart := "((" + evalTimeMSExpr + ") - " + strconv.FormatInt(rangeMS, 10) + ".0)"
+	rangeEnd := "(" + evalTimeMSExpr + ")"
+	gapStart := "((" + firstMS + ") - " + rangeStart + ")"
+	gapEnd := "(" + rangeEnd + " - (" + lastMS + "))"
+	addStart := "if(" + gapStart + " < " + threshold + ", " + gapStart + ", (" + avgMS + ") / 2)"
+	addEnd := "if(" + gapEnd + " < " + threshold + ", " + gapEnd + ", (" + avgMS + ") / 2)"
+	extrapolateTo := "((" + sampledMS + ") + (" + addStart + ") + (" + addEnd + "))"
+	return "if((" + sampledMS + ") <= 0, 1.0, (" + extrapolateTo + ") / (" + sampledMS + "))"
+}
+
+func rangeFunctionChildRangeMS(child *NativeFragment) int64 {
+	if child == nil {
+		return 0
+	}
+	if child.Selector != nil && child.Selector.Kind == SelectorKindRangeVector {
+		return child.Selector.Lookback.Milliseconds()
+	}
+	if child.Subquery != nil {
+		return child.Subquery.Range.Milliseconds()
+	}
+	return 0
+}
+
+func rangeFunctionValueExpr(fn, seriesExpr string, paramNumber *float64, paramNumbers []*float64, timestampsSourceExpr string, interceptTimeMSExpr string, rangeMS int64) string {
 	series := sqlb.RawLit{V: seriesExpr}
 	valuesExpr := sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "point -> ifNull(toFloat64(tupleElement(point, 2)), nan)"}, series}}
 	timestampsExpr := sqlb.RawLit{V: timestampsSourceExpr}
@@ -653,7 +844,9 @@ func rangeFunctionValueExpr(fn, seriesExpr string, paramNumber *float64, paramNu
 		deviationsExpr := sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "x -> abs(x - " + renderSQLExprNoParams(medianExpr) + ")"}, valuesExpr}}
 		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{sqlb.Binary{Op: "=", L: seriesLength, R: sqlb.RawLit{V: "0"}}, sqlb.RawLit{V: "nan"}, sqlb.Call{Name: "arrayReduce", Args: []sqlb.Expr{sqlb.RawLit{V: "'quantileExact(0.5)'"}, deviationsExpr}}}})
 	case "increase":
-		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{hasNaN, sqlb.RawLit{V: "nan"}, counterDeltaExpr}})
+		factor := extrapolationFactorSQL(timestampsExpr, seriesLength, interceptTimeMSExpr, rangeMS)
+		resultExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(counterDeltaExpr) + ") * (" + factor + ")"}
+		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{hasNaN, sqlb.RawLit{V: "nan"}, resultExpr}})
 	case "changes":
 		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{hasNaN, sqlb.RawLit{V: "nan"}, changesExpr}})
 	case "resets":
@@ -678,7 +871,8 @@ func rangeFunctionValueExpr(fn, seriesExpr string, paramNumber *float64, paramNu
 		firstValue := sqlb.Call{Name: "arrayElement", Args: []sqlb.Expr{valuesExpr, sqlb.RawLit{V: "1"}}}
 		lastValue := arrayElementAtLength(valuesExpr)
 		condition := sqlb.RawLit{V: "isNaN(" + renderSQLExprNoParams(firstValue) + ") OR isNaN(" + renderSQLExprNoParams(lastValue) + ")"}
-		resultExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(lastValue) + ") - (" + renderSQLExprNoParams(firstValue) + ")"}
+		factor := extrapolationFactorSQL(timestampsExpr, seriesLength, interceptTimeMSExpr, rangeMS)
+		resultExpr := sqlb.RawLit{V: "((" + renderSQLExprNoParams(lastValue) + ") - (" + renderSQLExprNoParams(firstValue) + ")) * (" + factor + ")"}
 		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{condition, sqlb.RawLit{V: "nan"}, resultExpr}})
 	case "idelta":
 		lastValue := arrayElementAtLength(valuesExpr)
@@ -687,16 +881,12 @@ func rangeFunctionValueExpr(fn, seriesExpr string, paramNumber *float64, paramNu
 		resultExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(lastValue) + ") - (" + renderSQLExprNoParams(prevValue) + ")"}
 		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{condition, sqlb.RawLit{V: "nan"}, resultExpr}})
 	case "deriv":
-		nExpr := sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{seriesLength}}
-		sumXExpr := sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{timestampsExpr}}
-		sumYExpr := sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{valuesExpr}}
-		sumXYExpr := sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "(x, y) -> x * y"}, timestampsExpr, valuesExpr}}}}
-		sumX2Expr := sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "x -> x * x"}, timestampsExpr}}}}
-		denomExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(nExpr) + ") * (" + renderSQLExprNoParams(sumX2Expr) + ") - (" + renderSQLExprNoParams(sumXExpr) + ") * (" + renderSQLExprNoParams(sumXExpr) + ")"}
-		numerExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(nExpr) + ") * (" + renderSQLExprNoParams(sumXYExpr) + ") - (" + renderSQLExprNoParams(sumXExpr) + ") * (" + renderSQLExprNoParams(sumYExpr) + ")"}
-		condition := sqlb.RawLit{V: renderSQLExprNoParams(hasNaN) + " OR (" + renderSQLExprNoParams(denomExpr) + ") = 0"}
-		resultExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(numerExpr) + ") / (" + renderSQLExprNoParams(denomExpr) + ")"}
-		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{condition, sqlb.RawLit{V: "nan"}, resultExpr}})
+		valuesSQL := renderSQLExprNoParams(valuesExpr)
+		timestampsSQL := renderSQLExprNoParams(timestampsExpr)
+		xsSQL := "arrayMap(ts -> (toFloat64(toUnixTimestamp64Milli(ts)) - (" + interceptTimeMSExpr + ")) / 1000.0, " + timestampsSQL + ")"
+		lrExpr := "arrayReduce('simpleLinearRegression', " + xsSQL + ", " + valuesSQL + ")"
+		condition := sqlb.RawLit{V: "length(" + valuesSQL + ") < 2 OR " + renderSQLExprNoParams(hasNaN)}
+		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{condition, sqlb.RawLit{V: "nan"}, sqlb.RawLit{V: "tupleElement(" + lrExpr + ", 1)"}}})
 	case "predict_linear":
 		if paramNumber == nil {
 			return "nan"
@@ -742,7 +932,8 @@ func rangeRequiredBoundsForChild(fragment *NativeFragment, startMS, endMS int64)
 		return startMS, endMS
 	}
 	lookbackMS := selector.Lookback.Milliseconds()
-	return startMS - lookbackMS, endMS
+	offsetMS := selector.Offset.Milliseconds()
+	return startMS - offsetMS - lookbackMS, endMS - offsetMS
 }
 
 func trimRenderedQuerySQL(sql string) string {

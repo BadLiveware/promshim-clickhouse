@@ -39,10 +39,14 @@ type CompareConfig struct {
 	// Subjects restricts comparison to a subset of configured subjects.
 	// Supported names today: "shim", "promclick". Empty means all configured
 	// subjects.
-	Subjects    []string
-	CorpusPath  string
-	ArtifactDir string
-	Timeout     time.Duration
+	Subjects []string
+	// DefaultNativeLoweringMode applies a harness-wide native lowering mode to
+	// every query row that does not already set NativeLoweringMode explicitly.
+	// This is the ergonomic switch used by native-only measurement runs.
+	DefaultNativeLoweringMode string
+	CorpusPath                string
+	ArtifactDir               string
+	Timeout                   time.Duration
 }
 
 type QueryInstantVariantSpec struct {

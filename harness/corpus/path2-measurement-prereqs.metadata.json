@@ -1,0 +1,30 @@
+{
+  "name": "path2-measurement-prereqs",
+  "description": "Native-only Path 2 measurement corpus combining the existing native-lowering starter rows with explicit expected-error probes, range-step/time-offset variants, and dataset-variant parity rows.",
+  "runMode": "native_only",
+  "recommendedCommand": "./scripts/run-harness.sh --corpus path2-measurement-prereqs.json --subjects shim --native-only --dataset-variants baseline,resets_gaps,churn_stale,histogram_burst",
+  "sourceCorpora": [
+    "harness/corpus/native-lowering-starter.json",
+    "harness/corpus/phase12-harness-variants.json",
+    "harness/corpus/phase12-dataset-variants.json",
+    "harness/corpus/queries.json"
+  ],
+  "coverageBuckets": [
+    {
+      "name": "native_success",
+      "purpose": "Rows that are already expected to succeed through Path 2 in native-only mode."
+    },
+    {
+      "name": "expected_error",
+      "purpose": "Rows that validate Prometheus-compatible public error envelopes."
+    },
+    {
+      "name": "range_step_and_offset_variants",
+      "purpose": "Rows that expand time offsets and range-step matrix combinations for boundary-sensitive selector behavior."
+    },
+    {
+      "name": "dataset_variants",
+      "purpose": "Rows that force reset/gap, churn/staleness, and histogram-burst dataset shapes through the native-only harness path."
+    }
+  ]
+}

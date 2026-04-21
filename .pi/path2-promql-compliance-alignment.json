@@ -1,0 +1,542 @@
+{
+  "sourcePath": "harness/compliance/prom-compliance/promql/promql-test-queries.yml",
+  "expandedQueries": 539,
+  "shouldFailQueries": 5,
+  "path2StatusSummary": [
+    {
+      "path2Status": "no",
+      "count": 218
+    },
+    {
+      "path2Status": "partial",
+      "count": 6
+    },
+    {
+      "path2Status": "yes",
+      "count": 315
+    }
+  ],
+  "unsupportedBucketSummary": [
+    {
+      "bucket": "binary_expression_gaps",
+      "count": 67
+    },
+    {
+      "bucket": "quantile_over_time",
+      "count": 54
+    },
+    {
+      "bucket": "scalar_roots",
+      "count": 47
+    },
+    {
+      "bucket": "histogram_helpers",
+      "count": 12
+    },
+    {
+      "bucket": "label_mutation",
+      "count": 10
+    },
+    {
+      "bucket": "selection_aggregations",
+      "count": 9
+    },
+    {
+      "bucket": "absent_family",
+      "count": 8
+    },
+    {
+      "bucket": "expected_error_surface",
+      "count": 5
+    },
+    {
+      "bucket": "other",
+      "count": 2
+    },
+    {
+      "bucket": "round_function",
+      "count": 2
+    },
+    {
+      "bucket": "vector_wrapper",
+      "count": 2
+    }
+  ],
+  "partialBucketSummary": [
+    {
+      "bucket": "clamp_family",
+      "count": 6
+    }
+  ],
+  "unsupportedExamples": [
+    {
+      "query": "42",
+      "path2Status": "no",
+      "implementationBucket": "scalar_roots",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "scalar literal can participate as a constant in native source expressions but is not a standalone native fragment yet",
+      "outputKind": "scalar"
+    },
+    {
+      "query": "1.234",
+      "path2Status": "no",
+      "implementationBucket": "scalar_roots",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "scalar literal can participate as a constant in native source expressions but is not a standalone native fragment yet",
+      "outputKind": "scalar"
+    },
+    {
+      "query": ".123",
+      "path2Status": "no",
+      "implementationBucket": "scalar_roots",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "scalar literal can participate as a constant in native source expressions but is not a standalone native fragment yet",
+      "outputKind": "scalar"
+    },
+    {
+      "query": "1.23e-3",
+      "path2Status": "no",
+      "implementationBucket": "scalar_roots",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "scalar literal can participate as a constant in native source expressions but is not a standalone native fragment yet",
+      "outputKind": "scalar"
+    },
+    {
+      "query": "0x3d",
+      "path2Status": "no",
+      "implementationBucket": "scalar_roots",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "scalar literal can participate as a constant in native source expressions but is not a standalone native fragment yet",
+      "outputKind": "scalar"
+    },
+    {
+      "query": "Inf",
+      "path2Status": "no",
+      "implementationBucket": "scalar_roots",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "scalar literal can participate as a constant in native source expressions but is not a standalone native fragment yet",
+      "outputKind": "scalar"
+    },
+    {
+      "query": "+Inf",
+      "path2Status": "no",
+      "implementationBucket": "scalar_roots",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "scalar literal can participate as a constant in native source expressions but is not a standalone native fragment yet",
+      "outputKind": "scalar"
+    },
+    {
+      "query": "-Inf",
+      "path2Status": "no",
+      "implementationBucket": "scalar_roots",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "scalar literal can participate as a constant in native source expressions but is not a standalone native fragment yet",
+      "outputKind": "scalar"
+    },
+    {
+      "query": "NaN",
+      "path2Status": "no",
+      "implementationBucket": "scalar_roots",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "scalar literal can participate as a constant in native source expressions but is not a standalone native fragment yet",
+      "outputKind": "scalar"
+    },
+    {
+      "query": "{__name__=~\".*\"}",
+      "shouldFail": true,
+      "path2Status": "no",
+      "implementationBucket": "expected_error_surface",
+      "planSupported": false,
+      "nativeLowerable": false,
+      "notes": [
+        "1:1: parse error: vector selector must contain at least one non-empty matcher"
+      ]
+    },
+    {
+      "query": "topk (3, demo_memory_usage_bytes)",
+      "path2Status": "no",
+      "implementationBucket": "selection_aggregations",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "aggregation operator is not supported by native SQL pushdown",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "bottomk (3, demo_memory_usage_bytes)",
+      "path2Status": "no",
+      "implementationBucket": "selection_aggregations",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "aggregation operator is not supported by native SQL pushdown",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "topk by(instance) (2, demo_memory_usage_bytes)",
+      "path2Status": "no",
+      "implementationBucket": "selection_aggregations",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "aggregation operator is not supported by native SQL pushdown",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "bottomk by(instance) (2, demo_memory_usage_bytes)",
+      "path2Status": "no",
+      "implementationBucket": "selection_aggregations",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "aggregation operator is not supported by native SQL pushdown",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "topk without(instance) (2, demo_memory_usage_bytes)",
+      "path2Status": "no",
+      "implementationBucket": "selection_aggregations",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "aggregation operator is not supported by native SQL pushdown",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "bottomk without(instance) (2, demo_memory_usage_bytes)",
+      "path2Status": "no",
+      "implementationBucket": "selection_aggregations",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "aggregation operator is not supported by native SQL pushdown",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "topk without() (2, demo_memory_usage_bytes)",
+      "path2Status": "no",
+      "implementationBucket": "selection_aggregations",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "aggregation operator is not supported by native SQL pushdown",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "bottomk without() (2, demo_memory_usage_bytes)",
+      "path2Status": "no",
+      "implementationBucket": "selection_aggregations",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "aggregation operator is not supported by native SQL pushdown",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "1 * 2 + 4 / 6 - 10 % 2 ^ 2",
+      "path2Status": "no",
+      "implementationBucket": "scalar_roots",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "scalar"
+    },
+    {
+      "query": "demo_num_cpus + (1 == bool 2)",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "demo_num_cpus + (1 != bool 2)",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "demo_num_cpus + (1 \u003c bool 2)",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "demo_num_cpus + (1 \u003e bool 2)",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "demo_num_cpus + (1 \u003c= bool 2)",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "demo_num_cpus + (1 \u003e= bool 2)",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "demo_memory_usage_bytes == 1.2345",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "demo_memory_usage_bytes != 1.2345",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "demo_memory_usage_bytes \u003c 1.2345",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "demo_memory_usage_bytes \u003e 1.2345",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "demo_memory_usage_bytes \u003c= 1.2345",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "demo_memory_usage_bytes \u003e= 1.2345",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "demo_memory_usage_bytes == bool 1.2345",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "demo_memory_usage_bytes != bool 1.2345",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "demo_memory_usage_bytes \u003c bool 1.2345",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "demo_memory_usage_bytes \u003e bool 1.2345",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "demo_memory_usage_bytes \u003c= bool 1.2345",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "demo_memory_usage_bytes \u003e= bool 1.2345",
+      "path2Status": "no",
+      "implementationBucket": "binary_expression_gaps",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "1.2345 == bool demo_memory_usage_bytes",
+      "path2Status": "no",
+      "implementationBucket": "scalar_roots",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "1.2345 != bool demo_memory_usage_bytes",
+      "path2Status": "no",
+      "implementationBucket": "scalar_roots",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "1.2345 \u003c bool demo_memory_usage_bytes",
+      "path2Status": "no",
+      "implementationBucket": "scalar_roots",
+      "planSupported": true,
+      "planDifficulty": "medium",
+      "nativeLowerable": false,
+      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children",
+      "outputKind": "instant_vector"
+    }
+  ],
+  "partialExamples": [
+    {
+      "query": "clamp_min(demo_memory_usage_bytes, 2)",
+      "path2Status": "partial",
+      "implementationBucket": "clamp_family",
+      "planSupported": true,
+      "planDifficulty": "hard",
+      "nativeLowerable": true,
+      "nativeReason": "clamp_min can lower to a native SQL source expression",
+      "fragmentKind": "unary_source_expression",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "clamp_max(demo_memory_usage_bytes, 2)",
+      "path2Status": "partial",
+      "implementationBucket": "clamp_family",
+      "planSupported": true,
+      "planDifficulty": "hard",
+      "nativeLowerable": true,
+      "nativeReason": "clamp_max can lower to a native SQL source expression",
+      "fragmentKind": "unary_source_expression",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "clamp(demo_memory_usage_bytes, 0, 1)",
+      "path2Status": "partial",
+      "implementationBucket": "clamp_family",
+      "planSupported": true,
+      "planDifficulty": "hard",
+      "nativeLowerable": true,
+      "nativeReason": "clamp can lower to a native SQL source expression",
+      "fragmentKind": "unary_source_expression",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "clamp(demo_memory_usage_bytes, 0, 1000000000000)",
+      "path2Status": "partial",
+      "implementationBucket": "clamp_family",
+      "planSupported": true,
+      "planDifficulty": "hard",
+      "nativeLowerable": true,
+      "nativeReason": "clamp can lower to a native SQL source expression",
+      "fragmentKind": "unary_source_expression",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "clamp(demo_memory_usage_bytes, 1000000000000, 0)",
+      "path2Status": "partial",
+      "implementationBucket": "clamp_family",
+      "planSupported": true,
+      "planDifficulty": "hard",
+      "nativeLowerable": true,
+      "nativeReason": "clamp can lower to a native SQL source expression",
+      "fragmentKind": "unary_source_expression",
+      "outputKind": "instant_vector"
+    },
+    {
+      "query": "clamp(demo_memory_usage_bytes, 1000000000000, 1000000000000)",
+      "path2Status": "partial",
+      "implementationBucket": "clamp_family",
+      "planSupported": true,
+      "planDifficulty": "hard",
+      "nativeLowerable": true,
+      "nativeReason": "clamp can lower to a native SQL source expression",
+      "fragmentKind": "unary_source_expression",
+      "outputKind": "instant_vector"
+    }
+  ]
+}

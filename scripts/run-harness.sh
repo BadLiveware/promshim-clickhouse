@@ -27,6 +27,8 @@ Options:
                         Seed multiple dataset shapes in one run (for example:
                         baseline,resets_gaps). Default keeps the legacy single
                         dataset shape.
+  --native-only         Force `native_lowering_mode=force_supported` for every
+                        query row that does not already set an explicit mode.
   --no-build            Skip image build step.
   --keep-up             Keep containers/network/volumes after completion.
   --init-retries <n>    Retry attempts for clickhouse-init (default: 10).
@@ -61,6 +63,7 @@ ALL_THEMES=0
 CUSTOM_CORPUS=""
 SUBJECTS=""
 DATASET_VARIANTS=""
+NATIVE_ONLY=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -83,6 +86,10 @@ while [[ $# -gt 0 ]]; do
     --dataset-variants)
       DATASET_VARIANTS="$2"
       shift 2
+      ;;
+    --native-only)
+      NATIVE_ONLY=1
+      shift
       ;;
     --no-build)
       BUILD_IMAGES=0
@@ -207,6 +214,9 @@ run_compare() {
   local env_args=(-e "PROM_HARNESS_CORPUS_PATH=${corpus_path}")
   if [[ -n "$SUBJECTS" ]]; then
     env_args+=(-e "PROM_HARNESS_SUBJECTS=${SUBJECTS}")
+  fi
+  if (( NATIVE_ONLY == 1 )); then
+    env_args+=(-e "PROM_HARNESS_NATIVE_LOWERING_MODE=force_supported")
   fi
   log "Running compare: ${label}"
   docker compose --profile jobs run --rm "${env_args[@]}" compare || true

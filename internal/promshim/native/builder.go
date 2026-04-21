@@ -70,6 +70,20 @@ func cloneFragment(fragment *NativeFragment) *NativeFragment {
 	if fragment.InfoJoin != nil {
 		cloned.InfoJoin = &InfoJoinFragment{Child: cloneFragment(fragment.InfoJoin.Child), InfoMetricName: fragment.InfoJoin.InfoMetricName, SelectorMatchers: cloneMatchers(fragment.InfoJoin.SelectorMatchers), CopyLabelNames: append([]string(nil), fragment.InfoJoin.CopyLabelNames...), DropUnmatched: fragment.InfoJoin.DropUnmatched}
 	}
+	if fragment.Absent != nil {
+		cloned.Absent = &AbsentFragment{Func: fragment.Absent.Func, OutputMetric: cloneStringMap(fragment.Absent.OutputMetric), Child: cloneFragment(fragment.Absent.Child)}
+	}
+	return cloned
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
 	return cloned
 }
 

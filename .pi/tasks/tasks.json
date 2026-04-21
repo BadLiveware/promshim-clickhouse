@@ -1,4 +1,17 @@
 {
-  "nextId": 200,
-  "tasks": []
+  "nextId": 205,
+  "tasks": [
+    {
+      "id": "204",
+      "subject": "Implement native absent-family support",
+      "description": "Add native SQL support for absent() and absent_over_time() in Path 2, including planner/native subtree integration, correct PromQL label derivation semantics, instant and range behavior, tests, and focused harness validation. This is the next feature bucket after the temporal foundation and should address the remaining native-only staleness probe failures.",
+      "status": "completed",
+      "activeForm": "Implementing native absent-family support",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776812830197,
+      "updatedAt": 1776813441294
+    }
+  ]
 }

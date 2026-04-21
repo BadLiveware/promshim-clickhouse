@@ -43,6 +43,7 @@ func NewClient(cfg Config) (*Client, error) {
 
 	query := parsed.Query()
 	query.Set("allow_experimental_time_series_table", "1")
+	query.Set("output_format_json_quote_denormals", "1")
 	parsed.RawQuery = query.Encode()
 
 	credentials := base64.StdEncoding.EncodeToString([]byte(cfg.Username + ":" + cfg.Password))

@@ -1151,12 +1151,12 @@ func TestBuildExecPlanLowersLogicalAbsentPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected execution absent plan, got error: %v", err)
 	}
-	absentPlan, ok := execPlan.(*localAbsentPlan)
+	nativePlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localAbsentPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if absentPlan.OutputMetric["job"] != "api" {
-		t.Fatalf("unexpected absent output metric: %#v", absentPlan.OutputMetric)
+	if nativePlan.Kind != "absent" {
+		t.Fatalf("unexpected absent native plan: %#v", nativePlan)
 	}
 }
 
@@ -1171,12 +1171,12 @@ func TestBuildExecPlanLowersLogicalAbsentOverTimePlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected execution absent_over_time plan, got error: %v", err)
 	}
-	absentPlan, ok := execPlan.(*localAbsentOverTimePlan)
+	nativePlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localAbsentOverTimePlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if absentPlan.OutputMetric["job"] != "api" {
-		t.Fatalf("unexpected absent_over_time output metric: %#v", absentPlan.OutputMetric)
+	if nativePlan.Kind != "absent_over_time" {
+		t.Fatalf("unexpected absent_over_time native plan: %#v", nativePlan)
 	}
 }
 

@@ -30,6 +30,7 @@ const (
 	FragmentKindSyntheticSeries        FragmentKind = "synthetic_series"
 	FragmentKindScalarConvert          FragmentKind = "scalar_convert"
 	FragmentKindInfoJoin               FragmentKind = "info_join"
+	FragmentKindAbsent                 FragmentKind = "absent"
 )
 
 type NativeFragment struct {
@@ -47,6 +48,7 @@ type NativeFragment struct {
 	Synthetic     *SyntheticSeriesFragment
 	ScalarConvert *ScalarConvertFragment
 	InfoJoin      *InfoJoinFragment
+	Absent        *AbsentFragment
 }
 
 const (
@@ -102,6 +104,12 @@ type InfoJoinFragment struct {
 	SelectorMatchers []*labels.Matcher
 	CopyLabelNames   []string
 	DropUnmatched    bool
+}
+
+type AbsentFragment struct {
+	Func         string
+	OutputMetric map[string]string
+	Child        *NativeFragment
 }
 
 type AggregationSupport struct {
@@ -194,6 +202,42 @@ func (info *LoweringInfo) ExplainInfo() *ExplainInfo {
 		explain.LabelLineage = lineage
 	}
 	return explain
+}
+
+func HasFixedTemporalAnchor(fragment *NativeFragment) bool {
+	if fragment == nil {
+		return false
+	}
+	if fragment.Selector != nil && (fragment.Selector.Timestamp != nil || fragment.Selector.StartOrEnd == parser.START || fragment.Selector.StartOrEnd == parser.END) {
+		return true
+	}
+	if fragment.Subquery != nil {
+		if fragment.Subquery.Timestamp != nil || fragment.Subquery.StartOrEnd == parser.START || fragment.Subquery.StartOrEnd == parser.END {
+			return true
+		}
+		if HasFixedTemporalAnchor(fragment.Subquery.Child) {
+			return true
+		}
+	}
+	if fragment.Aggregation != nil && HasFixedTemporalAnchor(fragment.Aggregation.Source) {
+		return true
+	}
+	if fragment.RangeFunction != nil && HasFixedTemporalAnchor(fragment.RangeFunction.Child) {
+		return true
+	}
+	if fragment.BinaryJoin != nil && (HasFixedTemporalAnchor(fragment.BinaryJoin.LHS) || HasFixedTemporalAnchor(fragment.BinaryJoin.RHS)) {
+		return true
+	}
+	if fragment.ScalarConvert != nil && HasFixedTemporalAnchor(fragment.ScalarConvert.Child) {
+		return true
+	}
+	if fragment.InfoJoin != nil && HasFixedTemporalAnchor(fragment.InfoJoin.Child) {
+		return true
+	}
+	if fragment.Absent != nil && HasFixedTemporalAnchor(fragment.Absent.Child) {
+		return true
+	}
+	return false
 }
 
 func outputKindForValueType(valueType parser.ValueType) OutputKind {

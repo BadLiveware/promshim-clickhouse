@@ -12,7 +12,11 @@
       "Bash(jq *)",
       "Bash(grep -E \"\\\\.go$\")",
       "WebFetch(domain:clickhouse.com)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(./scripts/classify-failures.sh -b empty_on_test)",
+      "Bash(./scripts/run-compliance.sh)",
+      "Bash(./scripts/classify-failures.sh *)",
+      "Bash(curl -sS 'http://localhost:29091/debug/query-explain' -X POST -H 'Content-Type: application/json' -d '{\"query\":\"quantile_over_time\\(-0.5, demo_memory_usage_bytes{instance=\\\\\"demo.promlabs.com:10001\\\\\"}[1s]\\)\",\"range\":{\"start\":\"2026-04-21T21:35:42Z\",\"end\":\"2026-04-21T21:45:42Z\",\"step\":10}}')"
     ]
   }
 }

@@ -16,7 +16,12 @@ func ApplyLabelReplaceRuntimeValue(value modelpkg.RuntimeValue, cfg modelpkg.Lab
 			srcVal := metric[cfg.Src]
 			indexes := cfg.Regex.FindStringSubmatchIndex(srcVal)
 			if indexes != nil {
-				metric[cfg.Dst] = string(cfg.Regex.ExpandString([]byte{}, cfg.Repl, srcVal, indexes))
+				replaced := string(cfg.Regex.ExpandString([]byte{}, cfg.Repl, srcVal, indexes))
+				if replaced == "" {
+					delete(metric, cfg.Dst)
+				} else {
+					metric[cfg.Dst] = replaced
+				}
 			}
 			mutated = append(mutated, modelpkg.InstantSample{Metric: metric, Timestamp: sample.Timestamp, Value: sample.Value})
 		}
@@ -32,7 +37,12 @@ func ApplyLabelReplaceRuntimeValue(value modelpkg.RuntimeValue, cfg modelpkg.Lab
 			srcVal := metric[cfg.Src]
 			indexes := cfg.Regex.FindStringSubmatchIndex(srcVal)
 			if indexes != nil {
-				metric[cfg.Dst] = string(cfg.Regex.ExpandString([]byte{}, cfg.Repl, srcVal, indexes))
+				replaced := string(cfg.Regex.ExpandString([]byte{}, cfg.Repl, srcVal, indexes))
+				if replaced == "" {
+					delete(metric, cfg.Dst)
+				} else {
+					metric[cfg.Dst] = replaced
+				}
 			}
 			mutated = append(mutated, modelpkg.RangeSeries{Metric: metric, Values: modelpkg.CloneRangePoints(series.Values)})
 		}
@@ -56,7 +66,12 @@ func ApplyLabelJoinRuntimeValue(value modelpkg.RuntimeValue, cfg modelpkg.LabelJ
 			for i, src := range cfg.SrcLabels {
 				srcVals[i] = metric[src]
 			}
-			metric[cfg.Dst] = strings.Join(srcVals, cfg.Separator)
+			joined := strings.Join(srcVals, cfg.Separator)
+			if joined == "" {
+				delete(metric, cfg.Dst)
+			} else {
+				metric[cfg.Dst] = joined
+			}
 			mutated = append(mutated, modelpkg.InstantSample{Metric: metric, Timestamp: sample.Timestamp, Value: sample.Value})
 		}
 		merged, err := mergeSamplesWithSameLabelset(mutated)
@@ -72,7 +87,12 @@ func ApplyLabelJoinRuntimeValue(value modelpkg.RuntimeValue, cfg modelpkg.LabelJ
 			for i, src := range cfg.SrcLabels {
 				srcVals[i] = metric[src]
 			}
-			metric[cfg.Dst] = strings.Join(srcVals, cfg.Separator)
+			joined := strings.Join(srcVals, cfg.Separator)
+			if joined == "" {
+				delete(metric, cfg.Dst)
+			} else {
+				metric[cfg.Dst] = joined
+			}
 			mutated = append(mutated, modelpkg.RangeSeries{Metric: metric, Values: modelpkg.CloneRangePoints(series.Values)})
 		}
 		merged, err := mergeSeriesWithSameLabelset(mutated)

@@ -1,0 +1,346 @@
+[
+  {
+    "name": "native_lowering_rate_subquery_range",
+    "endpoint": "query_range",
+    "query": "rate(sum by (job) (harness_requests_total)[5m:60s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "compareMode": "structural",
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_sum_over_time_subquery_range",
+    "endpoint": "query_range",
+    "query": "sum_over_time((harness_up * 100)[5m:60s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_last_over_time_subquery_range",
+    "endpoint": "query_range",
+    "query": "last_over_time((harness_up * 100)[5m:60s])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_subquery_local_child_instant",
+    "endpoint": "query",
+    "query": "(harness_up * 100)[5m:60s]",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_subquery_matrix_root_selector_instant",
+    "endpoint": "query",
+    "query": "harness_requests_total[5m:60s]",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_count_over_time_selector_range",
+    "endpoint": "query_range",
+    "query": "count_over_time(harness_up{job=\"api\"}[5m])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_sum_over_time_selector_range",
+    "endpoint": "query_range",
+    "query": "sum_over_time(harness_queue_depth{job=\"api\"}[5m])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_increase_selector_range",
+    "endpoint": "query_range",
+    "query": "increase(harness_requests_total{job=\"api\"}[5m])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "compareMode": "structural",
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_rate_selector_range",
+    "endpoint": "query_range",
+    "query": "rate(harness_requests_total{job=\"api\"}[5m])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "compareMode": "structural",
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_increase_selector_instant",
+    "endpoint": "query",
+    "query": "increase(harness_requests_total{job=\"api\"}[5m])",
+    "timeOffsetSeconds": 540,
+    "compareMode": "structural",
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_sum_rate_by_job_instant",
+    "endpoint": "query",
+    "query": "sum by (job) (rate(harness_requests_total[5m]))",
+    "timeOffsetSeconds": 540,
+    "compareMode": "structural",
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_rate_selector_instant",
+    "endpoint": "query",
+    "query": "rate(harness_requests_total{job=\"api\"}[5m])",
+    "timeOffsetSeconds": 540,
+    "compareMode": "structural",
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_vector_match_group_left_instant",
+    "endpoint": "query",
+    "query": "harness_up * on(job) group_left sum by (job) (harness_up)",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_vector_vector_instant",
+    "endpoint": "query",
+    "query": "harness_up + harness_up",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_avg_by_job_negated_range",
+    "endpoint": "query_range",
+    "query": "avg by (job) (-harness_queue_depth)",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_sum_by_job_scaled_instant",
+    "endpoint": "query",
+    "query": "sum by (job) (harness_up * 100)",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_sum_by_job_range",
+    "endpoint": "query_range",
+    "query": "sum by (job) (harness_up)",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_sum_by_job_instant",
+    "endpoint": "query",
+    "query": "sum by (job) (harness_up)",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_selector_range",
+    "endpoint": "query_range",
+    "query": "harness_up{job=\"api\"}",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_selector_offset_instant",
+    "endpoint": "query",
+    "query": "harness_up offset 60s",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_selector_matcher_instant",
+    "endpoint": "query",
+    "query": "harness_up{job=\"api\"}",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "native_lowering_selector_instant",
+    "endpoint": "query",
+    "query": "harness_up",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "path2_error_query_range_matrix_root_rejected",
+    "endpoint": "query_range",
+    "query": "(harness_up * 100)[5m:60s]",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60,
+    "expectedStatus": "error",
+    "expectedErrorType": "bad_data",
+    "expectedErrorContains": "invalid expression type",
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "path2_error_parse_failure_query",
+    "endpoint": "query",
+    "query": "sum(",
+    "expectedStatus": "error",
+    "expectedErrorType": "bad_data",
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "path2_error_vector_matching_many_to_one",
+    "endpoint": "query",
+    "query": "harness_up * on(job) sum by (job) (harness_up)",
+    "expectedStatus": "error",
+    "expectedErrorContains": "many-to-one matching must be explicit",
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "path2_variant_selector_instant_offsets",
+    "endpoint": "query",
+    "query": "harness_up{job=\"api\"}",
+    "timeOffsets": [
+      {
+        "name": "early",
+        "timeOffsetSeconds": 60
+      },
+      {
+        "name": "late",
+        "timeOffsetSeconds": 540
+      }
+    ],
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "path2_variant_selector_range_step_matrix",
+    "endpoint": "query_range",
+    "query": "harness_up{job=\"api\"}",
+    "stepSeconds": 60,
+    "rangeStepMatrix": true,
+    "rangeOffsets": [
+      {
+        "name": "middle",
+        "startOffsetSeconds": 300,
+        "endOffsetSeconds": 540
+      },
+      {
+        "name": "boundary",
+        "startOffsetSeconds": 0,
+        "endOffsetSeconds": 240
+      }
+    ],
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "path2_dataset_variant_selector_churn_stale",
+    "endpoint": "query",
+    "query": "harness_up{job=\"api\",instance=\"a\"}",
+    "timeOffsetSeconds": 540,
+    "datasetVariants": [
+      "baseline",
+      "churn_stale"
+    ],
+    "excludeDatasetVariants": [
+      "baseline"
+    ],
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "path2_dataset_variant_rate_resets_gaps",
+    "endpoint": "query",
+    "query": "rate(harness_requests_total{job=\"api\",instance=\"a\"}[5m])",
+    "timeOffsetSeconds": 540,
+    "compareMode": "structural",
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
+    "excludeDatasetVariants": [
+      "baseline"
+    ],
+    "subjects": [
+      "shim"
+    ]
+  },
+  {
+    "name": "path2_dataset_variant_histogram_burst_bucket_rate",
+    "endpoint": "query",
+    "query": "rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\",le=\"+Inf\"}[5m])",
+    "timeOffsetSeconds": 540,
+    "compareMode": "structural",
+    "datasetVariants": [
+      "histogram_burst"
+    ],
+    "subjects": [
+      "shim"
+    ]
+  }
+]

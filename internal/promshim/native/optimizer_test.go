@@ -43,6 +43,283 @@ func TestBuildOptimizedFragmentRecordsMandatoryPassOutputs(t *testing.T) {
 	}
 }
 
+func TestBuildOptimizedFragmentUsesFullSubqueryTemporalBounds(t *testing.T) {
+	subqueryExpr := mustParseExpr(t, `(up * 100)[5m:1m] offset 1m`)
+	subquery, ok := subqueryExpr.(*parser.SubqueryExpr)
+	if !ok {
+		t.Fatalf("expected subquery expr, got %T", subqueryExpr)
+	}
+	innerExpr := subquery.Expr
+	if paren, ok := innerExpr.(*parser.ParenExpr); ok {
+		innerExpr = paren.Expr
+	}
+	binaryExpr, ok := innerExpr.(*parser.BinaryExpr)
+	if !ok {
+		t.Fatalf("expected binary subquery child, got %T", subquery.Expr)
+	}
+	scalarExpr, ok := binaryExpr.RHS.(*parser.NumberLiteral)
+	if !ok {
+		t.Fatalf("expected scalar rhs, got %T", binaryExpr.RHS)
+	}
+	logical := &planpkg.LogicalSubqueryPlan{
+		Expr:   subquery,
+		Range:  subquery.Range,
+		Step:   subquery.Step,
+		Offset: subquery.OriginalOffset,
+		Child: &planpkg.LogicalBinaryPlan{
+			Expr: binaryExpr,
+			Op:   binaryExpr.Op,
+			LHS:  &planpkg.LogicalLeafExprPlan{Expr: binaryExpr.LHS},
+			RHS:  &planpkg.LogicalScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
+		},
+	}
+
+	optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeInstant, EvaluationTimeMS: 12 * 60 * 1000})
+	if err != nil {
+		t.Fatalf("expected optimized fragment, got error: %v", err)
+	}
+	if got, want := optimized.Report.RequiredInputStartMS, int64(60000); got != want {
+		t.Fatalf("expected required input start %d, got %d (report=%#v)", want, got, optimized.Report)
+	}
+	if got, want := optimized.Report.RequiredInputEndMS, int64(660000); got != want {
+		t.Fatalf("expected required input end %d, got %d (report=%#v)", want, got, optimized.Report)
+	}
+}
+
+func TestBuildOptimizedFragmentUsesFixedSelectorTimestampForInstantBounds(t *testing.T) {
+	expr := mustParseExpr(t, `up @ 123`)
+	leaf, ok := expr.(*parser.VectorSelector)
+	if !ok {
+		t.Fatalf("expected vector selector, got %T", expr)
+	}
+	if leaf.Timestamp == nil {
+		t.Fatal("expected fixed selector timestamp")
+	}
+	logical := &planpkg.LogicalLeafExprPlan{Expr: leaf}
+
+	optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeInstant, EvaluationTimeMS: 999999})
+	if err != nil {
+		t.Fatalf("expected optimized fragment, got error: %v", err)
+	}
+	if got, want := optimized.Report.RequiredInputEndMS, *leaf.Timestamp; got != want {
+		t.Fatalf("expected fixed selector end bound %d, got %d", want, got)
+	}
+	if got, want := optimized.Report.RequiredInputStartMS, *leaf.Timestamp-defaultInstantSelectorLookback.Milliseconds(); got != want {
+		t.Fatalf("expected fixed selector start bound %d, got %d", want, got)
+	}
+}
+
+func TestBuildOptimizedFragmentUsesFixedSubqueryTimestampForInstantBounds(t *testing.T) {
+	subqueryExpr := mustParseExpr(t, `(up * 100)[5m:1m] @ 300 offset 1m`)
+	subquery, ok := subqueryExpr.(*parser.SubqueryExpr)
+	if !ok {
+		t.Fatalf("expected subquery expr, got %T", subqueryExpr)
+	}
+	if subquery.Timestamp == nil {
+		t.Fatal("expected fixed subquery timestamp")
+	}
+	innerExpr := subquery.Expr
+	if paren, ok := innerExpr.(*parser.ParenExpr); ok {
+		innerExpr = paren.Expr
+	}
+	binaryExpr, ok := innerExpr.(*parser.BinaryExpr)
+	if !ok {
+		t.Fatalf("expected binary child, got %T", subquery.Expr)
+	}
+	scalarExpr, ok := binaryExpr.RHS.(*parser.NumberLiteral)
+	if !ok {
+		t.Fatalf("expected scalar rhs, got %T", binaryExpr.RHS)
+	}
+	logical := &planpkg.LogicalSubqueryPlan{
+		Expr:       subquery,
+		Range:      subquery.Range,
+		Step:       subquery.Step,
+		Offset:     subquery.OriginalOffset,
+		Timestamp:  cloneInt64Pointer(subquery.Timestamp),
+		StartOrEnd: subquery.StartOrEnd,
+		Child: &planpkg.LogicalBinaryPlan{
+			Expr: binaryExpr,
+			Op:   binaryExpr.Op,
+			LHS:  &planpkg.LogicalLeafExprPlan{Expr: binaryExpr.LHS},
+			RHS:  &planpkg.LogicalScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
+		},
+	}
+
+	optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeInstant, EvaluationTimeMS: 999999})
+	if err != nil {
+		t.Fatalf("expected optimized fragment, got error: %v", err)
+	}
+	if got, want := optimized.Report.RequiredInputEndMS, int64(240000); got != want {
+		t.Fatalf("expected fixed subquery end bound %d, got %d", want, got)
+	}
+	if got, want := optimized.Report.RequiredInputStartMS, int64(-360000); got != want {
+		t.Fatalf("expected fixed subquery start bound %d, got %d", want, got)
+	}
+}
+
+func TestBuildOptimizedFragmentUsesSubqueryStartEndAnchorForInstantBounds(t *testing.T) {
+	testCases := []struct {
+		name      string
+		query     string
+		eval      int64
+		wantStart int64
+		wantEnd   int64
+	}{
+		{name: "start", query: `(up * 100)[5m:1m] @ start()`, eval: 420000, wantStart: -180000, wantEnd: 420000},
+		{name: "end", query: `(up * 100)[5m:1m] @ end()`, eval: 420000, wantStart: -180000, wantEnd: 420000},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			subqueryExpr := mustParseExpr(t, tc.query)
+			subquery, ok := subqueryExpr.(*parser.SubqueryExpr)
+			if !ok {
+				t.Fatalf("expected subquery expr, got %T", subqueryExpr)
+			}
+			innerExpr := subquery.Expr
+			if paren, ok := innerExpr.(*parser.ParenExpr); ok {
+				innerExpr = paren.Expr
+			}
+			binaryExpr, ok := innerExpr.(*parser.BinaryExpr)
+			if !ok {
+				t.Fatalf("expected binary child, got %T", subquery.Expr)
+			}
+			scalarExpr, ok := binaryExpr.RHS.(*parser.NumberLiteral)
+			if !ok {
+				t.Fatalf("expected scalar rhs, got %T", binaryExpr.RHS)
+			}
+			logical := &planpkg.LogicalSubqueryPlan{
+				Expr:       subquery,
+				Range:      subquery.Range,
+				Step:       subquery.Step,
+				Offset:     subquery.OriginalOffset,
+				Timestamp:  cloneInt64Pointer(subquery.Timestamp),
+				StartOrEnd: subquery.StartOrEnd,
+				Child: &planpkg.LogicalBinaryPlan{
+					Expr: binaryExpr,
+					Op:   binaryExpr.Op,
+					LHS:  &planpkg.LogicalLeafExprPlan{Expr: binaryExpr.LHS},
+					RHS:  &planpkg.LogicalScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
+				},
+			}
+
+			optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeInstant, EvaluationTimeMS: tc.eval})
+			if err != nil {
+				t.Fatalf("expected optimized fragment, got error: %v", err)
+			}
+			if got := optimized.Report.RequiredInputEndMS; got != tc.wantEnd {
+				t.Fatalf("expected anchored subquery end %d, got %d", tc.wantEnd, got)
+			}
+			if got := optimized.Report.RequiredInputStartMS; got != tc.wantStart {
+				t.Fatalf("expected anchored subquery start %d, got %d", tc.wantStart, got)
+			}
+		})
+	}
+}
+
+func TestBuildOptimizedFragmentUsesNestedSubqueryAnchorForInstantRangeFunctionBounds(t *testing.T) {
+	subqueryExpr := mustParseExpr(t, `(up * 100)[5m:1m] @ 300 offset 1m`)
+	subquery, ok := subqueryExpr.(*parser.SubqueryExpr)
+	if !ok {
+		t.Fatalf("expected subquery expr, got %T", subqueryExpr)
+	}
+	innerExpr := subquery.Expr
+	if paren, ok := innerExpr.(*parser.ParenExpr); ok {
+		innerExpr = paren.Expr
+	}
+	binaryExpr, ok := innerExpr.(*parser.BinaryExpr)
+	if !ok {
+		t.Fatalf("expected binary child, got %T", subquery.Expr)
+	}
+	scalarExpr, ok := binaryExpr.RHS.(*parser.NumberLiteral)
+	if !ok {
+		t.Fatalf("expected scalar rhs, got %T", binaryExpr.RHS)
+	}
+	child := &planpkg.LogicalSubqueryPlan{
+		Expr:       subquery,
+		Range:      subquery.Range,
+		Step:       subquery.Step,
+		Offset:     subquery.OriginalOffset,
+		Timestamp:  cloneInt64Pointer(subquery.Timestamp),
+		StartOrEnd: subquery.StartOrEnd,
+		Child: &planpkg.LogicalBinaryPlan{
+			Expr: binaryExpr,
+			Op:   binaryExpr.Op,
+			LHS:  &planpkg.LogicalLeafExprPlan{Expr: binaryExpr.LHS},
+			RHS:  &planpkg.LogicalScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
+		},
+	}
+	callExpr := mustParseExpr(t, `sum_over_time((up * 100)[5m:1m] @ 300 offset 1m)`)
+	call, ok := callExpr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected call expr, got %T", callExpr)
+	}
+	logical := &planpkg.LogicalRangeFunctionPlan{Expr: call, Func: "sum_over_time", Child: child}
+
+	optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeInstant, EvaluationTimeMS: 999999})
+	if err != nil {
+		t.Fatalf("expected optimized fragment, got error: %v", err)
+	}
+	if got, want := optimized.Report.RequiredInputEndMS, int64(240000); got != want {
+		t.Fatalf("expected nested anchored end %d, got %d", want, got)
+	}
+	if got, want := optimized.Report.RequiredInputStartMS, int64(-360000); got != want {
+		t.Fatalf("expected nested anchored start %d, got %d", want, got)
+	}
+}
+
+func TestBuildOptimizedFragmentUsesRangeLookbackEnvelopeForLeafSelector(t *testing.T) {
+	logical := &planpkg.LogicalLeafExprPlan{Expr: mustParseExpr(t, `up`)}
+
+	optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 30000})
+	if err != nil {
+		t.Fatalf("expected optimized fragment, got error: %v", err)
+	}
+	if got, want := optimized.Report.RequiredInputStartMS, -defaultInstantSelectorLookback.Milliseconds(); got != want {
+		t.Fatalf("expected range lookback envelope start %d, got %d", want, got)
+	}
+	if got, want := optimized.Report.RequiredInputEndMS, int64(300000); got != want {
+		t.Fatalf("expected range lookback envelope end %d, got %d", want, got)
+	}
+}
+
+func TestBuildOptimizedFragmentMarksSubqueryStepGridSemanticBarrier(t *testing.T) {
+	subqueryExpr := mustParseExpr(t, `(up * 100)[5m:1m]`)
+	subquery, ok := subqueryExpr.(*parser.SubqueryExpr)
+	if !ok {
+		t.Fatalf("expected subquery expr, got %T", subqueryExpr)
+	}
+	innerExpr := subquery.Expr
+	if paren, ok := innerExpr.(*parser.ParenExpr); ok {
+		innerExpr = paren.Expr
+	}
+	binaryExpr, ok := innerExpr.(*parser.BinaryExpr)
+	if !ok {
+		t.Fatalf("expected binary child, got %T", subquery.Expr)
+	}
+	scalarExpr, ok := binaryExpr.RHS.(*parser.NumberLiteral)
+	if !ok {
+		t.Fatalf("expected scalar rhs, got %T", binaryExpr.RHS)
+	}
+	logical := &planpkg.LogicalSubqueryPlan{
+		Expr:   subquery,
+		Range:  subquery.Range,
+		Step:   subquery.Step,
+		Offset: subquery.OriginalOffset,
+		Child: &planpkg.LogicalBinaryPlan{
+			Expr: binaryExpr,
+			Op:   binaryExpr.Op,
+			LHS:  &planpkg.LogicalLeafExprPlan{Expr: binaryExpr.LHS},
+			RHS:  &planpkg.LogicalScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
+		},
+	}
+
+	optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeInstant, EvaluationTimeMS: 300000})
+	if err != nil {
+		t.Fatalf("expected optimized fragment, got error: %v", err)
+	}
+	assertContainsAll(t, optimized.Report.SemanticBarriers, []string{"subquery_step_grid", "evaluation_range"})
+}
+
 func TestOptimizeFragmentFlattensTrivialUnaryWrapper(t *testing.T) {
 	fragment := &NativeFragment{
 		Kind:         FragmentKindUnarySourceExpr,

@@ -28,10 +28,10 @@ echo ">> Running compliance tester → ${OUTPUT_FILE}"
 echo ">> Report written to: ${OUTPUT_FILE}"
 echo ">> Summary:"
 jq '{
-  total: length,
-  passed: [.[] | select(.diff == "" and (.unexpectedFailure // "") == "" and (.unexpectedSuccess // false) == false and (.unsupported // false) == false)] | length,
-  failed: [.[] | select(.diff != "")] | length,
-  unexpected_failure: [.[] | select((.unexpectedFailure // "") != "")] | length,
-  unexpected_success: [.[] | select(.unexpectedSuccess == true)] | length,
-  unsupported: [.[] | select(.unsupported == true)] | length
+  total: .totalResults,
+  passed: [.results[] | select(.diff == "" and (.unexpectedFailure // "") == "" and (.unexpectedSuccess // false) == false and (.unsupported // false) == false)] | length,
+  diff_failure: [.results[] | select(.diff != "")] | length,
+  unexpected_failure: [.results[] | select((.unexpectedFailure // "") != "")] | length,
+  unexpected_success: [.results[] | select(.unexpectedSuccess == true)] | length,
+  unsupported: [.results[] | select(.unsupported == true)] | length
 }' < "$OUTPUT_FILE"

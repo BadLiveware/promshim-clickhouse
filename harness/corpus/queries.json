@@ -659,5 +659,299 @@
     "name": "histogram_fraction_classic_bucket",
     "endpoint": "query",
     "query": "histogram_fraction(0, 0.9, sum by (le, job) (rate(harness_request_duration_seconds_bucket[5m])) )"
+  },
+  {
+    "name": "tier1_abs_instant",
+    "endpoint": "query",
+    "query": "abs(harness_queue_depth - 5)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_clamp_instant",
+    "endpoint": "query",
+    "query": "clamp(harness_queue_depth, 2, 4)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_trig_instant",
+    "endpoint": "query",
+    "query": "sin(harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_timestamp_instant",
+    "endpoint": "query",
+    "query": "timestamp(harness_up)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_minute_default_instant",
+    "endpoint": "query",
+    "query": "minute()",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_day_of_week_default_instant",
+    "endpoint": "query",
+    "query": "day_of_week()",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_time_instant",
+    "endpoint": "query",
+    "query": "time()",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_pi_instant",
+    "endpoint": "query",
+    "query": "pi()",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_sort_instant",
+    "endpoint": "query",
+    "query": "sort(harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_sort_by_label_instant",
+    "endpoint": "query",
+    "query": "sort_by_label(harness_up, \"job\", \"instance\")",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_ceil_instant",
+    "endpoint": "query",
+    "query": "ceil(harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_floor_instant",
+    "endpoint": "query",
+    "query": "floor(harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_sgn_instant",
+    "endpoint": "query",
+    "query": "sgn(harness_queue_depth - 3)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_exp_instant",
+    "endpoint": "query",
+    "query": "exp(harness_up)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_ln_instant",
+    "endpoint": "query",
+    "query": "ln(harness_up + 1)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_log2_instant",
+    "endpoint": "query",
+    "query": "log2(harness_up + 1)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_log10_instant",
+    "endpoint": "query",
+    "query": "log10(harness_up + 1)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_sqrt_instant",
+    "endpoint": "query",
+    "query": "sqrt(harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_clamp_min_instant",
+    "endpoint": "query",
+    "query": "clamp_min(harness_queue_depth, 3)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_clamp_max_instant",
+    "endpoint": "query",
+    "query": "clamp_max(harness_queue_depth, 3)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_cos_instant",
+    "endpoint": "query",
+    "query": "cos(harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_tan_instant",
+    "endpoint": "query",
+    "query": "tan(harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_asin_instant",
+    "endpoint": "query",
+    "query": "asin(harness_up * 0.5)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_acos_instant",
+    "endpoint": "query",
+    "query": "acos(harness_up * 0.5)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_atan_instant",
+    "endpoint": "query",
+    "query": "atan(harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_sinh_instant",
+    "endpoint": "query",
+    "query": "sinh(harness_up)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_cosh_instant",
+    "endpoint": "query",
+    "query": "cosh(harness_up)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_tanh_instant",
+    "endpoint": "query",
+    "query": "tanh(harness_up * 0.5)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_asinh_instant",
+    "endpoint": "query",
+    "query": "asinh(harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_acosh_instant",
+    "endpoint": "query",
+    "query": "acosh(harness_up + 1)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_atanh_instant",
+    "endpoint": "query",
+    "query": "atanh(harness_up * 0.5)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_deg_instant",
+    "endpoint": "query",
+    "query": "deg(harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_rad_instant",
+    "endpoint": "query",
+    "query": "rad(harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_hour_default_instant",
+    "endpoint": "query",
+    "query": "hour()",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_day_of_month_default_instant",
+    "endpoint": "query",
+    "query": "day_of_month()",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_day_of_year_default_instant",
+    "endpoint": "query",
+    "query": "day_of_year()",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_days_in_month_default_instant",
+    "endpoint": "query",
+    "query": "days_in_month()",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_month_default_instant",
+    "endpoint": "query",
+    "query": "month()",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_year_default_instant",
+    "endpoint": "query",
+    "query": "year()",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_sort_desc_instant",
+    "endpoint": "query",
+    "query": "sort_desc(harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_sort_by_label_desc_instant",
+    "endpoint": "query",
+    "query": "sort_by_label_desc(harness_up, \"job\", \"instance\")",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_stddev_instant",
+    "endpoint": "query",
+    "query": "stddev(harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_stdvar_instant",
+    "endpoint": "query",
+    "query": "stdvar(harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_quantile_instant",
+    "endpoint": "query",
+    "query": "quantile(0.9, harness_queue_depth)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_group_by_job_instant",
+    "endpoint": "query",
+    "query": "group by (job) (harness_up)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_stddev_over_time_instant",
+    "endpoint": "query",
+    "query": "stddev_over_time(harness_queue_depth[5m])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_stdvar_over_time_instant",
+    "endpoint": "query",
+    "query": "stdvar_over_time(harness_queue_depth[5m])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier1_present_over_time_instant",
+    "endpoint": "query",
+    "query": "present_over_time(harness_up[5m])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier2_scalar_single_instant",
+    "endpoint": "query",
+    "query": "scalar(harness_up{job=\"api\",instance=\"a\"})",
+    "timeOffsetSeconds": 540
   }
 ]

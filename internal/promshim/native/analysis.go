@@ -183,10 +183,11 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 				Kind:       FragmentKindAggregation,
 				OutputKind: outputKind,
 				Aggregation: &AggregationFragment{
-					Op:       n.Op,
-					Grouping: append([]string(nil), n.Grouping...),
-					Without:  n.Without,
-					Source:   child.Fragment,
+					Op:          n.Op,
+					Grouping:    append([]string(nil), n.Grouping...),
+					Without:     n.Without,
+					ParamNumber: cloneFloat64Pointer(n.ParamNumber),
+					Source:      child.Fragment,
 				},
 			}
 		}
@@ -246,6 +247,83 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		info.LabelLineage = passthroughLabelLineage(child.LabelLineage)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
 		info.NativeReason = "vector() currently stays on the local execution path"
+		return info
+	case *planpkg.LogicalSortPlan:
+		child := a.walk(n.Child)
+		info.NodeType = n.Func
+		info.Children = []*LoweringInfo{child}
+		info.LabelLineage = passthroughLabelLineage(child.LabelLineage)
+		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+		info.NativeReason = fmt.Sprintf("%s currently stays on the local execution path", n.Func)
+		return info
+	case *planpkg.LogicalScalarConvertPlan:
+		child := a.walk(n.Child)
+		info.NodeType = "scalar"
+		info.Children = []*LoweringInfo{child}
+		info.LabelLineage = syntheticOutputLineage(map[string]string{})
+		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+		if child.Fragment != nil && child.OutputKind == OutputKindInstantVector {
+			info.NativeLowerable = true
+			info.NativeReason = "scalar() can lower to native SQL by counting child vector rows"
+			info.Fragment = &NativeFragment{Kind: FragmentKindScalarConvert, OutputKind: OutputKindScalar, DropsMetric: true, ScalarConvert: &ScalarConvertFragment{Child: child.Fragment}}
+			return info
+		}
+		info.NativeReason = "scalar() currently stays on the local execution path"
+		return info
+	case *planpkg.LogicalInfoPlan:
+		child := a.walk(n.Child)
+		info.NodeType = "info"
+		info.Children = []*LoweringInfo{child}
+		info.LabelLineage = passthroughLabelLineage(child.LabelLineage)
+		for _, label := range infoJoinCopyLabelNames(n.SelectorMatchers) {
+			info.LabelLineage = mutateDestinationLabel(info.LabelLineage, label, LabelLineageSynthetic)
+		}
+		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+		if metricName, ok := nativeInfoMetricName(n.SelectorMatchers); ok && child.Fragment != nil && child.OutputKind == OutputKindInstantVector {
+			info.NativeLowerable = true
+			info.NativeReason = "info() can lower to native SQL for the single-info-metric join subset"
+			info.Fragment = &NativeFragment{Kind: FragmentKindInfoJoin, OutputKind: OutputKindInstantVector, InfoJoin: &InfoJoinFragment{Child: child.Fragment, InfoMetricName: metricName, SelectorMatchers: infoJoinDataLabelMatchers(n.SelectorMatchers), CopyLabelNames: infoJoinCopyLabelNames(n.SelectorMatchers), DropUnmatched: infoJoinDropUnmatched(n.SelectorMatchers)}}
+			return info
+		}
+		info.NativeReason = "info() currently stays on the local execution path"
+		return info
+	case *planpkg.LogicalPointwiseFunctionPlan:
+		info.NodeType = n.Func
+		var child *LoweringInfo
+		if n.Child != nil {
+			child = a.walk(n.Child)
+			info.Children = []*LoweringInfo{child}
+			info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageDropped)
+			info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+			if template, ok := nativePointwiseSourceTemplate(n.Func, n.ParamNumbers); ok && child.Fragment != nil && isSupportedAggregationSourceFragment(child.Fragment) {
+				info.NativeLowerable = true
+				info.NativeReason = fmt.Sprintf("%s can lower to a native SQL source expression", n.Func)
+				info.Fragment = &NativeFragment{Kind: FragmentKindUnarySourceExpr, OutputKind: child.Fragment.OutputKind, SourcePromQL: child.Fragment.SourcePromQL, Selector: cloneSelectorSource(child.Fragment.Selector), ValueExpr: template, TagsExpr: tagsExprForMetricDrop(true), DropsMetric: true}
+				return info
+			}
+		} else if isSupportedNativeSyntheticDateFunction(n.Func) {
+			info.LabelLineage = syntheticOutputLineage(map[string]string{})
+			info.NativeLowerable = true
+			info.NativeReason = fmt.Sprintf("%s can lower to a native synthetic series", n.Func)
+			info.Fragment = &NativeFragment{Kind: FragmentKindSyntheticSeries, OutputKind: OutputKindInstantVector, DropsMetric: true, Synthetic: &SyntheticSeriesFragment{Func: n.Func}}
+			return info
+		}
+		if child == nil {
+			info.LabelLineage = syntheticOutputLineage(map[string]string{})
+		}
+		info.NodeType = n.Func
+		info.NativeReason = fmt.Sprintf("%s currently stays on the local execution path", n.Func)
+		return info
+	case *planpkg.LogicalScalarBuiltinPlan:
+		info.NodeType = n.Func
+		info.LabelLineage = syntheticOutputLineage(map[string]string{})
+		if isSupportedNativeSyntheticScalarBuiltin(n.Func) {
+			info.NativeLowerable = true
+			info.NativeReason = fmt.Sprintf("%s can lower to a native synthetic scalar series", n.Func)
+			info.Fragment = &NativeFragment{Kind: FragmentKindSyntheticSeries, OutputKind: OutputKindScalar, DropsMetric: true, Synthetic: &SyntheticSeriesFragment{Func: n.Func}}
+			return info
+		}
+		info.NativeReason = fmt.Sprintf("%s currently stays on the local execution path", n.Func)
 		return info
 	case *planpkg.LogicalRoundPlan:
 		child := a.walk(n.Child)
@@ -461,9 +539,169 @@ func boolState(condition bool, ifTrue, ifFalse LabelLineageState) LabelLineageSt
 	return ifFalse
 }
 
+func isSupportedNativeSyntheticScalarBuiltin(name string) bool {
+	switch name {
+	case "pi", "time":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedNativeSyntheticDateFunction(name string) bool {
+	switch name {
+	case "minute", "hour", "day_of_week", "day_of_month", "day_of_year", "days_in_month", "month", "year":
+		return true
+	default:
+		return false
+	}
+}
+
+func nativeInfoMetricName(matchers []*labels.Matcher) (string, bool) {
+	nameMatchers := make([]*labels.Matcher, 0)
+	for _, matcher := range matchers {
+		if matcher != nil && matcher.Name == labels.MetricName {
+			nameMatchers = append(nameMatchers, matcher)
+		}
+	}
+	if len(nameMatchers) == 0 {
+		return "target_info", true
+	}
+	if len(nameMatchers) == 1 && nameMatchers[0].Type == labels.MatchEqual {
+		return nameMatchers[0].Value, true
+	}
+	return "", false
+}
+
+func infoJoinDataLabelMatchers(matchers []*labels.Matcher) []*labels.Matcher {
+	out := make([]*labels.Matcher, 0, len(matchers))
+	for _, matcher := range matchers {
+		if matcher == nil || matcher.Name == labels.MetricName {
+			continue
+		}
+		out = append(out, labels.MustNewMatcher(matcher.Type, matcher.Name, matcher.Value))
+	}
+	return out
+}
+
+func infoJoinCopyLabelNames(matchers []*labels.Matcher) []string {
+	if len(matchers) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0)
+	for _, matcher := range matchers {
+		if matcher == nil || matcher.Name == labels.MetricName {
+			continue
+		}
+		if _, ok := seen[matcher.Name]; ok {
+			continue
+		}
+		seen[matcher.Name] = struct{}{}
+		out = append(out, matcher.Name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func infoJoinDropUnmatched(matchers []*labels.Matcher) bool {
+	for _, matcher := range matchers {
+		if matcher == nil || matcher.Name == labels.MetricName {
+			continue
+		}
+		if !matcher.Matches("") {
+			return true
+		}
+	}
+	return false
+}
+
+func nativePointwiseSourceTemplate(name string, paramNumbers []*float64) (string, bool) {
+	switch name {
+	case "abs":
+		return "abs({value})", true
+	case "ceil":
+		return "ceil({value})", true
+	case "floor":
+		return "floor({value})", true
+	case "sgn":
+		return "sign({value})", true
+	case "exp":
+		return "exp({value})", true
+	case "ln":
+		return "log({value})", true
+	case "log2":
+		return "log2({value})", true
+	case "log10":
+		return "log10({value})", true
+	case "sqrt":
+		return "sqrt({value})", true
+	case "sin":
+		return "sin({value})", true
+	case "cos":
+		return "cos({value})", true
+	case "tan":
+		return "tan({value})", true
+	case "asin":
+		return "asin({value})", true
+	case "acos":
+		return "acos({value})", true
+	case "atan":
+		return "atan({value})", true
+	case "sinh":
+		return "sinh({value})", true
+	case "cosh":
+		return "cosh({value})", true
+	case "tanh":
+		return "tanh({value})", true
+	case "asinh":
+		return "asinh({value})", true
+	case "acosh":
+		return "acosh({value})", true
+	case "atanh":
+		return "atanh({value})", true
+	case "deg":
+		return "degrees({value})", true
+	case "rad":
+		return "radians({value})", true
+	case "timestamp":
+		return "toFloat64(toUnixTimestamp64Milli({timestamp})) / 1000.0", true
+	case "minute":
+		return "toFloat64(toMinute(toDateTime(toInt64({value}), 'UTC')))", true
+	case "hour":
+		return "toFloat64(toHour(toDateTime(toInt64({value}), 'UTC')))", true
+	case "day_of_week":
+		return "toFloat64(modulo(toDayOfWeek(toDateTime(toInt64({value}), 'UTC')), 7))", true
+	case "day_of_month":
+		return "toFloat64(toDayOfMonth(toDateTime(toInt64({value}), 'UTC')))", true
+	case "day_of_year":
+		return "toFloat64(toDayOfYear(toDateTime(toInt64({value}), 'UTC')))", true
+	case "days_in_month":
+		return "toFloat64(toDaysInMonth(toDateTime(toInt64({value}), 'UTC')))", true
+	case "month":
+		return "toFloat64(toMonth(toDateTime(toInt64({value}), 'UTC')))", true
+	case "year":
+		return "toFloat64(toYear(toDateTime(toInt64({value}), 'UTC')))", true
+	case "clamp":
+		if len(paramNumbers) == 2 && paramNumbers[0] != nil && paramNumbers[1] != nil {
+			return fmt.Sprintf("greatest(%s, least(%s, {value}))", storage.NativeFloatLiteral(*paramNumbers[0]), storage.NativeFloatLiteral(*paramNumbers[1])), true
+		}
+	case "clamp_min":
+		if len(paramNumbers) == 1 && paramNumbers[0] != nil {
+			return fmt.Sprintf("greatest({value}, %s)", storage.NativeFloatLiteral(*paramNumbers[0])), true
+		}
+	case "clamp_max":
+		if len(paramNumbers) == 1 && paramNumbers[0] != nil {
+			return fmt.Sprintf("least({value}, %s)", storage.NativeFloatLiteral(*paramNumbers[0])), true
+		}
+	}
+	return "", false
+}
+
 func isSupportedNativeAggregateOverTime(name string) bool {
 	switch name {
-	case "last_over_time", "sum_over_time", "avg_over_time", "min_over_time", "max_over_time", "count_over_time":
+	case "last_over_time", "sum_over_time", "avg_over_time", "min_over_time", "max_over_time", "count_over_time",
+		"stddev_over_time", "stdvar_over_time", "present_over_time":
 		return true
 	default:
 		return false
@@ -481,7 +719,7 @@ func isSupportedNativeCounterRangeFunction(name string) bool {
 
 func isSupportedNativeAggregation(op parser.ItemType) bool {
 	switch op {
-	case parser.SUM, parser.COUNT, parser.MIN, parser.MAX, parser.AVG:
+	case parser.SUM, parser.COUNT, parser.MIN, parser.MAX, parser.AVG, parser.STDDEV, parser.STDVAR, parser.QUANTILE, parser.GROUP:
 		return true
 	default:
 		return false

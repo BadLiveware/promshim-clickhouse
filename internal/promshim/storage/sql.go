@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -78,12 +79,12 @@ func BuildRangeQuerySQL(cfg QueryConfig, promql string, startMS, endMS, stepMS i
 	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", params
 }
 
-func BuildInstantAggregationQuerySQL(cfg QueryConfig, source AggregationSource, evaluationTimeMS int64, op parser.ItemType, grouping []string, without bool) (string, map[string]string, error) {
-	return BuildInstantAggregationQuerySQLWithBounds(cfg, source, evaluationTimeMS, evaluationTimeMS, evaluationTimeMS, op, grouping, without)
+func BuildInstantAggregationQuerySQL(cfg QueryConfig, source AggregationSource, evaluationTimeMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
+	return BuildInstantAggregationQuerySQLWithBounds(cfg, source, evaluationTimeMS, evaluationTimeMS, evaluationTimeMS, op, grouping, without, paramNumber)
 }
 
-func BuildInstantAggregationQuerySQLWithBounds(cfg QueryConfig, source AggregationSource, evaluationTimeMS, requiredStartMS, requiredEndMS int64, op parser.ItemType, grouping []string, without bool) (string, map[string]string, error) {
-	aggExpr, err := buildAggregationValueExpr(op, sqlb.Ident("value"))
+func BuildInstantAggregationQuerySQLWithBounds(cfg QueryConfig, source AggregationSource, evaluationTimeMS, requiredStartMS, requiredEndMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
+	aggExpr, err := buildAggregationValueExpr(op, sqlb.Ident("value"), paramNumber)
 	if err != nil {
 		return "", nil, err
 	}
@@ -113,12 +114,12 @@ func BuildInstantAggregationQuerySQLWithBounds(cfg QueryConfig, source Aggregati
 	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", params, nil
 }
 
-func BuildRangeAggregationQuerySQL(cfg QueryConfig, source AggregationSource, startMS, endMS, stepMS int64, op parser.ItemType, grouping []string, without bool) (string, map[string]string, error) {
-	return BuildRangeAggregationQuerySQLWithBounds(cfg, source, startMS, endMS, stepMS, startMS, endMS, op, grouping, without)
+func BuildRangeAggregationQuerySQL(cfg QueryConfig, source AggregationSource, startMS, endMS, stepMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
+	return BuildRangeAggregationQuerySQLWithBounds(cfg, source, startMS, endMS, stepMS, startMS, endMS, op, grouping, without, paramNumber)
 }
 
-func BuildRangeAggregationQuerySQLWithBounds(cfg QueryConfig, source AggregationSource, startMS, endMS, stepMS, requiredStartMS, requiredEndMS int64, op parser.ItemType, grouping []string, without bool) (string, map[string]string, error) {
-	aggExpr, err := buildAggregationValueExpr(op, sqlb.RawLit{V: "point.2"})
+func BuildRangeAggregationQuerySQLWithBounds(cfg QueryConfig, source AggregationSource, startMS, endMS, stepMS, requiredStartMS, requiredEndMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
+	aggExpr, err := buildAggregationValueExpr(op, sqlb.RawLit{V: "point.2"}, paramNumber)
 	if err != nil {
 		return "", nil, err
 	}
@@ -221,7 +222,7 @@ func baseParams(cfg QueryConfig) map[string]string {
 }
 
 func renderAggregationInstantSourceSubquery(source AggregationSource, sourceSQL string) (*sqlb.Select, error) {
-	sourceValueExpr, err := CompileSourceValueTemplate(source.ValueExpr, sqlb.Ident("value"))
+	sourceValueExpr, err := CompileSourceValueTemplate(source.ValueExpr, sqlb.Ident("value"), sqlb.Ident("timestamp"))
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +238,7 @@ func renderAggregationInstantSourceSubquery(source AggregationSource, sourceSQL 
 }
 
 func renderAggregationRangeSourceSubquery(source AggregationSource, sourceSQL string) (*sqlb.Select, error) {
-	sourceValueExpr, err := CompileSourceValueTemplate(source.ValueExpr, sqlb.RawLit{V: "point.2"})
+	sourceValueExpr, err := CompileSourceValueTemplate(source.ValueExpr, sqlb.RawLit{V: "point.2"}, sqlb.RawLit{V: "point.1"})
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +268,7 @@ func aggregationSourceNeedsTags(source AggregationSource) bool {
 	return source.Selector.NeedTags
 }
 
-func CompileSourceValueTemplate(template string, base sqlb.Expr) (sqlb.Expr, error) {
+func CompileSourceValueTemplate(template string, base, timestamp sqlb.Expr) (sqlb.Expr, error) {
 	baseSQL, params, err := sqlb.BuildExpr(base)
 	if err != nil {
 		return nil, err
@@ -275,10 +276,19 @@ func CompileSourceValueTemplate(template string, base sqlb.Expr) (sqlb.Expr, err
 	if len(params) != 0 {
 		return nil, fmt.Errorf("aggregation base expression unexpectedly produced params: %#v", params)
 	}
+	timestampSQL, timestampParams, err := sqlb.BuildExpr(timestamp)
+	if err != nil {
+		return nil, err
+	}
+	if len(timestampParams) != 0 {
+		return nil, fmt.Errorf("aggregation timestamp expression unexpectedly produced params: %#v", timestampParams)
+	}
 	template = strings.TrimSpace(template)
 	switch template {
 	case "{value}":
 		return base, nil
+	case "{timestamp}":
+		return timestamp, nil
 	case "-({value})":
 		return sqlb.RawLit{V: "-(" + baseSQL + ")"}, nil
 	}
@@ -299,6 +309,10 @@ func CompileSourceValueTemplate(template string, base sqlb.Expr) (sqlb.Expr, err
 	}
 	if match := aggPowValueRightPattern.FindStringSubmatch(template); match != nil {
 		return sqlb.RawLit{V: "pow(" + strings.TrimSpace(match[1]) + ", (" + baseSQL + "))"}, nil
+	}
+	if strings.Contains(template, "{value}") || strings.Contains(template, "{timestamp}") {
+		replaced := strings.NewReplacer("{value}", baseSQL, "{timestamp}", timestampSQL).Replace(template)
+		return sqlb.RawLit{V: replaced}, nil
 	}
 	return nil, fmt.Errorf("unsupported aggregation value template %q", template)
 }
@@ -349,7 +363,7 @@ func buildAggregationTagsExpr(column sqlb.Expr, grouping []string, without bool)
 	}}
 }
 
-func buildAggregationValueExpr(op parser.ItemType, valueRef sqlb.Expr) (sqlb.Expr, error) {
+func buildAggregationValueExpr(op parser.ItemType, valueRef sqlb.Expr, paramNumber *float64) (sqlb.Expr, error) {
 	valueSQL := renderStorageExprNoParams(valueRef)
 	isNaNExpr := renderStorageExprNoParams(sqlb.Call{Name: "isNaN", Args: []sqlb.Expr{sqlb.RawLit{V: valueSQL}}})
 	notNaNExpr := "NOT " + isNaNExpr
@@ -367,6 +381,26 @@ func buildAggregationValueExpr(op parser.ItemType, valueRef sqlb.Expr) (sqlb.Exp
 		return sqlb.Call{Name: "if", Args: []sqlb.Expr{sqlb.RawLit{V: countFiniteExpr + " = 0"}, nullFloatExpr, sqlb.Call{Name: "maxIf", Args: []sqlb.Expr{sqlb.RawLit{V: valueSQL}, sqlb.RawLit{V: notNaNExpr}}}}}, nil
 	case parser.AVG:
 		return sqlb.Call{Name: "if", Args: []sqlb.Expr{sqlb.RawLit{V: countNaNExpr + " > 0 OR count() = 0"}, nullFloatExpr, sqlb.Call{Name: "avg", Args: []sqlb.Expr{sqlb.RawLit{V: valueSQL}}}}}, nil
+	case parser.STDDEV:
+		return sqlb.Call{Name: "if", Args: []sqlb.Expr{sqlb.RawLit{V: countNaNExpr + " > 0 OR count() = 0"}, nullFloatExpr, sqlb.Call{Name: "stddevPop", Args: []sqlb.Expr{sqlb.RawLit{V: valueSQL}}}}}, nil
+	case parser.STDVAR:
+		return sqlb.Call{Name: "if", Args: []sqlb.Expr{sqlb.RawLit{V: countNaNExpr + " > 0 OR count() = 0"}, nullFloatExpr, sqlb.Call{Name: "varPop", Args: []sqlb.Expr{sqlb.RawLit{V: valueSQL}}}}}, nil
+	case parser.QUANTILE:
+		if paramNumber == nil {
+			return nil, fmt.Errorf("native SQL aggregation for operator %q requires a scalar parameter", op.String())
+		}
+		switch {
+		case math.IsNaN(*paramNumber):
+			return sqlb.RawLit{V: "nan"}, nil
+		case *paramNumber < 0:
+			return sqlb.RawLit{V: "-inf"}, nil
+		case *paramNumber > 1:
+			return sqlb.RawLit{V: "inf"}, nil
+		default:
+			return sqlb.Call{Name: "if", Args: []sqlb.Expr{sqlb.RawLit{V: countNaNExpr + " > 0 OR count() = 0"}, nullFloatExpr, sqlb.RawLit{V: "quantile(" + NativeFloatLiteral(*paramNumber) + ")(" + valueSQL + ")"}}}, nil
+		}
+	case parser.GROUP:
+		return sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{sqlb.RawLit{V: "1"}}}, nil
 	default:
 		return nil, fmt.Errorf("native SQL aggregation for operator %q is not implemented yet", op.String())
 	}

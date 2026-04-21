@@ -361,6 +361,12 @@ func baseSelectorSource(fragment *NativeFragment) *SelectorSource {
 	if fragment.Subquery != nil {
 		return baseSelectorSource(fragment.Subquery.Child)
 	}
+	if fragment.ScalarConvert != nil {
+		return baseSelectorSource(fragment.ScalarConvert.Child)
+	}
+	if fragment.InfoJoin != nil {
+		return baseSelectorSource(fragment.InfoJoin.Child)
+	}
 	if fragment.Selector != nil {
 		return fragment.Selector
 	}
@@ -387,6 +393,12 @@ func requiredColumnsForFragment(fragment *NativeFragment) []string {
 	if fragment.Subquery != nil {
 		columns = append(columns, requiredColumnsForFragment(fragment.Subquery.Child)...)
 	}
+	if fragment.ScalarConvert != nil {
+		columns = append(columns, requiredColumnsForFragment(fragment.ScalarConvert.Child)...)
+	}
+	if fragment.InfoJoin != nil {
+		columns = append(columns, requiredColumnsForFragment(fragment.InfoJoin.Child)...)
+	}
 	return mergeUniqueStrings(nil, columns...)
 }
 
@@ -395,6 +407,12 @@ func fragmentRequiresTags(fragment *NativeFragment) bool {
 		return false
 	}
 	if fragment.Aggregation != nil || fragment.RangeFunction != nil || fragment.Subquery != nil {
+		return true
+	}
+	if fragment.ScalarConvert != nil {
+		return false
+	}
+	if fragment.InfoJoin != nil {
 		return true
 	}
 	switch fragment.OutputKind {
@@ -465,7 +483,7 @@ func joinNormalizationForFragment(fragment *NativeFragment) string {
 		return "not_applicable"
 	}
 	switch fragment.Kind {
-	case FragmentKindAggregation, FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr:
+	case FragmentKindAggregation, FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindSyntheticSeries, FragmentKindScalarConvert, FragmentKindInfoJoin:
 		return "not_applicable"
 	default:
 		return "required"

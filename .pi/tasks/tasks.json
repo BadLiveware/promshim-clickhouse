@@ -1,4 +1,277 @@
 {
-  "nextId": 182,
-  "tasks": []
+  "nextId": 198,
+  "tasks": [
+    {
+      "id": "182",
+      "subject": "Execute PromQL coverage expansion plan",
+      "description": "Container task for executing the full scope described in .pi/promql-coverage-plan/README.md. This task is complete when Tier 1, Tier 2, the shared windowed-arrays source, predict_linear, resets, and double_exponential_smoothing/holt_winters have all shipped with the required local/native implementations, differential coverage, and validation.",
+      "status": "pending",
+      "activeForm": "Coordinating PromQL coverage plan",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [
+        "183",
+        "185",
+        "190"
+      ],
+      "createdAt": 1776795811556,
+      "updatedAt": 1776795817882
+    },
+    {
+      "id": "183",
+      "subject": "Deliver Tier 1 trivial coverage sweep",
+      "description": "Container task for the Tier 1 slice from .pi/promql-coverage-plan/01-tier-1-trivial.md. This groups the analyzer/logical/local/native/test work needed to land the trivial scalar math, clamp, trig, date/time, sort, missing aggregators, and basic over-time stats in one sweep.",
+      "status": "completed",
+      "activeForm": "Coordinating Tier 1 coverage",
+      "metadata": {},
+      "blocks": [
+        "182",
+        "186",
+        "188",
+        "189"
+      ],
+      "blockedBy": [
+        "184"
+      ],
+      "createdAt": 1776795811557,
+      "updatedAt": 1776799375949
+    },
+    {
+      "id": "184",
+      "subject": "Implement Tier 1 trivial coverage additions",
+      "description": "Add Tier 1 support from .pi/promql-coverage-plan/01-tier-1-trivial.md across analyzer, logical builder, local execution, native renderer/optimizer, and harness/tests. Scope includes scalar math, clamp, trig, time/date functions, root sort variants, aggregators stddev/stdvar/quantile/group, and over-time stats stddev_over_time/stdvar_over_time/present_over_time. Done means analyzer accepts the full Tier 1 set, local and native execution are wired per plan, and tests/corpus/snapshots cover the new surface.",
+      "status": "completed",
+      "activeForm": "Implementing Tier 1 coverage",
+      "metadata": {},
+      "blocks": [
+        "183"
+      ],
+      "blockedBy": [
+        "194",
+        "195",
+        "196",
+        "197"
+      ],
+      "createdAt": 1776795811557,
+      "updatedAt": 1776799371317
+    },
+    {
+      "id": "185",
+      "subject": "Deliver Tier 2 moderate coverage",
+      "description": "Container task for the Tier 2 slice from .pi/promql-coverage-plan/02-tier-2-moderate.md. This task is complete when scalar(v), mad_over_time, and info all ship same-slice local+native with their required semantic edge-case coverage.",
+      "status": "pending",
+      "activeForm": "Coordinating Tier 2 coverage",
+      "metadata": {},
+      "blocks": [
+        "182",
+        "191"
+      ],
+      "blockedBy": [
+        "186",
+        "187",
+        "188"
+      ],
+      "createdAt": 1776795811557,
+      "updatedAt": 1776795817885
+    },
+    {
+      "id": "186",
+      "subject": "Implement scalar(v) same-slice local and native support",
+      "description": "Add analyzer, execution, native rendering, and differential/unit coverage for scalar(v) per .pi/promql-coverage-plan/02-tier-2-moderate.md. Done means scalar(v) returns ScalarValue semantics matching Prometheus for single-series, empty, and multi-series inputs, with native CASE/count lowering diff-tested against the local implementation.",
+      "status": "completed",
+      "activeForm": "Implementing scalar(v) support",
+      "metadata": {},
+      "blocks": [
+        "185"
+      ],
+      "blockedBy": [
+        "183"
+      ],
+      "createdAt": 1776795811557,
+      "updatedAt": 1776799837412
+    },
+    {
+      "id": "187",
+      "subject": "Implement mad_over_time same-slice local and native support",
+      "description": "Add analyzer, local execution, native lowering, and differential/unit coverage for mad_over_time per .pi/promql-coverage-plan/02-tier-2-moderate.md. This must consume the shared windowed-arrays source from the predict_linear slice rather than duplicating its own source logic.",
+      "status": "pending",
+      "activeForm": "Implementing mad_over_time support",
+      "metadata": {},
+      "blocks": [
+        "185"
+      ],
+      "blockedBy": [
+        "189"
+      ],
+      "createdAt": 1776795811557,
+      "updatedAt": 1776795817884
+    },
+    {
+      "id": "188",
+      "subject": "Implement info same-slice local and native support",
+      "description": "Add analyzer, local execution, info-series lookup/join behavior, native lowering, and differential/unit coverage for info per .pi/promql-coverage-plan/02-tier-2-moderate.md. Done means enrichment, conflict handling, duplicate-info failure, and no-info pass-through semantics are covered and the info-series convention is documented in code.",
+      "status": "in_progress",
+      "activeForm": "Implementing info support",
+      "metadata": {},
+      "blocks": [
+        "185"
+      ],
+      "blockedBy": [
+        "183"
+      ],
+      "createdAt": 1776795811557,
+      "updatedAt": 1776799843860
+    },
+    {
+      "id": "189",
+      "subject": "Build shared windowed-arrays source for coverage functions",
+      "description": "Implement the reusable native windowed-arrays source described in .pi/promql-coverage-plan/03-predict-linear.md and referenced by mad_over_time and double_exponential_smoothing. Done means the renderer has one shared path that yields per-(series, grid_ts) window timestamp/value arrays, with snapshot/integration coverage for the selected implementation strategy.",
+      "status": "pending",
+      "activeForm": "Building shared windowed-arrays source",
+      "metadata": {},
+      "blocks": [
+        "187",
+        "191",
+        "193"
+      ],
+      "blockedBy": [
+        "183"
+      ],
+      "createdAt": 1776795811558,
+      "updatedAt": 1776795817885
+    },
+    {
+      "id": "190",
+      "subject": "Deliver advanced range-function coverage",
+      "description": "Container task for the remaining range-function slices after Tier 2: predict_linear, resets, and double_exponential_smoothing/holt_winters. This task is complete when each ships with the required same-slice local/native support and documented fallback behavior where applicable.",
+      "status": "pending",
+      "activeForm": "Coordinating advanced range coverage",
+      "metadata": {},
+      "blocks": [
+        "182"
+      ],
+      "blockedBy": [
+        "191",
+        "192",
+        "193"
+      ],
+      "createdAt": 1776795811558,
+      "updatedAt": 1776795817883
+    },
+    {
+      "id": "191",
+      "subject": "Implement predict_linear same-slice local and native support",
+      "description": "Add analyzer, local execution, shared-source-based native lowering, and differential/unit coverage for predict_linear per .pi/promql-coverage-plan/03-predict-linear.md. Done means the local implementation matches upstream linearRegression behavior, the native path uses the shared windowed-arrays source, and the documented edge-case corpus passes.",
+      "status": "pending",
+      "activeForm": "Implementing predict_linear support",
+      "metadata": {},
+      "blocks": [
+        "190",
+        "192",
+        "193"
+      ],
+      "blockedBy": [
+        "189",
+        "185"
+      ],
+      "createdAt": 1776795811559,
+      "updatedAt": 1776795817885
+    },
+    {
+      "id": "192",
+      "subject": "Implement resets same-slice local and native support",
+      "description": "Add analyzer, local execution, native lowering, and dedicated boundary-focused differential/unit coverage for resets per .pi/promql-coverage-plan/04-resets.md. Done means reset counting matches Prometheus across monotonic, reset, boundary, NaN, and empty-window cases both locally and natively.",
+      "status": "pending",
+      "activeForm": "Implementing resets support",
+      "metadata": {},
+      "blocks": [
+        "190"
+      ],
+      "blockedBy": [
+        "191"
+      ],
+      "createdAt": 1776795811559,
+      "updatedAt": 1776795817885
+    },
+    {
+      "id": "193",
+      "subject": "Implement double_exponential_smoothing and holt_winters support",
+      "description": "Add analyzer support for both names, local execution, shared-source-based native lowering, and differential/unit coverage for double_exponential_smoothing/holt_winters per .pi/promql-coverage-plan/05-holt-winters.md. Done means aliasing, factor validation, upstream-parity smoothing behavior, and either working arrayFold-based native lowering or an explicit activated-local-only fallback with tracking note are all in place.",
+      "status": "pending",
+      "activeForm": "Implementing smoothing support",
+      "metadata": {},
+      "blocks": [
+        "190"
+      ],
+      "blockedBy": [
+        "189",
+        "191"
+      ],
+      "createdAt": 1776795811559,
+      "updatedAt": 1776795817885
+    },
+    {
+      "id": "194",
+      "subject": "Add Tier 1 aggregators and over-time stats",
+      "description": "Implement the Tier 1 additions that reuse existing aggregation/range-function infrastructure: aggregators stddev/stdvar/quantile/group and range functions stddev_over_time/stdvar_over_time/present_over_time. Scope includes analyzer, logical planning, local execution, native analysis/renderer/storage aggregation support, and focused unit/native tests.",
+      "status": "completed",
+      "activeForm": "Adding Tier 1 aggregators and over-time stats",
+      "metadata": {},
+      "blocks": [
+        "184",
+        "197"
+      ],
+      "blockedBy": [],
+      "createdAt": 1776795884794,
+      "updatedAt": 1776796631086
+    },
+    {
+      "id": "195",
+      "subject": "Add Tier 1 scalar, clamp, trig, and date-time transforms",
+      "description": "Implement the Tier 1 scalar transform coverage from .pi/promql-coverage-plan/01-tier-1-trivial.md: scalar math, clamp family, trig functions, pi/time/timestamp, and minute/hour/day/month/year functions with correct metric-name and day_of_week semantics across analyzer, planning, local execution, and native lowering.",
+      "status": "completed",
+      "activeForm": "Adding Tier 1 transforms",
+      "metadata": {},
+      "blocks": [
+        "184",
+        "197"
+      ],
+      "blockedBy": [],
+      "createdAt": 1776795884795,
+      "updatedAt": 1776798144078
+    },
+    {
+      "id": "196",
+      "subject": "Add Tier 1 sort variants",
+      "description": "Implement Tier 1 support for sort, sort_desc, sort_by_label, and sort_by_label_desc with analyzer validation, planning/execution support, and any native/root-order handling that is safe per the plan.",
+      "status": "completed",
+      "activeForm": "Adding Tier 1 sort support",
+      "metadata": {},
+      "blocks": [
+        "184",
+        "197"
+      ],
+      "blockedBy": [],
+      "createdAt": 1776795884796,
+      "updatedAt": 1776798520022
+    },
+    {
+      "id": "197",
+      "subject": "Add Tier 1 harness, unit, and renderer coverage",
+      "description": "Expand Tier 1 validation coverage in harness/corpus/queries.json, exec tests, planner/logical tests, and native snapshot/optimizer tests so the full Tier 1 surface has differential and focused regression coverage per .pi/promql-coverage-plan/01-tier-1-trivial.md.",
+      "status": "completed",
+      "activeForm": "Adding Tier 1 validation coverage",
+      "metadata": {},
+      "blocks": [
+        "184"
+      ],
+      "blockedBy": [
+        "194",
+        "195",
+        "196"
+      ],
+      "createdAt": 1776795884796,
+      "updatedAt": 1776799368798
+    }
+  ]
 }

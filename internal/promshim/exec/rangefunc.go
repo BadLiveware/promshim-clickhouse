@@ -10,12 +10,15 @@ import (
 type matrixRangeFunction func(model.MatrixValue) (model.VectorValue, error)
 
 var localMatrixRangeFunctions = map[string]matrixRangeFunction{
-	"last_over_time":  applyLastOverTimeMatrix,
-	"sum_over_time":   applySumOverTimeMatrix,
-	"avg_over_time":   applyAvgOverTimeMatrix,
-	"max_over_time":   applyMaxOverTimeMatrix,
-	"min_over_time":   applyMinOverTimeMatrix,
-	"count_over_time": applyCountOverTimeMatrix,
+	"last_over_time":    applyLastOverTimeMatrix,
+	"sum_over_time":     applySumOverTimeMatrix,
+	"avg_over_time":     applyAvgOverTimeMatrix,
+	"max_over_time":     applyMaxOverTimeMatrix,
+	"min_over_time":     applyMinOverTimeMatrix,
+	"count_over_time":   applyCountOverTimeMatrix,
+	"stddev_over_time":  applyStddevOverTimeMatrix,
+	"stdvar_over_time":  applyStdvarOverTimeMatrix,
+	"present_over_time": applyPresentOverTimeMatrix,
 }
 
 func ApplyRangeFunctionInstant(name string, input model.RuntimeValue) (model.VectorValue, error) {
@@ -131,6 +134,67 @@ func applyCountOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, erro
 		return left < right
 	})
 	return model.VectorValue{Samples: out}, nil
+}
+
+func applyStddevOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, error) {
+	return applyVarianceOverTimeMatrix(matrix, true), nil
+}
+
+func applyStdvarOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, error) {
+	return applyVarianceOverTimeMatrix(matrix, false), nil
+}
+
+func applyPresentOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, error) {
+	out := make([]model.InstantSample, 0, len(matrix.Series))
+	for _, series := range matrix.Series {
+		if len(series.Values) == 0 {
+			continue
+		}
+		last := series.Values[len(series.Values)-1]
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: 1})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := model.LabelsKey(out[i].Metric)
+		right := model.LabelsKey(out[j].Metric)
+		if left == right {
+			return out[i].Timestamp < out[j].Timestamp
+		}
+		return left < right
+	})
+	return model.VectorValue{Samples: out}, nil
+}
+
+func applyVarianceOverTimeMatrix(matrix model.MatrixValue, sqrt bool) model.VectorValue {
+	out := make([]model.InstantSample, 0, len(matrix.Series))
+	for _, series := range matrix.Series {
+		if len(series.Values) == 0 {
+			continue
+		}
+		count := 0.0
+		mean := 0.0
+		m2 := 0.0
+		for _, point := range series.Values {
+			count++
+			delta := point.Value - mean
+			mean += delta / count
+			m2 += delta * (point.Value - mean)
+		}
+		value := m2 / count
+		if sqrt {
+			value = math.Sqrt(value)
+		}
+		last := series.Values[len(series.Values)-1]
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: value})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := model.LabelsKey(out[i].Metric)
+		right := model.LabelsKey(out[j].Metric)
+		if left == right {
+			return out[i].Timestamp < out[j].Timestamp
+		}
+		return left < right
+	})
+	return model.VectorValue{Samples: out}
 }
 
 func applyMaxOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, error) {

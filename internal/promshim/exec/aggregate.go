@@ -77,6 +77,57 @@ func (r *avgReducer) Result() float64 {
 	return r.sum / r.count
 }
 
+type varianceReducer struct {
+	count float64
+	mean  float64
+	m2    float64
+}
+
+func (r *varianceReducer) Add(value float64) {
+	r.count++
+	delta := value - r.mean
+	r.mean += delta / r.count
+	r.m2 += delta * (value - r.mean)
+}
+
+func (r *varianceReducer) Result() float64 {
+	if r.count == 0 {
+		return math.NaN()
+	}
+	return r.m2 / r.count
+}
+
+type stdvarReducer struct{ varianceReducer }
+
+type stddevReducer struct{ varianceReducer }
+
+func (r *stddevReducer) Result() float64 {
+	return math.Sqrt(r.varianceReducer.Result())
+}
+
+type quantileReducer struct {
+	quantile float64
+	values   []float64
+}
+
+func (r *quantileReducer) Add(value float64) {
+	r.values = append(r.values, value)
+}
+
+func (r *quantileReducer) Result() float64 {
+	return calculateQuantileFromValues(r.quantile, r.values)
+}
+
+type groupReducer struct{ seen bool }
+
+func (r *groupReducer) Add(_ float64) { r.seen = true }
+func (r *groupReducer) Result() float64 {
+	if !r.seen {
+		return math.NaN()
+	}
+	return 1
+}
+
 func AggregateRuntimeValue(op parser.ItemType, value model.RuntimeValue, opts AggregationOptions) (model.RuntimeValue, error) {
 	switch op {
 	case parser.TOPK, parser.BOTTOMK:
@@ -108,13 +159,13 @@ func AggregateRuntimeValue(op parser.ItemType, value model.RuntimeValue, opts Ag
 	default:
 		switch typed := value.(type) {
 		case model.VectorValue:
-			samples, err := AggregateInstantSamples(op, typed.Samples, opts.Grouping, opts.Without, opts.EvaluationTime)
+			samples, err := AggregateInstantSamples(op, typed.Samples, opts.Grouping, opts.Without, opts.EvaluationTime, opts.ParamNumber)
 			if err != nil {
 				return nil, err
 			}
 			return model.VectorValue{Samples: samples}, nil
 		case model.MatrixValue:
-			series, err := AggregateRangeSeries(op, typed.Series, opts.Grouping, opts.Without)
+			series, err := AggregateRangeSeries(op, typed.Series, opts.Grouping, opts.Without, opts.ParamNumber)
 			if err != nil {
 				return nil, err
 			}
@@ -125,7 +176,7 @@ func AggregateRuntimeValue(op parser.ItemType, value model.RuntimeValue, opts Ag
 	}
 }
 
-func AggregateInstantSamples(op parser.ItemType, samples []model.InstantSample, grouping []string, without bool, evaluationTime time.Time) ([]model.InstantSample, error) {
+func AggregateInstantSamples(op parser.ItemType, samples []model.InstantSample, grouping []string, without bool, evaluationTime time.Time, paramNumber *float64) ([]model.InstantSample, error) {
 	timestamp := float64(evaluationTime.UnixNano()) / float64(time.Second)
 	type bucket struct {
 		Metric  map[string]string
@@ -136,7 +187,7 @@ func AggregateInstantSamples(op parser.ItemType, samples []model.InstantSample, 
 		metric := model.AggregationMetric(sample.Metric, grouping, without)
 		key := model.LabelsKey(metric)
 		if _, ok := buckets[key]; !ok {
-			reducer, err := newAggregateReducer(op)
+			reducer, err := newAggregateReducer(op, paramNumber)
 			if err != nil {
 				return nil, err
 			}
@@ -153,7 +204,7 @@ func AggregateInstantSamples(op parser.ItemType, samples []model.InstantSample, 
 	return result, nil
 }
 
-func AggregateRangeSeries(op parser.ItemType, series []model.RangeSeries, grouping []string, without bool) ([]model.RangeSeries, error) {
+func AggregateRangeSeries(op parser.ItemType, series []model.RangeSeries, grouping []string, without bool, paramNumber *float64) ([]model.RangeSeries, error) {
 	type bucket struct {
 		Metric map[string]string
 		Values map[float64]aggregateReducer
@@ -167,7 +218,7 @@ func AggregateRangeSeries(op parser.ItemType, series []model.RangeSeries, groupi
 		}
 		for _, point := range input.Values {
 			if _, ok := buckets[key].Values[point.Timestamp]; !ok {
-				reducer, err := newAggregateReducer(op)
+				reducer, err := newAggregateReducer(op, paramNumber)
 				if err != nil {
 					return nil, err
 				}
@@ -368,7 +419,7 @@ func formatAggregationValue(value float64) string {
 	return strconv.FormatFloat(value, 'f', -1, 64)
 }
 
-func newAggregateReducer(op parser.ItemType) (aggregateReducer, error) {
+func newAggregateReducer(op parser.ItemType, paramNumber *float64) (aggregateReducer, error) {
 	switch op {
 	case parser.SUM:
 		return &sumReducer{}, nil
@@ -380,6 +431,17 @@ func newAggregateReducer(op parser.ItemType) (aggregateReducer, error) {
 		return &maxReducer{}, nil
 	case parser.AVG:
 		return &avgReducer{}, nil
+	case parser.STDVAR:
+		return &stdvarReducer{}, nil
+	case parser.STDDEV:
+		return &stddevReducer{}, nil
+	case parser.QUANTILE:
+		if paramNumber == nil {
+			return nil, badDataf("aggregation operator %q requires a scalar parameter", op.String())
+		}
+		return &quantileReducer{quantile: *paramNumber}, nil
+	case parser.GROUP:
+		return &groupReducer{}, nil
 	default:
 		return nil, unsupportedf("aggregation reducer for operator %q is not implemented yet", op.String())
 	}

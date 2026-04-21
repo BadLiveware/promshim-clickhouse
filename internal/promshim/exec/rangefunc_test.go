@@ -144,6 +144,44 @@ func TestApplyCountOverTimeInstantUsesCountsPerSeries(t *testing.T) {
 	}
 }
 
+func TestApplyStddevAndStdvarOverTimeInstantUsePopulationVariance(t *testing.T) {
+	input := model.MatrixValue{Series: []model.RangeSeries{
+		{Metric: map[string]string{"job": "api", "instance": "a"}, Values: []model.RangePoint{{Timestamp: 10, Value: 1}, {Timestamp: 20, Value: 3}}},
+		{Metric: map[string]string{"job": "api", "instance": "b"}, Values: []model.RangePoint{{Timestamp: 10, Value: 2}, {Timestamp: 20, Value: 2}}},
+	}}
+	stddevVector, err := ApplyRangeFunctionInstant("stddev_over_time", input)
+	if err != nil {
+		t.Fatalf("expected stddev_over_time instant result, got error: %v", err)
+	}
+	stdvarVector, err := ApplyRangeFunctionInstant("stdvar_over_time", input)
+	if err != nil {
+		t.Fatalf("expected stdvar_over_time instant result, got error: %v", err)
+	}
+	if len(stddevVector.Samples) != 2 || stddevVector.Samples[0].Value != 1 || stddevVector.Samples[1].Value != 0 {
+		t.Fatalf("unexpected stddev_over_time samples: %#v", stddevVector.Samples)
+	}
+	if len(stdvarVector.Samples) != 2 || stdvarVector.Samples[0].Value != 1 || stdvarVector.Samples[1].Value != 0 {
+		t.Fatalf("unexpected stdvar_over_time samples: %#v", stdvarVector.Samples)
+	}
+}
+
+func TestApplyPresentOverTimeInstantReturnsOnePerNonEmptySeries(t *testing.T) {
+	input := model.MatrixValue{Series: []model.RangeSeries{
+		{Metric: map[string]string{"job": "api", "instance": "a"}, Values: []model.RangePoint{{Timestamp: 10, Value: 1}, {Timestamp: 20, Value: 3}}},
+		{Metric: map[string]string{"job": "api", "instance": "b"}, Values: []model.RangePoint{{Timestamp: 30, Value: 7}}},
+	}}
+	vector, err := ApplyRangeFunctionInstant("present_over_time", input)
+	if err != nil {
+		t.Fatalf("expected present_over_time instant result, got error: %v", err)
+	}
+	if len(vector.Samples) != 2 {
+		t.Fatalf("expected two output samples, got %#v", vector.Samples)
+	}
+	if vector.Samples[0].Value != 1 || vector.Samples[1].Value != 1 {
+		t.Fatalf("expected present_over_time outputs of 1, got %#v", vector.Samples)
+	}
+}
+
 func TestApplyQuantileOverTimeInstantComputesMedianPerSeries(t *testing.T) {
 	input := model.MatrixValue{Series: []model.RangeSeries{
 		{Metric: map[string]string{"job": "api", "instance": "a"}, Values: []model.RangePoint{{Timestamp: 10, Value: 3}, {Timestamp: 20, Value: 1}, {Timestamp: 30, Value: 2}}},

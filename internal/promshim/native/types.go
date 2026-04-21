@@ -4,6 +4,7 @@ import (
 	"time"
 
 	planpkg "ch-observability/internal/promshim/plan"
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -26,6 +27,9 @@ const (
 	FragmentKindRangeFunction          FragmentKind = "range_function"
 	FragmentKindSubquery               FragmentKind = "subquery"
 	FragmentKindAggregation            FragmentKind = "aggregation"
+	FragmentKindSyntheticSeries        FragmentKind = "synthetic_series"
+	FragmentKindScalarConvert          FragmentKind = "scalar_convert"
+	FragmentKindInfoJoin               FragmentKind = "info_join"
 )
 
 type NativeFragment struct {
@@ -40,6 +44,9 @@ type NativeFragment struct {
 	RangeFunction *RangeFunctionFragment
 	Subquery      *SubqueryFragment
 	Aggregation   *AggregationFragment
+	Synthetic     *SyntheticSeriesFragment
+	ScalarConvert *ScalarConvertFragment
+	InfoJoin      *InfoJoinFragment
 }
 
 const (
@@ -72,10 +79,27 @@ type SubqueryFragment struct {
 }
 
 type AggregationFragment struct {
-	Op       parser.ItemType
-	Grouping []string
-	Without  bool
-	Source   *NativeFragment
+	Op          parser.ItemType
+	Grouping    []string
+	Without     bool
+	ParamNumber *float64
+	Source      *NativeFragment
+}
+
+type SyntheticSeriesFragment struct {
+	Func string
+}
+
+type ScalarConvertFragment struct {
+	Child *NativeFragment
+}
+
+type InfoJoinFragment struct {
+	Child            *NativeFragment
+	InfoMetricName   string
+	SelectorMatchers []*labels.Matcher
+	CopyLabelNames   []string
+	DropUnmatched    bool
 }
 
 type AggregationSupport struct {

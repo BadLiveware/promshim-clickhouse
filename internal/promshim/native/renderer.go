@@ -42,6 +42,12 @@ func RenderFragment(cfg storage.QueryConfig, fragment *NativeFragment, params Re
 	switch fragment.Kind {
 	case FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr:
 		return renderSourceFragment(cfg, fragment, params)
+	case FragmentKindSyntheticSeries:
+		return renderSyntheticFragment(fragment, params)
+	case FragmentKindScalarConvert:
+		return renderScalarConvertFragment(cfg, fragment, params)
+	case FragmentKindInfoJoin:
+		return renderInfoJoinFragment(cfg, fragment, params)
 	case FragmentKindSubquery:
 		return renderSubqueryFragment(cfg, fragment, params)
 	case FragmentKindRangeFunction:
@@ -200,13 +206,13 @@ func renderAggregationFragment(cfg storage.QueryConfig, fragment *NativeFragment
 	}
 	switch params.Mode {
 	case RenderModeInstant:
-		sql, queryParams, err := storage.BuildInstantAggregationQuerySQLWithBounds(cfg, source, params.EvaluationTimeMS, params.RequiredStartMS, params.RequiredEndMS, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without)
+		sql, queryParams, err := storage.BuildInstantAggregationQuerySQLWithBounds(cfg, source, params.EvaluationTimeMS, params.RequiredStartMS, params.RequiredEndMS, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber)
 		if err != nil {
 			return RenderedQuery{}, err
 		}
 		return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
 	case RenderModeRange:
-		sql, queryParams, err := storage.BuildRangeAggregationQuerySQLWithBounds(cfg, source, params.StartMS, params.EndMS, params.StepMS, params.RequiredStartMS, params.RequiredEndMS, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without)
+		sql, queryParams, err := storage.BuildRangeAggregationQuerySQLWithBounds(cfg, source, params.StartMS, params.EndMS, params.StepMS, params.RequiredStartMS, params.RequiredEndMS, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber)
 		if err != nil {
 			return RenderedQuery{}, err
 		}
@@ -283,6 +289,168 @@ func renderSourceFragment(cfg storage.QueryConfig, fragment *NativeFragment, par
 	}
 }
 
+func renderSyntheticFragment(fragment *NativeFragment, params RenderParams) (RenderedQuery, error) {
+	if fragment == nil || fragment.Synthetic == nil {
+		return RenderedQuery{}, fmt.Errorf("synthetic series fragment is missing synthetic metadata")
+	}
+	queryParams := map[string]string{}
+	switch params.Mode {
+	case RenderModeInstant:
+		valueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic.Func, "{evaluation_ms:Int64}")
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		queryParams["param_evaluation_ms"] = strconv.FormatInt(params.EvaluationTimeMS, 10)
+		sql := "SELECT CAST([], 'Array(Tuple(String, String))') AS tags, fromUnixTimestamp64Milli({evaluation_ms:Int64}) AS timestamp, " + valueSQL + " AS value\nFORMAT JSONEachRow\n"
+		return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
+	case RenderModeRange:
+		if params.StepMS <= 0 {
+			return RenderedQuery{}, fmt.Errorf("synthetic range render requires a positive step")
+		}
+		valueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic.Func, "ts_ms")
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		queryParams["param_start_ms"] = strconv.FormatInt(params.StartMS, 10)
+		queryParams["param_end_ms"] = strconv.FormatInt(params.EndMS, 10)
+		queryParams["param_step_ms"] = strconv.FormatInt(params.StepMS, 10)
+		sql := "SELECT CAST([], 'Array(Tuple(String, String))') AS tags, arrayMap(ts_ms -> (fromUnixTimestamp64Milli(ts_ms), " + valueSQL + "), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64})) AS time_series\nFORMAT JSONEachRow\n"
+		return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
+	default:
+		return RenderedQuery{}, fmt.Errorf("unknown render mode %q", params.Mode)
+	}
+}
+
+func syntheticSeriesValueSQL(name, tsMSExpr string) (string, error) {
+	utcTs := "toTimeZone(fromUnixTimestamp64Milli(" + tsMSExpr + "), 'UTC')"
+	switch name {
+	case "pi":
+		return "toFloat64(3.141592653589793)", nil
+	case "time":
+		return "toFloat64(" + tsMSExpr + ") / 1000.0", nil
+	case "minute":
+		return "toFloat64(toMinute(" + utcTs + "))", nil
+	case "hour":
+		return "toFloat64(toHour(" + utcTs + "))", nil
+	case "day_of_week":
+		return "toFloat64(modulo(toDayOfWeek(" + utcTs + "), 7))", nil
+	case "day_of_month":
+		return "toFloat64(toDayOfMonth(" + utcTs + "))", nil
+	case "day_of_year":
+		return "toFloat64(toDayOfYear(" + utcTs + "))", nil
+	case "days_in_month":
+		return "toFloat64(toDaysInMonth(" + utcTs + "))", nil
+	case "month":
+		return "toFloat64(toMonth(" + utcTs + "))", nil
+	case "year":
+		return "toFloat64(toYear(" + utcTs + "))", nil
+	default:
+		return "", fmt.Errorf("synthetic series function %q is not implemented yet", name)
+	}
+}
+
+func renderScalarConvertFragment(cfg storage.QueryConfig, fragment *NativeFragment, params RenderParams) (RenderedQuery, error) {
+	if fragment == nil || fragment.ScalarConvert == nil || fragment.ScalarConvert.Child == nil {
+		return RenderedQuery{}, fmt.Errorf("scalar convert fragment is missing child metadata")
+	}
+	childSQL, childParams, err := renderFragmentSubquery(cfg, fragment.ScalarConvert.Child, params, "scalar_child")
+	if err != nil {
+		return RenderedQuery{}, err
+	}
+	queryParams := map[string]string{}
+	for key, value := range childParams {
+		queryParams[key] = value
+	}
+	switch params.Mode {
+	case RenderModeInstant:
+		queryParams["param_evaluation_ms"] = strconv.FormatInt(params.EvaluationTimeMS, 10)
+		sql := "SELECT CAST([], 'Array(Tuple(String, String))') AS tags, fromUnixTimestamp64Milli({evaluation_ms:Int64}) AS timestamp, if(count() = 1, any(value), nan) AS value FROM (" + childSQL + ") AS scalar_child\nFORMAT JSONEachRow\n"
+		return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
+	case RenderModeRange:
+		queryParams["param_start_ms"] = strconv.FormatInt(params.StartMS, 10)
+		queryParams["param_end_ms"] = strconv.FormatInt(params.EndMS, 10)
+		queryParams["param_step_ms"] = strconv.FormatInt(params.StepMS, 10)
+		sql := "SELECT CAST([], 'Array(Tuple(String, String))') AS tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series FROM (" +
+			"SELECT grid.timestamp AS timestamp, if(ifNull(scalar_values.sample_count, 0) = 1, scalar_values.any_value, nan) AS value FROM (" +
+			"SELECT arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS timestamp" +
+			") AS grid LEFT JOIN (" +
+			"SELECT point.1 AS timestamp, count() AS sample_count, any(point.2) AS any_value FROM (" + childSQL + ") AS scalar_child ARRAY JOIN scalar_child.time_series AS point GROUP BY point.1" +
+			") AS scalar_values ON scalar_values.timestamp = grid.timestamp ORDER BY timestamp" +
+			")\nFORMAT JSONEachRow\n"
+		return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
+	default:
+		return RenderedQuery{}, fmt.Errorf("unknown render mode %q", params.Mode)
+	}
+}
+
+func renderInfoJoinFragment(cfg storage.QueryConfig, fragment *NativeFragment, params RenderParams) (RenderedQuery, error) {
+	if fragment == nil || fragment.InfoJoin == nil || fragment.InfoJoin.Child == nil {
+		return RenderedQuery{}, fmt.Errorf("info join fragment is missing child metadata")
+	}
+	childFragment := cloneFragment(fragment.InfoJoin.Child)
+	forceFragmentFullTags(childFragment)
+	childSQL, childParams, err := renderFragmentSubquery(cfg, childFragment, params, "info_lhs")
+	if err != nil {
+		return RenderedQuery{}, err
+	}
+	selector := storage.SelectorSource{Kind: storage.SelectorKindInstantVector, MetricName: fragment.InfoJoin.InfoMetricName, Matchers: cloneMatchers(fragment.InfoJoin.SelectorMatchers), NeedTags: true, RequireFullTags: true, LookbackMS: defaultInstantSelectorLookback.Milliseconds()}
+	var infoSQL string
+	var infoParams map[string]string
+	switch params.Mode {
+	case RenderModeInstant:
+		infoSQL, infoParams, err = storage.BuildInstantSelectorQuerySQL(cfg, selector, params.EvaluationTimeMS-defaultInstantSelectorLookback.Milliseconds(), params.EvaluationTimeMS)
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		joinSQL, joinParams, err := storage.BuildInstantInfoJoinSQL(childSQL, childParams, infoSQL, infoParams, storage.InfoJoinConfig{IdentifyingLabels: []string{"instance", "job"}, CopyLabelNames: append([]string(nil), fragment.InfoJoin.CopyLabelNames...), DropUnmatched: fragment.InfoJoin.DropUnmatched})
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		return RenderedQuery{SQL: joinSQL, QueryParams: joinParams}, nil
+	case RenderModeRange:
+		requiredStartMS := params.StartMS - defaultInstantSelectorLookback.Milliseconds()
+		infoSQL, infoParams, err = storage.BuildRangeSelectorQuerySQL(cfg, selector, requiredStartMS, params.EndMS, params.StartMS, params.EndMS, params.StepMS)
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		joinSQL, joinParams, err := storage.BuildRangeInfoJoinSQL(childSQL, childParams, infoSQL, infoParams, storage.InfoJoinConfig{IdentifyingLabels: []string{"instance", "job"}, CopyLabelNames: append([]string(nil), fragment.InfoJoin.CopyLabelNames...), DropUnmatched: fragment.InfoJoin.DropUnmatched})
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		return RenderedQuery{SQL: joinSQL, QueryParams: joinParams}, nil
+	default:
+		return RenderedQuery{}, fmt.Errorf("unknown render mode %q", params.Mode)
+	}
+}
+
+func forceFragmentFullTags(fragment *NativeFragment) {
+	if fragment == nil {
+		return
+	}
+	if fragment.Selector != nil {
+		fragment.Selector.RequireFullTags = true
+	}
+	if fragment.Aggregation != nil {
+		forceFragmentFullTags(fragment.Aggregation.Source)
+	}
+	if fragment.RangeFunction != nil {
+		forceFragmentFullTags(fragment.RangeFunction.Child)
+	}
+	if fragment.Subquery != nil {
+		forceFragmentFullTags(fragment.Subquery.Child)
+	}
+	if fragment.ScalarConvert != nil {
+		forceFragmentFullTags(fragment.ScalarConvert.Child)
+	}
+	if fragment.InfoJoin != nil {
+		forceFragmentFullTags(fragment.InfoJoin.Child)
+	}
+	if fragment.BinaryJoin != nil {
+		forceFragmentFullTags(fragment.BinaryJoin.LHS)
+		forceFragmentFullTags(fragment.BinaryJoin.RHS)
+	}
+}
+
 func renderAggregationSource(fragment *NativeFragment, params RenderParams) (storage.AggregationSource, error) {
 	if fragment == nil {
 		return storage.AggregationSource{}, fmt.Errorf("aggregation fragment is missing its source fragment")
@@ -327,7 +495,7 @@ func wrapInstantSourceQuery(sourceSQL, valueExpr, tagsExpr string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	sourceValueExpr, err := storage.CompileSourceValueTemplate(valueExpr, sqlb.Ident("value"))
+	sourceValueExpr, err := storage.CompileSourceValueTemplate(valueExpr, sqlb.Ident("value"), sqlb.Ident("timestamp"))
 	if err != nil {
 		return "", err
 	}
@@ -343,7 +511,7 @@ func wrapRangeSourceQuery(sourceSQL, valueExpr, tagsExpr string) (string, error)
 	if err != nil {
 		return "", err
 	}
-	sourceValueExpr, err := storage.CompileSourceValueTemplate(valueExpr, sqlb.RawLit{V: "point.2"})
+	sourceValueExpr, err := storage.CompileSourceValueTemplate(valueExpr, sqlb.RawLit{V: "point.2"}, sqlb.RawLit{V: "point.1"})
 	if err != nil {
 		return "", err
 	}
@@ -451,6 +619,12 @@ func rangeFunctionValueExpr(fn, seriesExpr string) string {
 		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{sqlb.Binary{Op: "OR", L: hasNaN, R: lenFiniteIsZero}, sqlb.RawLit{V: "nan"}, sqlb.Call{Name: "arrayMax", Args: []sqlb.Expr{finiteValues}}}})
 	case "count_over_time":
 		return renderSQLExprNoParams(sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{seriesLength}})
+	case "stddev_over_time":
+		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{sqlb.RawLit{V: renderSQLExprNoParams(hasNaN) + " OR " + renderSQLExprNoParams(seriesLength) + " = 0"}, sqlb.RawLit{V: "nan"}, sqlb.Call{Name: "arrayReduce", Args: []sqlb.Expr{sqlb.RawLit{V: "'stddevPop'"}, valuesExpr}}}})
+	case "stdvar_over_time":
+		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{sqlb.RawLit{V: renderSQLExprNoParams(hasNaN) + " OR " + renderSQLExprNoParams(seriesLength) + " = 0"}, sqlb.RawLit{V: "nan"}, sqlb.Call{Name: "arrayReduce", Args: []sqlb.Expr{sqlb.RawLit{V: "'varPop'"}, valuesExpr}}}})
+	case "present_over_time":
+		return renderSQLExprNoParams(sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{sqlb.RawLit{V: "1"}}})
 	case "increase":
 		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{hasNaN, sqlb.RawLit{V: "nan"}, counterDeltaExpr}})
 	case "changes":

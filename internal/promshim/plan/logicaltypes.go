@@ -4,6 +4,7 @@ import (
 	"time"
 
 	modelpkg "ch-observability/internal/promshim/model"
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -245,6 +246,116 @@ func (p *LogicalRoundPlan) exprString() string {
 	return p.Expr.String()
 }
 func (p *LogicalRoundPlan) ExprString() string { return p.exprString() }
+
+type LogicalSortPlan struct {
+	Expr   parser.Expr
+	Func   string
+	Labels []string
+	Child  LogicalPlan
+}
+
+func (*LogicalSortPlan) logicalPlan() {}
+func (p *LogicalSortPlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalSortPlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalSortPlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalSortPlan) ExprString() string { return p.exprString() }
+
+type LogicalScalarConvertPlan struct {
+	Expr  parser.Expr
+	Child LogicalPlan
+}
+
+func (*LogicalScalarConvertPlan) logicalPlan() {}
+func (p *LogicalScalarConvertPlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalScalarConvertPlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalScalarConvertPlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalScalarConvertPlan) ExprString() string { return p.exprString() }
+
+type LogicalInfoPlan struct {
+	Expr             parser.Expr
+	SelectorMatchers []*labels.Matcher
+	Child            LogicalPlan
+}
+
+func (*LogicalInfoPlan) logicalPlan() {}
+func (p *LogicalInfoPlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalInfoPlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalInfoPlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalInfoPlan) ExprString() string { return p.exprString() }
+
+type LogicalPointwiseFunctionPlan struct {
+	Expr         parser.Expr
+	Func         string
+	ParamNumbers []*float64
+	Child        LogicalPlan
+}
+
+func (*LogicalPointwiseFunctionPlan) logicalPlan() {}
+func (p *LogicalPointwiseFunctionPlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalPointwiseFunctionPlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalPointwiseFunctionPlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalPointwiseFunctionPlan) ExprString() string { return p.exprString() }
+
+type LogicalScalarBuiltinPlan struct {
+	Expr parser.Expr
+	Func string
+}
+
+func (*LogicalScalarBuiltinPlan) logicalPlan() {}
+func (p *LogicalScalarBuiltinPlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalScalarBuiltinPlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalScalarBuiltinPlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalScalarBuiltinPlan) ExprString() string { return p.exprString() }
 
 type LogicalRatePlan struct {
 	Expr  parser.Expr

@@ -99,6 +99,39 @@ func TestBuildLogicalPlanCreatesTopKPlan(t *testing.T) {
 	}
 }
 
+func TestBuildLogicalPlanCreatesTier1AdditionalAggregationPlans(t *testing.T) {
+	queries := []struct {
+		query string
+		op    parser.ItemType
+		param *float64
+	}{
+		{query: "stddev(up)", op: parser.STDDEV},
+		{query: "stdvar(up)", op: parser.STDVAR},
+		{query: "group(up)", op: parser.GROUP},
+		{query: "quantile(0.9, up)", op: parser.QUANTILE, param: floatPtr(0.9)},
+	}
+	for _, tc := range queries {
+		logical, err := buildLogicalPlan(mustParseExpr(t, tc.query))
+		if err != nil {
+			t.Fatalf("expected logical aggregation plan for %q, got error: %v", tc.query, err)
+		}
+		agg, ok := logical.(*logicalAggregationPlan)
+		if !ok {
+			t.Fatalf("expected logicalAggregationPlan for %q, got %T", tc.query, logical)
+		}
+		if agg.Op != tc.op {
+			t.Fatalf("expected aggregation op %v for %q, got %v", tc.op, tc.query, agg.Op)
+		}
+		if tc.param == nil {
+			if agg.ParamNumber != nil {
+				t.Fatalf("did not expect numeric aggregation parameter for %q, got %#v", tc.query, agg.ParamNumber)
+			}
+		} else if agg.ParamNumber == nil || *agg.ParamNumber != *tc.param {
+			t.Fatalf("expected numeric aggregation parameter %v for %q, got %#v", *tc.param, tc.query, agg.ParamNumber)
+		}
+	}
+}
+
 func TestBuildLogicalPlanCreatesHistogramQuantilePlan(t *testing.T) {
 	expr, err := plan.ParseExpression("histogram_quantile(0.9, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
 	if err != nil {
@@ -174,6 +207,22 @@ func TestBuildLogicalPlanCreatesHistogramFractionPlan(t *testing.T) {
 	}
 	if ratePlan, ok := agg.Child.(*logicalRatePlan); !ok || ratePlan.Func != "rate" {
 		t.Fatalf("expected logicalRatePlan child under histogram_fraction aggregation, got %T (%#v)", agg.Child, agg.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesTier1AdditionalRangeFunctionPlans(t *testing.T) {
+	for _, fn := range []string{"stddev_over_time", "stdvar_over_time", "present_over_time"} {
+		logical, err := buildLogicalPlan(mustParseExpr(t, fn+"(up[5m])"))
+		if err != nil {
+			t.Fatalf("expected logical %s plan, got error: %v", fn, err)
+		}
+		rangeFn, ok := logical.(*logicalRangeFunctionPlan)
+		if !ok {
+			t.Fatalf("expected logicalRangeFunctionPlan for %s, got %T", fn, logical)
+		}
+		if rangeFn.Func != fn {
+			t.Fatalf("expected range function %s, got %q", fn, rangeFn.Func)
+		}
 	}
 }
 
@@ -451,6 +500,110 @@ func TestBuildLogicalPlanCreatesRoundPlan(t *testing.T) {
 	}
 	if _, ok := roundPlan.Child.(*logicalLeafExprPlan); !ok {
 		t.Fatalf("expected vector child for round(), got %T", roundPlan.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesPointwiseFunctionPlan(t *testing.T) {
+	logical, err := buildLogicalPlan(mustParseExpr(t, "abs(up)"))
+	if err != nil {
+		t.Fatalf("expected logical pointwise plan, got error: %v", err)
+	}
+	pointwise, ok := logical.(*logicalPointwiseFunctionPlan)
+	if !ok {
+		t.Fatalf("expected logicalPointwiseFunctionPlan, got %T", logical)
+	}
+	if pointwise.Func != "abs" {
+		t.Fatalf("expected abs function, got %q", pointwise.Func)
+	}
+	if _, ok := pointwise.Child.(*logicalLeafExprPlan); !ok {
+		t.Fatalf("expected vector child for abs(), got %T", pointwise.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesPointwiseFunctionPlanWithoutChildForDateDefault(t *testing.T) {
+	logical, err := buildLogicalPlan(mustParseExpr(t, "minute()"))
+	if err != nil {
+		t.Fatalf("expected logical pointwise plan, got error: %v", err)
+	}
+	pointwise, ok := logical.(*logicalPointwiseFunctionPlan)
+	if !ok {
+		t.Fatalf("expected logicalPointwiseFunctionPlan, got %T", logical)
+	}
+	if pointwise.Func != "minute" || pointwise.Child != nil {
+		t.Fatalf("expected minute() without child, got %#v", pointwise)
+	}
+}
+
+func TestBuildLogicalPlanCreatesSortPlan(t *testing.T) {
+	logical, err := buildLogicalPlan(mustParseExpr(t, "sort_by_label(up, \"job\", \"instance\")"))
+	if err != nil {
+		t.Fatalf("expected logical sort plan, got error: %v", err)
+	}
+	sortPlan, ok := logical.(*logicalSortPlan)
+	if !ok {
+		t.Fatalf("expected logicalSortPlan, got %T", logical)
+	}
+	if sortPlan.Func != "sort_by_label" || len(sortPlan.Labels) != 2 || sortPlan.Labels[0] != "job" || sortPlan.Labels[1] != "instance" {
+		t.Fatalf("unexpected sort plan labels: %#v", sortPlan)
+	}
+}
+
+func TestBuildLogicalPlanCreatesScalarBuiltinPlan(t *testing.T) {
+	logical, err := buildLogicalPlan(mustParseExpr(t, "time()"))
+	if err != nil {
+		t.Fatalf("expected logical scalar builtin plan, got error: %v", err)
+	}
+	scalarBuiltin, ok := logical.(*logicalScalarBuiltinPlan)
+	if !ok {
+		t.Fatalf("expected logicalScalarBuiltinPlan, got %T", logical)
+	}
+	if scalarBuiltin.Func != "time" {
+		t.Fatalf("expected time builtin, got %q", scalarBuiltin.Func)
+	}
+}
+
+func TestBuildLogicalPlanCreatesScalarConvertPlan(t *testing.T) {
+	logical, err := buildLogicalPlan(mustParseExpr(t, "scalar(up)"))
+	if err != nil {
+		t.Fatalf("expected logical scalar convert plan, got error: %v", err)
+	}
+	scalarConvert, ok := logical.(*logicalScalarConvertPlan)
+	if !ok {
+		t.Fatalf("expected logicalScalarConvertPlan, got %T", logical)
+	}
+	if _, ok := scalarConvert.Child.(*logicalLeafExprPlan); !ok {
+		t.Fatalf("expected vector child for scalar(), got %T", scalarConvert.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesInfoPlan(t *testing.T) {
+	logical, err := buildLogicalPlan(mustParseExpr(t, "info(up, {k8s_cluster_name=\"prod\"})"))
+	if err != nil {
+		t.Fatalf("expected logical info plan, got error: %v", err)
+	}
+	infoPlan, ok := logical.(*logicalInfoPlan)
+	if !ok {
+		t.Fatalf("expected logicalInfoPlan, got %T", logical)
+	}
+	if len(infoPlan.SelectorMatchers) != 1 || infoPlan.SelectorMatchers[0].Name != "k8s_cluster_name" {
+		t.Fatalf("unexpected info selector matchers: %#v", infoPlan.SelectorMatchers)
+	}
+	if _, ok := infoPlan.Child.(*logicalLeafExprPlan); !ok {
+		t.Fatalf("expected vector child for info(), got %T", infoPlan.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesPiBuiltinPlan(t *testing.T) {
+	logical, err := buildLogicalPlan(mustParseExpr(t, "pi()"))
+	if err != nil {
+		t.Fatalf("expected logical scalar builtin plan, got error: %v", err)
+	}
+	scalarBuiltin, ok := logical.(*logicalScalarBuiltinPlan)
+	if !ok {
+		t.Fatalf("expected logicalScalarBuiltinPlan, got %T", logical)
+	}
+	if scalarBuiltin.Func != "pi" {
+		t.Fatalf("expected pi builtin, got %#v", scalarBuiltin)
 	}
 }
 
@@ -1030,4 +1183,8 @@ func mustParseExpr(t *testing.T, query string) parser.Expr {
 		t.Fatalf("plan.ParseExpression(%q): %v", query, err)
 	}
 	return expr
+}
+
+func floatPtr(v float64) *float64 {
+	return &v
 }

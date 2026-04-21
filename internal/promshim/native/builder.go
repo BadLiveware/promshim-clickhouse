@@ -54,16 +54,34 @@ func cloneFragment(fragment *NativeFragment) *NativeFragment {
 	}
 	if fragment.Aggregation != nil {
 		cloned.Aggregation = &AggregationFragment{
-			Op:       fragment.Aggregation.Op,
-			Grouping: append([]string(nil), fragment.Aggregation.Grouping...),
-			Without:  fragment.Aggregation.Without,
-			Source:   cloneFragment(fragment.Aggregation.Source),
+			Op:          fragment.Aggregation.Op,
+			Grouping:    append([]string(nil), fragment.Aggregation.Grouping...),
+			Without:     fragment.Aggregation.Without,
+			ParamNumber: cloneFloat64Pointer(fragment.Aggregation.ParamNumber),
+			Source:      cloneFragment(fragment.Aggregation.Source),
 		}
+	}
+	if fragment.Synthetic != nil {
+		cloned.Synthetic = &SyntheticSeriesFragment{Func: fragment.Synthetic.Func}
+	}
+	if fragment.ScalarConvert != nil {
+		cloned.ScalarConvert = &ScalarConvertFragment{Child: cloneFragment(fragment.ScalarConvert.Child)}
+	}
+	if fragment.InfoJoin != nil {
+		cloned.InfoJoin = &InfoJoinFragment{Child: cloneFragment(fragment.InfoJoin.Child), InfoMetricName: fragment.InfoJoin.InfoMetricName, SelectorMatchers: cloneMatchers(fragment.InfoJoin.SelectorMatchers), CopyLabelNames: append([]string(nil), fragment.InfoJoin.CopyLabelNames...), DropUnmatched: fragment.InfoJoin.DropUnmatched}
 	}
 	return cloned
 }
 
 func cloneInt64Pointer(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneFloat64Pointer(value *float64) *float64 {
 	if value == nil {
 		return nil
 	}

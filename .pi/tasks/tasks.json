@@ -1,17 +1,4 @@
 {
   "nextId": 200,
-  "tasks": [
-    {
-      "id": "199",
-      "subject": "Create native SQL path 2 plan",
-      "description": "Inspect project guidance and README feature matrix, then write a plan document under .pi/ describing how to increase path 2 native SQL support.",
-      "status": "in_progress",
-      "activeForm": "Creating native SQL path 2 plan",
-      "metadata": {},
-      "blocks": [],
-      "blockedBy": [],
-      "createdAt": 1776805031673,
-      "updatedAt": 1776805035672
-    }
-  ]
+  "tasks": []
 }

@@ -1,5 +1,16 @@
 # 02 — Planner and fragment model
 
+> **Status note.** The `NativeLoweringInfo`, `NativeFragment`, and
+> `nativeSubtreePlan` types described in this chunk do **not** exist in the
+> codebase yet. They are the target contracts this chunk defines. The
+> lowerability decisions they describe are currently inlined inside
+> `buildExecPlanWithContext` and `decideNativeAggregationPushdown` in
+> `internal/promshim/planner.go`, and the only concrete native-execution
+> node is the aggregation-specific `nativeAggregationPlan`. Phase 1
+> (see [04-phase-1-analysis-scaffolding.md](./04-phase-1-analysis-scaffolding.md))
+> is the refactor that extracts these types. See
+> [00-status-and-drift.md](./00-status-and-drift.md) for context.
+
 ## Target execution architecture
 
 The target execution stack should look like this:

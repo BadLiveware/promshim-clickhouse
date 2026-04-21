@@ -143,6 +143,28 @@ func TestBuildLogicalPlanCreatesHistogramProjectionPlan(t *testing.T) {
 	}
 }
 
+func TestBuildLogicalPlanCreatesHistogramFractionPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("histogram_fraction(0, 1, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logical, err := buildLogicalPlan(expr)
+	if err != nil {
+		t.Fatalf("expected logical histogram fraction plan, got error: %v", err)
+	}
+	histogramPlan, ok := logical.(*logicalHistogramFractionPlan)
+	if !ok {
+		t.Fatalf("expected logicalHistogramFractionPlan, got %T", logical)
+	}
+	if histogramPlan.Lower != 0 || histogramPlan.Upper != 1 {
+		t.Fatalf("expected bounds [0,1], got [%v,%v]", histogramPlan.Lower, histogramPlan.Upper)
+	}
+	if _, ok := histogramPlan.Child.(*logicalAggregationPlan); !ok {
+		t.Fatalf("expected histogram_fraction child aggregation plan, got %T", histogramPlan.Child)
+	}
+}
+
 func TestBuildLogicalPlanCreatesIncreasePlan(t *testing.T) {
 	expr, err := plan.ParseExpression("increase(up[5m])")
 	if err != nil {
@@ -815,6 +837,35 @@ func TestBuildExecPlanLowersLogicalHistogramProjectionPlan(t *testing.T) {
 	}
 	if histogramPlan.Func != "histogram_count" {
 		t.Fatalf("expected histogram_count function, got %#v", histogramPlan.Func)
+	}
+	if _, ok := histogramPlan.Child.(*localAggregationPlan); !ok {
+		t.Fatalf("expected local aggregation child, got %T", histogramPlan.Child)
+	}
+}
+
+func TestBuildExecPlanLowersLogicalHistogramFractionPlan(t *testing.T) {
+	logical := &logicalHistogramFractionPlan{
+		Expr:  mustParseExpr(t, "histogram_fraction(0, 1, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))"),
+		Lower: 0,
+		Upper: 1,
+		Child: &logicalAggregationPlan{
+			Expr:     mustParseExpr(t, "sum by (le, job) (rate(http_request_duration_seconds_bucket[5m]))"),
+			Op:       parser.SUM,
+			Grouping: []string{"le", "job"},
+			Child:    &logicalLeafExprPlan{Expr: mustParseExpr(t, "rate(http_request_duration_seconds_bucket[5m])")},
+		},
+	}
+
+	execPlan, err := buildExecPlan(logical)
+	if err != nil {
+		t.Fatalf("expected execution histogram fraction plan, got error: %v", err)
+	}
+	histogramPlan, ok := execPlan.(*localHistogramFractionPlan)
+	if !ok {
+		t.Fatalf("expected localHistogramFractionPlan, got %T", execPlan)
+	}
+	if histogramPlan.Lower != 0 || histogramPlan.Upper != 1 {
+		t.Fatalf("expected bounds [0,1], got [%v,%v]", histogramPlan.Lower, histogramPlan.Upper)
 	}
 	if _, ok := histogramPlan.Child.(*localAggregationPlan); !ok {
 		t.Fatalf("expected local aggregation child, got %T", histogramPlan.Child)

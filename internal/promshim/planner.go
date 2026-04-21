@@ -256,6 +256,29 @@ func (p *localHistogramQuantilePlan) explain() ExplainNode {
 	return ExplainNode{Kind: "histogram_quantile", Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
 }
 
+type localHistogramFractionPlan struct {
+	Expr  string
+	Lower float64
+	Upper float64
+	Child queryPlan
+}
+
+func (p *localHistogramFractionPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	childValue, err := p.Child.execute(ctx, evaluator, params)
+	if err != nil {
+		return nil, withInternalContext(err, "evaluating histogram_fraction child bounds=[%v,%v]", p.Lower, p.Upper)
+	}
+	result, err := exec.ApplyHistogramFractionRuntimeValue(p.Lower, p.Upper, childValue)
+	if err != nil {
+		return nil, withInternalContext(fromExecError(err), "applying histogram_fraction bounds=[%v,%v]", p.Lower, p.Upper)
+	}
+	return result, nil
+}
+
+func (p *localHistogramFractionPlan) explain() ExplainNode {
+	return ExplainNode{Kind: "histogram_fraction", Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
+}
+
 type localHistogramProjectionPlan struct {
 	Expr  string
 	Func  string
@@ -1130,6 +1153,12 @@ func buildExecPlanWithContext(plan logicalPlan, ctx planContext) (queryPlan, err
 			return nil, withInternalContext(err, "building execution child plan for histogram_quantile %q", node.ExprString())
 		}
 		return &localHistogramQuantilePlan{Expr: node.ExprString(), Quantile: node.Quantile, Child: child}, nil
+	case *logicalHistogramFractionPlan:
+		child, err := buildExecPlanWithContext(node.Child, ctx)
+		if err != nil {
+			return nil, withInternalContext(err, "building execution child plan for histogram_fraction %q", node.ExprString())
+		}
+		return &localHistogramFractionPlan{Expr: node.ExprString(), Lower: node.Lower, Upper: node.Upper, Child: child}, nil
 	case *logicalHistogramProjectionPlan:
 		child, err := buildExecPlanWithContext(node.Child, ctx)
 		if err != nil {

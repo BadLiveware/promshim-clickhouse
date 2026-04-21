@@ -583,11 +583,9 @@
     "expectedErrorContains": "many-to-one matching must be explicit"
   },
   {
-    "name": "unsupported_histogram_fraction",
+    "name": "histogram_fraction_classic_bucket",
     "endpoint": "query",
-    "query": "histogram_fraction(0.9, sum by (le, job) (rate(harness_request_duration_seconds_bucket[5m])) )",
-    "expectedStatus": "error",
-    "expectedErrorContains": "histogram_fraction"
+    "query": "histogram_fraction(0, 0.9, sum by (le, job) (rate(harness_request_duration_seconds_bucket[5m])) )"
   }
 ]
 

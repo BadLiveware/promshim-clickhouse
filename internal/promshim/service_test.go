@@ -263,18 +263,18 @@ func TestQueryExplainBuildsRateAndIratePlansForSubquerySelectors(t *testing.T) {
 	}
 }
 
-func TestQueryRejectsUnsupportedHistogramFractionWithCleanUserFacingError(t *testing.T) {
+func TestQueryRejectsMalformedHistogramFractionAsBadData(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=histogram_fraction(0,1,sum%20by%20(le,job)%20(up))", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=histogram_fraction(0.9,sum%20by%20(le,job)%20(up))", nil)
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 
-	if res.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d: %s", res.Code, res.Body.String())
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", res.Code, res.Body.String())
 	}
 
 	var body struct {
@@ -285,11 +285,42 @@ func TestQueryRejectsUnsupportedHistogramFractionWithCleanUserFacingError(t *tes
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.ErrorType != "unsupported" {
-		t.Fatalf("expected unsupported error type, got %#v", body)
+	if body.ErrorType != "bad_data" {
+		t.Fatalf("expected bad_data error type, got %#v", body)
 	}
 	if !strings.Contains(body.Error, "histogram_fraction") {
-		t.Fatalf("expected histogram_fraction in unsupported message, got %#v", body)
+		t.Fatalf("expected histogram_fraction in parse message, got %#v", body)
+	}
+}
+
+func TestQueryExplainBuildsHistogramFractionPlan(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=histogram_fraction(0,1,sum%20by%20(le,job)%20(rate(up%5B5m%5D)))", nil)
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Plan ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "success" {
+		t.Fatalf("expected success response, got %#v", body)
+	}
+	if body.Data.Plan.Kind != "histogram_fraction" || body.Data.Plan.Strategy != "local" {
+		t.Fatalf("expected local histogram_fraction plan, got %#v", body.Data.Plan)
 	}
 }
 

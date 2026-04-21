@@ -22,6 +22,11 @@ Against the local ClickHouse fixture:
 For the supported native subset:
 - compare native result vs delegated PromQL result
 - compare native result vs Prometheus where practical for edge semantics
+- the differential harness at `harness/` + `internal/promharness/` is
+  currently a single-point check (one base time, one step, one seeded
+  dataset). Before the first native range-function lowering lands, it
+  needs per-query time-window and range-step parametrization — see
+  [12-harness-parametrization.md](./12-harness-parametrization.md)
 
 ### Explain tests
 Ensure explain surfaces:
@@ -52,6 +57,26 @@ Pushing a label predicate through a label mutation boundary can silently return 
 ### 5. Time-window underfetch
 If evaluation-range propagation is incomplete, native lowering can be subtly wrong for subqueries and range functions.
 
+### 6. Drift between local and native range-function paths
+Range functions and subqueries currently ship as **local Go execution** in
+`internal/promshim/exec/` (see
+[00-status-and-drift.md](./00-status-and-drift.md)), while Phase 6b is
+meant to deliver **native SQL lowerings** of the same operators. Keeping
+the local implementations alive as the correctness oracle is the policy,
+but the consequence is that two implementations of each operator coexist
+until the native one is promoted. Without enforced differential tests,
+they can silently drift on counter-reset, extrapolation, and
+edge-inclusion rules.
+
+Mitigation is policy-level, not optimizer-level:
+
+- differential tests between local and native implementations are
+  mandatory for every operator present on both paths
+- no net-new range / counter operator lands on path 3 without either a
+  native-lowering tracking note or an explicit "keep local" design note
+- local implementations are retired only after a promotion window and an
+  observation window have both been green
+
 ## Design decisions to keep explicit
 
 ### Decision A — Internal fragment shape
@@ -75,6 +100,17 @@ Let them lower as part of a bigger native subtree when supported.
 ### Decision G — Keep delegated PromQL path as oracle
 This is essential for safe rollout.
 
+### Decision H — Local path is the in-repo correctness oracle, not the destination
+Range functions and subqueries implemented on path 3
+(`internal/promshim/exec/`) stay as the in-repo correctness oracle for
+path 2 (native SQL) lowerings. They are not the target implementation.
+Net-new range / counter operators do not land on path 3 unless the
+conformance harness requires it, and every local implementation is a
+candidate for native lowering in Phase 6b. Transforms that are not range
+or counter operators (label mutation, `histogram_quantile`, `absent`,
+scalar helpers) are exempt and remain on path 3 indefinitely. See
+[00-status-and-drift.md](./00-status-and-drift.md) for the full policy.
+
 ## Definition of done
 Do not consider the native lowering track “real” until all of the following are true:
 
@@ -90,6 +126,14 @@ Do not consider the native lowering track “real” until all of the following 
 - a shadow-compare mode exists and is used for promotion
 - the common dashboard subset is covered by differential tests
 - the delegated path remains available as a fallback and correctness oracle
+- every range or counter function implemented on path 3
+  (`internal/promshim/exec/`) has either been replaced by a native lowering
+  on path 2 or carries an explicit "keep local" design note explaining why
+  native lowering is not feasible
+- differential tests exist between path 2 and path 3 for every operator
+  that exists on both paths
+- no net-new path-3 range / counter function has shipped without either a
+  native-lowering tracking note or a "keep local" design note
 
 ## Short summary
 The right shape for this repo is:

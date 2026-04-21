@@ -1,0 +1,132 @@
+# 12 — Harness parametrization for native-lowering safety
+
+## Why
+
+The differential harness at `harness/` and `internal/promharness/` runs each
+corpus query **once**, with a single base time, a single step, and a single
+seeded dataset shape (`PROM_HARNESS_POINTS=10` by default). Each `QuerySpec`
+carries at most one `TimeOffsetSeconds` / `StartOffsetSeconds` /
+`EndOffsetSeconds`. That was adequate for the aggregation / selector
+parity the harness was built for, but it is weak against the edge-case
+families that Phase 6b native range-function lowering will surface:
+
+- range / step boundary inclusivity (the workaround in commit `0d44c2b`
+  lives exactly here)
+- range windows that straddle the seeded dataset's start or end
+- series that appear or disappear inside a lookback window
+- step values that do not evenly divide the range
+- counter-reset handling in `rate` / `irate` / `increase` / `delta`
+
+Parameterizing the harness along a **small, curated** set of time-window
+and step-range axes before path-2 lowerings start landing turns "did it
+regress" from a single-point check into real coverage of the corners
+path-2 code will hit. See
+[00-status-and-drift.md](./00-status-and-drift.md) for the path-2 vs
+path-3 policy this supports.
+
+## Scope (three layers, ordered by ROI)
+
+### Layer 1 — per-query time-window matrix
+
+**Do this first.**
+
+- extend the corpus schema (or the comparator) to let each query run at
+  several offsets, not just a single `timeOffsetSeconds` /
+  `startOffsetSeconds` / `endOffsetSeconds`
+- default offset set:
+  - **early** — just after the seeded dataset starts
+  - **middle** — roughly the midpoint of the dataset
+  - **late** — just before the seeded dataset ends
+  - **boundary** — placed so that a range window straddles the seed start
+- each variant appears as its own row in `compare-report.json`, named
+  explicitly (e.g. `query_name/offset=boundary`)
+- no seeded-data changes required
+
+### Layer 2 — range × step sweep for range queries
+
+- for range-query corpus entries, run them with several `(range, step)`
+  combinations
+- default combos:
+  - step evenly divides range
+  - step does not evenly divide range
+  - step > range / 2
+  - step = range
+- gated by an **opt-in marker** on corpus entries so aggregation-only
+  queries do not fan out pointlessly
+
+### Layer 3 — dataset shape variants
+
+**Optional, later.**
+
+- a second seeded dataset with counter resets, gaps, and series that
+  appear or disappear mid-range
+- the comparator runs against both seeded datasets and merges the results
+- meaningful once native `rate` / `increase` / `delta` lowerings are in
+  flight; not worth building before
+
+## Distinct tasks
+
+1. **Extend `QuerySpec` with offset list fields**
+   - allow something like `TimeOffsets []int64` and/or
+     `StartEndOffsets [][2]int64` alongside the existing single-offset
+     fields in `internal/promharness/types.go`
+   - keep single-offset entries working unchanged so the existing corpus
+     does not need to be rewritten
+
+2. **Extend the comparator to iterate variants**
+   - expand each corpus entry into its variants at runtime in
+     `internal/promharness/compare.go`
+   - report results under explicit variant names in `QueryComparison`
+     (add an optional `Variant` field; keep the schema
+     backward-compatible so existing consumers of
+     `artifacts/compare-report.json` do not break)
+
+3. **Add Layer 2 opt-in for range queries**
+   - add a `RangeStepMatrix` marker on range-query corpus entries
+   - when set, the runner expands the query across the default
+     `(range, step)` combos
+
+4. **Document variant semantics**
+   - short section in `harness/README.md` describing the default offset
+     set and the `(range, step)` matrix
+   - link from [09-phase-6-range-functions-and-subqueries.md](./09-phase-6-range-functions-and-subqueries.md)
+
+5. **Keep triage output actionable**
+   - re-check the severity / bucket classifier in
+     `internal/promharness/compare.go` so a single underlying cause does
+     not multiply into many p0 rows — consider collapsing identical
+     `(severity, bucket, detail)` rows for the same base query, or at
+     least tagging them as a single-cause cluster in the report
+
+## Non-goals for this chunk
+
+- **do not** replace the single seeded dataset with a matrix of seeded
+  datasets (that's Layer 3)
+- **do not** expand the corpus itself here — this chunk is about running
+  existing queries across more points, not adding queries
+- **do not** chase exhaustive offset coverage — the aim is a small,
+  curated set that catches known edge classes
+
+## Validation
+
+- existing parity run still passes with no new diffs when the default
+  offset set reduces to a single entry (regression guard for the runner
+  change itself)
+- layered rollout: land Layer 1, bake for a while, then land Layer 2;
+  avoid a single PR that doubles and then triples the comparison count
+- each layer's PR includes a sample `compare-report.json` artifact
+  showing the new variant naming
+
+## When to apply each layer
+
+- **Phase 1 refactor** (type extraction from the planner): **do not block
+  on this.** A refactor that preserves behavior should pass the existing
+  86-query corpus unchanged; Layer 1/2 will not find refactor regressions
+  and will slow the feedback loop. Ship Phase 1 on the existing harness.
+- **Phase 6b native lowering**: Layer 1 should land **before** the first
+  native range-function lowering. Layer 2 should land with or before the
+  first `rate` / `increase` / `delta` native lowering.
+- **Phase 7 shadow mode**: Layer 1 and Layer 2 results become the
+  shadow-mode input corpus. Layer 3 becomes worth building only if
+  shadow-mode divergences point at counter-reset or staleness behavior
+  that the single seeded dataset cannot reproduce.

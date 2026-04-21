@@ -129,15 +129,37 @@ Prometheus remains the correctness oracle. Native lowering is only useful if it 
 
 ## Current repo starting point
 
+See [00-status-and-drift.md](./00-status-and-drift.md) for the authoritative
+current-state snapshot. The summary below is kept in sync with it.
+
 ### What exists now
 - PromQL parsing and support analysis
 - logical-plan construction
 - planner-selected execution strategies
-- local execution for a growing subset
+- local execution for a growing subset, including range functions
+  (`rate`, `irate`, `increase`, `delta`, `*_over_time`, histogram helpers,
+  etc.) and subquery step-grid evaluation implemented in
+  `internal/promshim/exec/`
 - delegated ClickHouse PromQL execution via:
   - `prometheusQuery(...)`
   - `prometheusQueryRange(...)`
 - first native SQL pushdown for simple aggregations over delegatable leaves
+
+### Three execution paths exist today
+1. **Delegated** — `delegatedExprPlan` in `internal/promshim/planner.go`.
+2. **Native SQL** — `nativeAggregationPlan` in
+   `internal/promshim/planner.go`, still special-cased for aggregation over
+   a delegatable leaf.
+3. **Local execution** — `internal/promshim/exec/*.go`, including range
+   functions and subqueries that were originally planned for path 2.
+
+The policy going forward (see [00-status-and-drift.md](./00-status-and-drift.md)):
+
+- keep the local implementations as the correctness oracle
+- do not add net-new range / counter functions on path 3 unless the
+  conformance harness strictly requires it
+- native replacements must ship with a differential test against the local
+  implementation before the local implementation can be retired
 
 ### Current limitation
 The current “native” path is still effectively:

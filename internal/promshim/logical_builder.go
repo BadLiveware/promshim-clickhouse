@@ -24,6 +24,8 @@ type logicalAggregationPlan = plan.LogicalAggregationPlan
 
 type logicalHistogramQuantilePlan = plan.LogicalHistogramQuantilePlan
 
+type logicalHistogramFractionPlan = plan.LogicalHistogramFractionPlan
+
 type logicalHistogramProjectionPlan = plan.LogicalHistogramProjectionPlan
 
 type logicalRangeFunctionPlan = plan.LogicalRangeFunctionPlan
@@ -199,6 +201,23 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 			return nil, withInternalContext(err, "building logical child plan for histogram_quantile %q", call.String())
 		}
 		return &logicalHistogramQuantilePlan{Expr: call, Quantile: quantile, Child: child}, nil
+	case "histogram_fraction":
+		if result := plan.AnalyzeHistogramFractionCall(call); !result.Supported {
+			return nil, newPlanBuildError(call, result, "call planning")
+		}
+		lower, err := numberLiteralArgument(call.Args[0], "histogram_fraction lower bound")
+		if err != nil {
+			return nil, withInternalContext(err, "building logical histogram_fraction %q", call.String())
+		}
+		upper, err := numberLiteralArgument(call.Args[1], "histogram_fraction upper bound")
+		if err != nil {
+			return nil, withInternalContext(err, "building logical histogram_fraction %q", call.String())
+		}
+		child, err := buildLogicalPlan(call.Args[2])
+		if err != nil {
+			return nil, withInternalContext(err, "building logical child plan for histogram_fraction %q", call.String())
+		}
+		return &logicalHistogramFractionPlan{Expr: call, Lower: lower, Upper: upper, Child: child}, nil
 	case "histogram_count", "histogram_sum", "histogram_avg":
 		if result := plan.AnalyzeHistogramProjectionCall(name, call); !result.Supported {
 			return nil, newPlanBuildError(call, result, "call planning")

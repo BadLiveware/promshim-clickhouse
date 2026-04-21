@@ -136,6 +136,29 @@ func (p *LogicalHistogramQuantilePlan) exprString() string {
 }
 func (p *LogicalHistogramQuantilePlan) ExprString() string { return p.exprString() }
 
+type LogicalHistogramFractionPlan struct {
+	Expr  parser.Expr
+	Lower float64
+	Upper float64
+	Child LogicalPlan
+}
+
+func (*LogicalHistogramFractionPlan) logicalPlan() {}
+func (p *LogicalHistogramFractionPlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalHistogramFractionPlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalHistogramFractionPlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalHistogramFractionPlan) ExprString() string { return p.exprString() }
+
 type LogicalHistogramProjectionPlan struct {
 	Expr  parser.Expr
 	Func  string

@@ -74,6 +74,11 @@ func RunSeed(ctx context.Context, cfg SeedConfig) (Manifest, error) {
 	if err := WriteToRemoteWriteEndpoint(ctx, client, cfg.ClickHouseRemoteWriteURL, dataset.Request); err != nil {
 		return Manifest{}, err
 	}
+	if cfg.PromClickRemoteWriteURL != "" {
+		if err := WriteToRemoteWriteEndpoint(ctx, client, cfg.PromClickRemoteWriteURL, dataset.Request); err != nil {
+			return Manifest{}, err
+		}
+	}
 
 	manifest := Manifest{
 		Seed:            cfg.Seed,
@@ -90,6 +95,19 @@ func RunSeed(ctx context.Context, cfg SeedConfig) (Manifest, error) {
 	return manifest, nil
 }
 
+type compareSubject struct {
+	Name    string
+	BaseURL string
+}
+
+func configuredSubjects(cfg CompareConfig) []compareSubject {
+	subjects := []compareSubject{{Name: "shim", BaseURL: cfg.PromshimBaseURL}}
+	if cfg.PromClickBaseURL != "" {
+		subjects = append(subjects, compareSubject{Name: "promclick", BaseURL: cfg.PromClickBaseURL})
+	}
+	return subjects
+}
+
 func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 	manifest, err := ReadManifest(ManifestPath(cfg.ArtifactDir))
 	if err != nil {
@@ -100,16 +118,18 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 		return CompareReport{}, err
 	}
 	client := &http.Client{Timeout: cfg.Timeout}
-	if err := waitForDatasetAvailability(ctx, client, cfg, manifest); err != nil {
+	subjects := configuredSubjects(cfg)
+	if err := waitForDatasetAvailability(ctx, client, cfg, manifest, subjects); err != nil {
 		return CompareReport{}, err
 	}
 
-	report := CompareReport{CorpusPath: cfg.CorpusPath, Manifest: manifest, Results: make([]QueryComparison, 0, len(queries))}
+	report := CompareReport{CorpusPath: cfg.CorpusPath, Manifest: manifest, Results: make([]QueryComparison, 0, len(queries)*len(subjects))}
 	var firstErr error
-	appendResult := func(query QuerySpec, status, detail string) {
+	appendResult := func(query QuerySpec, subject, status, detail string) {
 		severity, bucket := ClassifyComparison(status, detail)
 		report.Results = append(report.Results, QueryComparison{
 			Name:        query.Name,
+			Subject:     subject,
 			Query:       query.Query,
 			Status:      status,
 			Severity:    severity,
@@ -121,29 +141,33 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 	for _, query := range queries {
 		promResult, err := QueryAndFetch(client, cfg.PrometheusBaseURL, manifest, query)
 		if err != nil {
-			appendResult(query, "error", err.Error())
+			for _, subject := range subjects {
+				appendResult(query, subject.Name, "error", err.Error())
+			}
 			if firstErr == nil {
 				firstErr = err
 			}
 			continue
 		}
-		shimResult, err := QueryAndFetch(client, cfg.PromshimBaseURL, manifest, query)
-		if err != nil {
-			appendResult(query, "error", err.Error())
-			if firstErr == nil {
-				firstErr = err
+		for _, subject := range subjects {
+			subjectResult, err := QueryAndFetch(client, subject.BaseURL, manifest, query)
+			if err != nil {
+				appendResult(query, subject.Name, "error", err.Error())
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
 			}
-			continue
-		}
-		result, err := CompareQueryOutcome(query, promResult, shimResult)
-		if err != nil {
-			appendResult(query, result, err.Error())
-			if firstErr == nil {
-				firstErr = err
+			result, err := CompareQueryOutcome(query, subject.Name, promResult, subjectResult)
+			if err != nil {
+				appendResult(query, subject.Name, result, err.Error())
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
 			}
-			continue
+			appendResult(query, subject.Name, result, "")
 		}
-		appendResult(query, result, "")
 	}
 	if err := writeCompareReport(cfg.ArtifactDir, report); err != nil && firstErr == nil {
 		firstErr = err
@@ -154,7 +178,7 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 	return report, nil
 }
 
-func CompareQueryOutcome(spec QuerySpec, promResult queryResult, shimResult queryResult) (string, error) {
+func CompareQueryOutcome(spec QuerySpec, subject string, promResult queryResult, subjectResult queryResult) (string, error) {
 	expectedStatus := strings.ToLower(strings.TrimSpace(spec.ExpectedStatus))
 	if expectedStatus == "" {
 		expectedStatus = "ok"
@@ -164,14 +188,14 @@ func CompareQueryOutcome(spec QuerySpec, promResult queryResult, shimResult quer
 		if promResult.Status != "success" {
 			return "error", fmt.Errorf("expected success from Prometheus for %q but got %s: %s", spec.Name, promResult.Status, promResult.Error)
 		}
-		if shimResult.Status != "success" {
-			return "error", fmt.Errorf("expected success from promshim for %q but got %s: %s", spec.Name, shimResult.Status, shimResult.Error)
+		if subjectResult.Status != "success" {
+			return "error", fmt.Errorf("expected success from subject %s for %q but got %s: %s", subject, spec.Name, subjectResult.Status, subjectResult.Error)
 		}
 		var compareErr error
 		if InferCompareMode(spec) == CompareModeStructural {
-			compareErr = CompareNormalizedResultsStructural(promResult.Data, shimResult.Data)
+			compareErr = CompareNormalizedResultsStructural(promResult.Data, subjectResult.Data)
 		} else {
-			compareErr = CompareNormalizedResults(promResult.Data, shimResult.Data)
+			compareErr = CompareNormalizedResults(promResult.Data, subjectResult.Data)
 		}
 		if compareErr != nil {
 			return "diff", compareErr
@@ -180,23 +204,23 @@ func CompareQueryOutcome(spec QuerySpec, promResult queryResult, shimResult quer
 		if promResult.Status != "error" {
 			return "error", fmt.Errorf("expected error from Prometheus for %q but got %s", spec.Name, promResult.Status)
 		}
-		if shimResult.Status != "error" {
-			return "error", fmt.Errorf("expected error from promshim for %q but got %s", spec.Name, shimResult.Status)
+		if subjectResult.Status != "error" {
+			return "error", fmt.Errorf("expected error from subject %s for %q but got %s", subject, spec.Name, subjectResult.Status)
 		}
 		if expectedType := strings.TrimSpace(spec.ExpectedErrorType); expectedType != "" {
 			if promResult.ErrorType != expectedType {
 				return "error", fmt.Errorf("unexpected Prometheus errorType for %q: expected %q got %q", spec.Name, expectedType, promResult.ErrorType)
 			}
-			if shimResult.ErrorType != expectedType {
-				return "error", fmt.Errorf("unexpected promshim errorType for %q: expected %q got %q", spec.Name, expectedType, shimResult.ErrorType)
+			if subjectResult.ErrorType != expectedType {
+				return "error", fmt.Errorf("unexpected subject %s errorType for %q: expected %q got %q", subject, spec.Name, expectedType, subjectResult.ErrorType)
 			}
 		}
 		if expectedContains := strings.TrimSpace(spec.ExpectedErrorContains); expectedContains != "" {
 			if !strings.Contains(promResult.Error, expectedContains) {
 				return "error", fmt.Errorf("expected Prometheus error for %q to contain %q, got %q", spec.Name, expectedContains, promResult.Error)
 			}
-			if !strings.Contains(shimResult.Error, expectedContains) {
-				return "error", fmt.Errorf("expected promshim error for %q to contain %q, got %q", spec.Name, expectedContains, shimResult.Error)
+			if !strings.Contains(subjectResult.Error, expectedContains) {
+				return "error", fmt.Errorf("expected subject %s error for %q to contain %q, got %q", subject, spec.Name, expectedContains, subjectResult.Error)
 			}
 		}
 	default:
@@ -206,17 +230,27 @@ func CompareQueryOutcome(spec QuerySpec, promResult queryResult, shimResult quer
 	return "ok", nil
 }
 
-func waitForDatasetAvailability(ctx context.Context, client *http.Client, cfg CompareConfig, manifest Manifest) error {
+func waitForDatasetAvailability(ctx context.Context, client *http.Client, cfg CompareConfig, manifest Manifest, subjects []compareSubject) error {
 	deadline, hasDeadline := ctx.Deadline()
 	probe := QuerySpec{Name: "probe", Endpoint: "query", Query: `harness_up{job="api"}`, TimeOffsetSeconds: int64((manifest.Points - 1)) * manifest.StepSeconds}
 	for {
 		promResult, promErr := QueryAndNormalize(client, cfg.PrometheusBaseURL, manifest, probe)
-		shimResult, shimErr := QueryAndNormalize(client, cfg.PromshimBaseURL, manifest, probe)
-		if promErr == nil && shimErr == nil && len(promResult.Vector) > 0 && len(shimResult.Vector) > 0 {
+		allReady := promErr == nil && len(promResult.Vector) > 0
+		lastSubjectErr := error(nil)
+		lastSubjectName := ""
+		for _, subject := range subjects {
+			subjectResult, subjectErr := QueryAndNormalize(client, subject.BaseURL, manifest, probe)
+			if subjectErr != nil || len(subjectResult.Vector) == 0 {
+				allReady = false
+				lastSubjectErr = subjectErr
+				lastSubjectName = subject.Name
+			}
+		}
+		if allReady {
 			return nil
 		}
 		if hasDeadline && time.Now().After(deadline) {
-			return fmt.Errorf("timed out waiting for seeded dataset availability: prom=%v shim=%v", promErr, shimErr)
+			return fmt.Errorf("timed out waiting for seeded dataset availability: prom=%v %s=%v", promErr, lastSubjectName, lastSubjectErr)
 		}
 		select {
 		case <-ctx.Done():
@@ -366,8 +400,8 @@ func ClassifyComparison(status, detail string) (severity, bucket string) {
 		return "info", "prom-parse-error"
 	case strings.Contains(d, "expected success from Prometheus"):
 		return "info", "prom-rejected"
-	case strings.Contains(d, "expected success from promshim"):
-		return "p0", "shim-error"
+	case strings.Contains(d, "expected success from subject "):
+		return "p0", "subject-error"
 	case strings.Contains(d, "series length mismatch"),
 		strings.Contains(d, "vector length mismatch"),
 		strings.Contains(d, "series labels mismatch"),

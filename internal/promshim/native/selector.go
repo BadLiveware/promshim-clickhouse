@@ -1,0 +1,80 @@
+package native
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/promql/parser"
+)
+
+const defaultInstantSelectorLookback = 5 * time.Minute
+
+type SelectorKind string
+
+const (
+	SelectorKindInstantVector SelectorKind = "instant_vector_selector"
+	SelectorKindRangeVector   SelectorKind = "range_vector_selector"
+)
+
+type SelectorSource struct {
+	Kind       SelectorKind
+	MetricName string
+	Matchers   []*labels.Matcher
+	Lookback   time.Duration
+	Offset     time.Duration
+}
+
+func buildSelectorSource(expr parser.Expr) (*SelectorSource, error) {
+	switch node := expr.(type) {
+	case *parser.VectorSelector:
+		return &SelectorSource{
+			Kind:       SelectorKindInstantVector,
+			MetricName: node.Name,
+			Matchers:   cloneMatchers(node.LabelMatchers),
+			Lookback:   defaultInstantSelectorLookback,
+			Offset:     absoluteDuration(node.OriginalOffset),
+		}, nil
+	case *parser.MatrixSelector:
+		vectorSelector, ok := node.VectorSelector.(*parser.VectorSelector)
+		if !ok {
+			return nil, fmt.Errorf("matrix selector is missing its vector selector")
+		}
+		return &SelectorSource{
+			Kind:       SelectorKindRangeVector,
+			MetricName: vectorSelector.Name,
+			Matchers:   cloneMatchers(vectorSelector.LabelMatchers),
+			Lookback:   node.Range,
+			Offset:     absoluteDuration(vectorSelector.OriginalOffset),
+		}, nil
+	default:
+		return nil, nil
+	}
+}
+
+func cloneSelectorSource(selector *SelectorSource) *SelectorSource {
+	if selector == nil {
+		return nil
+	}
+	return &SelectorSource{
+		Kind:       selector.Kind,
+		MetricName: selector.MetricName,
+		Matchers:   cloneMatchers(selector.Matchers),
+		Lookback:   selector.Lookback,
+		Offset:     selector.Offset,
+	}
+}
+
+func cloneMatchers(matchers []*labels.Matcher) []*labels.Matcher {
+	if len(matchers) == 0 {
+		return nil
+	}
+	out := make([]*labels.Matcher, 0, len(matchers))
+	for _, matcher := range matchers {
+		if matcher == nil {
+			continue
+		}
+		out = append(out, labels.MustNewMatcher(matcher.Type, matcher.Name, matcher.Value))
+	}
+	return out
+}

@@ -30,15 +30,25 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 	switch n := node.(type) {
 	case *planpkg.LogicalLeafExprPlan:
 		info.NodeType = "leaf"
-		info.NativeLowerable = true
-		info.NativeReason = "delegatable leaf expression can seed native SQL source lowering"
-		info.Fragment = &NativeFragment{
-			Kind:         FragmentKindLeafSource,
-			OutputKind:   outputKind,
-			SourcePromQL: n.Expr,
-			ValueExpr:    "{value}",
-			TagsExpr:     "{tags}",
-			DropsMetric:  false,
+		selector, err := buildSelectorSource(n.Expr)
+		if err != nil {
+			info.NativeReason = fmt.Sprintf("selector source analysis failed: %v", err)
+			return info
+		}
+		info.NativeLowerable = selector != nil
+		if selector != nil {
+			info.NativeReason = "selector leaf can seed repo-owned native SQL source lowering"
+			info.Fragment = &NativeFragment{
+				Kind:         FragmentKindLeafSource,
+				OutputKind:   outputKind,
+				SourcePromQL: n.Expr,
+				Selector:     selector,
+				ValueExpr:    "{value}",
+				TagsExpr:     "{tags}",
+				DropsMetric:  false,
+			}
+		} else {
+			info.NativeReason = "delegatable leaf expression is not a selector-backed native source"
 		}
 		info.LabelLineage = leafLabelLineage()
 		info.TimeRequirements = leafTimeRequirements(n.Expr)
@@ -65,6 +75,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 					Kind:         FragmentKindUnarySourceExpr,
 					OutputKind:   child.Fragment.OutputKind,
 					SourcePromQL: child.Fragment.SourcePromQL,
+					Selector:     cloneSelectorSource(child.Fragment.Selector),
 					ValueExpr:    valueExpr,
 					TagsExpr:     tagsExprForMetricDrop(dropsMetric),
 					DropsMetric:  dropsMetric,
@@ -95,6 +106,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 					Kind:         FragmentKindBinaryScalarSourceExpr,
 					OutputKind:   rhs.Fragment.OutputKind,
 					SourcePromQL: rhs.Fragment.SourcePromQL,
+					Selector:     cloneSelectorSource(rhs.Fragment.Selector),
 					ValueExpr:    valueExpr,
 					TagsExpr:     tagsExprForMetricDrop(dropsMetric),
 					DropsMetric:  dropsMetric,
@@ -111,6 +123,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 					Kind:         FragmentKindBinaryScalarSourceExpr,
 					OutputKind:   lhs.Fragment.OutputKind,
 					SourcePromQL: lhs.Fragment.SourcePromQL,
+					Selector:     cloneSelectorSource(lhs.Fragment.Selector),
 					ValueExpr:    valueExpr,
 					TagsExpr:     tagsExprForMetricDrop(dropsMetric),
 					DropsMetric:  dropsMetric,
@@ -138,6 +151,18 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 			reason = "aggregation child is not pushdown-safe; native pushdown currently requires one delegatable leaf with only unary or scalar arithmetic transforms"
 		}
 		info.Aggregation = &AggregationSupport{Eligible: eligible, Reason: reason, Source: child.Fragment}
+		if eligible {
+			info.Fragment = &NativeFragment{
+				Kind:       FragmentKindAggregation,
+				OutputKind: outputKind,
+				Aggregation: &AggregationFragment{
+					Op:       n.Op,
+					Grouping: append([]string(nil), n.Grouping...),
+					Without:  n.Without,
+					Source:   child.Fragment,
+				},
+			}
+		}
 		info.NativeLowerable = eligible
 		info.NativeReason = reason
 		return info

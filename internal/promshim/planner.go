@@ -70,82 +70,6 @@ func (p *delegatedExprPlan) explain() ExplainNode {
 	return ExplainNode{Kind: "leaf", Strategy: "delegated_promql", Expr: p.Expr.String()}
 }
 
-type nativeAggregationSource struct {
-	PromQLLeaf  parser.Expr
-	ValueExpr   string
-	TagsExpr    string
-	Explain     ExplainNode
-	DropsMetric bool
-}
-
-type nativeAggregationPlan struct {
-	Expr         string
-	Source       nativeAggregationSource
-	Op           parser.ItemType
-	Grouping     []string
-	Without      bool
-	Reason       string
-	Estimate     *planEstimate
-	ChildExplain ExplainNode
-}
-
-func (p *nativeAggregationPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
-	sourcePromQL, err := resolveDelegatedPromQL(p.Source.PromQLLeaf, params)
-	if err != nil {
-		return nil, withInternalContext(err, "resolving native aggregation source PromQL for %q", p.Expr)
-	}
-
-	switch params.Mode {
-	case evalModeInstant:
-		sql, queryParams, err := storage.BuildInstantAggregationQuerySQL(storage.QueryConfig{Database: evaluator.opts.Database, Table: evaluator.opts.Table}, storage.AggregationSource{PromQLLeaf: sourcePromQL, ValueExpr: p.Source.ValueExpr, TagsExpr: p.Source.TagsExpr}, params.EvaluationTime.UnixMilli(), p.Op, p.Grouping, p.Without)
-		if err != nil {
-			return nil, withInternalContext(err, "building native aggregation instant SQL for %q", p.Expr)
-		}
-		response, err := evaluator.client.Execute(ctx, sql, queryParams)
-		if err != nil {
-			return nil, withInternalContext(normalizeInternalError(err), "executing native aggregation instant query for %q", p.Expr)
-		}
-		defer response.Body.Close()
-		samples, err := decodeInstantSamples(response.Body)
-		if err != nil {
-			return nil, withInternalContext(err, "decoding native aggregation instant result for %q", p.Expr)
-		}
-		return model.VectorValue{Samples: samples}, nil
-	case evalModeRange:
-		sql, queryParams, err := storage.BuildRangeAggregationQuerySQL(storage.QueryConfig{Database: evaluator.opts.Database, Table: evaluator.opts.Table}, storage.AggregationSource{PromQLLeaf: sourcePromQL, ValueExpr: p.Source.ValueExpr, TagsExpr: p.Source.TagsExpr}, params.Start.UnixMilli(), params.End.UnixMilli(), params.Step.Milliseconds(), p.Op, p.Grouping, p.Without)
-		if err != nil {
-			return nil, withInternalContext(err, "building native aggregation range SQL for %q", p.Expr)
-		}
-		response, err := evaluator.client.Execute(ctx, sql, queryParams)
-		if err != nil {
-			return nil, withInternalContext(normalizeInternalError(err), "executing native aggregation range query for %q", p.Expr)
-		}
-		defer response.Body.Close()
-		series, err := decodeRangeSeries(response.Body)
-		if err != nil {
-			return nil, withInternalContext(err, "decoding native aggregation range result for %q", p.Expr)
-		}
-		return model.MatrixValue{Series: series}, nil
-	default:
-		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
-	}
-}
-
-func (p *nativeAggregationPlan) explain() ExplainNode {
-	children := []ExplainNode{}
-	if p.ChildExplain.Strategy != "" {
-		children = append(children, p.ChildExplain)
-	}
-	return ExplainNode{
-		Kind:     "aggregation",
-		Strategy: "native_sql",
-		Expr:     p.Expr,
-		Reason:   p.Reason,
-		Estimate: p.Estimate,
-		Children: children,
-	}
-}
-
 type scalarLiteralPlan struct {
 	Expr  string
 	Value float64
@@ -1163,7 +1087,9 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx planContext, analysis *nati
 		}
 		return annotateQueryPlan(&localBinaryPlan{Expr: node.ExprString(), Op: node.Op, VectorMatching: cloneVectorMatching(node.VectorMatching), ReturnBool: node.ReturnBool, LHS: lhs, RHS: rhs}, analysis.InfoFor(node)), nil
 	case *logicalAggregationPlan:
-		if pushdownPlan, ok := maybeBuildNativeAggregationPlan(node, ctx, analysis); ok {
+		if pushdownPlan, ok, err := maybeBuildNativeAggregationPlan(node, ctx, analysis); err != nil {
+			return nil, withInternalContext(err, "building native subtree plan for aggregate %q", node.ExprString())
+		} else if ok {
 			return annotateQueryPlan(pushdownPlan, analysis.InfoFor(node)), nil
 		}
 		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
@@ -1294,71 +1220,6 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx planContext, analysis *nati
 		return annotateQueryPlan(&localLabelJoinPlan{Expr: node.ExprString(), Config: node.Config, Child: child}, analysis.InfoFor(node)), nil
 	default:
 		return nil, newExecutionErrorf("execution planner cannot lower logical node %T", plan)
-	}
-}
-
-func maybeBuildNativeAggregationPlan(node *logicalAggregationPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool) {
-	decision := decideNativeAggregationPushdownFromAnalysis(node, analysis, ctx)
-	if !decision.Eligible {
-		return nil, false
-	}
-	return &nativeAggregationPlan{
-		Expr:         node.ExprString(),
-		Source:       decision.Source,
-		Op:           node.Op,
-		Grouping:     append([]string(nil), node.Grouping...),
-		Without:      node.Without,
-		Reason:       decision.Reason,
-		Estimate:     estimateRangePlan(ctx),
-		ChildExplain: decision.Source.Explain,
-	}, true
-}
-
-func nativeAggregationSourceFromLowering(info *nativeplan.LoweringInfo) (nativeAggregationSource, bool) {
-	if info == nil || info.Aggregation == nil || info.Aggregation.Source == nil || info.Aggregation.Source.SourcePromQL == nil {
-		return nativeAggregationSource{}, false
-	}
-	source := info.Aggregation.Source
-	return nativeAggregationSource{
-		PromQLLeaf:  source.SourcePromQL,
-		ValueExpr:   source.ValueExpr,
-		TagsExpr:    source.TagsExpr,
-		DropsMetric: source.DropsMetric,
-		Explain:     explainNativeAggregationSource(firstNonNilChild(info.Children)),
-	}, true
-}
-
-func firstNonNilChild(children []*nativeplan.LoweringInfo) *nativeplan.LoweringInfo {
-	for _, child := range children {
-		if child != nil {
-			return child
-		}
-	}
-	return nil
-}
-
-func explainNativeAggregationSource(info *nativeplan.LoweringInfo) ExplainNode {
-	if info == nil {
-		return ExplainNode{}
-	}
-	strategy := "native_sql_expression"
-	if info.Fragment != nil && info.Fragment.Kind == nativeplan.FragmentKindLeafSource {
-		strategy = "delegated_promql"
-	}
-	children := make([]ExplainNode, 0, len(info.Children))
-	for _, child := range info.Children {
-		if child == nil {
-			continue
-		}
-		children = append(children, explainNativeAggregationSource(child))
-	}
-	return ExplainNode{
-		Kind:     info.NodeType,
-		Strategy: strategy,
-		Expr:     info.Expr,
-		Reason:   info.NativeReason,
-		Lowering: info.ExplainInfo(),
-		Children: children,
 	}
 }
 

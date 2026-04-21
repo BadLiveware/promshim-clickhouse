@@ -5,11 +5,14 @@ import "time"
 type SeedConfig struct {
 	PromRemoteWriteURL       string
 	ClickHouseRemoteWriteURL string
-	Seed                     int64
-	Step                     time.Duration
-	Points                   int
-	BaseTime                 time.Time
-	ArtifactDir              string
+	// PromClickRemoteWriteURL is optional. When empty, PromClick seeding is
+	// skipped so the harness still runs when PromClick is not deployed.
+	PromClickRemoteWriteURL string
+	Seed                    int64
+	Step                    time.Duration
+	Points                  int
+	BaseTime                time.Time
+	ArtifactDir             string
 }
 
 type Manifest struct {
@@ -25,9 +28,13 @@ type Manifest struct {
 type CompareConfig struct {
 	PrometheusBaseURL string
 	PromshimBaseURL   string
-	CorpusPath        string
-	ArtifactDir       string
-	Timeout           time.Duration
+	// PromClickBaseURL is optional. When empty, PromClick is not queried and
+	// the compare pass runs as a 2-way comparison (Prometheus vs shim) as
+	// before.
+	PromClickBaseURL string
+	CorpusPath       string
+	ArtifactDir      string
+	Timeout          time.Duration
 }
 
 type QuerySpec struct {
@@ -56,7 +63,11 @@ type CompareReport struct {
 }
 
 type QueryComparison struct {
-	Name        string `json:"name"`
+	Name string `json:"name"`
+	// Subject identifies which subject-under-test this row compares against
+	// the Prometheus oracle. Values today: "shim", "promclick". Each query
+	// produces one row per configured subject so N-way compares stay flat.
+	Subject     string `json:"subject"`
 	Query       string `json:"query"`
 	Status      string `json:"status"`
 	Severity    string `json:"severity,omitempty"`

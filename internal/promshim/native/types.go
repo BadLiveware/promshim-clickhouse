@@ -22,15 +22,25 @@ const (
 	FragmentKindLeafSource             FragmentKind = "leaf_source"
 	FragmentKindUnarySourceExpr        FragmentKind = "unary_source_expression"
 	FragmentKindBinaryScalarSourceExpr FragmentKind = "binary_scalar_source_expression"
+	FragmentKindAggregation            FragmentKind = "aggregation"
 )
 
 type NativeFragment struct {
 	Kind         FragmentKind
 	OutputKind   OutputKind
 	SourcePromQL parser.Expr
+	Selector     *SelectorSource
 	ValueExpr    string
 	TagsExpr     string
 	DropsMetric  bool
+	Aggregation  *AggregationFragment
+}
+
+type AggregationFragment struct {
+	Op       parser.ItemType
+	Grouping []string
+	Without  bool
+	Source   *NativeFragment
 }
 
 type AggregationSupport struct {

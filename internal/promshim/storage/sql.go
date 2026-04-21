@@ -16,6 +16,7 @@ type QueryConfig struct{ Database, Table string }
 
 type AggregationSource struct {
 	PromQLLeaf string
+	Selector   *SelectorSource
 	ValueExpr  string
 	TagsExpr   string
 }
@@ -63,6 +64,10 @@ func BuildRangeQuerySQL(cfg QueryConfig, promql string, startMS, endMS, stepMS i
 }
 
 func BuildInstantAggregationQuerySQL(cfg QueryConfig, source AggregationSource, evaluationTimeMS int64, op parser.ItemType, grouping []string, without bool) (string, map[string]string, error) {
+	return BuildInstantAggregationQuerySQLWithBounds(cfg, source, evaluationTimeMS, evaluationTimeMS, evaluationTimeMS, op, grouping, without)
+}
+
+func BuildInstantAggregationQuerySQLWithBounds(cfg QueryConfig, source AggregationSource, evaluationTimeMS, requiredStartMS, requiredEndMS int64, op parser.ItemType, grouping []string, without bool) (string, map[string]string, error) {
 	aggExpr, err := buildAggregationValueSQL(op, "value")
 	if err != nil {
 		return "", nil, err
@@ -70,9 +75,10 @@ func BuildInstantAggregationQuerySQL(cfg QueryConfig, source AggregationSource, 
 	tagsExpr := buildAggregationTagsSQL("tags", grouping, without)
 	sourceTagsExpr := strings.ReplaceAll(source.TagsExpr, "{tags}", "tags")
 	sourceValueExpr := strings.ReplaceAll(source.ValueExpr, "{value}", "value")
-	params := baseParams(cfg)
-	params["param_promql"] = source.PromQLLeaf
-	params["param_evaluation_ms"] = strconv.FormatInt(evaluationTimeMS, 10)
+	sourceSQL, params, err := buildInstantSourceQuerySQL(cfg, source, evaluationTimeMS, requiredStartMS, requiredEndMS)
+	if err != nil {
+		return "", nil, err
+	}
 	return fmt.Sprintf(`
 SELECT
     grouping_tags AS tags,
@@ -84,38 +90,40 @@ FROM (
         timestamp,
         value
     FROM (
-        SELECT
-            %s AS tags,
-            timestamp,
-            %s AS value
-        FROM prometheusQuery(
-            {database:String},
-            {table:String},
-            {promql:String},
-            fromUnixTimestamp64Milli({evaluation_ms:Int64})
-        )
+%s
     )
 )
 GROUP BY grouping_tags
 ORDER BY grouping_tags
 SETTINGS allow_experimental_time_series_table = 1
 FORMAT JSONEachRow
-`, aggExpr, tagsExpr, sourceTagsExpr, sourceValueExpr), params, nil
+`, aggExpr, tagsExpr, indentSQL(fmt.Sprintf(`
+SELECT
+    %s AS tags,
+    timestamp,
+    %s AS value
+FROM (
+%s
+)
+`, sourceTagsExpr, sourceValueExpr, indentSQL(sourceSQL, 4)), 8)), params, nil
 }
 
 func BuildRangeAggregationQuerySQL(cfg QueryConfig, source AggregationSource, startMS, endMS, stepMS int64, op parser.ItemType, grouping []string, without bool) (string, map[string]string, error) {
+	return BuildRangeAggregationQuerySQLWithBounds(cfg, source, startMS, endMS, stepMS, startMS, endMS, op, grouping, without)
+}
+
+func BuildRangeAggregationQuerySQLWithBounds(cfg QueryConfig, source AggregationSource, startMS, endMS, stepMS, requiredStartMS, requiredEndMS int64, op parser.ItemType, grouping []string, without bool) (string, map[string]string, error) {
 	aggExpr, err := buildAggregationValueSQL(op, "point.2")
 	if err != nil {
 		return "", nil, err
 	}
 	tagsExpr := buildAggregationTagsSQL("tags", grouping, without)
 	sourceTagsExpr := strings.ReplaceAll(source.TagsExpr, "{tags}", "tags")
-	sourceValueExpr := strings.ReplaceAll(source.ValueExpr, "{value}", "item.2")
-	params := baseParams(cfg)
-	params["param_promql"] = source.PromQLLeaf
-	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
-	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
-	params["param_step_ms"] = strconv.FormatInt(stepMS, 10)
+	sourceValueExpr := strings.ReplaceAll(source.ValueExpr, "{value}", "point.2")
+	sourceSQL, params, err := buildRangeSourceQuerySQL(cfg, source, requiredStartMS, requiredEndMS, startMS, endMS, stepMS)
+	if err != nil {
+		return "", nil, err
+	}
 	return fmt.Sprintf(`
 SELECT
     tags,
@@ -130,17 +138,7 @@ FROM (
             %s AS grouping_tags,
             arrayJoin(time_series) AS point
         FROM (
-            SELECT
-                %s AS tags,
-                arrayMap(item -> (item.1, %s), time_series) AS time_series
-            FROM prometheusQueryRange(
-                {database:String},
-                {table:String},
-                {promql:String},
-                fromUnixTimestamp64Milli({start_ms:Int64}),
-                fromUnixTimestamp64Milli({end_ms:Int64}),
-                toDecimal64({step_ms:Int64}, 3) / 1000
-            )
+%s
         )
     )
     GROUP BY grouping_tags, timestamp
@@ -149,7 +147,14 @@ GROUP BY tags
 ORDER BY tags
 SETTINGS allow_experimental_time_series_table = 1
 FORMAT JSONEachRow
-`, aggExpr, tagsExpr, sourceTagsExpr, sourceValueExpr), params, nil
+`, aggExpr, tagsExpr, indentSQL(fmt.Sprintf(`
+SELECT
+    %s AS tags,
+    arrayMap(point -> (point.1, %s), time_series) AS time_series
+FROM (
+%s
+)
+`, sourceTagsExpr, sourceValueExpr, indentSQL(sourceSQL, 4)), 8)), params, nil
 }
 
 func BuildLabelsQuery(cfg QueryConfig, request *http.Request) (string, map[string]string, error) {

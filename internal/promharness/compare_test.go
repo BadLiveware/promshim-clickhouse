@@ -87,6 +87,35 @@ func TestSubjectsForQueryRejectsUnavailableSubjects(t *testing.T) {
 	}
 }
 
+func TestManifestsForQueryHonorsDatasetVariantFilter(t *testing.T) {
+	configured := []Manifest{{DatasetVariant: "baseline"}, {DatasetVariant: "resets_gaps"}, {DatasetVariant: "histogram_burst"}}
+	manifests, err := manifestsForQuery(QuerySpec{Name: "phase12-row", DatasetVariants: []string{"baseline", "histogram_burst"}, ExcludeDatasetVariants: []string{"baseline"}}, configured)
+	if err != nil {
+		t.Fatalf("expected dataset variant filter to resolve, got %v", err)
+	}
+	if len(manifests) != 1 || manifests[0].DatasetVariant != "histogram_burst" {
+		t.Fatalf("expected only histogram_burst manifest, got %#v", manifests)
+	}
+}
+
+func TestManifestsForQueryRejectsUnavailableDatasetVariants(t *testing.T) {
+	configured := []Manifest{{DatasetVariant: "baseline"}}
+	if _, err := manifestsForQuery(QuerySpec{Name: "phase12-row", DatasetVariants: []string{"resets_gaps"}}, configured); err == nil {
+		t.Fatal("expected unavailable dataset variant filter to fail")
+	}
+}
+
+func TestManifestsForQueryTreatsLegacySingleManifestAsBaseline(t *testing.T) {
+	configured := []Manifest{{BaseUnixSeconds: 1700000000, StepSeconds: 60, Points: 10}}
+	manifests, err := manifestsForQuery(QuerySpec{Name: "phase12-row", DatasetVariants: []string{"baseline"}}, configured)
+	if err != nil {
+		t.Fatalf("expected legacy single manifest baseline selection to resolve, got %v", err)
+	}
+	if len(manifests) != 1 || manifests[0].DatasetVariant != "" {
+		t.Fatalf("expected legacy single manifest to match baseline selection, got %#v", manifests)
+	}
+}
+
 func TestRunCompareExpandsNamedVariantsIntoReportRows(t *testing.T) {
 	tempDir := t.TempDir()
 	manifest := Manifest{BaseUnixSeconds: 1700000000, StepSeconds: 60, Points: 10}
@@ -135,11 +164,83 @@ func TestRunCompareExpandsNamedVariantsIntoReportRows(t *testing.T) {
 	}
 }
 
+func TestRunCompareExpandsManifestDatasetVariantsIntoReportRows(t *testing.T) {
+	tempDir := t.TempDir()
+	manifest := Manifest{Variants: []Manifest{
+		{Seed: 12345, BaseUnixSeconds: 1700000000, StepSeconds: 60, Points: 10, DatasetVariant: "baseline"},
+		{Seed: 12345, BaseUnixSeconds: 1700003600, StepSeconds: 60, Points: 10, DatasetVariant: "resets_gaps"},
+	}}
+	if err := WriteManifest(ManifestPath(tempDir), manifest); err != nil {
+		t.Fatal(err)
+	}
+	corpusPath := filepath.Join(tempDir, "corpus.json")
+	if err := os.WriteFile(corpusPath, []byte(`[{"name":"dataset_variant_query","endpoint":"query","query":"up","subjects":["shim"]}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"job":"api"},"value":[1,"1"]}]}}`)
+	}))
+	defer server.Close()
+
+	report, err := RunCompare(contextWithTimeout(t), CompareConfig{
+		PrometheusBaseURL: server.URL,
+		PromshimBaseURL:   server.URL,
+		CorpusPath:        corpusPath,
+		ArtifactDir:       tempDir,
+		Timeout:           2 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Results) != 2 {
+		t.Fatalf("expected two compare results for two dataset variants, got %#v", report.Results)
+	}
+	if report.Results[0].DatasetVariant != "baseline" || report.Results[1].DatasetVariant != "resets_gaps" {
+		t.Fatalf("unexpected dataset variants in report rows: %#v", report.Results)
+	}
+}
+
+func TestRunCompareHonorsPerQueryDatasetVariantFilter(t *testing.T) {
+	tempDir := t.TempDir()
+	manifest := Manifest{Variants: []Manifest{
+		{Seed: 12345, BaseUnixSeconds: 1700000000, StepSeconds: 60, Points: 10, DatasetVariant: "baseline"},
+		{Seed: 12345, BaseUnixSeconds: 1700003600, StepSeconds: 60, Points: 10, DatasetVariant: "resets_gaps"},
+		{Seed: 12345, BaseUnixSeconds: 1700007200, StepSeconds: 60, Points: 10, DatasetVariant: "histogram_burst"},
+	}}
+	if err := WriteManifest(ManifestPath(tempDir), manifest); err != nil {
+		t.Fatal(err)
+	}
+	corpusPath := filepath.Join(tempDir, "corpus.json")
+	if err := os.WriteFile(corpusPath, []byte(`[{"name":"dataset_variant_query","endpoint":"query","query":"up","datasetVariants":["baseline","histogram_burst"],"excludeDatasetVariants":["baseline"],"subjects":["shim"]}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"job":"api"},"value":[1,"1"]}]}}`)
+	}))
+	defer server.Close()
+
+	report, err := RunCompare(contextWithTimeout(t), CompareConfig{
+		PrometheusBaseURL: server.URL,
+		PromshimBaseURL:   server.URL,
+		CorpusPath:        corpusPath,
+		ArtifactDir:       tempDir,
+		Timeout:           2 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Results) != 1 || report.Results[0].DatasetVariant != "histogram_burst" {
+		t.Fatalf("expected only histogram_burst compare row, got %#v", report.Results)
+	}
+}
+
 func TestAnnotateCauseClustersGroupsRepeatedVariantFailures(t *testing.T) {
 	report := CompareReport{Results: []QueryComparison{
-		{Name: "base_query", Variant: "early", Subject: "shim", Status: "diff", Severity: "p1", Bucket: "series-mismatch", Detail: "matrix points length mismatch"},
-		{Name: "base_query", Variant: "late", Subject: "shim", Status: "diff", Severity: "p1", Bucket: "series-mismatch", Detail: "matrix points length mismatch"},
-		{Name: "base_query", Variant: "late", Subject: "promclick", Status: "diff", Severity: "p1", Bucket: "series-mismatch", Detail: "matrix points length mismatch"},
+		{Name: "base_query", Variant: "early", DatasetVariant: "baseline", Subject: "shim", Status: "diff", Severity: "p1", Bucket: "series-mismatch", Detail: "matrix points length mismatch"},
+		{Name: "base_query", Variant: "late", DatasetVariant: "baseline", Subject: "shim", Status: "diff", Severity: "p1", Bucket: "series-mismatch", Detail: "matrix points length mismatch"},
+		{Name: "base_query", Variant: "late", DatasetVariant: "resets_gaps", Subject: "promclick", Status: "diff", Severity: "p1", Bucket: "series-mismatch", Detail: "matrix points length mismatch"},
 		{Name: "other_query", Subject: "shim", Status: "ok", Severity: "ok", Bucket: "ok"},
 	}}
 
@@ -157,6 +258,9 @@ func TestAnnotateCauseClustersGroupsRepeatedVariantFailures(t *testing.T) {
 	}
 	if len(cluster.Subjects) != 2 {
 		t.Fatalf("unexpected cluster subjects: %#v", cluster)
+	}
+	if len(cluster.DatasetVariants) != 2 {
+		t.Fatalf("unexpected cluster dataset variants: %#v", cluster)
 	}
 	for _, row := range report.Results[:3] {
 		if row.CauseCluster != "base_query/cause-1" || row.CauseClusterSize != 3 {

@@ -10,8 +10,11 @@ assumed it would be, and captures the strategic framing (this shim is a
 bridge until ClickHouse's native PromQL on TimeSeries is production-ready;
 delegation is whole-query-or-nothing; retirement direction is path 2 →
 path 1 at the query level). The architecture still holds. Phase 1 has
-shipped; Phase 6 split into 6a/6b, with 6b still pending — both
-interpreted through that chunk.
+shipped; Phase 6 split into 6a/6b and Phase 6b is now delivered for the
+current supported subset; Phases 7, 11, 12, and the keep-local note in 13
+have also been executed for the current scope. Remaining work is primarily
+rollout, retirement, and coverage expansion rather than core architecture
+implementation.
 
 If you want the pre-Phase-1 execution baseline for this repo, also read
 [phase-0-baseline.md](./phase-0-baseline.md). It freezes the semantic
@@ -57,22 +60,22 @@ starter differential corpus used for this roadmap.
 12. [11-validation-risks-and-definition-of-done.md](./11-validation-risks-and-definition-of-done.md)
 13. [12-harness-parametrization.md](./12-harness-parametrization.md)
     - time-window / range-step / dataset-shape layers for the differential harness
-    - tied to Phase 6b rollout, not a blocker for Phase 1
+    - Layer 1, Layer 2, and an initial Layer 3 dataset-variant slice are now implemented
+14. [13-keep-local-quantile-over-time.md](./13-keep-local-quantile-over-time.md)
+    - explicit keep-local design note closing the remaining local-only `quantile_over_time` disposition gap
 
-## Recommended narrow first slice
+## Current completion / what is left
 
-Phase 1 is done. To prove the architecture end-to-end, prioritize this
-subset next:
+For the **current supported native-lowering scope**, the execution-ordered
+architecture plan is effectively complete:
+- Phases 1-7 are implemented for the supported subset
+- validation / definition-of-done is satisfied for the current scope
+- harness parametrization Layers 1 and 2 plus an initial Layer 3 slice are implemented
+- `quantile_over_time` has an explicit keep-local decision
 
-1. Phase 2 — generalized `nativeSubtreePlan` consuming the delivered
-   `LoweringInfo` / `NativeFragment` types
-2. Phase 3 selector lowering, with the TimeSeries column-shape adapter
-   layer noted in [00-status-and-drift.md](./00-status-and-drift.md)
-3. Phase 4 initial optimizer passes:
-   - evaluation-range propagation
-   - common matcher inference + label pushdown
-   - projection pushdown with no `SELECT *`
-4. explain improvements
-5. shadow mode with whole-AST capability gating
-
-That slice already proves the architecture on common dashboard shapes before full join and range-heavy support lands.
+What remains is mostly outside the original architecture slice itself:
+- broader rollout / promotion policy and observation windows
+- local-path retirement decisions after promotion windows
+- wider coverage expansion beyond the current supported subset
+- optional richer multi-dataset harness coverage beyond the initial `resets_gaps` Layer 3 slice
+- ongoing exploratory dashboard shortlist cleanup and promotion

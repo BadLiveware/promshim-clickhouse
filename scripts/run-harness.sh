@@ -23,6 +23,10 @@ Options:
                         (for example: native-lowering-starter.json).
   --subjects <list>     Restrict compare subjects to a comma-separated subset
                         (for example: shim or shim,promclick).
+  --dataset-variants <list>
+                        Seed multiple dataset shapes in one run (for example:
+                        baseline,resets_gaps). Default keeps the legacy single
+                        dataset shape.
   --no-build            Skip image build step.
   --keep-up             Keep containers/network/volumes after completion.
   --init-retries <n>    Retry attempts for clickhouse-init (default: 10).
@@ -56,6 +60,7 @@ THEME=""
 ALL_THEMES=0
 CUSTOM_CORPUS=""
 SUBJECTS=""
+DATASET_VARIANTS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -73,6 +78,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --subjects)
       SUBJECTS="$2"
+      shift 2
+      ;;
+    --dataset-variants)
+      DATASET_VARIANTS="$2"
       shift 2
       ;;
     --no-build)
@@ -187,7 +196,11 @@ if (( init_ok == 0 )); then
 fi
 
 log "Seeding deterministic dataset."
-docker compose --profile jobs run --rm seed
+seed_env_args=()
+if [[ -n "$DATASET_VARIANTS" ]]; then
+  seed_env_args+=(-e "PROM_HARNESS_DATASET_VARIANTS=${DATASET_VARIANTS}")
+fi
+docker compose --profile jobs run --rm "${seed_env_args[@]}" seed
 
 run_compare() {
   local corpus_path="$1" report_dest="$2" label="$3"

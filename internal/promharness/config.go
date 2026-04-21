@@ -20,6 +20,7 @@ func LoadSeedConfigFromEnv() (SeedConfig, error) {
 		Step:                     time.Duration(stepSeconds) * time.Second,
 		Points:                   points,
 		ArtifactDir:              getenv("PROM_HARNESS_ARTIFACT_DIR", "/artifacts"),
+		DatasetVariants:          parseCSV(getenv("PROM_HARNESS_DATASET_VARIANTS", "")),
 	}
 	if base := os.Getenv("PROM_HARNESS_BASE_UNIX_SECONDS"); base != "" {
 		seconds, err := strconv.ParseInt(base, 10, 64)
@@ -50,27 +51,31 @@ func LoadCompareConfigFromEnv() (CompareConfig, error) {
 }
 
 func parseSubjects(raw string) []string {
+	return parseCSV(raw)
+}
+
+func parseCSV(raw string) []string {
 	if strings.TrimSpace(raw) == "" {
 		return nil
 	}
 	parts := strings.Split(raw, ",")
-	subjects := make([]string, 0, len(parts))
+	values := make([]string, 0, len(parts))
 	seen := map[string]struct{}{}
 	for _, part := range parts {
-		subject := strings.ToLower(strings.TrimSpace(part))
-		if subject == "" {
+		value := strings.ToLower(strings.TrimSpace(part))
+		if value == "" {
 			continue
 		}
-		if _, ok := seen[subject]; ok {
+		if _, ok := seen[value]; ok {
 			continue
 		}
-		seen[subject] = struct{}{}
-		subjects = append(subjects, subject)
+		seen[value] = struct{}{}
+		values = append(values, value)
 	}
-	if len(subjects) == 0 {
+	if len(values) == 0 {
 		return nil
 	}
-	return subjects
+	return values
 }
 
 func ManifestPath(dir string) string {

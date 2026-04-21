@@ -81,6 +81,8 @@ def main() -> int:
     metadata_path = Path(args.metadata)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    for existing in output_dir.glob("*.json"):
+        existing.unlink()
 
     if not corpus_path.exists():
         print(f"Error: corpus file not found: {corpus_path}", file=sys.stderr)
@@ -112,6 +114,7 @@ def main() -> int:
     theme_queries: dict[str, list[dict[str, Any]]] = defaultdict(list)
     theme_metadata: dict[str, list[dict[str, Any]]] = defaultdict(list)
     theme_counts: Counter[str] = Counter()
+    dataset_variant_counts: Counter[str] = Counter()
     skipped_missing_metadata = 0
     skipped_tier = 0
     misc_entries: list[tuple[dict[str, Any], dict[str, Any]]] = []
@@ -141,6 +144,9 @@ def main() -> int:
             misc_entries.append((spec, metadata))
             continue
 
+        for dataset_variant in spec.get("datasetVariants") or []:
+            dataset_variant_counts[dataset_variant] += 1
+
         for family in families:
             theme_queries[family].append(spec)
             theme_metadata[family].append(metadata)
@@ -153,11 +159,16 @@ def main() -> int:
         metadata_sidecar_path = output_dir / f"{safe_name}.metadata.json"
 
         write_json(query_path, theme_queries[family])
+        theme_dataset_variant_counts = Counter()
+        for spec in theme_queries[family]:
+            for dataset_variant in spec.get("datasetVariants") or []:
+                theme_dataset_variant_counts[dataset_variant] += 1
         write_json(
             metadata_sidecar_path,
             {
                 "theme": family,
                 "queryCount": len(theme_queries[family]),
+                "datasetVariantCounts": dict(theme_dataset_variant_counts),
                 "entries": theme_metadata[family],
             },
         )
@@ -193,6 +204,7 @@ def main() -> int:
         "skippedMissingMetadata": skipped_missing_metadata,
         "skippedTier": skipped_tier,
         "themeCounts": dict(theme_counts),
+        "datasetVariantCounts": dict(dataset_variant_counts),
         "miscCount": len(misc_entries),
         "miscWritten": misc_written,
         "writtenFiles": written_files,

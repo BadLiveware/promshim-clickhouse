@@ -1,9 +1,15 @@
 {
   "corpus": "harness/corpus/draft-grafana-top-panel-shortlist.json",
+  "datasetVariantCounts": {
+    "baseline": 79,
+    "churn_stale": 4,
+    "histogram_burst": 22,
+    "resets_gaps": 75
+  },
   "duplicatesPolicy": "preserved_entries_can_appear_in_multiple_theme_files",
   "includeGeneric": false,
   "includeMisc": false,
-  "inputCorpusCount": 100,
+  "inputCorpusCount": 97,
   "metadata": "harness/corpus/draft-grafana-top-panel-shortlist.metadata.json",
   "miscCount": 0,
   "miscWritten": false,
@@ -12,18 +18,17 @@
   "skippedMissingMetadata": 0,
   "skippedTier": 0,
   "themeCounts": {
-    "aggregation": 82,
-    "binary_arithmetic": 29,
-    "comparison": 4,
+    "aggregation": 79,
+    "binary_arithmetic": 26,
+    "comparison": 3,
     "histogram": 20,
-    "label_mutation": 1,
     "range_function": 4,
-    "range_selector": 78,
-    "rate_family": 78,
-    "selector": 100,
-    "set_operator": 4,
+    "range_selector": 75,
+    "rate_family": 75,
+    "selector": 97,
+    "set_operator": 3,
     "subquery": 3,
-    "vector_matching": 4
+    "vector_matching": 2
   },
   "writtenFiles": [
     "harness/corpus/draft-grafana-top-panel-shortlist.themes/aggregation.json",
@@ -34,8 +39,6 @@
     "harness/corpus/draft-grafana-top-panel-shortlist.themes/comparison.metadata.json",
     "harness/corpus/draft-grafana-top-panel-shortlist.themes/histogram.json",
     "harness/corpus/draft-grafana-top-panel-shortlist.themes/histogram.metadata.json",
-    "harness/corpus/draft-grafana-top-panel-shortlist.themes/label-mutation.json",
-    "harness/corpus/draft-grafana-top-panel-shortlist.themes/label-mutation.metadata.json",
     "harness/corpus/draft-grafana-top-panel-shortlist.themes/range-function.json",
     "harness/corpus/draft-grafana-top-panel-shortlist.themes/range-function.metadata.json",
     "harness/corpus/draft-grafana-top-panel-shortlist.themes/range-selector.json",

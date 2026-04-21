@@ -1,5 +1,9 @@
 [
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0014_rate_family_aggregation_selector",
@@ -8,6 +12,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0043_histogram_rate_family_aggregation_selector",
@@ -16,6 +25,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0060_histogram_rate_family_aggregation_selector",
@@ -24,6 +38,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0074_histogram_rate_family_aggregation_selector",
@@ -32,6 +51,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0031_rate_family_aggregation_selector",
@@ -40,6 +63,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0160_histogram_rate_family_aggregation_selector",
@@ -48,6 +76,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0219_histogram_rate_family_aggregation_selector",
@@ -56,6 +89,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0159_histogram_rate_family_aggregation_selector",
@@ -64,6 +102,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0054_rate_family_aggregation_selector",
@@ -72,6 +114,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0090_rate_family_aggregation_selector",
@@ -80,6 +126,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0087_rate_family_aggregation_selector",
@@ -88,6 +138,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0088_rate_family_aggregation_selector",
@@ -104,6 +158,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0106_rate_family_aggregation_selector",
@@ -112,6 +170,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0107_rate_family_aggregation_selector",
@@ -120,6 +182,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0033_rate_family_selector",
@@ -128,6 +194,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0148_rate_family_aggregation_selector",
@@ -136,6 +206,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0095_rate_family_aggregation_selector",
@@ -144,6 +218,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0144_rate_family_aggregation_selector",
@@ -152,6 +230,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0145_rate_family_aggregation_selector",
@@ -160,6 +242,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0167_rate_family_aggregation_selector",
@@ -168,6 +254,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0284_rate_family_aggregation_selector",
@@ -176,6 +266,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0285_rate_family_aggregation_selector",
@@ -184,6 +278,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0286_rate_family_aggregation_selector",
@@ -192,6 +290,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0295_rate_family_aggregation_selector",
@@ -200,6 +302,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0326_rate_family_aggregation_selector",
@@ -208,6 +314,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0331_rate_family_aggregation_selector",
@@ -216,6 +326,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0319_rate_family_aggregation_selector",
@@ -224,6 +338,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0369_rate_family_aggregation_selector",
@@ -232,6 +350,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0372_rate_family_aggregation_selector",
@@ -240,6 +362,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0594_rate_family_aggregation_selector",
@@ -248,6 +374,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0531_rate_family_aggregation_selector",
@@ -256,6 +386,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0552_rate_family_aggregation_selector",
@@ -264,6 +398,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0593_rate_family_aggregation_selector",
@@ -272,6 +410,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0607_rate_family_aggregation_selector",
@@ -280,6 +422,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0620_rate_family_aggregation_selector",
@@ -288,6 +434,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0621_rate_family_aggregation_selector",
@@ -296,6 +446,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0661_rate_family_aggregation_selector",
@@ -304,6 +458,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0662_rate_family_aggregation_selector",
@@ -312,6 +470,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0105_rate_family_aggregation_selector",
@@ -320,6 +482,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0149_rate_family_aggregation_selector",
@@ -328,6 +494,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0164_rate_family_selector",
@@ -336,6 +506,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0203_rate_family_aggregation_selector",
@@ -344,6 +518,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0223_rate_family_selector",
@@ -352,6 +530,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0224_rate_family_selector",
@@ -376,6 +558,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0449_rate_family_selector",
@@ -384,6 +570,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0452_rate_family_selector",
@@ -392,6 +582,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0500_rate_family_selector",
@@ -400,6 +594,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0506_rate_family_selector",
@@ -408,6 +606,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0012_rate_family_selector",
@@ -424,6 +626,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "churn_stale"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0011_range_function_selector",
@@ -432,6 +638,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0534_histogram_rate_family_aggregation_selector",
@@ -440,6 +651,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0513_rate_family_aggregation_selector",
@@ -448,6 +663,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0019_histogram_rate_family_aggregation_selector",
@@ -464,6 +684,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0009_rate_family_aggregation_selector",
@@ -472,6 +696,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0026_histogram_rate_family_aggregation_selector",
@@ -488,6 +717,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "churn_stale"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0416_rate_family_range_function_subquery_aggregation_selector",
@@ -504,6 +738,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0225_rate_family_subquery_aggregation_selector",
@@ -512,6 +750,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0242_rate_family_subquery_aggregation_selector",
@@ -520,6 +762,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "churn_stale"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0419_range_function_selector",
@@ -536,6 +782,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0505_rate_family_selector",
@@ -552,6 +802,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0073_histogram_rate_family_aggregation_selector",
@@ -560,6 +815,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0329_histogram_rate_family_aggregation_selector",
@@ -568,6 +828,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "churn_stale"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0477_range_function_aggregation_selector",
@@ -576,6 +840,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0059_histogram_rate_family_aggregation_selector",
@@ -592,6 +861,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0005_aggregation_selector",
@@ -608,6 +881,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0622_histogram_rate_family_aggregation_selector",
@@ -624,17 +902,11 @@
     "stepSeconds": 60
   },
   {
-    "endOffsetSeconds": 540,
-    "endpoint": "query_range",
-    "expectedErrorContains": "unexpected <group_left>",
-    "expectedErrorType": "bad_data",
-    "expectedStatus": "error",
-    "name": "draft_cand_0152_rate_family_vector_matching_aggregation_selector",
-    "query": "((1 - sum (rate(harness_requests_total{job=\"node-exporter\",instance=\"a\"}[5m]))) / group_left count (harness_requests_total{job=\"node-exporter\",instance=\"a\"}))",
-    "startOffsetSeconds": 300,
-    "stepSeconds": 60
-  },
-  {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0037_rate_family_aggregation_selector",
@@ -651,6 +923,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0113_histogram_rate_family_aggregation_selector",
@@ -675,6 +952,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0023_rate_family_vector_matching_aggregation_selector",
@@ -699,6 +980,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0161_histogram_rate_family_aggregation_selector",
@@ -707,6 +993,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0221_histogram_rate_family_aggregation_selector",
@@ -715,21 +1006,14 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0322_rate_family_aggregation_selector",
     "query": "sum(rate(harness_requests_total{namespace=~\"blue\",pod=~\"a\"}[5m])) by(pod)",
-    "startOffsetSeconds": 300,
-    "stepSeconds": 60
-  },
-  {
-    "endOffsetSeconds": 540,
-    "endpoint": "query_range",
-    "expectedErrorContains": "unexpected <group_left>",
-    "expectedErrorType": "bad_data",
-    "expectedStatus": "error",
-    "name": "draft_cand_0257_rate_family_vector_matching_aggregation_selector",
-    "query": "sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s])) / group_left sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s]))",
     "startOffsetSeconds": 300,
     "stepSeconds": 60
   },
@@ -742,17 +1026,10 @@
     "stepSeconds": 60
   },
   {
-    "endOffsetSeconds": 540,
-    "endpoint": "query_range",
-    "expectedErrorContains": "no expression found in input",
-    "expectedErrorType": "bad_data",
-    "expectedStatus": "error",
-    "name": "draft_cand_0151_rate_family_aggregation_selector",
-    "query": "# receivers -> processor label_join(label_replace(label_join((sum(rate(harness_requests_total{job=\"api\"}[5m])) by(service)) ,\"source\", \"-rcv-\", \"transport\", \"receiver\") ,\"target\", \"processor\", \"\", \"\") , \"id\", \"-\", \"source\", \"target\") # processor -> exporters or label_join(label_replace(label_join((sum(rate(harness_requests_total{job=\"api\"}[5m])) by(service)) , \"target\", \"-exp-\", \"transport\", \"exporter\") , \"source\", \"processor\", \"\", \"\") , \"id\", \"-\", \"source\", \"target\")",
-    "startOffsetSeconds": 300,
-    "stepSeconds": 60
-  },
-  {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0330_rate_family_aggregation_selector",
@@ -761,6 +1038,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0057_rate_family_aggregation_selector",
@@ -769,6 +1050,10 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0053_rate_family_vector_matching_aggregation_selector",
@@ -777,6 +1062,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0447_histogram_rate_family_aggregation_selector",
@@ -785,6 +1075,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0448_histogram_rate_family_aggregation_selector",
@@ -793,6 +1088,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0646_histogram_rate_family_aggregation_selector",
@@ -801,6 +1101,11 @@
     "stepSeconds": 60
   },
   {
+    "datasetVariants": [
+      "baseline",
+      "resets_gaps",
+      "histogram_burst"
+    ],
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
     "name": "draft_cand_0650_histogram_rate_family_aggregation_selector",

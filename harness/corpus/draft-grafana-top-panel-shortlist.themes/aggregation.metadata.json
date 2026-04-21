@@ -1,8 +1,21 @@
 {
+  "datasetVariantCounts": {
+    "baseline": 67,
+    "churn_stale": 2,
+    "histogram_burst": 22,
+    "resets_gaps": 65
+  },
   "entries": [
     {
       "candidateId": "cand-0014",
       "dashboardCount": 6,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total{instance=~\"a\"}[5m]))",
       "exampleSources": [
         {
@@ -154,6 +167,15 @@
     {
       "candidateId": "cand-0043",
       "dashboardCount": 3,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{instance=~\"a\"}[5m])) by(le, job))",
       "exampleSources": [
         {
@@ -310,6 +332,15 @@
     {
       "candidateId": "cand-0060",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m])) by(le))",
       "exampleSources": [
         {
@@ -474,6 +505,15 @@
     {
       "candidateId": "cand-0074",
       "dashboardCount": 2,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{instance=~\"a\"}[5m])) by(le))",
       "exampleSources": [
         {
@@ -622,6 +662,13 @@
     {
       "candidateId": "cand-0031",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total{pod=~\"api-a\",job=~\"api\"}[5m])) by(pod)",
       "exampleSources": [
         {
@@ -786,6 +833,15 @@
     {
       "candidateId": "cand-0160",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "histogram_quantile(0.50, sum by(job, le) (rate(harness_request_duration_seconds_bucket{job=~\"api\"}[60s]))) * 1",
       "exampleSources": [
         {
@@ -915,6 +971,15 @@
     {
       "candidateId": "cand-0219",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "histogram_quantile(0.50, sum(irate(harness_request_duration_seconds_bucket{instance=~\"a\",job=~\"api\"}[5m])) by(le)) * 1",
       "exampleSources": [
         {
@@ -1032,6 +1097,15 @@
     {
       "candidateId": "cand-0159",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "histogram_quantile(0.5, sum by(le) (rate(harness_request_duration_seconds_bucket[5m])))",
       "exampleSources": [
         {
@@ -1147,6 +1221,13 @@
     {
       "candidateId": "cand-0054",
       "dashboardCount": 2,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum by(namespace) (rate(harness_requests_total{namespace=~\"blue\"}[5m]))",
       "exampleSources": [
         {
@@ -1296,6 +1377,13 @@
     {
       "candidateId": "cand-0090",
       "dashboardCount": 2,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "- sum(rate(harness_requests_total{job=\"api\"}[5m]))",
       "exampleSources": [
         {
@@ -1471,6 +1559,13 @@
     {
       "candidateId": "cand-0087",
       "dashboardCount": 2,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total{instance=~\"a\"}[5m])) by(instance, pod)",
       "exampleSources": [
         {
@@ -1622,6 +1717,13 @@
     {
       "candidateId": "cand-0088",
       "dashboardCount": 2,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total{job=\"api\"}[5m]))",
       "exampleSources": [
         {
@@ -1796,6 +1898,13 @@
     {
       "candidateId": "cand-0106",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "- sum(rate(harness_requests_total{namespace=\"blue\",pod=~\"api-a\",job=\"api\"}[5m]))",
       "exampleSources": [
         {
@@ -1949,6 +2058,13 @@
     {
       "candidateId": "cand-0107",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "- sum(rate(harness_requests_total{pod=~\"api-a\",job=~\"api\"}[5m])) by(pod)",
       "exampleSources": [
         {
@@ -2098,6 +2214,13 @@
     {
       "candidateId": "cand-0148",
       "dashboardCount": 2,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total{instance=~\"a\"}[5m])) by(pod)",
       "exampleSources": [
         {
@@ -2246,6 +2369,13 @@
     {
       "candidateId": "cand-0095",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum by(job, instance) (rate(harness_requests_total{job=~\"api\",instance=~\"a\"}[1m]))",
       "exampleSources": [
         {
@@ -2387,6 +2517,13 @@
     {
       "candidateId": "cand-0144",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total{namespace=\"blue\",pod=~\"api-a\",job=\"api\"}[5m]))",
       "exampleSources": [
         {
@@ -2539,6 +2676,13 @@
     {
       "candidateId": "cand-0145",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total{job=\"api\",namespace=~\"blue\",pod=~\"api-a\"}[5m])) by(pod)",
       "exampleSources": [
         {
@@ -2691,6 +2835,13 @@
     {
       "candidateId": "cand-0167",
       "dashboardCount": 2,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum (rate(harness_requests_total{job=\"api\"}[5m]))",
       "exampleSources": [
         {
@@ -2821,6 +2972,13 @@
     {
       "candidateId": "cand-0284",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum((8 * rate(harness_requests_total{job=\"api\",namespace=\"blue\"}[5m]))) by(pod)",
       "exampleSources": [
         {
@@ -2938,6 +3096,13 @@
     {
       "candidateId": "cand-0285",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum((8 * rate(harness_requests_total{job=\"api\",namespace=~\"blue\",pod=~\"api-a\"}[5m])))",
       "exampleSources": [
         {
@@ -3059,6 +3224,13 @@
     {
       "candidateId": "cand-0286",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum((8 * rate(harness_requests_total{job=\"api\",namespace=~\"blue\",pod=~\"api-a\"}[5m]))) by(pod)",
       "exampleSources": [
         {
@@ -3180,6 +3352,13 @@
     {
       "candidateId": "cand-0295",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(increase(harness_requests_total{job=\"api\"}[5m])) by(namespace) > 0",
       "exampleSources": [
         {
@@ -3295,6 +3474,13 @@
     {
       "candidateId": "cand-0326",
       "dashboardCount": 2,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total[5m])) by(instance)",
       "exampleSources": [
         {
@@ -3389,6 +3575,13 @@
     {
       "candidateId": "cand-0331",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total{job=\"api\"}[5m])) by(instance)",
       "exampleSources": [
         {
@@ -3515,6 +3708,13 @@
     {
       "candidateId": "cand-0319",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total{namespace=~\"blue\",service=~\"api\"}[5m])) by(namespace, service, instance)",
       "exampleSources": [
         {
@@ -3612,6 +3812,13 @@
     {
       "candidateId": "cand-0369",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "- sum(rate(harness_requests_total{job=\"api\"}[5m])) by(instance)",
       "exampleSources": [
         {
@@ -3723,6 +3930,13 @@
     {
       "candidateId": "cand-0372",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "- sum(rate(harness_requests_total{job=\"api\"}[5m]))",
       "exampleSources": [
         {
@@ -3820,6 +4034,13 @@
     {
       "candidateId": "cand-0594",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(irate(harness_request_duration_seconds_sum{instance=~\"a\",job=~\"api\"}[5m])) * 1 / sum(irate(harness_request_duration_seconds_count{instance=~\"a\",job=~\"api\"}[5m]))",
       "exampleSources": [
         {
@@ -3963,6 +4184,13 @@
     {
       "candidateId": "cand-0531",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum by(service) (rate (harness_requests_total[5m]))",
       "exampleSources": [
         {
@@ -4067,6 +4295,13 @@
     {
       "candidateId": "cand-0552",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum by(job) (rate(harness_requests_total[5m]))",
       "exampleSources": [
         {
@@ -4147,6 +4382,13 @@
     {
       "candidateId": "cand-0593",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(increase(harness_requests_total{job=~\"api\",namespace=~\"blue\"}[1m]))",
       "exampleSources": [
         {
@@ -4238,6 +4480,13 @@
     {
       "candidateId": "cand-0607",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total{job=~\"api\"}[5m])) by(instance)",
       "exampleSources": [
         {
@@ -4336,6 +4585,13 @@
     {
       "candidateId": "cand-0620",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total{namespace=~\"blue\"}[5m])) by(namespace)",
       "exampleSources": [
         {
@@ -4423,6 +4679,13 @@
     {
       "candidateId": "cand-0621",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total[5m]))",
       "exampleSources": [
         {
@@ -4503,6 +4766,13 @@
     {
       "candidateId": "cand-0661",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "topk(5, irate(harness_requests_total{namespace=~\"blue\",job=~\"api\"} [1m]))",
       "exampleSources": [
         {
@@ -4594,6 +4864,13 @@
     {
       "candidateId": "cand-0662",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "topk(5, irate(harness_requests_total [1m]))",
       "exampleSources": [
         {
@@ -4676,6 +4953,13 @@
     {
       "candidateId": "cand-0105",
       "dashboardCount": 2,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "(sum(rate(harness_requests_total{instance=~\"a\"}[5m])) - sum(rate(harness_requests_total{instance=~\"a\"}[5m]))) / sum(rate(harness_requests_total{instance=~\"a\"}[5m]))",
       "exampleSources": [
         {
@@ -4845,6 +5129,13 @@
     {
       "candidateId": "cand-0149",
       "dashboardCount": 2,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total{instance=~\"a\"}[5m])) / sum(rate(harness_requests_total{instance=~\"a\"}[5m]))",
       "exampleSources": [
         {
@@ -5010,6 +5301,13 @@
     {
       "candidateId": "cand-0203",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "avg(irate(harness_requests_total{namespace=~\"blue\",job=~\"api\"}[5m]) / (irate(harness_requests_total{namespace=~\"blue\",job=~\"api\"}[5m]) + irate(harness_requests_total{namespace=~\"blue\",job=~\"api\"}[5m]))) by(pod)",
       "exampleSources": [
         {
@@ -5177,6 +5475,8 @@
     {
       "candidateId": "cand-0040",
       "dashboardCount": 3,
+      "datasetVariantReasons": [],
+      "datasetVariants": null,
       "draftQuery": "sum by(pod) (harness_requests_total{namespace=~\"blue\",pod=~\"a\"})",
       "exampleSources": [
         {
@@ -5326,6 +5626,8 @@
     {
       "candidateId": "cand-0046",
       "dashboardCount": 3,
+      "datasetVariantReasons": [],
+      "datasetVariants": null,
       "draftQuery": "sum by(job) (harness_requests_total{job=~\"api\"})",
       "exampleSources": [
         {
@@ -5487,6 +5789,15 @@
     {
       "candidateId": "cand-0534",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s])) / sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s]))",
       "exampleSources": [
         {
@@ -5619,6 +5930,13 @@
     {
       "candidateId": "cand-0513",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "round(sum(rate(harness_request_duration_seconds_sum{pod=~\"api-a\",job=~\"api\"}[5m]) / rate(harness_request_duration_seconds_count{pod=~\"api-a\",job=~\"api\"}[5m])) by(pod))",
       "exampleSources": [
         {
@@ -5769,6 +6087,15 @@
     {
       "candidateId": "cand-0019",
       "dashboardCount": 2,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{instance=~\"a\"}[5m])) by(le))",
       "exampleSources": [
         {
@@ -5937,6 +6264,8 @@
     {
       "candidateId": "cand-0032",
       "dashboardCount": 2,
+      "datasetVariantReasons": [],
+      "datasetVariants": null,
       "draftQuery": "sum(harness_up{namespace=~\"blue\",job=\"api\"})",
       "exampleSources": [
         {
@@ -6093,6 +6422,13 @@
     {
       "candidateId": "cand-0009",
       "dashboardCount": 5,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total{instance=~\"a\"}[5m]))",
       "exampleSources": [
         {
@@ -6254,6 +6590,15 @@
     {
       "candidateId": "cand-0026",
       "dashboardCount": 2,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{instance=~\"a\"}[5m])) by(le))",
       "exampleSources": [
         {
@@ -6415,6 +6760,8 @@
     {
       "candidateId": "cand-0255",
       "dashboardCount": 1,
+      "datasetVariantReasons": [],
+      "datasetVariants": null,
       "draftQuery": "sum by(service) (harness_requests_total)",
       "exampleSources": [
         {
@@ -6532,6 +6879,15 @@
     {
       "candidateId": "cand-0416",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "staleness_and_churn_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "churn_stale"
+      ],
       "draftQuery": "avg_over_time(sum(irate(harness_requests_total{job=\"es-search\"}[5m]))[5m:])",
       "exampleSources": [
         {
@@ -6662,6 +7018,13 @@
     {
       "candidateId": "cand-0225",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "irate(sum by(pod) (harness_requests_total{namespace=~\"blue\",job=~\"api\"})[5m:])",
       "exampleSources": [
         {
@@ -6798,6 +7161,13 @@
     {
       "candidateId": "cand-0242",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "rate(sum(harness_requests_total{job=~\"api\",namespace=~\"blue\"})[5m:])",
       "exampleSources": [
         {
@@ -6934,6 +7304,8 @@
     {
       "candidateId": "cand-0408",
       "dashboardCount": 1,
+      "datasetVariantReasons": [],
+      "datasetVariants": null,
       "draftQuery": "avg(harness_up{namespace=~\"blue\"}) by(namespace) / avg(harness_requests_total{namespace=~\"blue\"}) by(namespace)",
       "exampleSources": [
         {
@@ -7049,6 +7421,8 @@
     {
       "candidateId": "cand-0554",
       "dashboardCount": 1,
+      "datasetVariantReasons": [],
+      "datasetVariants": null,
       "draftQuery": "sum by(namespace) (harness_requests_total{namespace=~\"blue\"}) - sum by(namespace) (harness_up{namespace=~\"blue\"})",
       "exampleSources": [
         {
@@ -7164,6 +7538,15 @@
     {
       "candidateId": "cand-0073",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "histogram_quantile(0.50, sum by(job, le) (rate(harness_request_duration_seconds_bucket{job=~\"api\"}[60s]))) * 1",
       "exampleSources": [
         {
@@ -7332,6 +7715,15 @@
     {
       "candidateId": "cand-0329",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]))",
       "exampleSources": [
         {
@@ -7489,6 +7881,13 @@
     {
       "candidateId": "cand-0477",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "staleness_and_churn_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "churn_stale"
+      ],
       "draftQuery": "max(max_over_time(harness_up{instance=~\"a\"}[60s]))",
       "exampleSources": [
         {
@@ -7576,6 +7975,15 @@
     {
       "candidateId": "cand-0059",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "histogram_quantile(0.50, sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m])) by(le))",
       "exampleSources": [
         {
@@ -7753,6 +8161,8 @@
     {
       "candidateId": "cand-0177",
       "dashboardCount": 3,
+      "datasetVariantReasons": [],
+      "datasetVariants": null,
       "draftQuery": "sum(harness_queue_depth)",
       "exampleSources": [
         {
@@ -7857,6 +8267,13 @@
     {
       "candidateId": "cand-0005",
       "dashboardCount": 3,
+      "datasetVariantReasons": [
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "histogram_burst"
+      ],
       "draftQuery": "sum (harness_request_duration_seconds_sum{namespace=\"blue\"})",
       "exampleSources": [
         {
@@ -8016,6 +8433,15 @@
     {
       "candidateId": "cand-0622",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\"}[5m]))",
       "exampleSources": [
         {
@@ -8157,6 +8583,8 @@
     {
       "candidateId": "cand-0168",
       "dashboardCount": 1,
+      "datasetVariantReasons": [],
+      "datasetVariants": null,
       "draftQuery": "sum by(service) (harness_queue_depth{job=\"kube-state-metrics\",service=~\"api\",namespace=\"blue\"})",
       "exampleSources": [
         {
@@ -8287,206 +8715,17 @@
       ]
     },
     {
-      "candidateId": "cand-0152",
-      "dashboardCount": 3,
-      "draftQuery": "((1 - sum (rate(harness_requests_total{job=\"node-exporter\",instance=\"a\"}[5m]))) / group_left count (harness_requests_total{job=\"node-exporter\",instance=\"a\"}))",
-      "exampleSources": [
-        {
-          "dashboard_title": "Node Exporter / MacOS",
-          "dashboard_uid": "629701ea43bf69291922ea45f4a87d37",
-          "file_path": "scratch/grafana-dashboards/Kubernetes meta/629701ea43bf69291922ea45f4a87d37-Node Exporter _ MacOS.json",
-          "kind": "panel_target",
-          "panel_id": 2,
-          "panel_path": [
-            "CPU Usage"
-          ],
-          "panel_title": "CPU Usage",
-          "ref_id": null
-        },
-        {
-          "dashboard_title": "Node Exporter / Nodes",
-          "dashboard_uid": "7d57716318ee0dddbac5a7f451fb7753",
-          "file_path": "scratch/grafana-dashboards/Kubernetes meta/7d57716318ee0dddbac5a7f451fb7753-Node Exporter _ Nodes.json",
-          "kind": "panel_target",
-          "panel_id": 2,
-          "panel_path": [
-            "CPU Usage"
-          ],
-          "panel_title": "CPU Usage",
-          "ref_id": null
-        },
-        {
-          "dashboard_title": "Node Exporter / AIX",
-          "dashboard_uid": "7e0a61e486f727d763fb1d86fdd629c2",
-          "file_path": "scratch/grafana-dashboards/Kubernetes meta/7e0a61e486f727d763fb1d86fdd629c2-Node Exporter _ AIX.json",
-          "kind": "panel_target",
-          "panel_id": 2,
-          "panel_path": [
-            "CPU Usage"
-          ],
-          "panel_title": "CPU Usage",
-          "ref_id": null
-        }
-      ],
-      "families": [
-        "aggregation",
-        "binary_arithmetic",
-        "panel_query",
-        "range_selector",
-        "rate_family",
-        "selector",
-        "vector_matching"
-      ],
-      "groupingLabelChanges": [
-        {
-          "action": "unmapped",
-          "keyword": "without",
-          "kind": "grouping_label",
-          "source": "mode"
-        },
-        {
-          "action": "unmapped",
-          "keyword": "ignoring",
-          "kind": "grouping_label",
-          "source": "cpu"
-        },
-        {
-          "action": "unmapped",
-          "keyword": "without",
-          "kind": "grouping_label",
-          "source": "cpu"
-        },
-        {
-          "action": "unmapped",
-          "keyword": "without",
-          "kind": "grouping_label",
-          "source": "mode"
-        }
-      ],
-      "labelValuesChanges": [],
-      "mappingConfidence": 0.8,
-      "metricMappings": [
-        {
-          "alternatives": [
-            {
-              "harnessMetric": "harness_requests_total",
-              "reasons": [
-                "source_metric_has_total_suffix",
-                "query_uses_rate_family_without_histogram"
-              ],
-              "score": 12.0
-            },
-            {
-              "harnessMetric": "harness_queue_depth",
-              "reasons": [
-                "generic_gauge_fallback"
-              ],
-              "score": 0.5
-            },
-            {
-              "harnessMetric": "harness_disappearing_gauge",
-              "reasons": [],
-              "score": 0.0
-            }
-          ],
-          "chosenHarnessMetric": "harness_requests_total",
-          "confidence": 0.95,
-          "reasons": [
-            "source_metric_has_total_suffix",
-            "query_uses_rate_family_without_histogram"
-          ],
-          "sourceMetric": "node_cpu_seconds_total"
-        }
-      ],
-      "name": "draft_cand_0152_rate_family_vector_matching_aggregation_selector",
-      "occurrenceCount": 3,
-      "originalRepresentativeQuery": "( (1 - sum without (mode) (rate(node_cpu_seconds_total{job=\"node-exporter\", mode=~\"idle|iowait|steal\", instance=\"$instance\", cluster=~\"$cluster\"}[$__rate_interval]))) / ignoring(cpu) group_left count without (cpu, mode) (node_cpu_seconds_total{job=\"node-exporter\", mode=\"idle\", instance=\"$instance\", cluster=~\"$cluster\"}) )",
-      "rank": 79,
-      "retargetingHint": "requires_counter_fixture",
-      "reviewNotes": [
-        "query_contains_unmapped_labels_after_initial_rewrite",
-        "draft_runnable_query_required_dropping_unmapped_labels"
-      ],
-      "score": 102.7,
-      "selectorLabelChanges": [
-        {
-          "action": "unmapped",
-          "kind": "selector_label",
-          "source": "mode"
-        },
-        {
-          "action": "mapped",
-          "kind": "selector_label",
-          "source": "cluster",
-          "target": "job"
-        },
-        {
-          "action": "conflict_dropped",
-          "dropped": {
-            "operator": "=~",
-            "value": "\"$cluster\""
-          },
-          "kept": {
-            "operator": "=",
-            "value": "\"node-exporter\""
-          },
-          "kind": "selector_label",
-          "source": "cluster",
-          "target": "job"
-        },
-        {
-          "action": "unmapped",
-          "kind": "selector_label",
-          "source": "mode"
-        },
-        {
-          "action": "mapped",
-          "kind": "selector_label",
-          "source": "cluster",
-          "target": "job"
-        },
-        {
-          "action": "conflict_dropped",
-          "dropped": {
-            "operator": "=~",
-            "value": "\"$cluster\""
-          },
-          "kept": {
-            "operator": "=",
-            "value": "\"node-exporter\""
-          },
-          "kind": "selector_label",
-          "source": "cluster",
-          "target": "job"
-        }
-      ],
-      "shapeFingerprint": "( ( <num> - sum without ( <id> ) ( rate ( <id> { <id> = <str> , <id> = ~ <str> , <id> = <str> , <id> = ~ <str> } [ <var> ] ) ) ) / ignoring ( <id> ) group_left count without ( <id> , <id> ) ( <id> { <id> = <str> , <id> = <str> , <id> = <str> , <id> = ~ <str> } ) )",
-      "sourceCount": 3,
-      "tier": "strong_candidate",
-      "topQueryVariants": [
-        {
-          "count": 3,
-          "query": "( (1 - sum without (mode) (rate(node_cpu_seconds_total{job=\"node-exporter\", mode=~\"idle|iowait|steal\", instance=\"$instance\", cluster=~\"$cluster\"}[$__rate_interval]))) / ignoring(cpu) group_left count without (cpu, mode) (node_cpu_seconds_total{job=\"node-exporter\", mode=\"idle\", instance=\"$instance\", cluster=~\"$cluster\"}) )"
-        }
-      ],
-      "variableReplacements": [
-        {
-          "replacement": "a",
-          "variable": "instance"
-        },
-        {
-          "replacement": "5m",
-          "variable": "__rate_interval"
-        },
-        {
-          "replacement": "a",
-          "variable": "instance"
-        }
-      ]
-    },
-    {
       "candidateId": "cand-0037",
       "dashboardCount": 3,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "sum(rate(harness_requests_total{job=\"kubelet\",namespace=~\".+\"}[5m])) by(namespace)",
       "exampleSources": [
         {
@@ -8665,6 +8904,8 @@
     {
       "candidateId": "cand-0202",
       "dashboardCount": 2,
+      "datasetVariantReasons": [],
+      "datasetVariants": null,
       "draftQuery": "avg(harness_up)",
       "exampleSources": [
         {
@@ -8753,6 +8994,15 @@
     {
       "candidateId": "cand-0113",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "histogram_quantile(0.99, sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=~\"a\"}[5m])) by(instance, le))",
       "exampleSources": [
         {
@@ -8918,6 +9168,13 @@
     {
       "candidateId": "cand-0023",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total[60s]) * on(instance, job) group_left harness_up{namespace=\"blue\"})",
       "exampleSources": [
         {
@@ -9132,6 +9389,8 @@
     {
       "candidateId": "cand-0214",
       "dashboardCount": 1,
+      "datasetVariantReasons": [],
+      "datasetVariants": null,
       "draftQuery": "count(count by(instance) (harness_up{job=\"api\"}))",
       "exampleSources": [
         {
@@ -9240,6 +9499,8 @@
     {
       "candidateId": "cand-0474",
       "dashboardCount": 1,
+      "datasetVariantReasons": [],
+      "datasetVariants": null,
       "draftQuery": "max(harness_queue_depth{namespace=~\"blue\",pod=~\"a\"} - harness_up{namespace=~\"blue\",pod=~\"a\"})",
       "exampleSources": [
         {
@@ -9363,6 +9624,15 @@
     {
       "candidateId": "cand-0161",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "histogram_quantile(0.99, sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=~\"a\"}[5m])) by(instance, le))",
       "exampleSources": [
         {
@@ -9531,6 +9801,15 @@
     {
       "candidateId": "cand-0221",
       "dashboardCount": 2,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "histogram_quantile(0.90, sum(rate(harness_request_duration_seconds_bucket{instance=\"a\"}[5m])) by(le))",
       "exampleSources": [
         {
@@ -9647,6 +9926,13 @@
     {
       "candidateId": "cand-0322",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total{namespace=~\"blue\",pod=~\"a\"}[5m])) by(pod)",
       "exampleSources": [
         {
@@ -9748,155 +10034,10 @@
       ]
     },
     {
-      "candidateId": "cand-0257",
-      "dashboardCount": 1,
-      "draftQuery": "sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s])) / group_left sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s]))",
-      "exampleSources": [
-        {
-          "dashboard_title": "Thanos / Sidecar",
-          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
-          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
-          "kind": "panel_target",
-          "panel_id": 2,
-          "panel_path": [
-            "Errors"
-          ],
-          "panel_title": "Errors",
-          "ref_id": "A"
-        },
-        {
-          "dashboard_title": "Thanos / Sidecar",
-          "dashboard_uid": "b19644bfbf0ec1e108027cce268d99f7",
-          "file_path": "scratch/grafana-dashboards/Thanos/b19644bfbf0ec1e108027cce268d99f7-Thanos _ Sidecar.json",
-          "kind": "panel_target",
-          "panel_id": 5,
-          "panel_path": [
-            "Errors"
-          ],
-          "panel_title": "Errors",
-          "ref_id": "A"
-        }
-      ],
-      "families": [
-        "aggregation",
-        "binary_arithmetic",
-        "panel_query",
-        "range_selector",
-        "rate_family",
-        "selector",
-        "vector_matching"
-      ],
-      "groupingLabelChanges": [
-        {
-          "action": "unmapped",
-          "keyword": "by",
-          "kind": "grouping_label",
-          "source": "grpc_code"
-        },
-        {
-          "action": "unmapped",
-          "keyword": "ignoring",
-          "kind": "grouping_label",
-          "source": "grpc_code"
-        }
-      ],
-      "labelValuesChanges": [],
-      "mappingConfidence": 0.8,
-      "metricMappings": [
-        {
-          "alternatives": [
-            {
-              "harnessMetric": "harness_requests_total",
-              "reasons": [
-                "source_metric_has_total_suffix",
-                "query_uses_rate_family_without_histogram"
-              ],
-              "score": 12.0
-            },
-            {
-              "harnessMetric": "harness_queue_depth",
-              "reasons": [
-                "generic_gauge_fallback"
-              ],
-              "score": 0.5
-            },
-            {
-              "harnessMetric": "harness_disappearing_gauge",
-              "reasons": [],
-              "score": 0.0
-            }
-          ],
-          "chosenHarnessMetric": "harness_requests_total",
-          "confidence": 0.95,
-          "reasons": [
-            "source_metric_has_total_suffix",
-            "query_uses_rate_family_without_histogram"
-          ],
-          "sourceMetric": "grpc_server_handled_total"
-        }
-      ],
-      "name": "draft_cand_0257_rate_family_vector_matching_aggregation_selector",
-      "occurrenceCount": 2,
-      "originalRepresentativeQuery": "sum by (job, grpc_code) (rate(grpc_server_handled_total{grpc_code=~\"Unknown|ResourceExhausted|Internal|Unavailable|DataLoss\",job=~\"$job\", grpc_type=\"unary\"}[$interval])) / ignoring (grpc_code) group_left() sum by (job) (rate(grpc_server_handled_total{job=~\"$job\", grpc_type=\"unary\"}[$interval]))",
-      "rank": 91,
-      "retargetingHint": "requires_counter_fixture",
-      "reviewNotes": [
-        "query_contains_unmapped_labels_after_initial_rewrite",
-        "draft_runnable_query_required_dropping_unmapped_labels"
-      ],
-      "score": 99.447,
-      "selectorLabelChanges": [
-        {
-          "action": "unmapped",
-          "kind": "selector_label",
-          "source": "grpc_code"
-        },
-        {
-          "action": "unmapped",
-          "kind": "selector_label",
-          "source": "grpc_type"
-        },
-        {
-          "action": "unmapped",
-          "kind": "selector_label",
-          "source": "grpc_type"
-        }
-      ],
-      "shapeFingerprint": "sum by ( <id> , <id> ) ( rate ( <id> { <id> = ~ <str> , <id> = ~ <str> , <id> = <str> } [ <var> ] ) ) / ignoring ( <id> ) group_left ( ) sum by ( <id> ) ( rate ( <id> { <id> = ~ <str> , <id> = <str> } [ <var> ] ) )",
-      "sourceCount": 1,
-      "tier": "strong_candidate",
-      "topQueryVariants": [
-        {
-          "count": 1,
-          "query": "sum by (job, grpc_code) (rate(grpc_server_handled_total{grpc_code=~\"Unknown|ResourceExhausted|Internal|Unavailable|DataLoss\",job=~\"$job\", grpc_type=\"unary\"}[$interval])) / ignoring (grpc_code) group_left() sum by (job) (rate(grpc_server_handled_total{job=~\"$job\", grpc_type=\"unary\"}[$interval]))"
-        },
-        {
-          "count": 1,
-          "query": "sum by (job, grpc_code) (rate(grpc_server_handled_total{grpc_code=~\"Unknown|ResourceExhausted|Internal|Unavailable|DataLoss\",job=~\"$job\", grpc_type=\"server_stream\"}[$interval])) / ignoring (grpc_code) group_left() sum by (job) (rate(grpc_server_handled_total{job=~\"$job\", grpc_type=\"server_stream\"}[$interval]))"
-        }
-      ],
-      "variableReplacements": [
-        {
-          "replacement": "api",
-          "variable": "job"
-        },
-        {
-          "replacement": "60s",
-          "variable": "interval"
-        },
-        {
-          "replacement": "api",
-          "variable": "job"
-        },
-        {
-          "replacement": "60s",
-          "variable": "interval"
-        }
-      ]
-    },
-    {
       "candidateId": "cand-0528",
       "dashboardCount": 1,
+      "datasetVariantReasons": [],
+      "datasetVariants": null,
       "draftQuery": "sum by(service) (harness_queue_depth{job=\"kube-state-metrics\",service=~\"api\",namespace=~\"blue\"})",
       "exampleSources": [
         {
@@ -9995,193 +10136,15 @@
       ]
     },
     {
-      "candidateId": "cand-0151",
-      "dashboardCount": 1,
-      "draftQuery": "# receivers -> processor label_join(label_replace(label_join((sum(rate(harness_requests_total{job=\"api\"}[5m])) by(service)) ,\"source\", \"-rcv-\", \"transport\", \"receiver\") ,\"target\", \"processor\", \"\", \"\") , \"id\", \"-\", \"source\", \"target\") # processor -> exporters or label_join(label_replace(label_join((sum(rate(harness_requests_total{job=\"api\"}[5m])) by(service)) , \"target\", \"-exp-\", \"transport\", \"exporter\") , \"source\", \"processor\", \"\", \"\") , \"id\", \"-\", \"source\", \"target\")",
-      "exampleSources": [
-        {
-          "dashboard_title": "OpenTelemetry Collector",
-          "dashboard_uid": "BKf2sowmj",
-          "file_path": "scratch/grafana-dashboards/Monitoring meta/BKf2sowmj-OpenTelemetry Collector.json",
-          "kind": "panel_target",
-          "panel_id": 58,
-          "panel_path": [
-            "Spans Flow"
-          ],
-          "panel_title": "Spans Flow",
-          "ref_id": "edges"
-        },
-        {
-          "dashboard_title": "OpenTelemetry Collector",
-          "dashboard_uid": "BKf2sowmj",
-          "file_path": "scratch/grafana-dashboards/Monitoring meta/BKf2sowmj-OpenTelemetry Collector.json",
-          "kind": "panel_target",
-          "panel_id": 60,
-          "panel_path": [
-            "Metric Points Flow"
-          ],
-          "panel_title": "Metric Points Flow",
-          "ref_id": "edges"
-        },
-        {
-          "dashboard_title": "OpenTelemetry Collector",
-          "dashboard_uid": "BKf2sowmj",
-          "file_path": "scratch/grafana-dashboards/Monitoring meta/BKf2sowmj-OpenTelemetry Collector.json",
-          "kind": "panel_target",
-          "panel_id": 61,
-          "panel_path": [
-            "Log Records Flow"
-          ],
-          "panel_title": "Log Records Flow",
-          "ref_id": "edges"
-        }
-      ],
-      "families": [
-        "aggregation",
-        "binary_arithmetic",
-        "comparison",
-        "label_mutation",
-        "panel_query",
-        "range_selector",
-        "rate_family",
-        "selector",
-        "set_operator"
-      ],
-      "groupingLabelChanges": [
-        {
-          "action": "mapped",
-          "keyword": "by",
-          "kind": "grouping_label",
-          "source": "receiver",
-          "target": "service"
-        },
-        {
-          "action": "mapped",
-          "keyword": "by",
-          "kind": "grouping_label",
-          "source": "exporter",
-          "target": "service"
-        }
-      ],
-      "labelValuesChanges": [],
-      "mappingConfidence": 0.65,
-      "metricMappings": [
-        {
-          "alternatives": [
-            {
-              "harnessMetric": "harness_requests_total",
-              "reasons": [
-                "query_uses_rate_family_without_histogram"
-              ],
-              "score": 4.0
-            },
-            {
-              "harnessMetric": "harness_queue_depth",
-              "reasons": [
-                "generic_gauge_fallback"
-              ],
-              "score": 0.5
-            },
-            {
-              "harnessMetric": "harness_disappearing_gauge",
-              "reasons": [],
-              "score": 0.0
-            }
-          ],
-          "chosenHarnessMetric": "harness_requests_total",
-          "confidence": 0.65,
-          "reasons": [
-            "query_uses_rate_family_without_histogram"
-          ],
-          "sourceMetric": "otelcol_receiver_accepted_spans"
-        },
-        {
-          "alternatives": [
-            {
-              "harnessMetric": "harness_requests_total",
-              "reasons": [
-                "query_uses_rate_family_without_histogram"
-              ],
-              "score": 4.0
-            },
-            {
-              "harnessMetric": "harness_queue_depth",
-              "reasons": [
-                "generic_gauge_fallback"
-              ],
-              "score": 0.5
-            },
-            {
-              "harnessMetric": "harness_disappearing_gauge",
-              "reasons": [],
-              "score": 0.0
-            }
-          ],
-          "chosenHarnessMetric": "harness_requests_total",
-          "confidence": 0.65,
-          "reasons": [
-            "query_uses_rate_family_without_histogram"
-          ],
-          "sourceMetric": "otelcol_exporter_sent_spans"
-        }
-      ],
-      "name": "draft_cand_0151_rate_family_aggregation_selector",
-      "occurrenceCount": 3,
-      "originalRepresentativeQuery": "# receivers -> processor label_join( label_replace( label_join( (sum(rate(otelcol_receiver_accepted_spans${suffix_total}{job=\"$job\"}[$__rate_interval])) by (receiver)) ,\"source\", \"-rcv-\", \"transport\", \"receiver\" ) ,\"target\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" ) # processor -> exporters or label_join( label_replace( label_join( (sum(rate(otelcol_exporter_sent_spans${suffix_total}{job=\"$job\"}[$__rate_interval])) by (exporter)) , \"target\", \"-exp-\", \"transport\", \"exporter\" ) , \"source\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" )",
-      "rank": 93,
-      "retargetingHint": "requires_counter_fixture",
-      "reviewNotes": [
-        "metric_mapping_is_lossy_many_source_metrics_to_one_harness_metric"
-      ],
-      "score": 99.2,
-      "selectorLabelChanges": [],
-      "shapeFingerprint": "# <id> - > <id> label_join ( label_replace ( label_join ( ( sum ( rate ( <id> <var> { <id> = <str> } [ <var> ] ) ) by ( <id> ) ) , <str> , <str> , <str> , <str> ) , <str> , <str> , <str> , <str> ) , <str> , <str> , <str> , <str> ) # <id> - > <id> or label_join ( label_replace ( label_join ( ( sum ( rate ( <id> <var> { <id> = <str> } [ <var> ] ) ) by ( <id> ) ) , <str> , <str> , <str> , <str> ) , <str> , <str> , <str> , <str> ) , <str> , <str> , <str> , <str> )",
-      "sourceCount": 3,
-      "tier": "strong_candidate",
-      "topQueryVariants": [
-        {
-          "count": 1,
-          "query": "# receivers -> processor label_join( label_replace( label_join( (sum(rate(otelcol_receiver_accepted_spans${suffix_total}{job=\"$job\"}[$__rate_interval])) by (receiver)) ,\"source\", \"-rcv-\", \"transport\", \"receiver\" ) ,\"target\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" ) # processor -> exporters or label_join( label_replace( label_join( (sum(rate(otelcol_exporter_sent_spans${suffix_total}{job=\"$job\"}[$__rate_interval])) by (exporter)) , \"target\", \"-exp-\", \"transport\", \"exporter\" ) , \"source\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" )"
-        },
-        {
-          "count": 1,
-          "query": "# receivers -> processor label_join( label_replace( label_join( (sum(rate(otelcol_receiver_accepted_metric_points${suffix_total}{job=\"$job\"}[$__rate_interval])) by (receiver)) , \"source\", \"-rcv-\", \"transport\", \"receiver\" ) , \"target\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" ) # processor -> exporters or label_join( label_replace( label_join( (sum(rate(otelcol_exporter_sent_metric_points${suffix_total}{job=\"$job\"}[$__rate_interval])) by (exporter)) , \"target\", \"-exp-\", \"transport\", \"exporter\" ) , \"source\", \"processor\", \"\", \"\" ) , \"id\", \"-\", \"source\", \"target\" )"
-        },
-        {
-          "count": 1,
-          "query": "# receivers -> processor label_join( label_replace( label_join( (sum(rate(otelcol_receiver_accepted_log_records${suffix_total}{job=\"$job\"}[$__rate_interval])) by (receiver)) , \"source\", \"-rcv-\", \"transport\", \"receiver\" ) , \"target\", \"processor\", \"\", \"\" ) , \"id\", \"-edg-\", \"source\", \"target\" ) # processor -> exporters or label_join( label_replace( label_join( (sum(rate(otelcol_exporter_sent_log_records${suffix_total}{job=\"$job\"}[$__rate_interval])) by (exporter)) ,\"target\",\"-exp-\",\"transport\",\"exporter\" ) ,\"source\",\"processor\",\"\",\"\" ) ,\"id\",\"-edg-\",\"source\",\"target\" )"
-        }
-      ],
-      "variableReplacements": [
-        {
-          "replacement": "",
-          "variable": "suffix_total"
-        },
-        {
-          "replacement": "api",
-          "variable": "job"
-        },
-        {
-          "replacement": "5m",
-          "variable": "__rate_interval"
-        },
-        {
-          "replacement": "",
-          "variable": "suffix_total"
-        },
-        {
-          "replacement": "api",
-          "variable": "job"
-        },
-        {
-          "replacement": "5m",
-          "variable": "__rate_interval"
-        }
-      ]
-    },
-    {
       "candidateId": "cand-0330",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_request_duration_seconds_count{job=\"api\",instance=\"a\"}[5m]) or vector(0)) / sum(rate(harness_request_duration_seconds_count{job=\"api\",instance=\"a\"}[5m]))",
       "exampleSources": [
         {
@@ -10316,6 +10279,13 @@
     {
       "candidateId": "cand-0057",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum(rate(harness_requests_total{job=\"kubelet\",namespace=\"blue\"}[5m])) by(pod)",
       "exampleSources": [
         {
@@ -10494,6 +10464,13 @@
     {
       "candidateId": "cand-0053",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps"
+      ],
       "draftQuery": "sum by(namespace) (rate(harness_requests_total{job=\"api\",namespace!=\"\"}[5m]) * on(job, namespace, pod) group_left topk by(job, namespace, pod) (1, max by(job, namespace, pod) (harness_up{job=\"api\"})))",
       "exampleSources": [
         {
@@ -10724,6 +10701,15 @@
     {
       "candidateId": "cand-0447",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "histogram_quantile(0.99, sum(rate(harness_request_duration_seconds_bucket{job=\"api\",instance=~\"a\"}[5m])) by(instance, le))",
       "exampleSources": [
         {
@@ -10866,6 +10852,15 @@
     {
       "candidateId": "cand-0448",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "histogram_quantile(0.99, sum(rate(harness_request_duration_seconds_bucket{job=\"apiserver\",instance=~\"a\"}[5m])) by(instance, le))",
       "exampleSources": [
         {
@@ -10993,6 +10988,15 @@
     {
       "candidateId": "cand-0646",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "topk(2, histogram_quantile(0.9, sum(rate(harness_request_duration_seconds_bucket{namespace=~\"blue\",service=~\"api\"}[60s])) by(le)))",
       "exampleSources": [
         {
@@ -11169,6 +11173,15 @@
     {
       "candidateId": "cand-0650",
       "dashboardCount": 1,
+      "datasetVariantReasons": [
+        "counter_reset_and_gap_coverage",
+        "histogram_burst_coverage"
+      ],
+      "datasetVariants": [
+        "baseline",
+        "resets_gaps",
+        "histogram_burst"
+      ],
       "draftQuery": "topk(2, histogram_quantile(0.9, sum(rate(harness_request_duration_seconds_bucket{namespace=~\"blue\",service=~\"api\"}[5m])) by(le)))",
       "exampleSources": [
         {
@@ -11337,6 +11350,6 @@
       ]
     }
   ],
-  "queryCount": 82,
+  "queryCount": 79,
   "theme": "aggregation"
 }

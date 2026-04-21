@@ -195,14 +195,6 @@
     "stepSeconds": 60
   },
   {
-    "endOffsetSeconds": 540,
-    "endpoint": "query_range",
-    "name": "draft_cand_0408_aggregation_selector",
-    "query": "avg(harness_up{namespace=~\"blue\"}) by(namespace) / avg(harness_requests_total{namespace=~\"blue\"}) by(namespace)",
-    "startOffsetSeconds": 300,
-    "stepSeconds": 60
-  },
-  {
     "datasetVariants": [
       "baseline",
       "resets_gaps"
@@ -211,14 +203,6 @@
     "endpoint": "query_range",
     "name": "draft_cand_0505_rate_family_selector",
     "query": "rate(harness_request_duration_seconds_sum{job=~\"api\",instance=~\"a\"}[5m]) / rate(harness_request_duration_seconds_count{job=~\"api\",instance=~\"a\"}[5m]) * 1e3",
-    "startOffsetSeconds": 300,
-    "stepSeconds": 60
-  },
-  {
-    "endOffsetSeconds": 540,
-    "endpoint": "query_range",
-    "name": "draft_cand_0554_aggregation_selector",
-    "query": "sum by(namespace) (harness_requests_total{namespace=~\"blue\"}) - sum by(namespace) (harness_up{namespace=~\"blue\"})",
     "startOffsetSeconds": 300,
     "stepSeconds": 60
   },
@@ -270,14 +254,6 @@
     "endpoint": "query_range",
     "name": "draft_cand_0023_rate_family_vector_matching_aggregation_selector",
     "query": "sum(rate(harness_requests_total[60s]) * on(instance, job) group_left harness_up{namespace=\"blue\"})",
-    "startOffsetSeconds": 300,
-    "stepSeconds": 60
-  },
-  {
-    "endOffsetSeconds": 540,
-    "endpoint": "query_range",
-    "name": "draft_cand_0474_aggregation_selector",
-    "query": "max(harness_queue_depth{namespace=~\"blue\",pod=~\"a\"} - harness_up{namespace=~\"blue\",pod=~\"a\"})",
     "startOffsetSeconds": 300,
     "stepSeconds": 60
   },

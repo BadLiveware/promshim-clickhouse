@@ -141,8 +141,24 @@ As of 2026-04-21:
     - `step_eq_range`
   - when combined with `rangeOffsets`, variant names are joined
     (for example `boundary/step_eq_range`)
-- A small focused example corpus now exists at
-  `harness/corpus/phase12-harness-variants.json`.
+- **Layer 3 is now delivered as an initial multi-dataset slice**:
+  - the seed job may be asked to generate multiple dataset shapes with
+    `PROM_HARNESS_DATASET_VARIANTS` (or `./scripts/run-harness.sh --dataset-variants ...`)
+  - compare results keep per-row `datasetVariant` metadata while preserving
+    legacy single-dataset behavior by default
+  - the currently seeded dataset shapes are:
+    - `baseline`
+    - `resets_gaps` (counter reset + post-midpoint gaps)
+    - `churn_stale` (series churn / staleness)
+    - `histogram_burst` (post-midpoint histogram burst)
+  - corpus rows may now select or exclude dataset shapes with:
+    - `datasetVariants`
+    - `excludeDatasetVariants`
+- Focused / broader example corpora now exist at:
+  - `harness/corpus/phase12-harness-variants.json`
+  - `harness/corpus/phase12-dataset-variants.json`
+  - `harness/corpus/draft-grafana-top-panel-shortlist.dataset-variants.json`
+  - themed splits under `harness/corpus/draft-grafana-top-panel-shortlist.dataset-variants.themes/`
 - **Task 5 triage clustering is now delivered**:
   - repeated non-ok rows with the same base query + severity + bucket +
     detail are tagged with `causeCluster` / `causeClusterSize`
@@ -159,6 +175,7 @@ As of 2026-04-21:
   native range-function lowering. Layer 2 should land with or before the
   first `rate` / `increase` / `delta` native lowering.
 - **Phase 7 shadow mode**: Layer 1 and Layer 2 results become the
-  shadow-mode input corpus. Layer 3 becomes worth building only if
-  shadow-mode divergences point at counter-reset or staleness behavior
-  that the single seeded dataset cannot reproduce.
+  shadow-mode input corpus. Layer 3 is now available for focused
+  counter-reset, churn/staleness, and histogram-burst checks when
+  shadow-mode divergences or dashboard-derived shortlist rows suggest
+  those behaviors are relevant.

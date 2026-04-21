@@ -40,7 +40,15 @@ func GenerateDataset(cfg SeedConfig) generatedDataset {
 				timestamp := cfg.BaseTime.Add(time.Duration(i) * cfg.Step)
 				upValue := float64((i + len(job) + len(instance) + int(cfg.Seed%3)) % 2)
 				queueDepth := float64(10+i*2+len(job)+len(instance)) + rng.Float64()
+				if cfg.DatasetVariant == "resets_gaps" && i == cfg.Points/2 {
+					counter = float64((len(job) + len(instance)) % 3)
+				}
 				counter += float64(1 + ((i + len(job) + len(instance)) % 4))
+				gapPoint := cfg.DatasetVariant == "resets_gaps" && job == "api" && instance == "a" && i > cfg.Points/2 && i%2 == 0
+				staleAfterMidpoint := cfg.DatasetVariant == "churn_stale" && job == "worker" && instance == "b" && i >= cfg.Points/2
+				if cfg.DatasetVariant == "histogram_burst" && job == "api" && instance == "a" && i >= cfg.Points/2 {
+					queueDepth += 50
+				}
 
 				intervalCounts := []float64{
 					float64(1 + ((i + len(job)) % 3)),
@@ -48,6 +56,9 @@ func GenerateDataset(cfg SeedConfig) generatedDataset {
 					float64(1 + ((i + len(job) + len(instance)) % 3)),
 					float64(1 + ((i + int(cfg.Seed%5)) % 2)),
 					float64(1 + ((i + len(job) + int(cfg.Seed%7)) % 2)),
+				}
+				if cfg.DatasetVariant == "histogram_burst" && job == "api" && instance == "a" && i >= cfg.Points/2 {
+					intervalCounts = []float64{1, 1, 2, 6, 12}
 				}
 				running := 0.0
 				for bucketIndex, observations := range intervalCounts {
@@ -57,24 +68,28 @@ func GenerateDataset(cfg SeedConfig) generatedDataset {
 				histogramCount += running
 				histogramSum += intervalCounts[0]*0.05 + intervalCounts[1]*0.15 + intervalCounts[2]*0.35 + intervalCounts[3]*0.75 + intervalCounts[4]*1.5
 
-				builder.AddSample("harness_up", common, timestamp, upValue)
-				builder.AddSample("harness_queue_depth", common, timestamp, queueDepth)
-				builder.AddSample("harness_requests_total", common, timestamp, counter)
-				builder.AddSample("harness_request_duration_seconds_count", common, timestamp, histogramCount)
-				builder.AddSample("harness_request_duration_seconds_sum", common, timestamp, histogramSum)
-				if i%3 == 0 {
+				if !gapPoint && !staleAfterMidpoint {
+					builder.AddSample("harness_up", common, timestamp, upValue)
+					builder.AddSample("harness_queue_depth", common, timestamp, queueDepth)
+					builder.AddSample("harness_requests_total", common, timestamp, counter)
+					builder.AddSample("harness_request_duration_seconds_count", common, timestamp, histogramCount)
+					builder.AddSample("harness_request_duration_seconds_sum", common, timestamp, histogramSum)
+				}
+				if !gapPoint && !staleAfterMidpoint && i%3 == 0 {
 					builder.AddSample("harness_sparse_gauge", common, timestamp, float64(100+i+len(job)+len(instance)))
 				}
-				if i < 3 {
+				if i < 3 && !(cfg.DatasetVariant == "churn_stale" && job == "api" && instance == "a" && i == 2) {
 					builder.AddSample("harness_disappearing_gauge", common, timestamp, float64(i+1))
 				}
-				for bucketIndex, le := range bucketLEValues {
-					bucketLabels := make(map[string]string, len(common)+1)
-					for key, value := range common {
-						bucketLabels[key] = value
+				if !gapPoint && !staleAfterMidpoint {
+					for bucketIndex, le := range bucketLEValues {
+						bucketLabels := make(map[string]string, len(common)+1)
+						for key, value := range common {
+							bucketLabels[key] = value
+						}
+						bucketLabels["le"] = le
+						builder.AddSample("harness_request_duration_seconds_bucket", bucketLabels, timestamp, histogramBuckets[bucketIndex])
 					}
-					bucketLabels["le"] = le
-					builder.AddSample("harness_request_duration_seconds_bucket", bucketLabels, timestamp, histogramBuckets[bucketIndex])
 				}
 			}
 		}

@@ -1,41 +1,4 @@
 {
-  "nextId": 152,
-  "tasks": [
-    {
-      "id": "149",
-      "subject": "Update native-lowering plan index README",
-      "description": "Refresh `.pi/native-sql-lowering-plan/README.md` so it matches current reality: Phase 6b delivered for the current supported subset, later docs 11/12/13 completed, and the remaining work is rollout/retirement/coverage expansion rather than core architecture implementation.",
-      "status": "in_progress",
-      "activeForm": "Updating plan index README",
-      "metadata": {},
-      "blocks": [],
-      "blockedBy": [],
-      "createdAt": 1776789891017,
-      "updatedAt": 1776789910425
-    },
-    {
-      "id": "150",
-      "subject": "Implement Layer 3 harness dataset variants",
-      "description": "Add the optional Phase 12 Layer 3 harness support for multiple seeded dataset shapes while preserving current single-dataset behavior by default. Introduce a backward-compatible dataset variant marker/config, seed at least one additional shape that exercises resets/gaps/disappearing-series behavior, expand compare runs across dataset variants, and surface explicit dataset variant metadata in compare reports.",
-      "status": "pending",
-      "activeForm": "Implementing dataset variants",
-      "metadata": {},
-      "blocks": [],
-      "blockedBy": [],
-      "createdAt": 1776789900682,
-      "updatedAt": 1776789900682
-    },
-    {
-      "id": "151",
-      "subject": "Document and validate Layer 3 harness behavior",
-      "description": "Update `harness/README.md` and `.pi/native-sql-lowering-plan/12-harness-parametrization.md` to describe the new dataset-variant semantics, add focused tests/corpus/examples, and validate the harness runner plus report shape with a focused multi-dataset run.",
-      "status": "pending",
-      "activeForm": "Documenting dataset variants",
-      "metadata": {},
-      "blocks": [],
-      "blockedBy": [],
-      "createdAt": 1776789906466,
-      "updatedAt": 1776789906466
-    }
-  ]
+  "nextId": 182,
+  "tasks": []
 }

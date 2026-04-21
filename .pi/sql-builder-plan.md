@@ -32,6 +32,31 @@ Implementing that three-layer shape three times as `fmt.Sprintf` on
 `fmt.Sprintf` on `fmt.Sprintf`, with `{value}` substitution hopping
 between layers, is the thing this plan is meant to prevent.
 
+## Current execution status (2026-04-21)
+
+For the current promshim SQL-emission surface, this retrofit plan is now effectively complete.
+
+Completed in code and validated:
+
+- `internal/promshim/native/sqlb` exists with the planned builder/node surface, including the later-added `Join` source used by migrated callers
+- `internal/promshim/storage/sql.go` query builders, aggregation builders, aggregation helper composition, labels/label-values/series helpers, and series-tag helper assembly are on structural `sqlb` composition
+- `internal/promshim/storage/selector_sql.go` selector source builders are on structural `sqlb` composition, including instant/range/range-window paths and matched-series assembly
+- `internal/promshim/storage/join_sql.go` binary join query assembly and join/result-tag helper composition are on structural `sqlb` composition
+- `internal/promshim/native/renderer.go` source-wrapper and range-function wrapper query assembly are on structural `sqlb` composition, and `rangeFunctionValueExpr(...)` now uses `sqlb` expression construction for most structure while preserving the existing ClickHouse lambda spellings pinned by tests
+- legacy `{value}` / `{tags}` substitution has been removed from the migrated source-wrapper paths
+- the migrated promshim SQL files are now guarded by `internal/promshim/sql_builder_audit_test.go` against both legacy placeholder substitution and any reintroduction of `fmt.Sprintf` in those migrated files
+
+Final validation performed for this status:
+
+- `go test ./internal/promshim/...`
+- `./scripts/run-harness.sh --corpus native-lowering-starter.json --subjects shim`
+
+What remains is minor follow-up debt rather than core retrofit work:
+
+- static raw SQL literals still passed intentionally through `sqlb.RawSource` / `sqlb.RawLit` in a few places where introducing more nodes would not currently improve clarity
+- wider repo/process integration of the audit guard (for example, explicit CI wiring outside the test suite) if needed later
+- future coverage-plan work should continue consuming `sqlb` directly rather than reintroducing string-template assembly
+
 ## Scope — retrofit
 
 Introduce a small ClickHouse SQL builder package (default name

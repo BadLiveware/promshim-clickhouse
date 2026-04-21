@@ -1,0 +1,37 @@
+[
+  {
+    "name": "phase12_dataset_variants_selector_baseline_only",
+    "endpoint": "query",
+    "query": "harness_up{job=\"api\",instance=\"a\"}",
+    "timeOffsetSeconds": 540,
+    "datasetVariants": ["baseline"],
+    "subjects": ["shim"]
+  },
+  {
+    "name": "phase12_dataset_variants_rate_resets_gaps",
+    "endpoint": "query",
+    "query": "rate(harness_requests_total{job=\"api\",instance=\"a\"}[5m])",
+    "timeOffsetSeconds": 540,
+    "compareMode": "structural",
+    "datasetVariants": ["baseline", "resets_gaps"],
+    "excludeDatasetVariants": ["baseline"],
+    "subjects": ["shim"]
+  },
+  {
+    "name": "phase12_dataset_variants_absent_over_time_churn_stale",
+    "endpoint": "query",
+    "query": "absent_over_time(harness_up{job=\"worker\",instance=\"b\"}[4m])",
+    "timeOffsetSeconds": 540,
+    "datasetVariants": ["churn_stale"],
+    "subjects": ["shim"]
+  },
+  {
+    "name": "phase12_dataset_variants_histogram_burst_rate",
+    "endpoint": "query",
+    "query": "rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\",le=\"+Inf\"}[5m])",
+    "timeOffsetSeconds": 540,
+    "compareMode": "structural",
+    "datasetVariants": ["histogram_burst"],
+    "subjects": ["shim"]
+  }
+]

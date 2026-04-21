@@ -21,7 +21,7 @@ type corpusMetadata struct {
 func TestLoadQueryCorpusFixtures(t *testing.T) {
 	t.Parallel()
 
-	for _, fixture := range []string{"queries.json", "native-lowering-starter.json", "phase7-rollout.json", "phase12-harness-variants.json", "draft-grafana-top-panel-shortlist.json", "common-dashboard-subset.json"} {
+	for _, fixture := range []string{"queries.json", "native-lowering-starter.json", "phase7-rollout.json", "phase12-harness-variants.json", "phase12-dataset-variants.json", "draft-grafana-top-panel-shortlist.json", "draft-grafana-top-panel-shortlist.dataset-variants.json", "common-dashboard-subset.json"} {
 		fixture := fixture
 		t.Run(fixture, func(t *testing.T) {
 			t.Parallel()
@@ -38,27 +38,33 @@ func TestLoadQueryCorpusFixtures(t *testing.T) {
 func TestDraftGrafanaTopPanelThemeCorporaLoadAndValidate(t *testing.T) {
 	t.Parallel()
 
-	paths, err := filepath.Glob(filepath.Join("..", "..", "harness", "corpus", "draft-grafana-top-panel-shortlist.themes", "*.json"))
-	if err != nil {
-		t.Fatalf("glob theme corpora: %v", err)
-	}
-	if len(paths) == 0 {
-		t.Fatal("expected at least one themed dashboard corpus")
-	}
-	for _, path := range paths {
-		themeBase := filepath.Base(path)
-		if strings.HasSuffix(themeBase, ".metadata.json") || themeBase == "summary.json" {
-			continue
-		}
-		path := path
-		baseForRun := themeBase
-		t.Run(baseForRun, func(t *testing.T) {
+	for _, themeDir := range []string{"draft-grafana-top-panel-shortlist.themes", "draft-grafana-top-panel-shortlist.dataset-variants.themes"} {
+		themeDir := themeDir
+		t.Run(themeDir, func(t *testing.T) {
 			t.Parallel()
-			queries, err := LoadQueryCorpus(path)
+			paths, err := filepath.Glob(filepath.Join("..", "..", "harness", "corpus", themeDir, "*.json"))
 			if err != nil {
-				t.Fatalf("load theme corpus %s: %v", baseForRun, err)
+				t.Fatalf("glob theme corpora: %v", err)
 			}
-			validateQueryCorpus(t, baseForRun, queries)
+			if len(paths) == 0 {
+				t.Fatalf("expected at least one themed dashboard corpus in %s", themeDir)
+			}
+			for _, path := range paths {
+				themeBase := filepath.Base(path)
+				if strings.HasSuffix(themeBase, ".metadata.json") || themeBase == "summary.json" {
+					continue
+				}
+				path := path
+				baseForRun := filepath.Join(themeDir, themeBase)
+				t.Run(baseForRun, func(t *testing.T) {
+					t.Parallel()
+					queries, err := LoadQueryCorpus(path)
+					if err != nil {
+						t.Fatalf("load theme corpus %s: %v", baseForRun, err)
+					}
+					validateQueryCorpus(t, baseForRun, queries)
+				})
+			}
 		})
 	}
 }
@@ -243,6 +249,27 @@ func validateQueryCorpus(t *testing.T, fixture string, queries []QuerySpec) {
 			case "shim", "promclick":
 			default:
 				t.Fatalf("%s: query %q has unsupported subject %q", fixture, query.Name, subject)
+			}
+		}
+		seenDatasetVariants := map[string]struct{}{}
+		for _, variant := range query.DatasetVariants {
+			normalized := strings.ToLower(strings.TrimSpace(variant))
+			switch normalized {
+			case "baseline", "resets_gaps", "churn_stale", "histogram_burst":
+			default:
+				t.Fatalf("%s: query %q has unsupported datasetVariant %q", fixture, query.Name, variant)
+			}
+			if _, dup := seenDatasetVariants[normalized]; dup {
+				t.Fatalf("%s: query %q repeats datasetVariant %q", fixture, query.Name, variant)
+			}
+			seenDatasetVariants[normalized] = struct{}{}
+		}
+		for _, variant := range query.ExcludeDatasetVariants {
+			normalized := strings.ToLower(strings.TrimSpace(variant))
+			switch normalized {
+			case "baseline", "resets_gaps", "churn_stale", "histogram_burst":
+			default:
+				t.Fatalf("%s: query %q has unsupported excludeDatasetVariant %q", fixture, query.Name, variant)
 			}
 		}
 

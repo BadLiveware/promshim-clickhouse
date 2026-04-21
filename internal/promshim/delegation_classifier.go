@@ -51,6 +51,8 @@ func (m clickHouseCapabilityMap) unsupportedReason(node parser.Node) string {
 		return fmt.Sprintf("ClickHouse %s whole-query delegation capability map does not yet allow aggregations", m.Version)
 	case *parser.SubqueryExpr:
 		return fmt.Sprintf("ClickHouse %s whole-query delegation capability map does not yet allow subqueries", m.Version)
+	case *parser.BinaryExpr:
+		return fmt.Sprintf("ClickHouse %s whole-query delegation capability map does not yet allow binary operators", m.Version)
 	case *parser.Call:
 		name := strings.ToLower(typed.Func.Name)
 		if !m.supportsCall(name) {

@@ -5,7 +5,7 @@
   },
   "entries": [
     {
-      "candidateId": "cand-0023",
+      "candidateId": "cand-0295",
       "dashboardCount": 1,
       "datasetVariantReasons": [
         "counter_reset_and_gap_coverage"
@@ -14,100 +14,44 @@
         "baseline",
         "resets_gaps"
       ],
-      "draftQuery": "sum(rate(harness_requests_total[60s]) * on(instance, job) group_left harness_up{namespace=\"blue\"})",
+      "draftQuery": "sum(increase(harness_requests_total{job=\"api\"}[5m])) by(namespace) > 0",
       "exampleSources": [
         {
-          "dashboard_title": "RabbitMQ-Overview",
-          "dashboard_uid": "Kn5xm-gZk",
-          "file_path": "scratch/grafana-dashboards/RabbitMQ/Kn5xm-gZk-RabbitMQ-Overview.json",
+          "dashboard_title": "Kubernetes / Views / Global",
+          "dashboard_uid": "k8s_views_global",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_views_global-Kubernetes _ Views _ Global.json",
           "kind": "panel_target",
-          "panel_id": 13,
+          "panel_id": 87,
           "panel_path": [
-            "Messages published / s"
+            "OOM Events by namespace"
           ],
-          "panel_title": "Messages published / s",
+          "panel_title": "OOM Events by namespace",
           "ref_id": "A"
         },
         {
-          "dashboard_title": "RabbitMQ-Overview",
-          "dashboard_uid": "Kn5xm-gZk",
-          "file_path": "scratch/grafana-dashboards/RabbitMQ/Kn5xm-gZk-RabbitMQ-Overview.json",
+          "dashboard_title": "Kubernetes / Views / Global",
+          "dashboard_uid": "k8s_views_global",
+          "file_path": "scratch/grafana-dashboards/Kubernetes meta/k8s_views_global-Kubernetes _ Views _ Global.json",
           "kind": "panel_target",
-          "panel_id": 18,
+          "panel_id": 88,
           "panel_path": [
-            "Messages confirmed to publishers / s"
+            "Container Restarts by namespace"
           ],
-          "panel_title": "Messages confirmed to publishers / s",
-          "ref_id": "A"
-        },
-        {
-          "dashboard_title": "RabbitMQ-Overview",
-          "dashboard_uid": "Kn5xm-gZk",
-          "file_path": "scratch/grafana-dashboards/RabbitMQ/Kn5xm-gZk-RabbitMQ-Overview.json",
-          "kind": "panel_target",
-          "panel_id": 61,
-          "panel_path": [
-            "Messages routed to queues / s"
-          ],
-          "panel_title": "Messages routed to queues / s",
-          "ref_id": "A"
-        },
-        {
-          "dashboard_title": "RabbitMQ-Overview",
-          "dashboard_uid": "Kn5xm-gZk",
-          "file_path": "scratch/grafana-dashboards/RabbitMQ/Kn5xm-gZk-RabbitMQ-Overview.json",
-          "kind": "panel_target",
-          "panel_id": 34,
-          "panel_path": [
-            "Unroutable messages dropped / s"
-          ],
-          "panel_title": "Unroutable messages dropped / s",
-          "ref_id": "A"
-        },
-        {
-          "dashboard_title": "RabbitMQ-Overview",
-          "dashboard_uid": "Kn5xm-gZk",
-          "file_path": "scratch/grafana-dashboards/RabbitMQ/Kn5xm-gZk-RabbitMQ-Overview.json",
-          "kind": "panel_target",
-          "panel_id": 16,
-          "panel_path": [
-            "Unroutable messages returned to publishers / s"
-          ],
-          "panel_title": "Unroutable messages returned to publishers / s",
+          "panel_title": "Container Restarts by namespace",
           "ref_id": "A"
         }
       ],
       "families": [
         "aggregation",
-        "binary_arithmetic",
+        "comparison",
         "panel_query",
         "range_selector",
         "rate_family",
-        "selector",
-        "vector_matching"
+        "selector"
       ],
-      "groupingLabelChanges": [
-        {
-          "action": "unmapped",
-          "keyword": "group_left",
-          "kind": "grouping_label",
-          "source": "rabbitmq_cluster"
-        },
-        {
-          "action": "unmapped",
-          "keyword": "group_left",
-          "kind": "grouping_label",
-          "source": "rabbitmq_node"
-        },
-        {
-          "action": "unmapped",
-          "keyword": "by",
-          "kind": "grouping_label",
-          "source": "rabbitmq_node"
-        }
-      ],
+      "groupingLabelChanges": [],
       "labelValuesChanges": [],
-      "mappingConfidence": 0.7,
+      "mappingConfidence": 0.95,
       "metricMappings": [
         {
           "alternatives": [
@@ -115,9 +59,10 @@
               "harnessMetric": "harness_requests_total",
               "reasons": [
                 "source_metric_has_total_suffix",
+                "source_metric_looks_like_counter",
                 "query_uses_rate_family_without_histogram"
               ],
-              "score": 12.0
+              "score": 15.0
             },
             {
               "harnessMetric": "harness_queue_depth",
@@ -136,92 +81,48 @@
           "confidence": 0.95,
           "reasons": [
             "source_metric_has_total_suffix",
+            "source_metric_looks_like_counter",
             "query_uses_rate_family_without_histogram"
           ],
-          "sourceMetric": "rabbitmq_queues_created_total"
-        },
-        {
-          "alternatives": [
-            {
-              "harnessMetric": "harness_up",
-              "reasons": [
-                "source_metric_looks_like_health_or_info_gauge"
-              ],
-              "score": 6.0
-            },
-            {
-              "harnessMetric": "harness_requests_total",
-              "reasons": [
-                "query_uses_rate_family_without_histogram"
-              ],
-              "score": 4.0
-            },
-            {
-              "harnessMetric": "harness_queue_depth",
-              "reasons": [
-                "generic_gauge_fallback"
-              ],
-              "score": 0.5
-            }
-          ],
-          "chosenHarnessMetric": "harness_up",
-          "confidence": 0.75,
-          "reasons": [
-            "source_metric_looks_like_health_or_info_gauge"
-          ],
-          "sourceMetric": "rabbitmq_identity_info"
+          "sourceMetric": "container_oom_events_total"
         }
       ],
-      "name": "draft_cand_0023_rate_family_vector_matching_aggregation_selector",
-      "occurrenceCount": 19,
-      "originalRepresentativeQuery": "sum(rate(rabbitmq_queues_created_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)",
-      "rank": 85,
+      "name": "draft_cand_0295_rate_family_aggregation_selector",
+      "occurrenceCount": 2,
+      "originalRepresentativeQuery": "sum(increase(container_oom_events_total{cluster=\"$cluster\"}[$__rate_interval])) by (namespace) > 0",
+      "rank": 25,
       "retargetingHint": "requires_counter_fixture",
-      "reviewNotes": [
-        "query_contains_unmapped_labels_after_initial_rewrite",
-        "draft_runnable_query_required_dropping_unmapped_labels"
-      ],
-      "score": 101.727,
+      "reviewNotes": [],
+      "score": 131.597,
       "selectorLabelChanges": [
         {
-          "action": "unmapped",
+          "action": "mapped",
           "kind": "selector_label",
-          "source": "rabbitmq_cluster"
+          "source": "cluster",
+          "target": "job"
         }
       ],
-      "shapeFingerprint": "sum ( rate ( <id> [ <dur> ] ) * on ( <id> , <id> ) group_left ( <id> , <id> ) <id> { <id> = <str> , <id> = <str> } ) by ( <id> )",
-      "sourceCount": 19,
-      "tier": "strong_candidate",
+      "shapeFingerprint": "sum ( increase ( <id> { <id> = <str> } [ <var> ] ) ) by ( <id> ) > <num>",
+      "sourceCount": 2,
+      "tier": "promote_now",
       "topQueryVariants": [
         {
           "count": 1,
-          "query": "sum(rate(rabbitmq_global_messages_received_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)"
+          "query": "sum(increase(container_oom_events_total{cluster=\"$cluster\"}[$__rate_interval])) by (namespace) > 0"
         },
         {
           "count": 1,
-          "query": "sum(rate(rabbitmq_global_messages_confirmed_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)"
-        },
-        {
-          "count": 1,
-          "query": "sum(rate(rabbitmq_global_messages_routed_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)"
-        },
-        {
-          "count": 1,
-          "query": "sum(rate(rabbitmq_global_messages_unroutable_dropped_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)"
-        },
-        {
-          "count": 1,
-          "query": "sum(rate(rabbitmq_global_messages_unroutable_returned_total[60s]) * on(instance, job) group_left(rabbitmq_cluster, rabbitmq_node) rabbitmq_identity_info{rabbitmq_cluster=\"$rabbitmq_cluster\", namespace=\"$namespace\"}) by(rabbitmq_node)"
+          "query": "sum(increase(kube_pod_container_status_restarts_total{cluster=\"$cluster\"}[$__rate_interval])) by (namespace) > 0"
         }
       ],
       "variableReplacements": [
         {
           "replacement": "api",
-          "variable": "rabbitmq_cluster"
+          "variable": "cluster"
         },
         {
-          "replacement": "blue",
-          "variable": "namespace"
+          "replacement": "5m",
+          "variable": "__rate_interval"
         }
       ]
     },
@@ -464,5 +365,5 @@
     }
   ],
   "queryCount": 2,
-  "theme": "vector_matching"
+  "theme": "comparison"
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"ch-observability/internal/promshim/native/sqlb"
 	"github.com/prometheus/prometheus/model/labels"
 )
 
@@ -69,58 +70,46 @@ func BuildRangeWindowSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, 
 	params["param_step_ms"] = strconv.FormatInt(stepMS, 10)
 	params["param_lookback_ms"] = strconv.FormatInt(selector.LookbackMS, 10)
 	params["param_offset_ms"] = strconv.FormatInt(selector.OffsetMS, 10)
-	tableRef := timeSeriesTableRef(cfg)
-	gridTags := "series.tags AS tags,"
-	windowTags := "grid.tags AS tags,"
-	finalTagsExpr := "arrayFilter(tag -> tag.1 != '__name__', tags)"
-	groupByWindow := "grid.id, grid.tags, grid.eval_ts"
-	groupByOuter := "final_tags"
-	orderBy := "ORDER BY final_tags"
+
+	gridTagsExpr := sqlb.Expr(sqlb.Ident("series.tags"))
+	windowTagsExpr := sqlb.Expr(sqlb.Ident("grid.tags"))
+	finalTagsExpr := sqlb.Expr(sqlb.RawLit{V: "arrayFilter(tag -> tag.1 != '__name__', tags)"})
+	groupByWindow := []sqlb.Expr{sqlb.Ident("grid.id"), sqlb.Ident("grid.tags"), sqlb.Ident("grid.eval_ts")}
+	orderBy := []sqlb.OrderExpr{{Expr: sqlb.Ident("final_tags")}}
 	if !selector.NeedTags {
-		gridTags = "CAST([], 'Array(Tuple(String, String))') AS tags,"
-		windowTags = "CAST([], 'Array(Tuple(String, String))') AS tags,"
-		finalTagsExpr = "tags"
-		groupByWindow = "grid.id, grid.eval_ts"
-		groupByOuter = "final_tags"
-		orderBy = ""
+		gridTagsExpr = sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}
+		windowTagsExpr = sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}
+		finalTagsExpr = sqlb.Ident("tags")
+		groupByWindow = []sqlb.Expr{sqlb.Ident("grid.id"), sqlb.Ident("grid.eval_ts")}
+		orderBy = nil
 	}
-	return fmt.Sprintf(`
-SELECT
-    final_tags AS tags,
-    arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series
-FROM (
-    SELECT
-        %s AS final_tags,
-        eval_ts AS timestamp,
-        %s AS value
-    FROM (
-        SELECT
-            %s
-            grid.eval_ts AS eval_ts,
-            arraySort(item -> item.1, groupArray((d.timestamp, d.value))) AS window_series
-        FROM (
-            SELECT
-                series.id AS id,
-                %s
-                arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts
-            FROM (
-%s
-            ) AS series
-        ) AS grid
-        INNER JOIN timeSeriesData(%s) AS d ON d.id = grid.id
-        WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64})
-          AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})
-          AND d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64})
-          AND d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})
-        GROUP BY %s
-    )
-    WHERE length(window_series) > %d
-)
-GROUP BY %s
-%s
-SETTINGS allow_experimental_time_series_table = 1
-FORMAT JSONEachRow
-`, finalTagsExpr, windowValueExpr, windowTags, gridTags, indentSQL(matchedSeriesSQL, 16), tableRef, groupByWindow, minimumSeriesLength, groupByOuter, orderBy), params, nil
+
+	grid := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("series.id"), Alias: "id"}, {Expr: gridTagsExpr, Alias: "tags"}, {Expr: sqlb.RawLit{V: "arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64})))"}, Alias: "eval_ts"}},
+		From:    sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},
+	}
+	windowed := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: windowTagsExpr, Alias: "tags"}, {Expr: sqlb.Ident("grid.eval_ts"), Alias: "eval_ts"}, {Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((d.timestamp, d.value)))"}, Alias: "window_series"}},
+		From:    sqlb.Join{Left: sqlb.SubSelect{S: grid, Alias: "grid"}, Right: sqlb.RawSource{SQL: "timeSeriesData(" + timeSeriesTableRef(cfg) + ")", Alias: "d"}, Kind: "INNER", On: sqlb.RawLit{V: "d.id = grid.id"}},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64}) AND d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})"},
+		GroupBy: groupByWindow,
+	}
+	perStep := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: finalTagsExpr, Alias: "final_tags"}, {Expr: sqlb.Ident("eval_ts"), Alias: "timestamp"}, {Expr: sqlb.RawLit{V: windowValueExpr}, Alias: "value"}},
+		From:    sqlb.SubSelect{S: windowed},
+		Where:   sqlb.RawLit{V: "length(window_series) > " + strconv.Itoa(minimumSeriesLength)},
+	}
+	outer := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((timestamp, value)))"}, Alias: "time_series"}},
+		From:    sqlb.SubSelect{S: perStep},
+		GroupBy: []sqlb.Expr{sqlb.Ident("final_tags")},
+		OrderBy: orderBy,
+	}
+	sql, _, err := outer.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", params, nil
 }
 
 func buildInstantSourceQuerySQL(cfg QueryConfig, source AggregationSource, evaluationTimeMS, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
@@ -174,29 +163,36 @@ func buildInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, req
 	if err != nil {
 		return "", nil, err
 	}
-	tableRef := timeSeriesTableRef(cfg)
-	selectTags := "series.tags AS tags,"
-	groupBy := "d.id, series.tags"
-	orderBy := "ORDER BY tags"
-	if !selector.NeedTags {
-		selectTags = "CAST([], 'Array(Tuple(String, String))') AS tags,"
-		groupBy = "d.id"
-		orderBy = ""
+	columns := []sqlb.ColExpr{
+		{Expr: sqlb.Call{Name: "max", Args: []sqlb.Expr{sqlb.Ident("d.timestamp")}}, Alias: "timestamp"},
+		{Expr: sqlb.Call{Name: "argMax", Args: []sqlb.Expr{sqlb.Ident("d.value"), sqlb.Ident("d.timestamp")}}, Alias: "value"},
 	}
-	return fmt.Sprintf(`
-SELECT
-    %s
-    max(d.timestamp) AS timestamp,
-    argMax(d.value, d.timestamp) AS value
-FROM timeSeriesData(%s) AS d
-INNER JOIN (
-%s
-) AS series ON d.id = series.id
-WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64})
-  AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})
-GROUP BY %s
-%s
-`, selectTags, tableRef, indentSQL(matchedSeriesSQL, 4), groupBy, orderBy), params, nil
+	groupBy := []sqlb.Expr{sqlb.Ident("d.id")}
+	var orderBy []sqlb.OrderExpr
+	if selector.NeedTags {
+		columns = append([]sqlb.ColExpr{{Expr: sqlb.Ident("series.tags"), Alias: "tags"}}, columns...)
+		groupBy = append(groupBy, sqlb.Ident("series.tags"))
+		orderBy = append(orderBy, sqlb.OrderExpr{Expr: sqlb.Ident("tags")})
+	} else {
+		columns = append([]sqlb.ColExpr{{Expr: sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}, Alias: "tags"}}, columns...)
+	}
+	query := &sqlb.Select{
+		Columns: columns,
+		From: sqlb.Join{
+			Left:  sqlb.RawSource{SQL: "timeSeriesData(" + timeSeriesTableRef(cfg) + ")", Alias: "d"},
+			Right: sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},
+			Kind:  "INNER",
+			On:    sqlb.RawLit{V: "d.id = series.id"},
+		},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})"},
+		GroupBy: groupBy,
+		OrderBy: orderBy,
+	}
+	sql, _, err := query.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql, params, nil
 }
 
 func buildRangeSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64) (string, map[string]string, error) {
@@ -222,47 +218,57 @@ func buildRangeInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource
 	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
 	params["param_step_ms"] = strconv.FormatInt(stepMS, 10)
 	params["param_lookback_ms"] = strconv.FormatInt(selector.LookbackMS, 10)
-	tableRef := timeSeriesTableRef(cfg)
-	gridTags := "series.tags AS tags,"
-	outerTags := "tags"
-	groupByInner := "grid.id, grid.tags, grid.eval_ts"
-	groupByOuter := "tags"
-	orderBy := "ORDER BY tags"
+
+	gridTagsExpr := sqlb.Expr(sqlb.Ident("series.tags"))
+	innerTagsExpr := sqlb.Expr(sqlb.Ident("grid.tags"))
+	outerTagsExpr := sqlb.Expr(sqlb.Ident("tags"))
+	groupByInner := []sqlb.Expr{sqlb.Ident("grid.id"), sqlb.Ident("grid.tags"), sqlb.Ident("grid.eval_ts")}
+	orderBy := []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}}
 	if !selector.NeedTags {
-		gridTags = "CAST([], 'Array(Tuple(String, String))') AS tags,"
-		outerTags = "CAST([], 'Array(Tuple(String, String))') AS tags"
-		groupByInner = "grid.id, grid.eval_ts"
-		groupByOuter = "tags"
-		orderBy = ""
+		gridTagsExpr = sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}
+		innerTagsExpr = sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}
+		outerTagsExpr = sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}
+		groupByInner = []sqlb.Expr{sqlb.Ident("grid.id"), sqlb.Ident("grid.eval_ts")}
+		orderBy = nil
 	}
-	return fmt.Sprintf(`
-SELECT
-    %s,
-    arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series
-FROM (
-    SELECT
-        grid.tags AS tags,
-        grid.eval_ts AS timestamp,
-        argMax(d.value, d.timestamp) AS value
-    FROM (
-        SELECT
-            series.id AS id,
-            %s
-            arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts
-        FROM (
-%s
-        ) AS series
-    ) AS grid
-    INNER JOIN timeSeriesData(%s) AS d ON d.id = grid.id
-    WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64})
-      AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})
-      AND d.timestamp <= grid.eval_ts
-      AND d.timestamp >= grid.eval_ts - toIntervalMillisecond({lookback_ms:Int64})
-    GROUP BY %s
-)
-GROUP BY %s
-%s
-`, outerTags, gridTags, indentSQL(matchedSeriesSQL, 12), tableRef, groupByInner, groupByOuter, orderBy), params, nil
+
+	grid := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("series.id"), Alias: "id"},
+			{Expr: gridTagsExpr, Alias: "tags"},
+			{Expr: sqlb.RawLit{V: "arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64})))"}, Alias: "eval_ts"},
+		},
+		From: sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},
+	}
+	inner := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: innerTagsExpr, Alias: "tags"},
+			{Expr: sqlb.Ident("grid.eval_ts"), Alias: "timestamp"},
+			{Expr: sqlb.Call{Name: "argMax", Args: []sqlb.Expr{sqlb.Ident("d.value"), sqlb.Ident("d.timestamp")}}, Alias: "value"},
+		},
+		From: sqlb.Join{
+			Left:  sqlb.SubSelect{S: grid, Alias: "grid"},
+			Right: sqlb.RawSource{SQL: "timeSeriesData(" + timeSeriesTableRef(cfg) + ")", Alias: "d"},
+			Kind:  "INNER",
+			On:    sqlb.RawLit{V: "d.id = grid.id"},
+		},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND d.timestamp <= grid.eval_ts AND d.timestamp >= grid.eval_ts - toIntervalMillisecond({lookback_ms:Int64})"},
+		GroupBy: groupByInner,
+	}
+	outer := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: outerTagsExpr, Alias: "tags"},
+			{Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((timestamp, value)))"}, Alias: "time_series"},
+		},
+		From:    sqlb.SubSelect{S: inner},
+		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
+		OrderBy: orderBy,
+	}
+	sql, _, err := outer.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql, params, nil
 }
 
 func buildRangeMatrixSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
@@ -270,42 +276,61 @@ func buildRangeMatrixSelectorSourceSQL(cfg QueryConfig, selector SelectorSource,
 	if err != nil {
 		return "", nil, err
 	}
-	tableRef := timeSeriesTableRef(cfg)
-	selectTags := "series.tags AS tags,"
-	groupBy := "tags"
-	orderBy := "ORDER BY tags"
+	selectTagsExpr := sqlb.Expr(sqlb.Ident("series.tags"))
+	orderBy := []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}}
 	if !selector.NeedTags {
-		selectTags = "CAST([], 'Array(Tuple(String, String))') AS tags,"
-		groupBy = "tags"
-		orderBy = ""
+		selectTagsExpr = sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}
+		orderBy = nil
 	}
-	return fmt.Sprintf(`
-SELECT
-    tags,
-    arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series
-FROM (
-    SELECT
-        %s
-        d.timestamp AS timestamp,
-        d.value AS value
-    FROM timeSeriesData(%s) AS d
-    INNER JOIN (
-%s
-    ) AS series ON d.id = series.id
-    WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64})
-      AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})
-)
-GROUP BY %s
-%s
-`, selectTags, tableRef, indentSQL(matchedSeriesSQL, 4), groupBy, orderBy), params, nil
+	inner := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: selectTagsExpr, Alias: "tags"},
+			{Expr: sqlb.Ident("d.timestamp"), Alias: "timestamp"},
+			{Expr: sqlb.Ident("d.value"), Alias: "value"},
+		},
+		From: sqlb.Join{
+			Left:  sqlb.RawSource{SQL: "timeSeriesData(" + timeSeriesTableRef(cfg) + ")", Alias: "d"},
+			Right: sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},
+			Kind:  "INNER",
+			On:    sqlb.RawLit{V: "d.id = series.id"},
+		},
+		Where: sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})"},
+	}
+	outer := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("tags"), Alias: "tags"},
+			{Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((timestamp, value)))"}, Alias: "time_series"},
+		},
+		From:    sqlb.SubSelect{S: inner},
+		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
+		OrderBy: orderBy,
+	}
+	sql, _, err := outer.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql, params, nil
 }
 
 func selectorTagsExpr(selector SelectorSource, metricColumn, tagsColumn string) string {
-	base := fmt.Sprintf("arrayConcat([tuple('__name__', %s)], arrayMap((k, v) -> tuple(k, v), mapKeys(%s), mapValues(%s)))", metricColumn, tagsColumn, tagsColumn)
+	base := sqlb.Call{Name: "arrayConcat", Args: []sqlb.Expr{
+		sqlb.RawLit{V: "[tuple('__name__', " + metricColumn + ")]"},
+		sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{
+			sqlb.RawLit{V: "(k, v) -> tuple(k, v)"},
+			sqlb.Call{Name: "mapKeys", Args: []sqlb.Expr{sqlb.RawLit{V: tagsColumn}}},
+			sqlb.Call{Name: "mapValues", Args: []sqlb.Expr{sqlb.RawLit{V: tagsColumn}}},
+		}},
+	}}
 	if !selector.RequireFullTags && len(selector.RequiredTagLabels) > 0 {
-		return fmt.Sprintf("arraySort(tag -> tag.1, arrayFilter(tag -> has(%s, tag.1), %s))", sqlStringArrayLiteral(selector.RequiredTagLabels), base)
+		return renderStorageExprNoParams(sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
+			sqlb.RawLit{V: "tag -> tag.1"},
+			sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{
+				sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(selector.RequiredTagLabels) + ", tag.1)"},
+				base,
+			}},
+		}})
 	}
-	return base
+	return renderStorageExprNoParams(base)
 }
 
 func buildMatchedSeriesSQL(cfg QueryConfig, selector SelectorSource, prefix string, requiredStartMS, requiredEndMS int64, addTimeOverlap bool) (string, map[string]string, error) {
@@ -341,46 +366,78 @@ func buildMatchedSeriesSQL(cfg QueryConfig, selector SelectorSource, prefix stri
 	if addTimeOverlap {
 		whereClauses = append(whereClauses, "src.max_time >= fromUnixTimestamp64Milli({required_start_ms:Int64})", "src.min_time <= fromUnixTimestamp64Milli({required_end_ms:Int64})")
 	}
-	builder := strings.Builder{}
-	builder.WriteString("SELECT src.id")
+	columns := []sqlb.ColExpr{{Expr: sqlb.Ident("src.id")}}
 	if selector.NeedTags {
-		builder.WriteString(", ")
-		builder.WriteString(selectorTagsExpr(selector, metricColumn, tagsColumn))
-		builder.WriteString(" AS tags")
+		columns = append(columns, sqlb.ColExpr{Expr: sqlb.RawLit{V: selectorTagsExpr(selector, metricColumn, tagsColumn)}, Alias: "tags"})
 	}
-	builder.WriteString(" FROM timeSeriesTags(")
-	builder.WriteString(timeSeriesTableRef(cfg))
-	builder.WriteString(") AS src")
+	query := &sqlb.Select{
+		Columns: columns,
+		From:    sqlb.RawSource{SQL: "timeSeriesTags(" + timeSeriesTableRef(cfg) + ")", Alias: "src"},
+	}
 	if len(whereClauses) > 0 {
-		builder.WriteString(" WHERE ")
-		builder.WriteString(strings.Join(whereClauses, " AND "))
+		query.Where = sqlb.RawLit{V: strings.Join(whereClauses, " AND ")}
 	}
-	return builder.String(), params, nil
+	sql, _, err := query.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql, params, nil
 }
 
 func compileMatcherClause(prefix string, matcherIndex int, metricColumn, tagsColumn string, matcher *labels.Matcher) (string, map[string]string) {
+	columnExpr := sqlb.Expr(sqlb.RawLit{V: metricColumn})
 	params := map[string]string{}
-	column := metricColumn
 	if matcher.Name != labels.MetricName {
-		keyName := fmt.Sprintf("%s_matcher_%d_key", prefix, matcherIndex)
-		params["param_"+keyName] = matcher.Name
-		column = fmt.Sprintf("%s[concat('', {%s:String})]", tagsColumn, keyName)
+		keyName := prefix + "_matcher_" + strconv.Itoa(matcherIndex) + "_key"
+		columnExpr = sqlb.Subscr{Array: sqlb.RawLit{V: tagsColumn}, Index: sqlb.Call{Name: "concat", Args: []sqlb.Expr{sqlb.RawLit{V: "''"}, sqlb.Param{Name: keyName, Type: "String", V: matcher.Name}}}}
 	}
-	valueName := fmt.Sprintf("%s_matcher_%d_value", prefix, matcherIndex)
-	params["param_"+valueName] = matcher.Value
-	valueRef := fmt.Sprintf("{%s:String}", valueName)
+	valueName := prefix + "_matcher_" + strconv.Itoa(matcherIndex) + "_value"
+	valueExpr := sqlb.Param{Name: valueName, Type: "String", V: matcherSQLPattern(matcher)}
+	columnSQL, columnParams, err := sqlb.BuildExpr(columnExpr)
+	if err != nil {
+		panic(err)
+	}
+	mergeParams(params, columnParams)
+	valueSQL, valueParams, err := sqlb.BuildExpr(valueExpr)
+	if err != nil {
+		panic(err)
+	}
+	mergeParams(params, valueParams)
 	switch matcher.Type {
 	case labels.MatchEqual:
-		return fmt.Sprintf("%s = %s", column, valueRef), params
+		return columnSQL + " = " + valueSQL, params
 	case labels.MatchNotEqual:
-		return fmt.Sprintf("%s != %s", column, valueRef), params
+		return columnSQL + " != " + valueSQL, params
 	case labels.MatchRegexp:
-		return fmt.Sprintf("match(%s, %s)", column, valueRef), params
+		return renderStorageExprNoParams(sqlb.Call{Name: "match", Args: []sqlb.Expr{sqlb.RawLit{V: columnSQL}, sqlb.RawLit{V: valueSQL}}}), params
 	case labels.MatchNotRegexp:
-		return fmt.Sprintf("NOT match(%s, %s)", column, valueRef), params
+		return "NOT " + renderStorageExprNoParams(sqlb.Call{Name: "match", Args: []sqlb.Expr{sqlb.RawLit{V: columnSQL}, sqlb.RawLit{V: valueSQL}}}), params
 	default:
 		return "1", params
 	}
+}
+
+func matcherSQLPattern(matcher *labels.Matcher) string {
+	if matcher == nil {
+		return ""
+	}
+	switch matcher.Type {
+	case labels.MatchRegexp, labels.MatchNotRegexp:
+		return "^(?:" + matcher.Value + ")$"
+	default:
+		return matcher.Value
+	}
+}
+
+func renderStorageExprNoParams(expr sqlb.Expr) string {
+	sql, params, err := sqlb.BuildExpr(expr)
+	if err != nil {
+		panic(err)
+	}
+	if len(params) != 0 {
+		panic(fmt.Errorf("storage expression unexpectedly produced params: %#v", params))
+	}
+	return sql
 }
 
 func mergeParams(dst, src map[string]string) {
@@ -390,7 +447,7 @@ func mergeParams(dst, src map[string]string) {
 }
 
 func timeSeriesTableRef(cfg QueryConfig) string {
-	return fmt.Sprintf("`%s`.`%s`", escapeIdentifier(cfg.Database), escapeIdentifier(cfg.Table))
+	return "`" + escapeIdentifier(cfg.Database) + "`.`" + escapeIdentifier(cfg.Table) + "`"
 }
 
 func selectorSourceFromMatchers(metricName string, matchers []*labels.Matcher, lookback, offset time.Duration, kind SelectorKind) SelectorSource {

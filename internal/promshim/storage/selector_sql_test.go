@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"ch-observability/internal/promshim/native/sqlb"
 	"github.com/prometheus/prometheus/model/labels"
 )
 
@@ -31,8 +32,31 @@ func TestBuildInstantSelectorQuerySQLCompilesMatchersAndBounds(t *testing.T) {
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)
 		}
 	}
-	if params["param_instant_matcher_0_value"] != "up" || params["param_instant_matcher_1_value"] != "api|worker" || params["param_instant_matcher_2_value"] != "dev" {
+	if params["param_instant_matcher_0_value"] != "up" || params["param_instant_matcher_1_value"] != "^(?:api|worker)$" || params["param_instant_matcher_2_value"] != "dev" {
 		t.Fatalf("unexpected matcher params: %#v", params)
+	}
+}
+
+func TestBuildInstantSelectorQuerySQLAnchorsRegexMatchers(t *testing.T) {
+	jobRE, err := labels.NewMatcher(labels.MatchRegexp, "job", "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	envNotRE, err := labels.NewMatcher(labels.MatchNotRegexp, "env", "dev|qa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := selectorSourceFromMatchers("up", []*labels.Matcher{jobRE, envNotRE}, 5*time.Minute, 0, SelectorKindInstantVector)
+
+	_, params, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, 1000, 2000)
+	if err != nil {
+		t.Fatalf("expected instant selector SQL, got error: %v", err)
+	}
+	if params["param_instant_matcher_1_value"] != "^(?:a)$" {
+		t.Fatalf("expected anchored positive regex param, got %#v", params)
+	}
+	if params["param_instant_matcher_2_value"] != "^(?:dev|qa)$" {
+		t.Fatalf("expected anchored negative regex param, got %#v", params)
 	}
 }
 
@@ -56,8 +80,21 @@ func TestBuildInstantSelectorQuerySQLSupportsEqualityAndNegativeRegex(t *testing
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)
 		}
 	}
-	if params["param_instant_matcher_0_value"] != "a:9090" || params["param_instant_matcher_1_value"] != "dev|qa" {
+	if params["param_instant_matcher_0_value"] != "a:9090" || params["param_instant_matcher_1_value"] != "^(?:dev|qa)$" {
 		t.Fatalf("unexpected matcher params: %#v", params)
+	}
+}
+
+func TestBuildInstantSelectorQuerySQLMatchesNormalizedBuilderShape(t *testing.T) {
+	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, 0, SelectorKindInstantVector)
+
+	sql, _, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, 1000, 2000)
+	if err != nil {
+		t.Fatalf("expected instant selector SQL, got error: %v", err)
+	}
+	expected := "SELECT series.tags AS tags, max(d.timestamp) AS timestamp, argMax(d.value, d.timestamp) AS value FROM timeSeriesData(`observability`.`prometheus`) AS d INNER JOIN ( SELECT src.id, arrayConcat([tuple('__name__', src.metric_name)], arrayMap((k, v) -> tuple(k, v), mapKeys(src.tags), mapValues(src.tags))) AS tags FROM timeSeriesTags(`observability`.`prometheus`) AS src WHERE src.metric_name = {instant_matcher_0_value:String} AND src.max_time >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND src.min_time <= fromUnixTimestamp64Milli({required_end_ms:Int64}) ) AS series ON d.id = series.id WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) GROUP BY d.id, series.tags ORDER BY tags SETTINGS allow_experimental_time_series_table = 1 FORMAT JSONEachRow"
+	if sqlb.NormalizeSQL(sql) != expected {
+		t.Fatalf("unexpected normalized SQL:\nwant: %s\n got: %s", expected, sqlb.NormalizeSQL(sql))
 	}
 }
 
@@ -109,5 +146,45 @@ func TestBuildRangeSelectorQuerySQLUsesStepGridAndLookback(t *testing.T) {
 	}
 	if params["param_lookback_ms"] != "300000" {
 		t.Fatalf("expected 5m lookback param, got %#v", params)
+	}
+}
+
+func TestBuildRangeSelectorQuerySQLOmitsTagsProjectionWhenUnneeded(t *testing.T) {
+	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, 0, SelectorKindInstantVector)
+	selector.NeedTags = false
+	selector.RequireFullTags = false
+
+	sql, _, err := BuildRangeSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -90000, 210000, 0, 300000, 30000)
+	if err != nil {
+		t.Fatalf("expected range selector SQL, got error: %v", err)
+	}
+	if strings.Contains(sql, "grid.tags AS tags") {
+		t.Fatalf("expected tagless range selector SQL to avoid grouping on grid.tags projection, got %q", sql)
+	}
+	if !strings.Contains(sql, "CAST([], 'Array(Tuple(String, String))') AS tags") {
+		t.Fatalf("expected synthesized empty tags in tagless range selector SQL, got %q", sql)
+	}
+	if !strings.Contains(sql, "GROUP BY grid.id, grid.eval_ts") {
+		t.Fatalf("expected tagless range selector SQL to group without grid.tags, got %q", sql)
+	}
+}
+
+func TestBuildRangeMatrixSelectorQuerySQLOmitsTagsProjectionWhenUnneeded(t *testing.T) {
+	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, 0, SelectorKindRangeVector)
+	selector.NeedTags = false
+	selector.RequireFullTags = false
+
+	sql, _, err := BuildRangeSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -300000, 300000, 0, 300000, 30000)
+	if err != nil {
+		t.Fatalf("expected range matrix selector SQL, got error: %v", err)
+	}
+	if strings.Contains(sql, "series.tags AS tags") {
+		t.Fatalf("expected tagless range matrix selector SQL to avoid source tag projection, got %q", sql)
+	}
+	if !strings.Contains(sql, "CAST([], 'Array(Tuple(String, String))') AS tags") {
+		t.Fatalf("expected synthesized empty tags in tagless range matrix selector SQL, got %q", sql)
+	}
+	if !strings.Contains(sql, "GROUP BY tags") {
+		t.Fatalf("expected tagless range matrix selector SQL to still group by synthesized tags alias, got %q", sql)
 	}
 }

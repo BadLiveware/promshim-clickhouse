@@ -297,13 +297,19 @@ func TestRenderFragmentBuildsRangeSumOverTimeSQLForDirectSelector(t *testing.T) 
 	if !strings.Contains(rendered.SQL, "arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series") {
 		t.Fatalf("expected range result shaping in SQL, got %q", rendered.SQL)
 	}
-	if !strings.Contains(rendered.SQL, "arraySort(item -> item.1, groupArray((d.timestamp, d.value))) AS window_series") {
-		t.Fatalf("expected step-grid window materialization in SQL, got %q", rendered.SQL)
+	if !strings.Contains(rendered.SQL, "arrayFilter(point -> tupleElement(point, 1) <= grid.eval_ts") || !strings.Contains(rendered.SQL, "AS window_series") {
+		t.Fatalf("expected shared window-series materialization in SQL, got %q", rendered.SQL)
+	}
+	if !strings.Contains(rendered.SQL, "arrayMap(point -> tupleElement(point, 1), window_series) AS window_timestamps") {
+		t.Fatalf("expected shared window timestamps array in SQL, got %q", rendered.SQL)
+	}
+	if !strings.Contains(rendered.SQL, "arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series) AS window_values") {
+		t.Fatalf("expected shared window values array in SQL, got %q", rendered.SQL)
 	}
 	if !strings.Contains(rendered.SQL, "arraySum(arrayFilter(v -> NOT isNaN(v), arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series)))") {
 		t.Fatalf("expected sum_over_time expression in SQL, got %q", rendered.SQL)
 	}
-	if got := rendered.QueryParams["param_range_window_matcher_0_value"]; got != "up" {
+	if got := rendered.QueryParams["param_range_matrix_matcher_0_value"]; got != "up" {
 		t.Fatalf("expected metric-name selector param, got %q with params=%#v", got, rendered.QueryParams)
 	}
 }
@@ -355,6 +361,12 @@ func TestRenderFragmentBuildsRangeSumOverTimeSQLForSubquery(t *testing.T) {
 	}
 	if !strings.Contains(rendered.SQL, "CROSS JOIN") {
 		t.Fatalf("expected eval grid cross join in SQL, got %q", rendered.SQL)
+	}
+	if !strings.Contains(rendered.SQL, "arrayMap(point -> tupleElement(point, 1), window_series) AS window_timestamps") {
+		t.Fatalf("expected shared window timestamps array in SQL, got %q", rendered.SQL)
+	}
+	if !strings.Contains(rendered.SQL, "arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series) AS window_values") {
+		t.Fatalf("expected shared window values array in SQL, got %q", rendered.SQL)
 	}
 	if !strings.Contains(rendered.SQL, "arraySum(arrayFilter(v -> NOT isNaN(v), arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series)))") {
 		t.Fatalf("expected sum_over_time expression over window_series, got %q", rendered.SQL)
@@ -630,6 +642,7 @@ func TestRenderFragmentBuildsTier1RangeFunctionSQL(t *testing.T) {
 		{name: "stddev_over_time", want: "arrayReduce('stddevPop'"},
 		{name: "stdvar_over_time", want: "arrayReduce('varPop'"},
 		{name: "present_over_time", want: "toFloat64(1)"},
+		{name: "resets", want: "arrayPopFront"},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -642,6 +655,50 @@ func TestRenderFragmentBuildsTier1RangeFunctionSQL(t *testing.T) {
 				t.Fatalf("expected %s SQL to contain %q, got %q", tc.name, tc.want, rendered.SQL)
 			}
 		})
+	}
+}
+
+func TestRenderFragmentBuildsMadOverTimeSQL(t *testing.T) {
+	fragment := &NativeFragment{Kind: FragmentKindRangeFunction, OutputKind: OutputKindInstantVector, RangeFunction: &RangeFunctionFragment{Func: "mad_over_time", Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindRangeMatrix, Selector: &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 60000, RequiredStartMS: -300000, RequiredEndMS: 300000})
+	if err != nil {
+		t.Fatalf("expected rendered SQL, got error: %v", err)
+	}
+	checks := []string{"arrayReduce('quantileExact(0.5)'", "arrayMap(x -> abs(x - arrayReduce('quantileExact(0.5)'", "window_values"}
+	for _, check := range checks {
+		if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(check)) {
+			t.Fatalf("expected mad_over_time SQL to contain %q, got %q", check, rendered.SQL)
+		}
+	}
+}
+
+func TestRenderFragmentBuildsPredictLinearSQL(t *testing.T) {
+	duration := 60.0
+	fragment := &NativeFragment{Kind: FragmentKindRangeFunction, OutputKind: OutputKindInstantVector, RangeFunction: &RangeFunctionFragment{Func: "predict_linear", ParamNumber: &duration, Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindRangeMatrix, Selector: &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 60000, RequiredStartMS: -300000, RequiredEndMS: 300000})
+	if err != nil {
+		t.Fatalf("expected rendered SQL, got error: %v", err)
+	}
+	checks := []string{"simpleLinearRegression", "toUnixTimestamp64Milli(eval_ts)", "window_timestamps", "window_values", "multiIf"}
+	for _, check := range checks {
+		if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(check)) {
+			t.Fatalf("expected predict_linear SQL to contain %q, got %q", check, rendered.SQL)
+		}
+	}
+}
+
+func TestRenderFragmentBuildsDoubleExponentialSmoothingSQL(t *testing.T) {
+	sf, tf := 0.5, 0.3
+	fragment := &NativeFragment{Kind: FragmentKindRangeFunction, OutputKind: OutputKindInstantVector, RangeFunction: &RangeFunctionFragment{Func: "double_exponential_smoothing", ParamNumbers: []*float64{&sf, &tf}, Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindRangeMatrix, Selector: &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 60000, RequiredStartMS: -300000, RequiredEndMS: 300000})
+	if err != nil {
+		t.Fatalf("expected rendered SQL, got error: %v", err)
+	}
+	checks := []string{"arrayFold", "arraySlice", "tupleElement(acc, 1)", "window_values", "multiIf"}
+	for _, check := range checks {
+		if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(check)) {
+			t.Fatalf("expected smoothing SQL to contain %q, got %q", check, rendered.SQL)
+		}
 	}
 }
 

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/prometheus/prometheus/promql/parser"
 )
 
 func TestAnalyzeExpressionSupportsSumAggregation(t *testing.T) {
@@ -72,6 +74,9 @@ func TestAnalyzeExpressionSupportsTier1AdditionalRangeFunctions(t *testing.T) {
 		"stddev_over_time(up[5m])",
 		"stdvar_over_time(up[5m])",
 		"present_over_time(up[5m])",
+		"mad_over_time(up[5m])",
+		"resets(up[5m])",
+		"predict_linear(up[5m], 60)",
 	}
 	for _, query := range queries {
 		expr, err := ParseExpression(query)
@@ -82,6 +87,59 @@ func TestAnalyzeExpressionSupportsTier1AdditionalRangeFunctions(t *testing.T) {
 		if !result.Supported {
 			t.Fatalf("expected supported range function for %q, got %#v", query, result)
 		}
+	}
+}
+
+func TestAnalyzeExpressionRejectsDynamicPredictLinearDuration(t *testing.T) {
+	expr, err := ParseExpression("predict_linear(up[5m], 1 + 2)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := AnalyzeExpression(expr)
+	if result.Supported {
+		t.Fatalf("expected unsupported dynamic predict_linear duration, got %#v", result)
+	}
+	if !strings.Contains(result.Reason, "literal scalar duration") {
+		t.Fatalf("expected literal scalar duration reason, got %#v", result)
+	}
+}
+
+func TestParseExpressionSupportsHoltWintersAlias(t *testing.T) {
+	expr, err := ParseExpression("holt_winters(up[5m], 0.5, 0.3)")
+	if err != nil {
+		t.Fatalf("expected alias parse to succeed, got error: %v", err)
+	}
+	call, ok := expr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected call expr, got %T", expr)
+	}
+	if call.Func.Name != "double_exponential_smoothing" {
+		t.Fatalf("expected alias rewrite to double_exponential_smoothing, got %q", call.Func.Name)
+	}
+}
+
+func TestAnalyzeExpressionSupportsDoubleExponentialSmoothing(t *testing.T) {
+	expr, err := ParseExpression("double_exponential_smoothing(up[5m], 0.5, 0.3)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := AnalyzeExpression(expr)
+	if !result.Supported {
+		t.Fatalf("expected supported smoothing expression, got %#v", result)
+	}
+}
+
+func TestAnalyzeExpressionRejectsOutOfRangeSmoothingFactor(t *testing.T) {
+	expr, err := ParseExpression("double_exponential_smoothing(up[5m], 1, 0.3)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := AnalyzeExpression(expr)
+	if result.Supported {
+		t.Fatalf("expected unsupported smoothing factor, got %#v", result)
+	}
+	if !strings.Contains(result.Reason, "smoothing factor must be between 0 and 1 exclusive") {
+		t.Fatalf("expected smoothing factor bounds reason, got %#v", result)
 	}
 }
 
@@ -659,7 +717,7 @@ func TestAnalyzeExpressionSupportsNestedSubqueryViaLastOverTime(t *testing.T) {
 }
 
 func TestAnalyzeExpressionSupportsRateFamilyWithSubquery(t *testing.T) {
-	for _, fn := range []string{"increase", "delta", "idelta", "changes", "deriv", "rate", "irate"} {
+	for _, fn := range []string{"increase", "delta", "idelta", "changes", "deriv", "resets", "rate", "irate"} {
 		exprText := fmt.Sprintf("%s(sum(up)[5m:])", fn)
 		expr, err := ParseExpression(exprText)
 		if err != nil {

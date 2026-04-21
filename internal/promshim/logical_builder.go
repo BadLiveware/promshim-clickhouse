@@ -361,7 +361,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 			return nil, withInternalContext(err, "building logical child plan for deriv %q", call.String())
 		}
 		return &logicalDerivPlan{Expr: call, Child: child}, nil
-	case "last_over_time", "sum_over_time", "avg_over_time", "max_over_time", "min_over_time", "count_over_time", "stddev_over_time", "stdvar_over_time", "present_over_time":
+	case "last_over_time", "sum_over_time", "avg_over_time", "max_over_time", "min_over_time", "count_over_time", "stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time", "resets":
 		if result := plan.AnalyzeRangeFunctionCall(name, call); !result.Supported {
 			return nil, newPlanBuildError(call, result, "call planning")
 		}
@@ -370,6 +370,36 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 			return nil, withInternalContext(err, "building logical child plan for %s %q", name, call.String())
 		}
 		return &logicalRangeFunctionPlan{Expr: call, Func: name, Child: child}, nil
+	case "predict_linear":
+		if result := plan.AnalyzePredictLinearCall(call); !result.Supported {
+			return nil, newPlanBuildError(call, result, "call planning")
+		}
+		duration, err := numberLiteralArgument(call.Args[1], "predict_linear duration")
+		if err != nil {
+			return nil, withInternalContext(err, "building logical predict_linear %q", call.String())
+		}
+		child, err := buildLogicalPlan(call.Args[0])
+		if err != nil {
+			return nil, withInternalContext(err, "building logical child plan for predict_linear %q", call.String())
+		}
+		return &logicalRangeFunctionPlan{Expr: call, Func: name, ParamNumber: cloneFloat64(duration), Child: child}, nil
+	case "double_exponential_smoothing", "holt_winters":
+		if result := plan.AnalyzeDoubleExponentialSmoothingCall(call); !result.Supported {
+			return nil, newPlanBuildError(call, result, "call planning")
+		}
+		sf, err := numberLiteralArgument(call.Args[1], name+" smoothing factor")
+		if err != nil {
+			return nil, withInternalContext(err, "building logical %s %q", name, call.String())
+		}
+		tf, err := numberLiteralArgument(call.Args[2], name+" trend factor")
+		if err != nil {
+			return nil, withInternalContext(err, "building logical %s %q", name, call.String())
+		}
+		child, err := buildLogicalPlan(call.Args[0])
+		if err != nil {
+			return nil, withInternalContext(err, "building logical child plan for %s %q", name, call.String())
+		}
+		return &logicalRangeFunctionPlan{Expr: call, Func: name, ParamNumbers: []*float64{cloneFloat64(sf), cloneFloat64(tf)}, Child: child}, nil
 	case "abs", "ceil", "floor", "sgn",
 		"exp", "ln", "log2", "log10", "sqrt",
 		"clamp", "clamp_min", "clamp_max",
@@ -502,6 +532,11 @@ func numberLiteralArgument(expr parser.Expr, description string) (float64, error
 		return 0, newBadDataErrorf("expected numeric literal for %s, got %T", description, expr)
 	}
 	return literal.Val, nil
+}
+
+func cloneFloat64(value float64) *float64 {
+	cloned := value
+	return &cloned
 }
 
 func deriveAbsentOutputMetric(expr parser.Expr) map[string]string {

@@ -211,7 +211,7 @@ func TestBuildLogicalPlanCreatesHistogramFractionPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesTier1AdditionalRangeFunctionPlans(t *testing.T) {
-	for _, fn := range []string{"stddev_over_time", "stdvar_over_time", "present_over_time"} {
+	for _, fn := range []string{"stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time", "resets"} {
 		logical, err := buildLogicalPlan(mustParseExpr(t, fn+"(up[5m])"))
 		if err != nil {
 			t.Fatalf("expected logical %s plan, got error: %v", fn, err)
@@ -573,6 +573,37 @@ func TestBuildLogicalPlanCreatesScalarConvertPlan(t *testing.T) {
 	}
 	if _, ok := scalarConvert.Child.(*logicalLeafExprPlan); !ok {
 		t.Fatalf("expected vector child for scalar(), got %T", scalarConvert.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesPredictLinearPlan(t *testing.T) {
+	logical, err := buildLogicalPlan(mustParseExpr(t, "predict_linear(up[5m], 60)"))
+	if err != nil {
+		t.Fatalf("expected logical predict_linear plan, got error: %v", err)
+	}
+	rangePlan, ok := logical.(*logicalRangeFunctionPlan)
+	if !ok {
+		t.Fatalf("expected logicalRangeFunctionPlan, got %T", logical)
+	}
+	if rangePlan.Func != "predict_linear" || rangePlan.ParamNumber == nil || *rangePlan.ParamNumber != 60 {
+		t.Fatalf("unexpected predict_linear plan: %#v", rangePlan)
+	}
+	if _, ok := rangePlan.Child.(*logicalLeafExprPlan); !ok {
+		t.Fatalf("expected matrix child for predict_linear(), got %T", rangePlan.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesDoubleExponentialSmoothingPlan(t *testing.T) {
+	logical, err := buildLogicalPlan(mustParseExpr(t, "double_exponential_smoothing(up[5m], 0.5, 0.3)"))
+	if err != nil {
+		t.Fatalf("expected logical smoothing plan, got error: %v", err)
+	}
+	rangePlan, ok := logical.(*logicalRangeFunctionPlan)
+	if !ok {
+		t.Fatalf("expected logicalRangeFunctionPlan, got %T", logical)
+	}
+	if rangePlan.Func != "double_exponential_smoothing" || len(rangePlan.ParamNumbers) != 2 || *rangePlan.ParamNumbers[0] != 0.5 || *rangePlan.ParamNumbers[1] != 0.3 {
+		t.Fatalf("unexpected smoothing plan: %#v", rangePlan)
 	}
 }
 

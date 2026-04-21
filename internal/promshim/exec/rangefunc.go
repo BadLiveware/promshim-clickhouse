@@ -19,6 +19,8 @@ var localMatrixRangeFunctions = map[string]matrixRangeFunction{
 	"stddev_over_time":  applyStddevOverTimeMatrix,
 	"stdvar_over_time":  applyStdvarOverTimeMatrix,
 	"present_over_time": applyPresentOverTimeMatrix,
+	"mad_over_time":     applyMadOverTimeMatrix,
+	"resets":            applyResetsMatrix,
 }
 
 func ApplyRangeFunctionInstant(name string, input model.RuntimeValue) (model.VectorValue, error) {
@@ -152,6 +154,67 @@ func applyPresentOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, er
 		}
 		last := series.Values[len(series.Values)-1]
 		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: 1})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := model.LabelsKey(out[i].Metric)
+		right := model.LabelsKey(out[j].Metric)
+		if left == right {
+			return out[i].Timestamp < out[j].Timestamp
+		}
+		return left < right
+	})
+	return model.VectorValue{Samples: out}, nil
+}
+
+func applyMadOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, error) {
+	out := make([]model.InstantSample, 0, len(matrix.Series))
+	for _, series := range matrix.Series {
+		if len(series.Values) == 0 {
+			continue
+		}
+		values := make([]float64, 0, len(series.Values))
+		for _, point := range series.Values {
+			values = append(values, point.Value)
+		}
+		median := calculateQuantileFromValues(0.5, values)
+		deviations := make([]float64, 0, len(values))
+		for _, value := range values {
+			deviations = append(deviations, math.Abs(value-median))
+		}
+		mad := calculateQuantileFromValues(0.5, deviations)
+		last := series.Values[len(series.Values)-1]
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: mad})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := model.LabelsKey(out[i].Metric)
+		right := model.LabelsKey(out[j].Metric)
+		if left == right {
+			return out[i].Timestamp < out[j].Timestamp
+		}
+		return left < right
+	})
+	return model.VectorValue{Samples: out}, nil
+}
+
+func applyResetsMatrix(matrix model.MatrixValue) (model.VectorValue, error) {
+	out := make([]model.InstantSample, 0, len(matrix.Series))
+	for _, series := range matrix.Series {
+		if len(series.Values) == 0 {
+			continue
+		}
+		resets := 0.0
+		prev := math.NaN()
+		for _, point := range series.Values {
+			if math.IsNaN(point.Value) {
+				continue
+			}
+			if !math.IsNaN(prev) && point.Value < prev {
+				resets++
+			}
+			prev = point.Value
+		}
+		last := series.Values[len(series.Values)-1]
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: resets})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		left := model.LabelsKey(out[i].Metric)

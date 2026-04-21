@@ -47,7 +47,7 @@ func cloneFragment(fragment *NativeFragment) *NativeFragment {
 		}
 	}
 	if fragment.RangeFunction != nil {
-		cloned.RangeFunction = &RangeFunctionFragment{Func: fragment.RangeFunction.Func, Child: cloneFragment(fragment.RangeFunction.Child)}
+		cloned.RangeFunction = &RangeFunctionFragment{Func: fragment.RangeFunction.Func, ParamNumber: cloneFloat64Pointer(fragment.RangeFunction.ParamNumber), ParamNumbers: cloneFloat64Pointers(fragment.RangeFunction.ParamNumbers), Child: cloneFragment(fragment.RangeFunction.Child)}
 	}
 	if fragment.Subquery != nil {
 		cloned.Subquery = &SubqueryFragment{Range: fragment.Subquery.Range, Step: fragment.Subquery.Step, Offset: fragment.Subquery.Offset, Timestamp: cloneInt64Pointer(fragment.Subquery.Timestamp), StartOrEnd: fragment.Subquery.StartOrEnd, Child: cloneFragment(fragment.Subquery.Child)}
@@ -87,4 +87,15 @@ func cloneFloat64Pointer(value *float64) *float64 {
 	}
 	cloned := *value
 	return &cloned
+}
+
+func cloneFloat64Pointers(values []*float64) []*float64 {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]*float64, 0, len(values))
+	for _, value := range values {
+		out = append(out, cloneFloat64Pointer(value))
+	}
+	return out
 }

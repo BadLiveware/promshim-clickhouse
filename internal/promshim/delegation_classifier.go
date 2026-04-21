@@ -64,7 +64,7 @@ func (m clickHouseCapabilityMap) unsupportedReason(node parser.Node) string {
 
 func (m clickHouseCapabilityMap) supportsCall(name string) bool {
 	switch name {
-	case "rate", "irate", "increase", "delta", "idelta", "changes", "deriv", "last_over_time", "sum_over_time", "avg_over_time", "min_over_time", "max_over_time", "count_over_time", "quantile_over_time", "vector", "round", "label_replace", "label_join", "histogram_quantile", "histogram_count", "histogram_sum", "histogram_avg", "histogram_fraction", "absent", "absent_over_time":
+	case "rate", "irate", "increase", "delta", "idelta", "changes", "deriv", "resets", "last_over_time", "sum_over_time", "avg_over_time", "min_over_time", "max_over_time", "count_over_time", "quantile_over_time", "vector", "round", "label_replace", "label_join", "histogram_quantile", "histogram_count", "histogram_sum", "histogram_avg", "histogram_fraction", "absent", "absent_over_time":
 		return false
 	default:
 		return false

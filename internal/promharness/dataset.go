@@ -21,6 +21,8 @@ func GenerateDataset(cfg SeedConfig) generatedDataset {
 	jobs := []string{"api", "worker"}
 	instances := []string{"a", "b"}
 	namespaces := map[string]string{"api": "blue", "worker": "green"}
+	clusters := map[string]string{"api": "prod-eu", "worker": "prod-us"}
+	teams := map[string]string{"api": "checkout", "worker": "fulfillment"}
 
 	bucketLEValues := []string{"0.1", "0.2", "0.5", "1", "+Inf"}
 	for _, job := range jobs {
@@ -31,6 +33,12 @@ func GenerateDataset(cfg SeedConfig) generatedDataset {
 				"namespace": namespaces[job],
 				"pod":       fmt.Sprintf("%s-%s", job, instance),
 				"service":   job,
+			}
+			infoLabels := map[string]string{
+				"job":              job,
+				"instance":         instance,
+				"k8s_cluster_name": clusters[job],
+				"team":             teams[job],
 			}
 			counter := 0.0
 			histogramBuckets := make([]float64, len(bucketLEValues))
@@ -74,6 +82,7 @@ func GenerateDataset(cfg SeedConfig) generatedDataset {
 					builder.AddSample("harness_requests_total", common, timestamp, counter)
 					builder.AddSample("harness_request_duration_seconds_count", common, timestamp, histogramCount)
 					builder.AddSample("harness_request_duration_seconds_sum", common, timestamp, histogramSum)
+					builder.AddSample("target_info", infoLabels, timestamp, 1)
 				}
 				if !gapPoint && !staleAfterMidpoint && i%3 == 0 {
 					builder.AddSample("harness_sparse_gauge", common, timestamp, float64(100+i+len(job)+len(instance)))

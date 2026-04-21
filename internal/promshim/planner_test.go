@@ -341,7 +341,7 @@ func TestBuildPlanCreatesNativeIncreasePlan(t *testing.T) {
 }
 
 func TestBuildPlanWithContextCreatesNativeRangeFunctionPlanInRangeModeForDirectSelector(t *testing.T) {
-	for _, query := range []string{"sum_over_time(up[5m])", "rate(up[5m])", "increase(up[5m])", "changes(up[5m])"} {
+	for _, query := range []string{"sum_over_time(up[5m])", "rate(up[5m])", "increase(up[5m])", "changes(up[5m])", "resets(up[5m])"} {
 		expr, err := plan.ParseExpression(query)
 		if err != nil {
 			t.Fatal(err)
@@ -362,7 +362,7 @@ func TestBuildPlanWithContextCreatesNativeRangeFunctionPlanInRangeModeForDirectS
 }
 
 func TestBuildPlanWithContextCreatesNativeRangeFunctionPlanInRangeModeForSubquery(t *testing.T) {
-	for _, query := range []string{"sum_over_time(sum(up)[5m:1m])", "rate(sum(up)[5m:1m])", "increase(sum(up)[5m:1m])", "changes(sum(up)[5m:1m])"} {
+	for _, query := range []string{"sum_over_time(sum(up)[5m:1m])", "rate(sum(up)[5m:1m])", "increase(sum(up)[5m:1m])", "changes(sum(up)[5m:1m])", "resets(sum(up)[5m:1m])"} {
 		expr, err := plan.ParseExpression(query)
 		if err != nil {
 			t.Fatal(err)
@@ -893,6 +893,107 @@ func TestBuildPlanWithContextCreatesNativePlanForScalarConvert(t *testing.T) {
 	}
 	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindScalarConvert || native.Fragment.ScalarConvert == nil {
 		t.Fatalf("expected scalar convert fragment, got %#v", native)
+	}
+}
+
+func TestBuildPlanWithContextCreatesLocalPlanForPredictLinear(t *testing.T) {
+	expr, err := plan.ParseExpression("predict_linear(up[5m], 60)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeInstant, NativeLoweringMode: NativeLoweringModeOff})
+	if err != nil {
+		t.Fatalf("expected local predict_linear plan, got error: %v", err)
+	}
+	local, ok := built.(*localRangeFunctionPlan)
+	if !ok {
+		t.Fatalf("expected localRangeFunctionPlan, got %T", built)
+	}
+	if local.Func != "predict_linear" || local.ParamNumber == nil || *local.ParamNumber != 60 {
+		t.Fatalf("unexpected predict_linear plan: %#v", local)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativePlanForPredictLinear(t *testing.T) {
+	expr, err := plan.ParseExpression("predict_linear(up[5m], 60)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native predict_linear plan, got error: %v", err)
+	}
+	native, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
+	}
+	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindRangeFunction || native.Fragment.RangeFunction == nil || native.Fragment.RangeFunction.Func != "predict_linear" {
+		t.Fatalf("expected predict_linear range fragment, got %#v", native)
+	}
+	if native.Fragment.RangeFunction.ParamNumber == nil || *native.Fragment.RangeFunction.ParamNumber != 60 {
+		t.Fatalf("expected predict_linear duration on native fragment, got %#v", native.Fragment.RangeFunction)
+	}
+}
+
+func TestBuildPlanWithContextCreatesLocalPlanForDoubleExponentialSmoothing(t *testing.T) {
+	expr, err := plan.ParseExpression("double_exponential_smoothing(up[5m], 0.5, 0.3)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeInstant, NativeLoweringMode: NativeLoweringModeOff})
+	if err != nil {
+		t.Fatalf("expected local smoothing plan, got error: %v", err)
+	}
+	local, ok := built.(*localRangeFunctionPlan)
+	if !ok {
+		t.Fatalf("expected localRangeFunctionPlan, got %T", built)
+	}
+	if local.Func != "double_exponential_smoothing" || len(local.ParamNumbers) != 2 || *local.ParamNumbers[0] != 0.5 || *local.ParamNumbers[1] != 0.3 {
+		t.Fatalf("unexpected smoothing plan: %#v", local)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativePlanForDoubleExponentialSmoothing(t *testing.T) {
+	expr, err := plan.ParseExpression("double_exponential_smoothing(up[5m], 0.5, 0.3)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native smoothing plan, got error: %v", err)
+	}
+	native, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
+	}
+	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindRangeFunction || native.Fragment.RangeFunction == nil || native.Fragment.RangeFunction.Func != "double_exponential_smoothing" {
+		t.Fatalf("expected smoothing range fragment, got %#v", native)
+	}
+	if len(native.Fragment.RangeFunction.ParamNumbers) != 2 || *native.Fragment.RangeFunction.ParamNumbers[0] != 0.5 || *native.Fragment.RangeFunction.ParamNumbers[1] != 0.3 {
+		t.Fatalf("expected smoothing params on native fragment, got %#v", native.Fragment.RangeFunction)
+	}
+}
+
+func TestBuildPlanWithContextNormalizesHoltWintersAlias(t *testing.T) {
+	expr, err := plan.ParseExpression("holt_winters(up[5m], 0.5, 0.3)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native alias plan, got error: %v", err)
+	}
+	native, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
+	}
+	if native.Fragment == nil || native.Fragment.RangeFunction == nil || native.Fragment.RangeFunction.Func != "double_exponential_smoothing" {
+		t.Fatalf("expected holt_winters alias to normalize to double_exponential_smoothing, got %#v", native)
 	}
 }
 

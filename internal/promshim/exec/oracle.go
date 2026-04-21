@@ -78,6 +78,34 @@ var localRangeOperatorInventory = []LocalRangeOperatorDescriptor{
 		SemanticRules: []string{"returns 1 when the range window contains samples", "drops metric name in the output"},
 	},
 	{
+		Name:          "mad_over_time",
+		File:          "internal/promshim/exec/rangefunc.go",
+		Category:      "range_vector",
+		PrometheusRef: "promql/functions.go:mad_over_time",
+		SemanticRules: []string{"computes the median absolute deviation over samples in the range window", "drops metric name in the output"},
+	},
+	{
+		Name:          "resets",
+		File:          "internal/promshim/exec/rangefunc.go",
+		Category:      "range_vector",
+		PrometheusRef: "promql/functions.go:resets",
+		SemanticRules: []string{"counts counter reset edges across the range window", "ignores NaN samples in the pairwise reset scan", "drops metric name in the output"},
+	},
+	{
+		Name:          "double_exponential_smoothing",
+		File:          "internal/promshim/exec/smoothing.go",
+		Category:      "range_vector",
+		PrometheusRef: "promql/functions.go:double_exponential_smoothing",
+		SemanticRules: []string{"smooths range samples with explicit smoothing and trend factors", "drops metric name in the output"},
+	},
+	{
+		Name:          "holt_winters",
+		File:          "internal/promshim/exec/smoothing.go",
+		Category:      "range_vector",
+		PrometheusRef: "promql/functions.go:double_exponential_smoothing",
+		SemanticRules: []string{"aliases double_exponential_smoothing semantics", "drops metric name in the output"},
+	},
+	{
 		Name:             "quantile_over_time",
 		File:             "internal/promshim/exec/rangefunc.go",
 		Category:         "range_vector",
@@ -168,6 +196,18 @@ var localRangeOracles = map[string]LocalRangeOracle{
 	},
 	"present_over_time": func(input model.RuntimeValue) (model.VectorValue, error) {
 		return ApplyRangeFunctionInstant("present_over_time", input)
+	},
+	"mad_over_time": func(input model.RuntimeValue) (model.VectorValue, error) {
+		return ApplyRangeFunctionInstant("mad_over_time", input)
+	},
+	"resets": func(input model.RuntimeValue) (model.VectorValue, error) {
+		return ApplyRangeFunctionInstant("resets", input)
+	},
+	"double_exponential_smoothing": func(input model.RuntimeValue) (model.VectorValue, error) {
+		return ApplyDoubleExponentialSmoothing(0.5, 0.3, input)
+	},
+	"holt_winters": func(input model.RuntimeValue) (model.VectorValue, error) {
+		return ApplyDoubleExponentialSmoothing(0.5, 0.3, input)
 	},
 	"rate":     ApplyRate,
 	"irate":    ApplyIRate,

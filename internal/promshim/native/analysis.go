@@ -232,8 +232,54 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 				OutputKind:  OutputKindInstantVector,
 				DropsMetric: true,
 				RangeFunction: &RangeFunctionFragment{
-					Func:  n.Func,
-					Child: child.Fragment,
+					Func:        n.Func,
+					ParamNumber: cloneFloat64Pointer(n.ParamNumber),
+					Child:       child.Fragment,
+				},
+			}
+			return info
+		}
+		if n.Func == "predict_linear" && n.ParamNumber != nil && child.Fragment != nil && child.OutputKind == OutputKindRangeMatrix && isSupportedNativeRangeChildFragment(child.Fragment) {
+			info.NativeLowerable = true
+			info.NativeReason = "predict_linear can lower to native SQL using the shared windowed-arrays source and simpleLinearRegression"
+			info.Fragment = &NativeFragment{
+				Kind:        FragmentKindRangeFunction,
+				OutputKind:  OutputKindInstantVector,
+				DropsMetric: true,
+				RangeFunction: &RangeFunctionFragment{
+					Func:        n.Func,
+					ParamNumber: cloneFloat64Pointer(n.ParamNumber),
+					Child:       child.Fragment,
+				},
+			}
+			return info
+		}
+		if n.Func == "resets" && child.Fragment != nil && child.OutputKind == OutputKindRangeMatrix && isSupportedNativeRangeChildFragment(child.Fragment) {
+			info.NativeLowerable = true
+			info.NativeReason = "resets can lower to native SQL using pairwise comparisons over the shared windowed-arrays source"
+			info.Fragment = &NativeFragment{
+				Kind:        FragmentKindRangeFunction,
+				OutputKind:  OutputKindInstantVector,
+				DropsMetric: true,
+				RangeFunction: &RangeFunctionFragment{
+					Func:        n.Func,
+					ParamNumber: cloneFloat64Pointer(n.ParamNumber),
+					Child:       child.Fragment,
+				},
+			}
+			return info
+		}
+		if (n.Func == "double_exponential_smoothing" || n.Func == "holt_winters") && len(n.ParamNumbers) == 2 && n.ParamNumbers[0] != nil && n.ParamNumbers[1] != nil && child.Fragment != nil && child.OutputKind == OutputKindRangeMatrix && isSupportedNativeRangeChildFragment(child.Fragment) {
+			info.NativeLowerable = true
+			info.NativeReason = fmt.Sprintf("%s can lower to native SQL using arrayFold over the shared windowed-arrays source", n.Func)
+			info.Fragment = &NativeFragment{
+				Kind:        FragmentKindRangeFunction,
+				OutputKind:  OutputKindInstantVector,
+				DropsMetric: true,
+				RangeFunction: &RangeFunctionFragment{
+					Func:         n.Func,
+					ParamNumbers: cloneFloat64Pointers(n.ParamNumbers),
+					Child:        child.Fragment,
 				},
 			}
 			return info
@@ -557,6 +603,11 @@ func isSupportedNativeSyntheticDateFunction(name string) bool {
 	}
 }
 
+// nativeInfoMetricName returns the single info metric name that the native
+// renderer can safely join today. We lower the default target_info convention
+// and explicit equality matchers; broader regex/negative-name matching stays on
+// the local path because it can span multiple info metrics that need merge
+// semantics beyond the current native join shape.
 func nativeInfoMetricName(matchers []*labels.Matcher) (string, bool) {
 	nameMatchers := make([]*labels.Matcher, 0)
 	for _, matcher := range matchers {
@@ -701,7 +752,7 @@ func nativePointwiseSourceTemplate(name string, paramNumbers []*float64) (string
 func isSupportedNativeAggregateOverTime(name string) bool {
 	switch name {
 	case "last_over_time", "sum_over_time", "avg_over_time", "min_over_time", "max_over_time", "count_over_time",
-		"stddev_over_time", "stdvar_over_time", "present_over_time":
+		"stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time":
 		return true
 	default:
 		return false
@@ -739,6 +790,17 @@ func IsSupportedNativeRangeModeForAggregateOverTimeSubquery(fragment *NativeFrag
 		return false
 	}
 	if !isSupportedNativeAggregateOverTime(fragment.RangeFunction.Func) {
+		return false
+	}
+	child := fragment.RangeFunction.Child
+	return child.Kind == FragmentKindSubquery && child.Subquery != nil && child.Subquery.Child != nil
+}
+
+func IsSupportedNativeRangeModeForWindowedArraysSubquery(fragment *NativeFragment) bool {
+	if fragment == nil || fragment.RangeFunction == nil || fragment.RangeFunction.Child == nil {
+		return false
+	}
+	if !isSupportedNativeAggregateOverTime(fragment.RangeFunction.Func) && fragment.RangeFunction.Func != "predict_linear" && fragment.RangeFunction.Func != "resets" && fragment.RangeFunction.Func != "double_exponential_smoothing" && fragment.RangeFunction.Func != "holt_winters" {
 		return false
 	}
 	child := fragment.RangeFunction.Child

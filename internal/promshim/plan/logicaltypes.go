@@ -183,9 +183,11 @@ func (p *LogicalHistogramProjectionPlan) exprString() string {
 func (p *LogicalHistogramProjectionPlan) ExprString() string { return p.exprString() }
 
 type LogicalRangeFunctionPlan struct {
-	Expr  parser.Expr
-	Func  string
-	Child LogicalPlan
+	Expr         parser.Expr
+	Func         string
+	ParamNumber  *float64
+	ParamNumbers []*float64
+	Child        LogicalPlan
 }
 
 func (*LogicalRangeFunctionPlan) logicalPlan() {}

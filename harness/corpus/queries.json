@@ -953,5 +953,95 @@
     "endpoint": "query",
     "query": "scalar(harness_up{job=\"api\",instance=\"a\"})",
     "timeOffsetSeconds": 540
+  },
+  {
+    "name": "tier2_info_local_instant",
+    "endpoint": "query",
+    "query": "info(harness_up{job=\"api\",instance=\"a\"})",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ],
+    "nativeLoweringMode": "off"
+  },
+  {
+    "name": "tier2_info_native_instant",
+    "endpoint": "query",
+    "query": "info(harness_up{job=\"api\",instance=\"a\"})",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ],
+    "nativeLoweringMode": "force_supported"
+  },
+  {
+    "name": "tier2_info_filtered_native_instant",
+    "endpoint": "query",
+    "query": "info(harness_up{job=\"api\",instance=\"a\"}, {k8s_cluster_name=\"prod-eu\"})",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ],
+    "nativeLoweringMode": "force_supported"
+  },
+  {
+    "name": "tier2_mad_over_time_native_instant",
+    "endpoint": "query",
+    "query": "mad_over_time(harness_queue_depth{job=\"api\",instance=\"a\"}[5m])",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ],
+    "nativeLoweringMode": "force_supported"
+  },
+  {
+    "name": "tier2_predict_linear_native_instant",
+    "endpoint": "query",
+    "query": "predict_linear(harness_queue_depth{job=\"api\",instance=\"a\"}[5m], 60)",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ],
+    "nativeLoweringMode": "force_supported"
+  },
+  {
+    "name": "tier2_predict_linear_intercept_instant",
+    "endpoint": "query",
+    "query": "predict_linear(harness_queue_depth{job=\"api\",instance=\"a\"}[5m], 0)",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ],
+    "nativeLoweringMode": "force_supported"
+  },
+  {
+    "name": "tier3_resets_native_instant",
+    "endpoint": "query",
+    "query": "resets(harness_requests_total{job=\"api\",instance=\"a\"}[5m])",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ],
+    "nativeLoweringMode": "force_supported"
+  },
+  {
+    "name": "tier3_double_exponential_smoothing_native_instant",
+    "endpoint": "query",
+    "query": "double_exponential_smoothing(harness_queue_depth{job=\"api\",instance=\"a\"}[5m], 0.5, 0.3)",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ],
+    "nativeLoweringMode": "force_supported"
+  },
+  {
+    "name": "tier3_holt_winters_alias_native_instant",
+    "endpoint": "query",
+    "query": "holt_winters(harness_queue_depth{job=\"api\",instance=\"a\"}[5m], 0.5, 0.3)",
+    "timeOffsetSeconds": 540,
+    "subjects": [
+      "shim"
+    ],
+    "nativeLoweringMode": "force_supported"
   }
 ]

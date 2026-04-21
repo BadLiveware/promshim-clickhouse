@@ -82,6 +82,19 @@ func TestGenerateDatasetHistogramBurstShiftsHistogramAndQueueDepth(t *testing.T)
 	}
 }
 
+func TestGenerateDatasetAddsTargetInfoSeries(t *testing.T) {
+	dataset := GenerateDataset(SeedConfig{Seed: 12345, Step: time.Minute, Points: 10, BaseTime: time.Unix(0, 0).UTC()})
+	series := findSeries(t, dataset.Request.Timeseries, "target_info", map[string]string{"job": "api", "instance": "a", "k8s_cluster_name": "prod-eu", "team": "checkout"})
+	if len(series.Samples) != 10 {
+		t.Fatalf("expected target_info samples at every step, got %#v", series.Samples)
+	}
+	for _, sample := range series.Samples {
+		if sample.Value != 1 {
+			t.Fatalf("expected target_info gauge value 1, got %#v", series.Samples)
+		}
+	}
+}
+
 func findSeries(t *testing.T, series []prompb.TimeSeries, metric string, labels map[string]string) prompb.TimeSeries {
 	t.Helper()
 	for _, ts := range series {

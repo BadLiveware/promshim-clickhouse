@@ -57,6 +57,27 @@ var localRangeOperatorInventory = []LocalRangeOperatorDescriptor{
 		SemanticRules: []string{"counts raw samples in the range window", "drops metric name in the output"},
 	},
 	{
+		Name:          "stddev_over_time",
+		File:          "internal/promshim/exec/rangefunc.go",
+		Category:      "range_vector",
+		PrometheusRef: "promql/functions.go:stddev_over_time",
+		SemanticRules: []string{"computes population standard deviation over samples in the range window", "drops metric name in the output"},
+	},
+	{
+		Name:          "stdvar_over_time",
+		File:          "internal/promshim/exec/rangefunc.go",
+		Category:      "range_vector",
+		PrometheusRef: "promql/functions.go:stdvar_over_time",
+		SemanticRules: []string{"computes population variance over samples in the range window", "drops metric name in the output"},
+	},
+	{
+		Name:          "present_over_time",
+		File:          "internal/promshim/exec/rangefunc.go",
+		Category:      "range_vector",
+		PrometheusRef: "promql/functions.go:present_over_time",
+		SemanticRules: []string{"returns 1 when the range window contains samples", "drops metric name in the output"},
+	},
+	{
 		Name:             "quantile_over_time",
 		File:             "internal/promshim/exec/rangefunc.go",
 		Category:         "range_vector",
@@ -138,6 +159,15 @@ var localRangeOracles = map[string]LocalRangeOracle{
 	},
 	"count_over_time": func(input model.RuntimeValue) (model.VectorValue, error) {
 		return ApplyRangeFunctionInstant("count_over_time", input)
+	},
+	"stddev_over_time": func(input model.RuntimeValue) (model.VectorValue, error) {
+		return ApplyRangeFunctionInstant("stddev_over_time", input)
+	},
+	"stdvar_over_time": func(input model.RuntimeValue) (model.VectorValue, error) {
+		return ApplyRangeFunctionInstant("stdvar_over_time", input)
+	},
+	"present_over_time": func(input model.RuntimeValue) (model.VectorValue, error) {
+		return ApplyRangeFunctionInstant("present_over_time", input)
 	},
 	"rate":     ApplyRate,
 	"irate":    ApplyIRate,

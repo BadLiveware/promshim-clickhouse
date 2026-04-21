@@ -15,7 +15,7 @@ func TestAggregateOverTimeNativeSemanticsMatchLocalOracle(t *testing.T) {
 		{Metric: map[string]string{"__name__": "up", "job": "worker"}, Values: []model.RangePoint{{Timestamp: 10, Value: 3}, {Timestamp: 20, Value: math.NaN()}, {Timestamp: 30, Value: 9}}},
 	}}
 
-	for _, name := range []string{"last_over_time", "sum_over_time", "avg_over_time", "min_over_time", "max_over_time", "count_over_time"} {
+	for _, name := range []string{"last_over_time", "sum_over_time", "avg_over_time", "min_over_time", "max_over_time", "count_over_time", "stddev_over_time", "stdvar_over_time", "present_over_time"} {
 		oracle, ok := exec.LocalRangeOracleForTest(name)
 		if !ok {
 			t.Fatalf("expected local oracle for %q", name)
@@ -94,6 +94,26 @@ func applyNativeAggregateOverTimeForTest(name string, matrix model.MatrixValue) 
 			}
 		case "count_over_time":
 			value = float64(len(values))
+		case "stddev_over_time", "stdvar_over_time":
+			if hasNaN || len(values) == 0 {
+				value = math.NaN()
+			} else {
+				count := 0.0
+				mean := 0.0
+				m2 := 0.0
+				for _, v := range values {
+					count++
+					delta := v - mean
+					mean += delta / count
+					m2 += delta * (v - mean)
+				}
+				value = m2 / count
+				if name == "stddev_over_time" {
+					value = math.Sqrt(value)
+				}
+			}
+		case "present_over_time":
+			value = 1
 		default:
 			return model.VectorValue{}, nil
 		}

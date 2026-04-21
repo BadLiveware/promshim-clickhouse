@@ -34,6 +34,16 @@ type logicalVectorPlan = plan.LogicalVectorPlan
 
 type logicalRoundPlan = plan.LogicalRoundPlan
 
+type logicalSortPlan = plan.LogicalSortPlan
+
+type logicalScalarConvertPlan = plan.LogicalScalarConvertPlan
+
+type logicalInfoPlan = plan.LogicalInfoPlan
+
+type logicalPointwiseFunctionPlan = plan.LogicalPointwiseFunctionPlan
+
+type logicalScalarBuiltinPlan = plan.LogicalScalarBuiltinPlan
+
 type logicalRatePlan = plan.LogicalRatePlan
 
 type logicalIncreasePlan = plan.LogicalIncreasePlan
@@ -236,6 +246,34 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 			return nil, withInternalContext(err, "building logical child plan for vector %q", call.String())
 		}
 		return &logicalVectorPlan{Expr: call, Child: child}, nil
+	case "pi", "time":
+		return &logicalScalarBuiltinPlan{Expr: call, Func: name}, nil
+	case "info":
+		if result := plan.AnalyzeInfoCall(call); !result.Supported {
+			return nil, newPlanBuildError(call, result, "call planning")
+		}
+		child, err := buildLogicalPlan(call.Args[0])
+		if err != nil {
+			return nil, withInternalContext(err, "building logical child plan for info %q", call.String())
+		}
+		var selectorMatchers []*promlabels.Matcher
+		if len(call.Args) > 1 {
+			selector, ok := unwrapTransparentExpr(call.Args[1]).(*parser.VectorSelector)
+			if !ok {
+				return nil, withInternalContext(newBadDataErrorf("info selector must be a label selector"), "building logical info %q", call.String())
+			}
+			selectorMatchers = clonePromMatchers(selector.LabelMatchers)
+		}
+		return &logicalInfoPlan{Expr: call, SelectorMatchers: selectorMatchers, Child: child}, nil
+	case "scalar":
+		if result := plan.AnalyzeScalarCall(call); !result.Supported {
+			return nil, newPlanBuildError(call, result, "call planning")
+		}
+		child, err := buildLogicalPlan(call.Args[0])
+		if err != nil {
+			return nil, withInternalContext(err, "building logical child plan for scalar %q", call.String())
+		}
+		return &logicalScalarConvertPlan{Expr: call, Child: child}, nil
 	case "round":
 		if result := plan.AnalyzeRoundCall(call); !result.Supported {
 			return nil, newPlanBuildError(call, result, "call planning")
@@ -253,6 +291,23 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 			plan.Decimals = &decimals
 		}
 		return plan, nil
+	case "sort", "sort_desc", "sort_by_label", "sort_by_label_desc":
+		if result := plan.AnalyzeSortCall(name, call); !result.Supported {
+			return nil, newPlanBuildError(call, result, "call planning")
+		}
+		child, err := buildLogicalPlan(call.Args[0])
+		if err != nil {
+			return nil, withInternalContext(err, "building logical child plan for %s %q", name, call.String())
+		}
+		labels := make([]string, 0, max(0, len(call.Args)-1))
+		for _, arg := range call.Args[1:] {
+			label, err := stringLiteralArgument(arg, name+" label")
+			if err != nil {
+				return nil, withInternalContext(err, "building logical %s %q", name, call.String())
+			}
+			labels = append(labels, label)
+		}
+		return &logicalSortPlan{Expr: call, Func: name, Labels: labels, Child: child}, nil
 	case "rate", "irate":
 		analyze := plan.AnalyzeRateCall
 		if name == "irate" {
@@ -306,7 +361,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 			return nil, withInternalContext(err, "building logical child plan for deriv %q", call.String())
 		}
 		return &logicalDerivPlan{Expr: call, Child: child}, nil
-	case "last_over_time", "sum_over_time", "avg_over_time", "max_over_time", "min_over_time", "count_over_time":
+	case "last_over_time", "sum_over_time", "avg_over_time", "max_over_time", "min_over_time", "count_over_time", "stddev_over_time", "stdvar_over_time", "present_over_time":
 		if result := plan.AnalyzeRangeFunctionCall(name, call); !result.Supported {
 			return nil, newPlanBuildError(call, result, "call planning")
 		}
@@ -315,6 +370,14 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 			return nil, withInternalContext(err, "building logical child plan for %s %q", name, call.String())
 		}
 		return &logicalRangeFunctionPlan{Expr: call, Func: name, Child: child}, nil
+	case "abs", "ceil", "floor", "sgn",
+		"exp", "ln", "log2", "log10", "sqrt",
+		"clamp", "clamp_min", "clamp_max",
+		"sin", "cos", "tan", "asin", "acos", "atan",
+		"sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
+		"deg", "rad", "timestamp",
+		"minute", "hour", "day_of_week", "day_of_month", "day_of_year", "days_in_month", "month", "year":
+		return buildLogicalPointwiseFunctionPlan(name, call)
 	case "quantile_over_time":
 		if result := plan.AnalyzeQuantileOverTimeCall(call); !result.Supported {
 			return nil, newPlanBuildError(call, result, "call planning")
@@ -356,7 +419,7 @@ func aggregatePlanParam(expr *parser.AggregateExpr) (*float64, string, error) {
 		return nil, "", nil
 	}
 	switch expr.Op {
-	case parser.TOPK, parser.BOTTOMK:
+	case parser.TOPK, parser.BOTTOMK, parser.QUANTILE:
 		literal, ok := unwrapTransparentExpr(expr.Param).(*parser.NumberLiteral)
 		if !ok {
 			return nil, "", newUnsupportedErrorf("aggregation operator %q currently requires a literal scalar parameter", strings.ToLower(expr.Op.String()))
@@ -375,6 +438,52 @@ func aggregatePlanParam(expr *parser.AggregateExpr) (*float64, string, error) {
 	default:
 		return nil, "", nil
 	}
+}
+
+func buildLogicalPointwiseFunctionPlan(name string, call *parser.Call) (logicalPlan, error) {
+	paramNumbers := make([]*float64, 0, max(0, len(call.Args)-1))
+	argOffset := 0
+	if name == "clamp" || name == "clamp_min" || name == "clamp_max" {
+		child, err := buildLogicalPlan(call.Args[0])
+		if err != nil {
+			return nil, withInternalContext(err, "building logical child plan for %s %q", name, call.String())
+		}
+		for _, arg := range call.Args[1:] {
+			value, err := numberLiteralArgument(arg, name+" scalar parameter")
+			if err != nil {
+				return nil, withInternalContext(err, "building logical %s %q", name, call.String())
+			}
+			valueCopy := value
+			paramNumbers = append(paramNumbers, &valueCopy)
+		}
+		return &logicalPointwiseFunctionPlan{Expr: call, Func: name, ParamNumbers: paramNumbers, Child: child}, nil
+	}
+	if len(call.Args) > 0 {
+		argOffset = 1
+	}
+	var child logicalPlan
+	if argOffset == 1 {
+		builtChild, err := buildLogicalPlan(call.Args[0])
+		if err != nil {
+			return nil, withInternalContext(err, "building logical child plan for %s %q", name, call.String())
+		}
+		child = builtChild
+	}
+	return &logicalPointwiseFunctionPlan{Expr: call, Func: name, Child: child}, nil
+}
+
+func clonePromMatchers(matchers []*promlabels.Matcher) []*promlabels.Matcher {
+	if len(matchers) == 0 {
+		return nil
+	}
+	out := make([]*promlabels.Matcher, 0, len(matchers))
+	for _, matcher := range matchers {
+		if matcher == nil {
+			continue
+		}
+		out = append(out, promlabels.MustNewMatcher(matcher.Type, matcher.Name, matcher.Value))
+	}
+	return out
 }
 
 func stringLiteralArgument(expr parser.Expr, description string) (string, error) {

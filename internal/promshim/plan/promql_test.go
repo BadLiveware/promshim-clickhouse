@@ -34,6 +34,57 @@ func TestAnalyzeExpressionSupportsAvgAggregation(t *testing.T) {
 	}
 }
 
+func TestAnalyzeExpressionSupportsTier1AdditionalAggregations(t *testing.T) {
+	queries := []string{
+		"stddev(up)",
+		"stdvar(up)",
+		"quantile(0.9, up)",
+		"group(up)",
+	}
+	for _, query := range queries {
+		expr, err := ParseExpression(query)
+		if err != nil {
+			t.Fatalf("ParseExpression(%q): %v", query, err)
+		}
+		result := AnalyzeExpression(expr)
+		if !result.Supported {
+			t.Fatalf("expected supported aggregation for %q, got %#v", query, result)
+		}
+	}
+}
+
+func TestAnalyzeExpressionRejectsDynamicQuantileAggregationParameter(t *testing.T) {
+	expr, err := ParseExpression("quantile(1 / 2, up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := AnalyzeExpression(expr)
+	if result.Supported {
+		t.Fatalf("expected unsupported quantile aggregation parameter expression, got %#v", result)
+	}
+	if !strings.Contains(result.Reason, "literal scalar parameter") {
+		t.Fatalf("expected literal scalar parameter reason, got %#v", result)
+	}
+}
+
+func TestAnalyzeExpressionSupportsTier1AdditionalRangeFunctions(t *testing.T) {
+	queries := []string{
+		"stddev_over_time(up[5m])",
+		"stdvar_over_time(up[5m])",
+		"present_over_time(up[5m])",
+	}
+	for _, query := range queries {
+		expr, err := ParseExpression(query)
+		if err != nil {
+			t.Fatalf("ParseExpression(%q): %v", query, err)
+		}
+		result := AnalyzeExpression(expr)
+		if !result.Supported {
+			t.Fatalf("expected supported range function for %q, got %#v", query, result)
+		}
+	}
+}
+
 func TestAnalyzeExpressionSupportsScalarBinary(t *testing.T) {
 	expr, err := ParseExpression("1 + 2")
 	if err != nil {
@@ -193,6 +244,65 @@ func TestAnalyzeExpressionSupportsRoundFunction(t *testing.T) {
 	}
 	if result.Difficulty != DifficultyHard {
 		t.Fatalf("expected hard difficulty for round(), got %s", result.Difficulty)
+	}
+}
+
+func TestAnalyzeExpressionSupportsTier1Transforms(t *testing.T) {
+	queries := []string{
+		"abs(up)",
+		"clamp(up, 1, 2)",
+		"sin(up)",
+		"timestamp(up)",
+		"day_of_week(up)",
+		"minute()",
+		"time()",
+		"pi()",
+		"scalar(up)",
+		"info(up)",
+		"info(up, {k8s_cluster_name=\"prod\"})",
+	}
+	for _, query := range queries {
+		expr, err := ParseExpression(query)
+		if err != nil {
+			t.Fatalf("ParseExpression(%q): %v", query, err)
+		}
+		result := AnalyzeExpression(expr)
+		if !result.Supported {
+			t.Fatalf("expected supported transform for %q, got %#v", query, result)
+		}
+	}
+}
+
+func TestAnalyzeExpressionRejectsNonLiteralClampBounds(t *testing.T) {
+	expr, err := ParseExpression("clamp(up, 1 + 1, 3)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := AnalyzeExpression(expr)
+	if result.Supported {
+		t.Fatalf("expected unsupported clamp bounds, got %#v", result)
+	}
+	if !strings.Contains(result.Reason, "literal scalar bound") {
+		t.Fatalf("expected literal scalar bound reason, got %#v", result)
+	}
+}
+
+func TestAnalyzeExpressionSupportsSortFunctions(t *testing.T) {
+	queries := []string{
+		"sort(up)",
+		"sort_desc(up)",
+		"sort_by_label(up, \"job\")",
+		"sort_by_label_desc(up, \"job\", \"instance\")",
+	}
+	for _, query := range queries {
+		expr, err := ParseExpression(query)
+		if err != nil {
+			t.Fatalf("ParseExpression(%q): %v", query, err)
+		}
+		result := AnalyzeExpression(expr)
+		if !result.Supported {
+			t.Fatalf("expected supported sort query for %q, got %#v", query, result)
+		}
 	}
 }
 

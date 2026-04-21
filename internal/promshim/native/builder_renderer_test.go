@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
 	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -453,6 +454,197 @@ func TestRenderFragmentBuildsRangeSumOverTimeSQLForSubqueryWithWrappedLocalChild
 	}
 }
 
+func TestRenderFragmentBuildsInstantPointwiseTransformSQL(t *testing.T) {
+	testCases := []struct {
+		name   string
+		params []*float64
+		want   string
+	}{
+		{name: "abs", want: "abs(value) AS value"},
+		{name: "ceil", want: "ceil(value) AS value"},
+		{name: "floor", want: "floor(value) AS value"},
+		{name: "sgn", want: "sign(value) AS value"},
+		{name: "exp", want: "exp(value) AS value"},
+		{name: "ln", want: "log(value) AS value"},
+		{name: "log2", want: "log2(value) AS value"},
+		{name: "log10", want: "log10(value) AS value"},
+		{name: "sqrt", want: "sqrt(value) AS value"},
+		{name: "clamp", params: []*float64{floatPtr(1), floatPtr(2)}, want: "greatest(1, least(2, value)) AS value"},
+		{name: "clamp_min", params: []*float64{floatPtr(1)}, want: "greatest(value, 1) AS value"},
+		{name: "clamp_max", params: []*float64{floatPtr(2)}, want: "least(value, 2) AS value"},
+		{name: "sin", want: "sin(value) AS value"},
+		{name: "cos", want: "cos(value) AS value"},
+		{name: "tan", want: "tan(value) AS value"},
+		{name: "asin", want: "asin(value) AS value"},
+		{name: "acos", want: "acos(value) AS value"},
+		{name: "atan", want: "atan(value) AS value"},
+		{name: "sinh", want: "sinh(value) AS value"},
+		{name: "cosh", want: "cosh(value) AS value"},
+		{name: "tanh", want: "tanh(value) AS value"},
+		{name: "asinh", want: "asinh(value) AS value"},
+		{name: "acosh", want: "acosh(value) AS value"},
+		{name: "atanh", want: "atanh(value) AS value"},
+		{name: "deg", want: "degrees(value) AS value"},
+		{name: "rad", want: "radians(value) AS value"},
+		{name: "timestamp", want: "toFloat64(toUnixTimestamp64Milli(timestamp)) / 1000.0 AS value"},
+		{name: "minute", want: "toFloat64(toMinute(toDateTime(toInt64(value), 'UTC'))) AS value"},
+		{name: "hour", want: "toFloat64(toHour(toDateTime(toInt64(value), 'UTC'))) AS value"},
+		{name: "day_of_week", want: "toFloat64(modulo(toDayOfWeek(toDateTime(toInt64(value), 'UTC')), 7)) AS value"},
+		{name: "day_of_month", want: "toFloat64(toDayOfMonth(toDateTime(toInt64(value), 'UTC'))) AS value"},
+		{name: "day_of_year", want: "toFloat64(toDayOfYear(toDateTime(toInt64(value), 'UTC'))) AS value"},
+		{name: "days_in_month", want: "toFloat64(toDaysInMonth(toDateTime(toInt64(value), 'UTC'))) AS value"},
+		{name: "month", want: "toFloat64(toMonth(toDateTime(toInt64(value), 'UTC'))) AS value"},
+		{name: "year", want: "toFloat64(toYear(toDateTime(toInt64(value), 'UTC'))) AS value"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			template, ok := nativePointwiseSourceTemplate(tc.name, tc.params)
+			if !ok {
+				t.Fatalf("expected native template for %s", tc.name)
+			}
+			fragment := &NativeFragment{
+				Kind:        FragmentKindUnarySourceExpr,
+				OutputKind:  OutputKindInstantVector,
+				Selector:    &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "up", Lookback: defaultInstantSelectorLookback},
+				ValueExpr:   template,
+				TagsExpr:    "arrayFilter(tag -> tag.1 != '__name__', {tags})",
+				DropsMetric: true,
+			}
+			rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 300000, RequiredStartMS: 0, RequiredEndMS: 300000})
+			if err != nil {
+				t.Fatalf("expected rendered SQL, got error: %v", err)
+			}
+			if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(tc.want)) {
+				t.Fatalf("expected SQL to contain %q, got %q", tc.want, rendered.SQL)
+			}
+		})
+	}
+}
+
+func TestRenderFragmentBuildsSyntheticRangeSeriesSQL(t *testing.T) {
+	testCases := []string{"minute", "hour", "day_of_week", "day_of_month", "day_of_year", "days_in_month", "month", "year"}
+	for _, name := range testCases {
+		t.Run(name, func(t *testing.T) {
+			fragment := &NativeFragment{Kind: FragmentKindSyntheticSeries, OutputKind: OutputKindInstantVector, Synthetic: &SyntheticSeriesFragment{Func: name}}
+			expectedValueSQL, err := syntheticSeriesValueSQL(name, "ts_ms")
+			if err != nil {
+				t.Fatalf("expected synthetic value SQL, got error: %v", err)
+			}
+			rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000})
+			if err != nil {
+				t.Fatalf("expected rendered SQL, got error: %v", err)
+			}
+			if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(expectedValueSQL)) {
+				t.Fatalf("expected synthetic %s range SQL to contain %q, got %q", name, expectedValueSQL, rendered.SQL)
+			}
+			if rendered.QueryParams["param_step_ms"] != "60000" {
+				t.Fatalf("expected step param, got %#v", rendered.QueryParams)
+			}
+		})
+	}
+}
+
+func TestRenderFragmentBuildsSyntheticInstantScalarSQL(t *testing.T) {
+	testCases := []struct {
+		name string
+		want string
+	}{
+		{name: "time", want: "toFloat64({evaluation_ms:Int64}) / 1000.0 AS value"},
+		{name: "pi", want: "toFloat64(3.141592653589793) AS value"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fragment := &NativeFragment{Kind: FragmentKindSyntheticSeries, OutputKind: OutputKindScalar, Synthetic: &SyntheticSeriesFragment{Func: tc.name}}
+			rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 123456})
+			if err != nil {
+				t.Fatalf("expected rendered SQL, got error: %v", err)
+			}
+			if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(tc.want)) {
+				t.Fatalf("expected synthetic %s instant SQL to contain %q, got %q", tc.name, tc.want, rendered.SQL)
+			}
+			if tc.name == "time" && rendered.QueryParams["param_evaluation_ms"] != "123456" {
+				t.Fatalf("expected evaluation param, got %#v", rendered.QueryParams)
+			}
+		})
+	}
+}
+
+func TestRenderFragmentBuildsInfoJoinSQL(t *testing.T) {
+	fragment := &NativeFragment{Kind: FragmentKindInfoJoin, OutputKind: OutputKindInstantVector, InfoJoin: &InfoJoinFragment{Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindInstantVector, Selector: &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "up", Lookback: defaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}, InfoMetricName: "target_info", SelectorMatchers: nil, CopyLabelNames: []string{"k8s_cluster_name"}, DropUnmatched: false}}
+
+	instant, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456})
+	if err != nil {
+		t.Fatalf("expected instant info join SQL, got error: %v", err)
+	}
+	instantChecks := []string{"LEFT JOIN", "lhs.join_group = rhs.join_group", "k8s_cluster_name", "lhs.value AS value", "series.tags AS tags"}
+	for _, check := range instantChecks {
+		if !strings.Contains(sqlb.NormalizeSQL(instant.SQL), sqlb.NormalizeSQL(check)) {
+			t.Fatalf("expected instant info join SQL to contain %q, got %q", check, instant.SQL)
+		}
+	}
+	if instant.QueryParams["param_instant_matcher_0_value"] != "target_info" {
+		t.Fatalf("expected target_info selector param, got %#v", instant.QueryParams)
+	}
+
+	rangeRendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000})
+	if err != nil {
+		t.Fatalf("expected range info join SQL, got error: %v", err)
+	}
+	rangeChecks := []string{"lhs.join_group = rhs.join_group AND lhs.timestamp = rhs.timestamp", "ARRAY JOIN", "groupArray((timestamp, value))"}
+	for _, check := range rangeChecks {
+		if !strings.Contains(sqlb.NormalizeSQL(rangeRendered.SQL), sqlb.NormalizeSQL(check)) {
+			t.Fatalf("expected range info join SQL to contain %q, got %q", check, rangeRendered.SQL)
+		}
+	}
+}
+
+func TestRenderFragmentBuildsScalarConvertSQL(t *testing.T) {
+	fragment := &NativeFragment{Kind: FragmentKindScalarConvert, OutputKind: OutputKindScalar, ScalarConvert: &ScalarConvertFragment{Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindInstantVector, Selector: &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "up", Lookback: defaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
+
+	instant, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456})
+	if err != nil {
+		t.Fatalf("expected instant scalar convert SQL, got error: %v", err)
+	}
+	if !strings.Contains(sqlb.NormalizeSQL(instant.SQL), sqlb.NormalizeSQL("if(count() = 1, any(value), nan) AS value")) {
+		t.Fatalf("expected scalar convert instant SQL, got %q", instant.SQL)
+	}
+
+	rangeRendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000})
+	if err != nil {
+		t.Fatalf("expected range scalar convert SQL, got error: %v", err)
+	}
+	checks := []string{"groupArray((timestamp, value))", "if(ifNull(scalar_values.sample_count, 0) = 1, scalar_values.any_value, nan)", "ARRAY JOIN scalar_child.time_series AS point"}
+	for _, check := range checks {
+		if !strings.Contains(sqlb.NormalizeSQL(rangeRendered.SQL), sqlb.NormalizeSQL(check)) {
+			t.Fatalf("expected scalar convert range SQL to contain %q, got %q", check, rangeRendered.SQL)
+		}
+	}
+}
+
+func TestRenderFragmentBuildsTier1RangeFunctionSQL(t *testing.T) {
+	testCases := []struct {
+		name string
+		want string
+	}{
+		{name: "stddev_over_time", want: "arrayReduce('stddevPop'"},
+		{name: "stdvar_over_time", want: "arrayReduce('varPop'"},
+		{name: "present_over_time", want: "toFloat64(1)"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fragment := &NativeFragment{Kind: FragmentKindRangeFunction, OutputKind: OutputKindInstantVector, RangeFunction: &RangeFunctionFragment{Func: tc.name, Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindRangeMatrix, Selector: &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
+			rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 300000})
+			if err != nil {
+				t.Fatalf("expected rendered SQL, got error: %v", err)
+			}
+			if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(tc.want)) {
+				t.Fatalf("expected %s SQL to contain %q, got %q", tc.name, tc.want, rendered.SQL)
+			}
+		})
+	}
+}
+
 func TestRenderFragmentBuildsRangeAggregationSQL(t *testing.T) {
 	fragment := &NativeFragment{
 		Kind:       FragmentKindAggregation,
@@ -495,4 +687,8 @@ func TestRenderFragmentBuildsRangeAggregationSQL(t *testing.T) {
 	if got := rendered.QueryParams["param_range_instant_matcher_0_value"]; got != "up" {
 		t.Fatalf("expected metric-name selector param, got %q with params=%#v", got, rendered.QueryParams)
 	}
+}
+
+func floatPtr(v float64) *float64 {
+	return &v
 }

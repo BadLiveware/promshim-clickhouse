@@ -66,6 +66,60 @@ func TestAggregateRuntimeValueAvgVectorSamples(t *testing.T) {
 	}
 }
 
+func TestAggregateRuntimeValueStddevAndStdvarVectorSamples(t *testing.T) {
+	stddevValue, err := AggregateRuntimeValue(parser.STDDEV, model.VectorValue{Samples: []model.InstantSample{
+		{Metric: map[string]string{"job": "clickhouse", "instance": "a"}, Value: 1},
+		{Metric: map[string]string{"job": "clickhouse", "instance": "b"}, Value: 3},
+	}}, AggregationOptions{Grouping: []string{"job"}, EvaluationTime: time.Unix(42, 0).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdvarValue, err := AggregateRuntimeValue(parser.STDVAR, model.VectorValue{Samples: []model.InstantSample{
+		{Metric: map[string]string{"job": "clickhouse", "instance": "a"}, Value: 1},
+		{Metric: map[string]string{"job": "clickhouse", "instance": "b"}, Value: 3},
+	}}, AggregationOptions{Grouping: []string{"job"}, EvaluationTime: time.Unix(42, 0).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stddevVector := stddevValue.(model.VectorValue)
+	stdvarVector := stdvarValue.(model.VectorValue)
+	if len(stddevVector.Samples) != 1 || stddevVector.Samples[0].Value != 1 {
+		t.Fatalf("unexpected stddev aggregation result: %#v", stddevVector.Samples)
+	}
+	if len(stdvarVector.Samples) != 1 || stdvarVector.Samples[0].Value != 1 {
+		t.Fatalf("unexpected stdvar aggregation result: %#v", stdvarVector.Samples)
+	}
+}
+
+func TestAggregateRuntimeValueQuantileAndGroupVectorSamples(t *testing.T) {
+	quantile := 0.5
+	quantileValue, err := AggregateRuntimeValue(parser.QUANTILE, model.VectorValue{Samples: []model.InstantSample{
+		{Metric: map[string]string{"job": "clickhouse", "instance": "a"}, Value: 1},
+		{Metric: map[string]string{"job": "clickhouse", "instance": "b"}, Value: 3},
+		{Metric: map[string]string{"job": "clickhouse", "instance": "c"}, Value: 5},
+	}}, AggregationOptions{Grouping: []string{"job"}, ParamNumber: &quantile, EvaluationTime: time.Unix(42, 0).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupValue, err := AggregateRuntimeValue(parser.GROUP, model.VectorValue{Samples: []model.InstantSample{
+		{Metric: map[string]string{"job": "clickhouse", "instance": "a"}, Value: 1},
+		{Metric: map[string]string{"job": "clickhouse", "instance": "b"}, Value: 5},
+	}}, AggregationOptions{Grouping: []string{"job"}, EvaluationTime: time.Unix(42, 0).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	quantileVector := quantileValue.(model.VectorValue)
+	groupVector := groupValue.(model.VectorValue)
+	if len(quantileVector.Samples) != 1 || quantileVector.Samples[0].Value != 3 {
+		t.Fatalf("unexpected quantile aggregation result: %#v", quantileVector.Samples)
+	}
+	if len(groupVector.Samples) != 1 || groupVector.Samples[0].Value != 1 {
+		t.Fatalf("unexpected group aggregation result: %#v", groupVector.Samples)
+	}
+}
+
 func TestAggregateRuntimeValueMinMaxIgnoreTrailingNaN(t *testing.T) {
 	samples := model.VectorValue{Samples: []model.InstantSample{
 		{Metric: map[string]string{"__name__": "up", "job": "clickhouse", "instance": "a"}, Value: 1},

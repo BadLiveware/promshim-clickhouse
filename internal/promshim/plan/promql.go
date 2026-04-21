@@ -22,7 +22,7 @@ type SupportResult struct {
 }
 
 func ParseExpression(query string) (parser.Expr, error) {
-	p := parser.NewParser(parser.Options{EnableBinopFillModifiers: true})
+	p := parser.NewParser(parser.Options{EnableBinopFillModifiers: true, EnableExperimentalFunctions: true})
 	return p.ParseExpr(query)
 }
 
@@ -92,8 +92,20 @@ func analyzeCallExpression(call *parser.Call, recurse func(parser.Expr) SupportR
 	if name == "vector" {
 		return AnalyzeVectorCall(call)
 	}
+	if name == "scalar" {
+		return AnalyzeScalarCall(call)
+	}
+	if name == "info" {
+		return AnalyzeInfoCall(call)
+	}
 	if name == "round" {
 		return AnalyzeRoundCall(call)
+	}
+	if name == "clamp" || name == "clamp_min" || name == "clamp_max" {
+		return AnalyzeClampCall(name, call)
+	}
+	if name == "sort" || name == "sort_desc" || name == "sort_by_label" || name == "sort_by_label_desc" {
+		return AnalyzeSortCall(name, call)
 	}
 	if name == "rate" {
 		return AnalyzeRateCall(call)
@@ -141,7 +153,7 @@ func analyzeCallExpression(call *parser.Call, recurse func(parser.Expr) SupportR
 		return AnalyzeHistogramFractionCall(call)
 	case "histogram_count", "histogram_sum", "histogram_avg":
 		return AnalyzeHistogramProjectionCall(name, call)
-	case "last_over_time", "sum_over_time", "avg_over_time", "max_over_time", "min_over_time", "count_over_time":
+	case "last_over_time", "sum_over_time", "avg_over_time", "max_over_time", "min_over_time", "count_over_time", "stddev_over_time", "stdvar_over_time", "present_over_time":
 		return AnalyzeRangeFunctionCall(name, call)
 	case "quantile_over_time":
 		return AnalyzeQuantileOverTimeCall(call)
@@ -424,6 +436,43 @@ func AnalyzeVectorCall(call *parser.Call) SupportResult {
 	return SupportResult{Supported: true, Difficulty: DifficultyMedium}
 }
 
+func AnalyzeScalarCall(call *parser.Call) SupportResult {
+	if len(call.Args) != 1 {
+		return unsupported(DifficultyMedium, "scalar requires one argument")
+	}
+	if call.Args[0].Type() != parser.ValueTypeVector {
+		return unsupported(DifficultyHard, "scalar requires a vector argument")
+	}
+	child := AnalyzeExpression(call.Args[0])
+	if !child.Supported {
+		return child
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyMedium}
+}
+
+func AnalyzeInfoCall(call *parser.Call) SupportResult {
+	if len(call.Args) < 1 || len(call.Args) > 2 {
+		return unsupported(DifficultyMedium, "info requires one or two arguments")
+	}
+	if call.Args[0].Type() != parser.ValueTypeVector {
+		return unsupported(DifficultyHard, "info requires a vector first argument")
+	}
+	child := AnalyzeExpression(call.Args[0])
+	if !child.Supported {
+		return child
+	}
+	if len(call.Args) == 2 {
+		selector, ok := unwrapTransparentExpr(call.Args[1]).(*parser.VectorSelector)
+		if !ok {
+			return unsupported(DifficultyHard, "info currently requires a label-selector second argument")
+		}
+		if selector.Name != "" {
+			return unsupported(DifficultyHard, "info currently requires selector matchers without a metric prefix")
+		}
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyHard}
+}
+
 func AnalyzeRoundCall(call *parser.Call) SupportResult {
 	if len(call.Args) < 1 || len(call.Args) > 2 {
 		return unsupported(DifficultyMedium, "round requires one or two arguments")
@@ -446,6 +495,63 @@ func AnalyzeRoundCall(call *parser.Call) SupportResult {
 		return child
 	}
 	return SupportResult{Supported: true, Difficulty: DifficultyHard}
+}
+
+func AnalyzeClampCall(name string, call *parser.Call) SupportResult {
+	expectedArgs := 3
+	if name != "clamp" {
+		expectedArgs = 2
+	}
+	if len(call.Args) != expectedArgs {
+		return unsupported(DifficultyMedium, fmt.Sprintf("%s requires %d arguments", name, expectedArgs))
+	}
+	if call.Args[0].Type() != parser.ValueTypeVector {
+		return unsupported(DifficultyHard, fmt.Sprintf("%s requires a vector first argument", name))
+	}
+	child := AnalyzeExpression(call.Args[0])
+	if !child.Supported {
+		return child
+	}
+	for _, arg := range call.Args[1:] {
+		if arg.Type() != parser.ValueTypeScalar {
+			return unsupported(DifficultyHard, fmt.Sprintf("%s requires scalar bound arguments", name))
+		}
+		if _, ok := unwrapTransparentExpr(arg).(*parser.NumberLiteral); !ok {
+			return unsupported(DifficultyHard, fmt.Sprintf("%s currently requires literal scalar bound arguments", name))
+		}
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyHard}
+}
+
+func AnalyzeSortCall(name string, call *parser.Call) SupportResult {
+	if len(call.Args) < 1 {
+		return unsupported(DifficultyMedium, fmt.Sprintf("%s requires at least one argument", name))
+	}
+	if call.Args[0].Type() != parser.ValueTypeVector {
+		return unsupported(DifficultyHard, fmt.Sprintf("%s requires a vector argument", name))
+	}
+	child := AnalyzeExpression(call.Args[0])
+	if !child.Supported {
+		return child
+	}
+	switch name {
+	case "sort", "sort_desc":
+		if len(call.Args) != 1 {
+			return unsupported(DifficultyMedium, fmt.Sprintf("%s requires exactly one argument", name))
+		}
+	case "sort_by_label", "sort_by_label_desc":
+		if len(call.Args) < 2 {
+			return unsupported(DifficultyMedium, fmt.Sprintf("%s requires at least one label argument", name))
+		}
+		for _, arg := range call.Args[1:] {
+			if arg.Type() != parser.ValueTypeString {
+				return unsupported(DifficultyHard, fmt.Sprintf("%s requires string label arguments", name))
+			}
+		}
+	default:
+		return unsupported(DifficultyMedium, fmt.Sprintf("sort function %q is not implemented yet", name))
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyEasy}
 }
 
 func AnalyzeAbsentCall(call *parser.Call) SupportResult {
@@ -528,7 +634,7 @@ func AnalyzeAggregateExpression(expr *parser.AggregateExpr) SupportResult {
 
 func analyzeAggregationParameter(expr *parser.AggregateExpr) SupportResult {
 	switch expr.Op {
-	case parser.TOPK, parser.BOTTOMK:
+	case parser.TOPK, parser.BOTTOMK, parser.QUANTILE:
 		if expr.Param == nil {
 			return unsupported(DifficultyMedium, fmt.Sprintf("aggregation operator %q requires a scalar parameter", strings.ToLower(expr.Op.String())))
 		}
@@ -558,7 +664,8 @@ func analyzeAggregationParameter(expr *parser.AggregateExpr) SupportResult {
 
 func isSupportedLocalAggregation(op parser.ItemType) bool {
 	switch op {
-	case parser.SUM, parser.COUNT, parser.MIN, parser.MAX, parser.AVG, parser.TOPK, parser.BOTTOMK, parser.COUNT_VALUES:
+	case parser.SUM, parser.COUNT, parser.MIN, parser.MAX, parser.AVG, parser.TOPK, parser.BOTTOMK, parser.COUNT_VALUES,
+		parser.STDDEV, parser.STDVAR, parser.QUANTILE, parser.GROUP:
 		return true
 	default:
 		return false
@@ -657,7 +764,14 @@ func unwrapTransparentExpr(expr parser.Expr) parser.Expr {
 
 func isSupportedLeafFunction(name string) bool {
 	switch name {
-	case "rate", "irate", "increase", "delta", "idelta", "deriv", "changes":
+	case "rate", "irate", "increase", "delta", "idelta", "deriv", "changes",
+		"abs", "ceil", "floor", "sgn",
+		"exp", "ln", "log2", "log10", "sqrt",
+		"sin", "cos", "tan", "asin", "acos", "atan",
+		"sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
+		"deg", "rad", "pi", "time", "timestamp",
+		"minute", "hour", "day_of_week", "day_of_month", "day_of_year", "days_in_month",
+		"month", "year":
 		return true
 	default:
 		return false

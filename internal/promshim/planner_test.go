@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -823,6 +824,116 @@ func TestBuildPlanWithContextCreatesNativeAggregationPlanForVectorScalarLeaf(t *
 	}
 }
 
+func TestBuildPlanWithContextCreatesLocalPlanForInfo(t *testing.T) {
+	expr, err := plan.ParseExpression("info(up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeInstant, NativeLoweringMode: NativeLoweringModeOff})
+	if err != nil {
+		t.Fatalf("expected local info() plan, got error: %v", err)
+	}
+	if _, ok := built.(*localInfoPlan); !ok {
+		t.Fatalf("expected localInfoPlan, got %T", built)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativePlanForInfo(t *testing.T) {
+	expr, err := plan.ParseExpression("info(up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native info() plan, got error: %v", err)
+	}
+	native, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
+	}
+	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindInfoJoin || native.Fragment.InfoJoin == nil {
+		t.Fatalf("expected info join fragment, got %#v", native)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativePlanForPointwiseFunction(t *testing.T) {
+	expr, err := plan.ParseExpression("abs(up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native pointwise plan, got error: %v", err)
+	}
+	native, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
+	}
+	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindUnarySourceExpr || !strings.Contains(native.Fragment.ValueExpr, "abs") {
+		t.Fatalf("expected abs native fragment, got %#v", native)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativePlanForScalarConvert(t *testing.T) {
+	expr, err := plan.ParseExpression("scalar(up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native scalar() plan, got error: %v", err)
+	}
+	native, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
+	}
+	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindScalarConvert || native.Fragment.ScalarConvert == nil {
+		t.Fatalf("expected scalar convert fragment, got %#v", native)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativePlanForSyntheticDateFunction(t *testing.T) {
+	expr, err := plan.ParseExpression("minute()")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native minute() plan, got error: %v", err)
+	}
+	native, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
+	}
+	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindSyntheticSeries || native.Fragment.Synthetic == nil || native.Fragment.Synthetic.Func != "minute" {
+		t.Fatalf("expected synthetic minute() fragment, got %#v", native)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativePlanForScalarBuiltin(t *testing.T) {
+	expr, err := plan.ParseExpression("time()")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native time() plan, got error: %v", err)
+	}
+	native, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
+	}
+	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindSyntheticSeries || native.Fragment.Synthetic == nil || native.Fragment.Synthetic.Func != "time" {
+		t.Fatalf("expected synthetic time() fragment, got %#v", native)
+	}
+}
+
 func TestDecideNativeAggregationPushdownRejectsNonPushdownSafeChild(t *testing.T) {
 	logical, err := buildLogicalPlan(mustParseExpr(t, `sum by (job) (label_join(up, "joined", "/", "job", "namespace"))`))
 	if err != nil {
@@ -1571,6 +1682,82 @@ func TestLocalSubqueryPlanExecutesChildAcrossInstantWindow(t *testing.T) {
 	}
 }
 
+func TestScalarLiteralPlanRangeMode(t *testing.T) {
+	plan := &scalarLiteralPlan{Expr: "1", Value: 1}
+
+	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("expected successful scalar range execution, got error: %v", err)
+	}
+	matrix, ok := value.(model.MatrixValue)
+	if !ok {
+		t.Fatalf("expected matrix result, got %T", value)
+	}
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
+		t.Fatalf("unexpected scalar range result: %#v", matrix.Series)
+	}
+	for _, point := range matrix.Series[0].Values {
+		if point.Value != 1 {
+			t.Fatalf("expected constant scalar value, got %#v", matrix.Series)
+		}
+	}
+}
+
+func TestScalarBuiltinPlanRangeMode(t *testing.T) {
+	plan := &scalarBuiltinPlan{Expr: "time()", Func: "time"}
+
+	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("expected successful scalar builtin range execution, got error: %v", err)
+	}
+	matrix, ok := value.(model.MatrixValue)
+	if !ok {
+		t.Fatalf("expected matrix result, got %T", value)
+	}
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
+		t.Fatalf("unexpected scalar builtin range result: %#v", matrix.Series)
+	}
+	if matrix.Series[0].Values[0].Value != 120 || matrix.Series[0].Values[1].Value != 150 || matrix.Series[0].Values[2].Value != 180 {
+		t.Fatalf("unexpected time() range values: %#v", matrix.Series[0].Values)
+	}
+}
+
+func TestLocalScalarConvertPlanInstantAndRange(t *testing.T) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+		if params.Mode == evalModeInstant && params.EvaluationTime.Equal(time.Unix(120, 0).UTC()) {
+			return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: 1, Value: 7}}}, nil
+		}
+		if params.Mode == evalModeInstant && params.EvaluationTime.Equal(time.Unix(150, 0).UTC()) {
+			return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: 1, Value: 7}, {Metric: map[string]string{"job": "worker"}, Timestamp: 1, Value: 8}}}, nil
+		}
+		return model.VectorValue{}, nil
+	}}
+	plan := &localScalarConvertPlan{Expr: "scalar(up)", Child: child}
+
+	instant, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeInstant, EvaluationTime: time.Unix(120, 0).UTC()})
+	if err != nil {
+		t.Fatalf("expected successful scalar instant execution, got error: %v", err)
+	}
+	scalar, ok := instant.(model.ScalarValue)
+	if !ok || scalar.Value != 7 {
+		t.Fatalf("unexpected scalar instant result: %#v", instant)
+	}
+	rangeValue, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("expected successful scalar range execution, got error: %v", err)
+	}
+	matrix, ok := rangeValue.(model.MatrixValue)
+	if !ok {
+		t.Fatalf("expected matrix result, got %T", rangeValue)
+	}
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
+		t.Fatalf("unexpected scalar range result: %#v", matrix.Series)
+	}
+	if matrix.Series[0].Values[0].Value != 7 || !math.IsNaN(matrix.Series[0].Values[1].Value) || !math.IsNaN(matrix.Series[0].Values[2].Value) {
+		t.Fatalf("unexpected scalar() range values: %#v", matrix.Series[0].Values)
+	}
+}
+
 func TestLocalVectorPlanInstant(t *testing.T) {
 	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, _ evalParams) (model.RuntimeValue, error) {
 		return model.ScalarValue{Timestamp: 12.5, Value: 4}, nil
@@ -1620,6 +1807,25 @@ func TestLocalVectorPlanRangeMode(t *testing.T) {
 	}
 	if calls != 3 {
 		t.Fatalf("expected child evaluated at each step, got %d", calls)
+	}
+}
+
+func TestLocalSortPlanInstant(t *testing.T) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, _ evalParams) (model.RuntimeValue, error) {
+		return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "b"}, Timestamp: 1, Value: 2}, {Metric: map[string]string{"job": "a"}, Timestamp: 1, Value: 1}}}, nil
+	}}
+	plan := &localSortPlan{Expr: "sort(up)", Func: "sort", Child: child}
+
+	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeInstant, EvaluationTime: time.Unix(10, 0).UTC()})
+	if err != nil {
+		t.Fatalf("expected successful sort instant execution, got error: %v", err)
+	}
+	vector, ok := value.(model.VectorValue)
+	if !ok {
+		t.Fatalf("expected vector result, got %T", value)
+	}
+	if len(vector.Samples) != 2 || vector.Samples[0].Metric["job"] != "a" || vector.Samples[1].Metric["job"] != "b" {
+		t.Fatalf("unexpected sort vector result: %#v", vector.Samples)
 	}
 }
 

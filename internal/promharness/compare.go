@@ -38,7 +38,7 @@ func InferCompareMode(spec QuerySpec) string {
 	if mode := strings.ToLower(strings.TrimSpace(spec.CompareMode)); mode != "" {
 		return mode
 	}
-	p := parser.NewParser(parser.Options{EnableBinopFillModifiers: true})
+	p := parser.NewParser(parser.Options{EnableBinopFillModifiers: true, EnableExperimentalFunctions: true})
 	expr, err := p.ParseExpr(spec.Query)
 	if err != nil {
 		return CompareModeExact

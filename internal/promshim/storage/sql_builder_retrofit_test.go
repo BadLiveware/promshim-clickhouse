@@ -53,7 +53,7 @@ func TestBuildInstantAggregationQuerySQLWithBoundsCompilesSourceTemplatesWithout
 		ValueExpr: "({value}) * 100",
 		TagsExpr:  "arrayFilter(tag -> tag.1 != '__name__', {tags})",
 	}
-	sql, params, err := BuildInstantAggregationQuerySQLWithBounds(QueryConfig{Database: "observability", Table: "prometheus"}, source, 2000, 1000, 2000, parser.SUM, []string{"job"}, false)
+	sql, params, err := BuildInstantAggregationQuerySQLWithBounds(QueryConfig{Database: "observability", Table: "prometheus"}, source, 2000, 1000, 2000, parser.SUM, []string{"job"}, false, nil)
 	if err != nil {
 		t.Fatalf("expected instant aggregation SQL, got error: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestBuildRangeAggregationQuerySQLWithBoundsCompilesSourceTemplatesWithoutPl
 		ValueExpr: "({value}) * 100",
 		TagsExpr:  "arrayFilter(tag -> tag.1 != '__name__', {tags})",
 	}
-	sql, params, err := BuildRangeAggregationQuerySQLWithBounds(QueryConfig{Database: "observability", Table: "prometheus"}, source, 0, 300000, 30000, -90000, 300000, parser.SUM, []string{"job"}, false)
+	sql, params, err := BuildRangeAggregationQuerySQLWithBounds(QueryConfig{Database: "observability", Table: "prometheus"}, source, 0, 300000, 30000, -90000, 300000, parser.SUM, []string{"job"}, false, nil)
 	if err != nil {
 		t.Fatalf("expected range aggregation SQL, got error: %v", err)
 	}
@@ -102,6 +102,43 @@ func TestBuildRangeAggregationQuerySQLWithBoundsCompilesSourceTemplatesWithoutPl
 	}
 	if params["param_range_instant_matcher_0_value"] != "up" {
 		t.Fatalf("expected existing selector param naming, got %#v", params)
+	}
+}
+
+func TestBuildInstantAggregationQuerySQLWithBoundsSupportsTier1Reducers(t *testing.T) {
+	source := AggregationSource{
+		Selector:  &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "up", NeedTags: true, RequireFullTags: true, LookbackMS: int64((5 * time.Minute) / time.Millisecond)},
+		ValueExpr: "{value}",
+		TagsExpr:  "{tags}",
+	}
+	stddevSQL, _, err := BuildInstantAggregationQuerySQLWithBounds(QueryConfig{Database: "observability", Table: "prometheus"}, source, 2000, 1000, 2000, parser.STDDEV, []string{"job"}, false, nil)
+	if err != nil {
+		t.Fatalf("expected stddev aggregation SQL, got error: %v", err)
+	}
+	if !strings.Contains(sqlb.NormalizeSQL(stddevSQL), sqlb.NormalizeSQL("stddevPop(value)")) {
+		t.Fatalf("expected stddev SQL, got %s", sqlb.NormalizeSQL(stddevSQL))
+	}
+	stdvarSQL, _, err := BuildInstantAggregationQuerySQLWithBounds(QueryConfig{Database: "observability", Table: "prometheus"}, source, 2000, 1000, 2000, parser.STDVAR, []string{"job"}, false, nil)
+	if err != nil {
+		t.Fatalf("expected stdvar aggregation SQL, got error: %v", err)
+	}
+	if !strings.Contains(sqlb.NormalizeSQL(stdvarSQL), sqlb.NormalizeSQL("varPop(value)")) {
+		t.Fatalf("expected stdvar SQL, got %s", sqlb.NormalizeSQL(stdvarSQL))
+	}
+	quantile := 0.9
+	quantileSQL, _, err := BuildInstantAggregationQuerySQLWithBounds(QueryConfig{Database: "observability", Table: "prometheus"}, source, 2000, 1000, 2000, parser.QUANTILE, []string{"job"}, false, &quantile)
+	if err != nil {
+		t.Fatalf("expected quantile aggregation SQL, got error: %v", err)
+	}
+	if !strings.Contains(sqlb.NormalizeSQL(quantileSQL), sqlb.NormalizeSQL("quantile(0.9)(value)")) {
+		t.Fatalf("expected quantile SQL, got %s", sqlb.NormalizeSQL(quantileSQL))
+	}
+	groupSQL, _, err := BuildInstantAggregationQuerySQLWithBounds(QueryConfig{Database: "observability", Table: "prometheus"}, source, 2000, 1000, 2000, parser.GROUP, []string{"job"}, false, nil)
+	if err != nil {
+		t.Fatalf("expected group aggregation SQL, got error: %v", err)
+	}
+	if !strings.Contains(sqlb.NormalizeSQL(groupSQL), sqlb.NormalizeSQL("toFloat64(1) AS value")) {
+		t.Fatalf("expected group SQL, got %s", sqlb.NormalizeSQL(groupSQL))
 	}
 }
 

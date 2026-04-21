@@ -10,6 +10,7 @@ import (
 	nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -75,9 +76,16 @@ type scalarLiteralPlan struct {
 	Value float64
 }
 
-func (p *scalarLiteralPlan) execute(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
-	timestamp := float64(params.EvaluationTime.UnixNano()) / float64(time.Second)
-	return model.ScalarValue{Timestamp: timestamp, Value: p.Value}, nil
+func (p *scalarLiteralPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	switch params.Mode {
+	case evalModeInstant:
+		timestamp := float64(params.EvaluationTime.UnixNano()) / float64(time.Second)
+		return model.ScalarValue{Timestamp: timestamp, Value: p.Value}, nil
+	case evalModeRange:
+		return executeRangeScalarPlan(ctx, evaluator, params, "scalar", p.execute)
+	default:
+		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+	}
 }
 
 func (p *scalarLiteralPlan) explain() ExplainNode {
@@ -320,6 +328,101 @@ type localRoundPlan struct {
 	Child    queryPlan
 }
 
+type localSortPlan struct {
+	Expr   string
+	Func   string
+	Labels []string
+	Child  queryPlan
+}
+
+type localScalarConvertPlan struct {
+	Expr  string
+	Child queryPlan
+}
+
+type localInfoPlan struct {
+	Expr             string
+	SelectorMatchers []*labels.Matcher
+	Child            queryPlan
+}
+
+func (p *localInfoPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	switch params.Mode {
+	case evalModeInstant:
+		childValue, err := p.Child.execute(ctx, evaluator, params)
+		if err != nil {
+			return nil, withInternalContext(err, "evaluating info child in instant mode")
+		}
+		base, ok := childValue.(model.VectorValue)
+		if !ok {
+			return nil, newExecutionErrorf("info child returned %T, expected vector", childValue)
+		}
+		infoVector, err := evaluator.fetchInfoVector(ctx, base, p.SelectorMatchers, params)
+		if err != nil {
+			return nil, withInternalContext(err, "fetching info series for %q", p.Expr)
+		}
+		result, err := exec.ApplyInfo(base, infoVector, p.SelectorMatchers)
+		if err != nil {
+			return nil, withInternalContext(fromExecError(err), "applying info()")
+		}
+		return result, nil
+	case evalModeRange:
+		return executeRangeVectorPlan(ctx, evaluator, params, "info", p.execute)
+	default:
+		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+	}
+}
+
+func (p *localInfoPlan) explain() ExplainNode {
+	return ExplainNode{Kind: "info", Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
+}
+
+func (p *localScalarConvertPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	switch params.Mode {
+	case evalModeInstant:
+		childValue, err := p.Child.execute(ctx, evaluator, params)
+		if err != nil {
+			return nil, withInternalContext(err, "evaluating scalar child in instant mode")
+		}
+		scalar, err := exec.ApplyScalar(childValue, exec.EvalParams{Mode: toExecEvalMode(params.Mode), EvaluationTime: params.EvaluationTime, Start: params.Start, End: params.End, Step: params.Step})
+		if err != nil {
+			return nil, withInternalContext(fromExecError(err), "applying scalar()")
+		}
+		return scalar, nil
+	case evalModeRange:
+		return executeRangeScalarPlan(ctx, evaluator, params, "scalar", p.execute)
+	default:
+		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+	}
+}
+
+func (p *localScalarConvertPlan) explain() ExplainNode {
+	return ExplainNode{Kind: "scalar", Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
+}
+
+func (p *localSortPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	switch params.Mode {
+	case evalModeInstant:
+		childValue, err := p.Child.execute(ctx, evaluator, params)
+		if err != nil {
+			return nil, withInternalContext(err, "evaluating %s child in instant mode", p.Func)
+		}
+		vector, err := exec.ApplySortFunction(p.Func, childValue, p.Labels)
+		if err != nil {
+			return nil, withInternalContext(fromExecError(err), "applying %s", p.Func)
+		}
+		return vector, nil
+	case evalModeRange:
+		return executeRangeVectorPlan(ctx, evaluator, params, p.Func, p.execute)
+	default:
+		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+	}
+}
+
+func (p *localSortPlan) explain() ExplainNode {
+	return ExplainNode{Kind: p.Func, Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
+}
+
 func (p *localRoundPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
 	switch params.Mode {
 	case evalModeInstant:
@@ -341,6 +444,68 @@ func (p *localRoundPlan) execute(ctx context.Context, evaluator *evaluator, para
 
 func (p *localRoundPlan) explain() ExplainNode {
 	return ExplainNode{Kind: "round", Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
+}
+
+type localPointwiseFunctionPlan struct {
+	Expr         string
+	Func         string
+	ParamNumbers []*float64
+	Child        queryPlan
+}
+
+func (p *localPointwiseFunctionPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	switch params.Mode {
+	case evalModeInstant:
+		var childValue model.RuntimeValue
+		var err error
+		if p.Child != nil {
+			childValue, err = p.Child.execute(ctx, evaluator, params)
+			if err != nil {
+				return nil, withInternalContext(err, "evaluating %s child in instant mode", p.Func)
+			}
+		}
+		vector, err := exec.ApplyPointwiseFunction(p.Func, childValue, exec.EvalParams{Mode: toExecEvalMode(params.Mode), EvaluationTime: params.EvaluationTime, Start: params.Start, End: params.End, Step: params.Step}, p.ParamNumbers)
+		if err != nil {
+			return nil, withInternalContext(fromExecError(err), "applying %s", p.Func)
+		}
+		return vector, nil
+	case evalModeRange:
+		return executeRangeVectorPlan(ctx, evaluator, params, p.Func, p.execute)
+	default:
+		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+	}
+}
+
+func (p *localPointwiseFunctionPlan) explain() ExplainNode {
+	children := []ExplainNode{}
+	if p.Child != nil {
+		children = append(children, p.Child.explain())
+	}
+	return ExplainNode{Kind: p.Func, Strategy: "local", Expr: p.Expr, Children: children}
+}
+
+type scalarBuiltinPlan struct {
+	Expr string
+	Func string
+}
+
+func (p *scalarBuiltinPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+	switch params.Mode {
+	case evalModeInstant:
+		value, err := exec.ApplyScalarBuiltinFunction(p.Func, exec.EvalParams{Mode: toExecEvalMode(params.Mode), EvaluationTime: params.EvaluationTime, Start: params.Start, End: params.End, Step: params.Step})
+		if err != nil {
+			return nil, withInternalContext(fromExecError(err), "applying %s", p.Func)
+		}
+		return value, nil
+	case evalModeRange:
+		return executeRangeScalarPlan(ctx, evaluator, params, p.Func, p.execute)
+	default:
+		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+	}
+}
+
+func (p *scalarBuiltinPlan) explain() ExplainNode {
+	return ExplainNode{Kind: p.Func, Strategy: "local", Expr: p.Expr}
 }
 
 type localRatePlan struct {
@@ -640,6 +805,25 @@ func executeRangeVectorPlan(ctx context.Context, evaluator *evaluator, params ev
 		result = append(result, model.RangeSeries{Metric: model.CloneMetric(item.Metric), Values: model.CloneRangePoints(item.Values)})
 	}
 	return model.MatrixValue{Series: result}, nil
+}
+
+func executeRangeScalarPlan(ctx context.Context, evaluator *evaluator, params evalParams, kind string, executeInstant func(context.Context, *evaluator, evalParams) (model.RuntimeValue, error)) (model.RuntimeValue, error) {
+	if params.Step <= 0 {
+		return nil, newBadDataErrorf("step must be greater than zero for %q", kind)
+	}
+	series := model.RangeSeries{Metric: map[string]string{}, Values: make([]model.RangePoint, 0, 16)}
+	for ts := params.Start; !ts.After(params.End); ts = ts.Add(params.Step) {
+		instantValue, err := executeInstant(ctx, evaluator, evalParams{Mode: evalModeInstant, EvaluationTime: ts})
+		if err != nil {
+			return nil, withInternalContext(err, "evaluating %s at range step %s", kind, ts.UTC().Format(time.RFC3339Nano))
+		}
+		scalar, ok := instantValue.(model.ScalarValue)
+		if !ok {
+			return nil, newExecutionErrorf("%s instant step returned %T, expected scalar", kind, instantValue)
+		}
+		series.Values = append(series.Values, model.RangePoint{Timestamp: float64(ts.UnixNano()) / float64(time.Second), Value: scalar.Value})
+	}
+	return model.MatrixValue{Series: []model.RangeSeries{series}}, nil
 }
 
 type localSubqueryPlan struct {
@@ -976,6 +1160,29 @@ func defaultSubqueryStep(params evalParams) time.Duration {
 	return time.Minute
 }
 
+func (e *evaluator) fetchInfoVector(ctx context.Context, base model.VectorValue, selectorMatchers []*labels.Matcher, params evalParams) (model.VectorValue, error) {
+	query, err := exec.BuildInfoFetchExprString(base, selectorMatchers)
+	if err != nil {
+		return model.VectorValue{}, withInternalContext(err, "building info fetch selector")
+	}
+	if query == "" {
+		return model.VectorValue{}, nil
+	}
+	expr, err := planpkg.ParseExpression(query)
+	if err != nil {
+		return model.VectorValue{}, withInternalContext(err, "parsing info fetch selector %q", query)
+	}
+	value, err := e.executeDelegated(ctx, expr, evalParams{Mode: evalModeInstant, EvaluationTime: params.EvaluationTime})
+	if err != nil {
+		return model.VectorValue{}, err
+	}
+	vector, ok := value.(model.VectorValue)
+	if !ok {
+		return model.VectorValue{}, newExecutionErrorf("info fetch returned %T, expected vector", value)
+	}
+	return vector, nil
+}
+
 func (e *evaluator) executeDelegated(ctx context.Context, expr parser.Expr, params evalParams) (model.RuntimeValue, error) {
 	promQL, err := resolveDelegatedPromQL(expr, params)
 	if err != nil {
@@ -1168,6 +1375,66 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx planContext, analysis *nati
 			return nil, withInternalContext(err, "building execution child plan for round %q", node.ExprString())
 		}
 		return annotateQueryPlan(&localRoundPlan{Expr: node.ExprString(), Decimals: node.Decimals, Child: child}, analysis.InfoFor(node)), nil
+	case *logicalSortPlan:
+		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
+		if err != nil {
+			return nil, withInternalContext(err, "building execution child plan for %s %q", node.Func, node.ExprString())
+		}
+		return annotateQueryPlan(&localSortPlan{Expr: node.ExprString(), Func: node.Func, Labels: append([]string(nil), node.Labels...), Child: child}, analysis.InfoFor(node)), nil
+	case *logicalInfoPlan:
+		if ctx.allowsNativePlanning() {
+			if nativePlan, ok, err := maybeBuildNativeInfoPlan(node, ctx, analysis); err != nil {
+				return nil, withInternalContext(err, "building native subtree plan for info %q", node.ExprString())
+			} else if ok {
+				return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+			}
+		}
+		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
+		if err != nil {
+			return nil, withInternalContext(err, "building execution child plan for info %q", node.ExprString())
+		}
+		return annotateQueryPlan(&localInfoPlan{Expr: node.ExprString(), SelectorMatchers: clonePromMatchers(node.SelectorMatchers), Child: child}, analysis.InfoFor(node)), nil
+	case *logicalScalarConvertPlan:
+		if ctx.allowsNativePlanning() {
+			if nativePlan, ok, err := maybeBuildNativeScalarConvertPlan(node, ctx, analysis); err != nil {
+				return nil, withInternalContext(err, "building native subtree plan for scalar %q", node.ExprString())
+			} else if ok {
+				return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+			}
+		}
+		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
+		if err != nil {
+			return nil, withInternalContext(err, "building execution child plan for scalar %q", node.ExprString())
+		}
+		return annotateQueryPlan(&localScalarConvertPlan{Expr: node.ExprString(), Child: child}, analysis.InfoFor(node)), nil
+	case *logicalPointwiseFunctionPlan:
+		if ctx.allowsNativePlanning() {
+			if nativePlan, ok, err := maybeBuildNativeSourcePlan(node, ctx, analysis); err != nil {
+				return nil, withInternalContext(err, "building native subtree plan for %s %q", node.Func, node.ExprString())
+			} else if ok {
+				return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+			}
+		}
+		var (
+			child queryPlan
+			err   error
+		)
+		if node.Child != nil {
+			child, err = buildExecPlanWithAnalysis(node.Child, ctx, analysis)
+			if err != nil {
+				return nil, withInternalContext(err, "building execution child plan for %s %q", node.Func, node.ExprString())
+			}
+		}
+		return annotateQueryPlan(&localPointwiseFunctionPlan{Expr: node.ExprString(), Func: node.Func, ParamNumbers: append([]*float64(nil), node.ParamNumbers...), Child: child}, analysis.InfoFor(node)), nil
+	case *logicalScalarBuiltinPlan:
+		if ctx.allowsNativePlanning() {
+			if nativePlan, ok, err := maybeBuildNativeScalarBuiltinPlan(node, ctx, analysis); err != nil {
+				return nil, withInternalContext(err, "building native subtree plan for %s %q", node.Func, node.ExprString())
+			} else if ok {
+				return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+			}
+		}
+		return annotateQueryPlan(&scalarBuiltinPlan{Expr: node.ExprString(), Func: node.Func}, analysis.InfoFor(node)), nil
 	case *logicalRatePlan:
 		if ctx.allowsNativePlanning() {
 			if nativePlan, ok, err := maybeBuildNativeRatePlan(node, ctx, analysis); err != nil {

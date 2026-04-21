@@ -54,6 +54,41 @@ services:
       PROM_SHIM_MAX_RESPONSE_SERIES: 100000
       PROM_SHIM_MAX_RESPONSE_POINTS: 2000000
 
+  promclick-writer:
+    image: quay.io/hinski/promclick:0.1.0
+    entrypoint: ["promclick-writer"]
+    command: ["--config", "/app/writer.yaml"]
+    depends_on:
+      clickhouse-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./promclick/writer.yaml:/app/writer.yaml:ro
+    restart: unless-stopped
+
+  promclick-proxy:
+    image: quay.io/hinski/promclick:0.1.0
+    entrypoint: ["promclick-proxy"]
+    command: ["--config", "/app/proxy.yaml"]
+    depends_on:
+      clickhouse-init:
+        condition: service_completed_successfully
+      promclick-downsampler:
+        condition: service_completed_successfully
+    volumes:
+      - ./promclick/proxy.yaml:/app/proxy.yaml:ro
+    restart: unless-stopped
+
+  promclick-downsampler:
+    image: quay.io/hinski/promclick:0.1.0
+    entrypoint: ["promclick-downsampler"]
+    command: ["--config", "/app/downsampler.yaml"]
+    depends_on:
+      clickhouse-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./promclick/downsampler.yaml:/app/downsampler.yaml:ro
+    restart: "no"
+
   seed:
     build:
       context: ..
@@ -62,9 +97,11 @@ services:
     depends_on:
       - prometheus
       - clickhouse
+      - promclick-writer
     environment:
       PROM_HARNESS_PROM_REMOTE_WRITE_URL: http://prometheus:9090/api/v1/write
       PROM_HARNESS_CLICKHOUSE_REMOTE_WRITE_URL: http://default:otel@clickhouse:9092/write
+      PROM_HARNESS_PROMCLICK_REMOTE_WRITE_URL: http://promclick-writer:9091/api/v1/write
       PROM_HARNESS_ARTIFACT_DIR: /artifacts
       PROM_HARNESS_SEED: 12345
       PROM_HARNESS_STEP_SECONDS: 60
@@ -82,12 +119,14 @@ services:
     depends_on:
       - prometheus
       - promshim
+      - promclick-proxy
     environment:
       PROM_HARNESS_PROM_URL: http://prometheus:9090
       PROM_HARNESS_SHIM_URL: http://promshim:9090
+      PROM_HARNESS_PROMCLICK_URL: http://promclick-proxy:9099
       PROM_HARNESS_CORPUS_PATH: /app/harness/corpus/queries.json
       PROM_HARNESS_ARTIFACT_DIR: /artifacts
-      PROM_HARNESS_TIMEOUT_SECONDS: 60
+      PROM_HARNESS_TIMEOUT_SECONDS: 180
     volumes:
       - ./artifacts:/artifacts
     restart: "no"

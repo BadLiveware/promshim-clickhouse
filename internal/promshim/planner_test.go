@@ -653,8 +653,8 @@ func TestBuildPlanWithContextCreatesNativeAggregationPlanForRangeDelegatedLeaf(t
 	if err != nil {
 		t.Fatalf("expected native aggregation plan, got error: %v", err)
 	}
-	if _, ok := plan.(*nativeAggregationPlan); !ok {
-		t.Fatalf("expected nativeAggregationPlan, got %T", plan)
+	if _, ok := plan.(*nativeSubtreePlan); !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", plan)
 	}
 }
 
@@ -674,15 +674,19 @@ func TestBuildPlanWithContextCreatesNativeAggregationPlanForUnaryTransformedLeaf
 	if err != nil {
 		t.Fatalf("expected native aggregation plan, got error: %v", err)
 	}
-	native, ok := plan.(*nativeAggregationPlan)
+	native, ok := plan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected nativeAggregationPlan, got %T", plan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", plan)
 	}
-	if !strings.Contains(native.Source.ValueExpr, "-") {
-		t.Fatalf("expected unary value transform in native source, got %#v", native.Source)
+	if native.Fragment == nil || native.Fragment.Aggregation == nil || native.Fragment.Aggregation.Source == nil {
+		t.Fatalf("expected native subtree fragment source metadata, got %#v", native)
 	}
-	if !strings.Contains(native.Source.TagsExpr, "__name__") {
-		t.Fatalf("expected metric-name dropping tags transform, got %#v", native.Source)
+	source := native.Fragment.Aggregation.Source
+	if !strings.Contains(source.ValueExpr, "-") {
+		t.Fatalf("expected unary value transform in native source, got %#v", source)
+	}
+	if !strings.Contains(source.TagsExpr, "__name__") {
+		t.Fatalf("expected metric-name dropping tags transform, got %#v", source)
 	}
 }
 
@@ -702,15 +706,19 @@ func TestBuildPlanWithContextCreatesNativeAggregationPlanForVectorScalarLeaf(t *
 	if err != nil {
 		t.Fatalf("expected native aggregation plan, got error: %v", err)
 	}
-	native, ok := plan.(*nativeAggregationPlan)
+	native, ok := plan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected nativeAggregationPlan, got %T", plan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", plan)
 	}
-	if !strings.Contains(native.Source.ValueExpr, "100") || !strings.Contains(native.Source.ValueExpr, "*") {
-		t.Fatalf("expected vector-scalar arithmetic in native source, got %#v", native.Source)
+	if native.Fragment == nil || native.Fragment.Aggregation == nil || native.Fragment.Aggregation.Source == nil {
+		t.Fatalf("expected native subtree fragment source metadata, got %#v", native)
 	}
-	if !strings.Contains(native.Source.TagsExpr, "__name__") {
-		t.Fatalf("expected metric-name dropping tags transform, got %#v", native.Source)
+	source := native.Fragment.Aggregation.Source
+	if !strings.Contains(source.ValueExpr, "100") || !strings.Contains(source.ValueExpr, "*") {
+		t.Fatalf("expected vector-scalar arithmetic in native source, got %#v", source)
+	}
+	if !strings.Contains(source.TagsExpr, "__name__") {
+		t.Fatalf("expected metric-name dropping tags transform, got %#v", source)
 	}
 }
 
@@ -789,6 +797,9 @@ func TestExplainPlanDescribesNativeAggregationStrategy(t *testing.T) {
 	if explain.Strategy != "native_sql" {
 		t.Fatalf("expected native_sql strategy, got %#v", explain)
 	}
+	if explain.SelectedStrategy != "native_sql" || explain.NativeScope != "subtree" {
+		t.Fatalf("expected selected native subtree strategy metadata, got %#v", explain)
+	}
 	if explain.Kind != "aggregation" {
 		t.Fatalf("expected aggregation kind, got %#v", explain)
 	}
@@ -803,6 +814,24 @@ func TestExplainPlanDescribesNativeAggregationStrategy(t *testing.T) {
 	}
 	if explain.Children[0].Lowering == nil || explain.Children[0].Lowering.FragmentKind == "" {
 		t.Fatalf("expected lowering metadata on delegated child explain, got %#v", explain.Children)
+	}
+	if len(explain.RulesApplied) == 0 || explain.RenderedSQL == "" {
+		t.Fatalf("expected optimizer metadata and rendered SQL on native explain, got %#v", explain)
+	}
+	if !containsString(explain.InferredPredicates, `__name__="up"`) {
+		t.Fatalf("expected inferred metric-name predicate on native explain, got %#v", explain.InferredPredicates)
+	}
+	if !containsString(explain.PushedPredicates, `__name__="up"`) {
+		t.Fatalf("expected pushed metric-name predicate on native explain, got %#v", explain.PushedPredicates)
+	}
+	if !containsString(explain.RequiredColumns, "tags") || !containsString(explain.MaterializedColumns, "time_series") {
+		t.Fatalf("expected projection/materialization metadata on native explain, got required=%#v materialized=%#v", explain.RequiredColumns, explain.MaterializedColumns)
+	}
+	if !containsString(explain.SemanticBarriers, "aggregation_boundary") {
+		t.Fatalf("expected semantic barrier metadata on native explain, got %#v", explain.SemanticBarriers)
+	}
+	if strings.Contains(strings.ToUpper(explain.RenderedSQL), "SELECT *") {
+		t.Fatalf("expected final rendered SQL to avoid SELECT *, got %q", explain.RenderedSQL)
 	}
 }
 
@@ -852,7 +881,10 @@ func TestExplainPlanDescribesLocalAggregationFallbackReasonWhenPushdownDisabled(
 	if explain.Strategy != "local" {
 		t.Fatalf("expected local strategy, got %#v", explain)
 	}
-	if !strings.Contains(explain.Reason, "disabled") {
+	if explain.SelectedStrategy != "local" || explain.NativeScope != "none" {
+		t.Fatalf("expected local selected strategy metadata, got %#v", explain)
+	}
+	if !strings.Contains(explain.Reason, "disabled") || !strings.Contains(explain.FallbackReason, "disabled") {
 		t.Fatalf("expected disabled fallback reason, got %#v", explain)
 	}
 }
@@ -877,7 +909,10 @@ func TestExplainPlanDescribesLocalAggregationFallbackReasonWhenChildIsNotPushdow
 	if explain.Strategy != "local" {
 		t.Fatalf("expected local strategy, got %#v", explain)
 	}
-	if !strings.Contains(explain.Reason, "pushdown-safe") {
+	if explain.SelectedStrategy != "local" || explain.NativeScope != "none" {
+		t.Fatalf("expected local selected strategy metadata, got %#v", explain)
+	}
+	if !strings.Contains(explain.Reason, "pushdown-safe") || !strings.Contains(explain.FallbackReason, "pushdown-safe") {
 		t.Fatalf("expected pushdown-safe fallback reason, got %#v", explain)
 	}
 	if explain.Lowering == nil || explain.Lowering.AggregationPushdownEligible {
@@ -1741,4 +1776,13 @@ func sameStrings(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

@@ -9,13 +9,23 @@ type planEstimate struct {
 }
 
 type ExplainNode struct {
-	Kind     string                  `json:"kind"`
-	Strategy string                  `json:"strategy"`
-	Expr     string                  `json:"expr,omitempty"`
-	Reason   string                  `json:"reason,omitempty"`
-	Estimate *planEstimate           `json:"estimate,omitempty"`
-	Lowering *nativeplan.ExplainInfo `json:"lowering,omitempty"`
-	Children []ExplainNode           `json:"children,omitempty"`
+	Kind                string                  `json:"kind"`
+	Strategy            string                  `json:"strategy"`
+	SelectedStrategy    string                  `json:"selectedStrategy,omitempty"`
+	NativeScope         string                  `json:"nativeScope,omitempty"`
+	Expr                string                  `json:"expr,omitempty"`
+	Reason              string                  `json:"reason,omitempty"`
+	FallbackReason      string                  `json:"fallbackReason,omitempty"`
+	Estimate            *planEstimate           `json:"estimate,omitempty"`
+	Lowering            *nativeplan.ExplainInfo `json:"lowering,omitempty"`
+	RulesApplied        []string                `json:"rulesApplied,omitempty"`
+	PushedPredicates    []string                `json:"pushedPredicates,omitempty"`
+	InferredPredicates  []string                `json:"inferredPredicates,omitempty"`
+	RequiredColumns     []string                `json:"requiredColumns,omitempty"`
+	MaterializedColumns []string                `json:"materializedColumns,omitempty"`
+	SemanticBarriers    []string                `json:"semanticBarriers,omitempty"`
+	RenderedSQL         string                  `json:"renderedSQL,omitempty"`
+	Children            []ExplainNode           `json:"children,omitempty"`
 }
 
 func estimateRangePointsPerSeries(ctx planContext) int64 {
@@ -41,7 +51,9 @@ func explainPlan(plan queryPlan) ExplainNode {
 	if plan == nil {
 		return ExplainNode{}
 	}
-	return plan.explain()
+	explain := plan.explain()
+	finalizeExplainNode(&explain)
+	return explain
 }
 
 func explainPlanWithLowering(plan queryPlan, lowering *nativeplan.LoweringInfo) ExplainNode {
@@ -51,11 +63,38 @@ func explainPlanWithLowering(plan queryPlan, lowering *nativeplan.LoweringInfo) 
 }
 
 func annotateExplainNode(node *ExplainNode, lowering *nativeplan.LoweringInfo) {
-	if node == nil || lowering == nil {
+	if node == nil {
 		return
 	}
-	node.Lowering = lowering.ExplainInfo()
-	for index := 0; index < len(node.Children) && index < len(lowering.Children); index++ {
-		annotateExplainNode(&node.Children[index], lowering.Children[index])
+	if lowering != nil {
+		node.Lowering = lowering.ExplainInfo()
+		for index := 0; index < len(node.Children) && index < len(lowering.Children); index++ {
+			annotateExplainNode(&node.Children[index], lowering.Children[index])
+		}
+		return
+	}
+	for index := range node.Children {
+		annotateExplainNode(&node.Children[index], nil)
+	}
+}
+
+func finalizeExplainNode(node *ExplainNode) {
+	if node == nil {
+		return
+	}
+	node.SelectedStrategy = node.Strategy
+	switch node.Strategy {
+	case "native_sql":
+		node.NativeScope = "subtree"
+	case "delegated_promql":
+		node.NativeScope = "delegated"
+	default:
+		node.NativeScope = "none"
+	}
+	if node.Strategy != "native_sql" {
+		node.FallbackReason = node.Reason
+	}
+	for index := range node.Children {
+		finalizeExplainNode(&node.Children[index])
 	}
 }

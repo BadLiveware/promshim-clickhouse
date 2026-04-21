@@ -1,41 +1,49 @@
 {
-  "nextId": 81,
+  "nextId": 90,
   "tasks": [
     {
-      "id": "78",
-      "subject": "Introduce native subtree plan and fragment renderer skeleton",
-      "description": "Implement Phase 2 by replacing the aggregation-specific native execution node with a general nativeSubtreePlan that executes rendered native fragments. Keep the initial supported subset narrow: selectors, scalar literals as source constants, unary arithmetic, scalar/vector arithmetic, and simple aggregations.",
-      "status": "pending",
-      "activeForm": "Introducing native subtree plan and renderer",
+      "id": "87",
+      "subject": "Add typed native selector fragment and matcher model",
+      "description": "Implement Phase 3 selector lowering metadata in internal/promshim/native by extending leaf fragments with repo-owned selector source information, typed matchers, time-bound requirements, and explicit instant/range selector contracts. Keep this scoped to selector leaves used by the current native subset.",
+      "status": "completed",
+      "activeForm": "Adding typed selector fragment model",
       "metadata": {},
-      "blocks": [],
+      "blocks": [
+        "88"
+      ],
       "blockedBy": [],
-      "createdAt": 1776767456089,
-      "updatedAt": 1776767456089
+      "createdAt": 1776771214341,
+      "updatedAt": 1776771948197
     },
     {
-      "id": "79",
-      "subject": "Route simple native aggregation through fragment builder",
-      "description": "Build a fragment-builder layer in internal/promshim/native that lowers the currently supported subset into an internal fragment IR and renders SQL separately. Re-express the current native aggregation pushdown as a special case of the new general native subtree mechanism without changing supported query shapes.",
-      "status": "pending",
-      "activeForm": "Routing simple native aggregation through fragment builder",
+      "id": "88",
+      "subject": "Implement repo-owned selector SQL rendering and matcher lowering",
+      "description": "Add storage/native SQL builders that render selector sources using timeSeriesData(...) and related TimeSeries relations, compile metric/equality/inequality/regex/negative-regex matchers into typed predicates, and apply evaluation-range bounds from native analysis.",
+      "status": "completed",
+      "activeForm": "Implementing selector SQL rendering",
       "metadata": {},
-      "blocks": [],
-      "blockedBy": [],
-      "createdAt": 1776767456089,
-      "updatedAt": 1776767456089
+      "blocks": [
+        "89"
+      ],
+      "blockedBy": [
+        "87"
+      ],
+      "createdAt": 1776771214342,
+      "updatedAt": 1776771948197
     },
     {
-      "id": "80",
-      "subject": "Adapt native plan explain and tests for subtree execution",
-      "description": "Update explain output and native-plan tests to validate native subtree selection and SQL rendering under the Phase 2 architecture. Add renderer-focused tests or snapshots for the narrow supported subset.",
-      "status": "pending",
-      "activeForm": "Adapting explain and tests for subtree execution",
+      "id": "89",
+      "subject": "Route native subtree rendering through selector sources and add tests",
+      "description": "Update native fragment rendering so current native aggregation/unary/scalar-arithmetic paths use repo-owned selector leaf sources instead of delegated PromQL, then add tests for matcher-to-SQL lowering, selector output contracts, bounded fetches, and native explain/render behavior.",
+      "status": "completed",
+      "activeForm": "Routing native rendering through selector sources",
       "metadata": {},
       "blocks": [],
-      "blockedBy": [],
-      "createdAt": 1776767456090,
-      "updatedAt": 1776767456090
+      "blockedBy": [
+        "88"
+      ],
+      "createdAt": 1776771214342,
+      "updatedAt": 1776771948197
     }
   ]
 }

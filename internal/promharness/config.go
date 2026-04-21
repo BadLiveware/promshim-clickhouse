@@ -14,6 +14,7 @@ func LoadSeedConfigFromEnv() (SeedConfig, error) {
 	cfg := SeedConfig{
 		PromRemoteWriteURL:       getenv("PROM_HARNESS_PROM_REMOTE_WRITE_URL", "http://prometheus:9090/api/v1/write"),
 		ClickHouseRemoteWriteURL: getenv("PROM_HARNESS_CLICKHOUSE_REMOTE_WRITE_URL", "http://default:otel@clickhouse:9092/write"),
+		PromClickRemoteWriteURL:  getenv("PROM_HARNESS_PROMCLICK_REMOTE_WRITE_URL", ""),
 		Seed:                     getenvInt64("PROM_HARNESS_SEED", 12345),
 		Step:                     time.Duration(stepSeconds) * time.Second,
 		Points:                   points,
@@ -38,6 +39,7 @@ func LoadCompareConfigFromEnv() (CompareConfig, error) {
 	cfg := CompareConfig{
 		PrometheusBaseURL: getenv("PROM_HARNESS_PROM_URL", "http://prometheus:9090"),
 		PromshimBaseURL:   getenv("PROM_HARNESS_SHIM_URL", "http://promshim:9090"),
+		PromClickBaseURL:  getenv("PROM_HARNESS_PROMCLICK_URL", ""),
 		CorpusPath:        getenv("PROM_HARNESS_CORPUS_PATH", "/workspace/harness/corpus/queries.json"),
 		ArtifactDir:       getenv("PROM_HARNESS_ARTIFACT_DIR", "/artifacts"),
 		Timeout:           time.Duration(getenvInt("PROM_HARNESS_TIMEOUT_SECONDS", 30)) * time.Second,

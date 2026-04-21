@@ -12,6 +12,7 @@ func TestCompareQueryOutcomeSupportsExpectedErrorMatching(t *testing.T) {
 		ExpectedErrorType:     "bad_data",
 		ExpectedErrorContains: "invalid expression type",
 	},
+		"shim",
 		queryResult{Status: "error", ErrorType: "bad_data", Error: "query execution failed: invalid expression type in query_range"},
 		queryResult{Status: "error", ErrorType: "bad_data", Error: "query execution failed: invalid expression type"},
 	)
@@ -29,6 +30,7 @@ func TestCompareQueryOutcomeRejectsUnexpectedErrorTypeForExpectedErrorQuery(t *t
 		ExpectedStatus:    "error",
 		ExpectedErrorType: "unsupported",
 	},
+		"shim",
 		queryResult{Status: "error", ErrorType: "bad_data", Error: "bad_data error"},
 		queryResult{Status: "error", ErrorType: "unsupported", Error: "unsupported function"},
 	)

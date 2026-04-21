@@ -28,6 +28,7 @@ From the repo root:
 
 Useful options:
 
+- `--subjects <list>` to restrict compare subjects globally, e.g. `shim` or `shim,promclick`
 - `--no-build` to skip rebuilding images
 - `--keep-up` to keep the stack running for inspection/debugging
 - `--init-retries <n>` to tune ClickHouse init retries
@@ -85,6 +86,9 @@ It focuses on the implemented compatibility subset and the stable query set used
 - matrix-consuming local paths and supported nested compositions:
   - `last_over_time`, `sum_over_time`, `avg_over_time`, `max_over_time`, `min_over_time`, `count_over_time`
   - nested binary compositions over matrix functions where both sides are implemented locally
+- promoted native range / counter lowering rows for the supported Phase 6 subset:
+  - direct-selector `rate`, `increase`, `sum_over_time`, `count_over_time`
+  - supported subquery-backed `rate(sum by (...) (...)[range:step])`
 - matrix-root selector subquery behavior (`subquery_matrix_root_selector_instant`)
 - absent-family support:
   - `absent(...)`
@@ -93,24 +97,14 @@ It focuses on the implemented compatibility subset and the stable query set used
 
 ### Stable parity status (known supported set)
 
-- `./scripts/run-harness.sh` runs the full corpus comparison.
-- Current tracked corpus currently includes 86 entries in `harness/corpus/queries.json`, of which 82 are success-case checks and 4 are explicit error probes. In the latest run they pass under their expected status.
-- Intentionally excluded / unstable query families are intentionally kept out of the stable corpus and documented in:
-  - `.pi/phase9-delegated-divergence-catalog.md`
+- `./scripts/run-harness.sh` runs the full configured-subject corpus comparison.
+- `./scripts/run-harness.sh --subjects shim` runs the Prometheus-vs-promshim gating view without optional promclick noise.
+- The tracked stable corpus currently includes 94 entries in `harness/corpus/queries.json`, of which 91 are success-case checks and 3 are explicit error probes.
+- Phase 6 native-lowering rows that are now considered stable have been promoted into the main corpus. Rows that are not meaningful against optional promclick behavior are scoped with `"subjects": ["shim"]` so Prometheus remains the only oracle for that row.
 
-#### Excluded by design
+#### Excluded / limited by design
 
-The following query families remain excluded from the stable corpus because they are known delegated-subquery divergence classes and are now explicit hard errors:
-
-- `rate(...[range:step])`
-- `irate(...[range:step])`
-- `increase(...[range:step])`
-- `delta(...[range:step])`
-- `idelta(...[range:step])`
-- `deriv(...[range:step])`
-- `changes(...[range:step])`
-
-As these are handled explicitly with `unsupported` errors, they are not suitable for success-case differential parity assertions until local implementation or delegated parity guarantees are introduced.
+Some query families are still unsuitable for all-subject success-case parity assertions because optional promclick support diverges or does not implement them yet, especially subquery-backed rate-family cases. Where native promshim support is stable and Prometheus-backed parity is useful, the stable corpus now carries shim-only rows rather than treating optional promclick behavior as a blocker.
 
 ### Native SQL lowering starter corpus
 
@@ -135,3 +129,4 @@ Run it with:
 
 Extend the corpus cautiously as new features land:
 - add new corpus rows only after parity is verified in `./artifacts/compare-report.json` and corresponding unit/integration coverage exists.
+- if a row should only run against specific optional subjects, set `"subjects": ["shim"]` or `"subjects": ["promclick"]`; omitting `subjects` compares against all configured subjects.

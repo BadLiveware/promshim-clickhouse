@@ -85,6 +85,161 @@ func TestAnalyzeLabelJoinMarksSyntheticDestination(t *testing.T) {
 	}
 }
 
+func TestAnalyzeRateOverSubqueryMarksNativeLowerable(t *testing.T) {
+	rateExpr := mustParseExpr(t, `rate(sum(up)[5m:1m])`)
+	call, ok := rateExpr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected call expr, got %T", rateExpr)
+	}
+	subquery, ok := call.Args[0].(*parser.SubqueryExpr)
+	if !ok {
+		t.Fatalf("expected subquery arg, got %T", call.Args[0])
+	}
+	aggExpr, ok := subquery.Expr.(*parser.AggregateExpr)
+	if !ok {
+		t.Fatalf("expected aggregate child, got %T", subquery.Expr)
+	}
+	logical := &planpkg.LogicalRatePlan{
+		Expr: call,
+		Func: "rate",
+		Child: &planpkg.LogicalSubqueryPlan{
+			Expr:   subquery,
+			Range:  subquery.Range,
+			Step:   subquery.Step,
+			Offset: subquery.OriginalOffset,
+			Child: &planpkg.LogicalAggregationPlan{
+				Expr:     aggExpr,
+				Op:       aggExpr.Op,
+				Grouping: append([]string(nil), aggExpr.Grouping...),
+				Child:    &planpkg.LogicalLeafExprPlan{Expr: aggExpr.Expr},
+			},
+		},
+	}
+
+	info := Analyze(logical).InfoFor(logical)
+	if info == nil {
+		t.Fatal("expected lowering info")
+	}
+	if !info.NativeLowerable {
+		t.Fatalf("expected rate-over-subquery to be native-lowerable, got %#v", info)
+	}
+	if info.Fragment == nil || info.Fragment.RangeFunction == nil || info.Fragment.RangeFunction.Func != "rate" {
+		t.Fatalf("expected native rate fragment, got %#v", info)
+	}
+	if info.LabelLineage.MetricName != LabelLineageDropped {
+		t.Fatalf("expected rate to drop metric name, got %#v", info.LabelLineage)
+	}
+}
+
+func TestAnalyzeIncreaseAndDeltaOverSubqueryMarkNativeLowerable(t *testing.T) {
+	cases := []struct {
+		query string
+		kind  string
+	}{
+		{query: `increase(sum(up)[5m:1m])`, kind: "increase"},
+		{query: `delta(sum(up)[5m:1m])`, kind: "delta"},
+		{query: `idelta(sum(up)[5m:1m])`, kind: "idelta"},
+	}
+	for _, tc := range cases {
+		expr := mustParseExpr(t, tc.query)
+		call, ok := expr.(*parser.Call)
+		if !ok {
+			t.Fatalf("expected call expr for %q, got %T", tc.query, expr)
+		}
+		subquery, ok := call.Args[0].(*parser.SubqueryExpr)
+		if !ok {
+			t.Fatalf("expected subquery arg for %q, got %T", tc.query, call.Args[0])
+		}
+		aggExpr, ok := subquery.Expr.(*parser.AggregateExpr)
+		if !ok {
+			t.Fatalf("expected aggregate child for %q, got %T", tc.query, subquery.Expr)
+		}
+		child := &planpkg.LogicalSubqueryPlan{
+			Expr:   subquery,
+			Range:  subquery.Range,
+			Step:   subquery.Step,
+			Offset: subquery.OriginalOffset,
+			Child: &planpkg.LogicalAggregationPlan{
+				Expr:     aggExpr,
+				Op:       aggExpr.Op,
+				Grouping: append([]string(nil), aggExpr.Grouping...),
+				Child:    &planpkg.LogicalLeafExprPlan{Expr: aggExpr.Expr},
+			},
+		}
+		var logical planpkg.LogicalPlan
+		switch tc.kind {
+		case "increase":
+			logical = &planpkg.LogicalIncreasePlan{Expr: call, Child: child}
+		default:
+			logical = &planpkg.LogicalDeltaPlan{Expr: call, Func: tc.kind, Child: child}
+		}
+		info := Analyze(logical).InfoFor(logical)
+		if info == nil || !info.NativeLowerable {
+			t.Fatalf("expected %s to be native-lowerable, got %#v", tc.kind, info)
+		}
+		if info.Fragment == nil || info.Fragment.RangeFunction == nil || info.Fragment.RangeFunction.Func != tc.kind {
+			t.Fatalf("expected native %s fragment, got %#v", tc.kind, info)
+		}
+		if info.LabelLineage.MetricName != LabelLineageDropped {
+			t.Fatalf("expected %s to drop metric name, got %#v", tc.kind, info.LabelLineage)
+		}
+	}
+}
+
+func TestAnalyzeChangesAndDerivOverSubqueryMarkNativeLowerable(t *testing.T) {
+	cases := []struct {
+		query string
+		kind  string
+	}{
+		{query: `changes(sum(up)[5m:1m])`, kind: "changes"},
+		{query: `deriv(sum(up)[5m:1m])`, kind: "deriv"},
+	}
+	for _, tc := range cases {
+		expr := mustParseExpr(t, tc.query)
+		call, ok := expr.(*parser.Call)
+		if !ok {
+			t.Fatalf("expected call expr for %q, got %T", tc.query, expr)
+		}
+		subquery, ok := call.Args[0].(*parser.SubqueryExpr)
+		if !ok {
+			t.Fatalf("expected subquery arg for %q, got %T", tc.query, call.Args[0])
+		}
+		aggExpr, ok := subquery.Expr.(*parser.AggregateExpr)
+		if !ok {
+			t.Fatalf("expected aggregate child for %q, got %T", tc.query, subquery.Expr)
+		}
+		child := &planpkg.LogicalSubqueryPlan{
+			Expr:   subquery,
+			Range:  subquery.Range,
+			Step:   subquery.Step,
+			Offset: subquery.OriginalOffset,
+			Child: &planpkg.LogicalAggregationPlan{
+				Expr:     aggExpr,
+				Op:       aggExpr.Op,
+				Grouping: append([]string(nil), aggExpr.Grouping...),
+				Child:    &planpkg.LogicalLeafExprPlan{Expr: aggExpr.Expr},
+			},
+		}
+		var logical planpkg.LogicalPlan
+		switch tc.kind {
+		case "changes":
+			logical = &planpkg.LogicalChangesPlan{Expr: call, Child: child}
+		default:
+			logical = &planpkg.LogicalDerivPlan{Expr: call, Child: child}
+		}
+		info := Analyze(logical).InfoFor(logical)
+		if info == nil || !info.NativeLowerable {
+			t.Fatalf("expected %s to be native-lowerable, got %#v", tc.kind, info)
+		}
+		if info.Fragment == nil || info.Fragment.RangeFunction == nil || info.Fragment.RangeFunction.Func != tc.kind {
+			t.Fatalf("expected native %s fragment, got %#v", tc.kind, info)
+		}
+		if info.LabelLineage.MetricName != LabelLineageDropped {
+			t.Fatalf("expected %s to drop metric name, got %#v", tc.kind, info.LabelLineage)
+		}
+	}
+}
+
 func TestAnalyzeSubqueryAccumulatesTimeRequirements(t *testing.T) {
 	subqueryExpr := mustParseExpr(t, `(up * 100)[5m:1m] offset 1m`)
 	subquery, ok := subqueryExpr.(*parser.SubqueryExpr)

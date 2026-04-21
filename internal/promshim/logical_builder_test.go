@@ -116,8 +116,12 @@ func TestBuildLogicalPlanCreatesHistogramQuantilePlan(t *testing.T) {
 	if histogramPlan.Quantile != 0.9 {
 		t.Fatalf("expected quantile 0.9, got %#v", histogramPlan.Quantile)
 	}
-	if _, ok := histogramPlan.Child.(*logicalAggregationPlan); !ok {
+	agg, ok := histogramPlan.Child.(*logicalAggregationPlan)
+	if !ok {
 		t.Fatalf("expected histogram_quantile child aggregation plan, got %T", histogramPlan.Child)
+	}
+	if ratePlan, ok := agg.Child.(*logicalRatePlan); !ok || ratePlan.Func != "rate" {
+		t.Fatalf("expected logicalRatePlan child under histogram_quantile aggregation, got %T (%#v)", agg.Child, agg.Child)
 	}
 }
 
@@ -138,8 +142,12 @@ func TestBuildLogicalPlanCreatesHistogramProjectionPlan(t *testing.T) {
 	if histogramPlan.Func != "histogram_count" {
 		t.Fatalf("expected histogram_count function, got %#v", histogramPlan.Func)
 	}
-	if _, ok := histogramPlan.Child.(*logicalAggregationPlan); !ok {
+	agg, ok := histogramPlan.Child.(*logicalAggregationPlan)
+	if !ok {
 		t.Fatalf("expected histogram_count child aggregation plan, got %T", histogramPlan.Child)
+	}
+	if ratePlan, ok := agg.Child.(*logicalRatePlan); !ok || ratePlan.Func != "rate" {
+		t.Fatalf("expected logicalRatePlan child under histogram_count aggregation, got %T (%#v)", agg.Child, agg.Child)
 	}
 }
 
@@ -160,8 +168,12 @@ func TestBuildLogicalPlanCreatesHistogramFractionPlan(t *testing.T) {
 	if histogramPlan.Lower != 0 || histogramPlan.Upper != 1 {
 		t.Fatalf("expected bounds [0,1], got [%v,%v]", histogramPlan.Lower, histogramPlan.Upper)
 	}
-	if _, ok := histogramPlan.Child.(*logicalAggregationPlan); !ok {
+	agg, ok := histogramPlan.Child.(*logicalAggregationPlan)
+	if !ok {
 		t.Fatalf("expected histogram_fraction child aggregation plan, got %T", histogramPlan.Child)
+	}
+	if ratePlan, ok := agg.Child.(*logicalRatePlan); !ok || ratePlan.Func != "rate" {
+		t.Fatalf("expected logicalRatePlan child under histogram_fraction aggregation, got %T (%#v)", agg.Child, agg.Child)
 	}
 }
 
@@ -200,6 +212,30 @@ func TestBuildLogicalPlanCreatesIncreasePlanForSubqueryArg(t *testing.T) {
 	}
 	if _, ok := increasePlan.Child.(*logicalSubqueryPlan); !ok {
 		t.Fatalf("expected logical subquery child, got %T", increasePlan.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesRatePlanForDirectSelectorArg(t *testing.T) {
+	for _, fn := range []string{"rate", "irate"} {
+		expr, err := plan.ParseExpression(fn + "(up[5m])")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		logical, err := buildLogicalPlan(expr)
+		if err != nil {
+			t.Fatalf("expected logical %s plan, got error: %v", fn, err)
+		}
+		ratePlan, ok := logical.(*logicalRatePlan)
+		if !ok {
+			t.Fatalf("expected logicalRatePlan, got %T", logical)
+		}
+		if ratePlan.Func != fn {
+			t.Fatalf("expected function %s, got %q", fn, ratePlan.Func)
+		}
+		if _, ok := ratePlan.Child.(*logicalLeafExprPlan); !ok {
+			t.Fatalf("expected logical leaf child for %s, got %T", fn, ratePlan.Child)
+		}
 	}
 }
 
@@ -244,6 +280,54 @@ func TestBuildLogicalPlanCreatesIratePlanForSubqueryArg(t *testing.T) {
 	}
 	if _, ok := ratePlan.Child.(*logicalSubqueryPlan); !ok {
 		t.Fatalf("expected logical subquery child, got %T", ratePlan.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesCounterPlansForDirectSelectorArgs(t *testing.T) {
+	cases := []struct {
+		query    string
+		planType any
+	}{
+		{query: "delta(up[5m])", planType: (*logicalDeltaPlan)(nil)},
+		{query: "idelta(up[5m])", planType: (*logicalDeltaPlan)(nil)},
+		{query: "changes(up[5m])", planType: (*logicalChangesPlan)(nil)},
+		{query: "deriv(up[5m])", planType: (*logicalDerivPlan)(nil)},
+	}
+	for _, tc := range cases {
+		expr, err := plan.ParseExpression(tc.query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		logical, err := buildLogicalPlan(expr)
+		if err != nil {
+			t.Fatalf("expected logical plan for %q, got error: %v", tc.query, err)
+		}
+		switch tc.planType.(type) {
+		case *logicalDeltaPlan:
+			plan, ok := logical.(*logicalDeltaPlan)
+			if !ok {
+				t.Fatalf("expected logicalDeltaPlan for %q, got %T", tc.query, logical)
+			}
+			if _, ok := plan.Child.(*logicalLeafExprPlan); !ok {
+				t.Fatalf("expected logical leaf child for %q, got %T", tc.query, plan.Child)
+			}
+		case *logicalChangesPlan:
+			plan, ok := logical.(*logicalChangesPlan)
+			if !ok {
+				t.Fatalf("expected logicalChangesPlan for %q, got %T", tc.query, logical)
+			}
+			if _, ok := plan.Child.(*logicalLeafExprPlan); !ok {
+				t.Fatalf("expected logical leaf child for %q, got %T", tc.query, plan.Child)
+			}
+		case *logicalDerivPlan:
+			plan, ok := logical.(*logicalDerivPlan)
+			if !ok {
+				t.Fatalf("expected logicalDerivPlan for %q, got %T", tc.query, logical)
+			}
+			if _, ok := plan.Child.(*logicalLeafExprPlan); !ok {
+				t.Fatalf("expected logical leaf child for %q, got %T", tc.query, plan.Child)
+			}
+		}
 	}
 }
 
@@ -806,12 +890,12 @@ func TestBuildExecPlanLowersLogicalVectorMatchingBinaryPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected execution vector matching binary plan, got error: %v", err)
 	}
-	binaryPlan, ok := execPlan.(*localBinaryPlan)
+	binaryPlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localBinaryPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if binaryPlan.VectorMatching == nil || binaryPlan.VectorMatching.Card != parser.CardManyToOne {
-		t.Fatalf("expected many-to-one vector matching in execution plan, got %#v", binaryPlan.VectorMatching)
+	if binaryPlan.Fragment == nil || binaryPlan.Fragment.BinaryJoin == nil || binaryPlan.Fragment.BinaryJoin.VectorMatching == nil || binaryPlan.Fragment.BinaryJoin.VectorMatching.Card != parser.CardManyToOne {
+		t.Fatalf("expected many-to-one vector matching in native execution plan, got %#v", binaryPlan)
 	}
 }
 

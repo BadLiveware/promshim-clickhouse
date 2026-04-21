@@ -139,6 +139,14 @@ func validateQueryCorpus(t *testing.T, fixture string, queries []QuerySpec) {
 			t.Fatalf("%s: query %q has unsupported expectedStatus %q", fixture, query.Name, query.ExpectedStatus)
 		}
 
+		for _, subject := range query.Subjects {
+			switch strings.ToLower(strings.TrimSpace(subject)) {
+			case "shim", "promclick":
+			default:
+				t.Fatalf("%s: query %q has unsupported subject %q", fixture, query.Name, subject)
+			}
+		}
+
 		switch strings.ToLower(strings.TrimSpace(query.CompareMode)) {
 		case "", CompareModeExact, CompareModeStructural:
 		default:

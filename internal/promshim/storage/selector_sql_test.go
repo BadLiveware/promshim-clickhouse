@@ -26,7 +26,7 @@ func TestBuildInstantSelectorQuerySQLCompilesMatchersAndBounds(t *testing.T) {
 	if !strings.Contains(sql, "timeSeriesData(`observability`.`prometheus`)") || !strings.Contains(sql, "timeSeriesTags(`observability`.`prometheus`)") {
 		t.Fatalf("expected repo-owned selector sources, got %q", sql)
 	}
-	for _, expected := range []string{"metric_name = {instant_matcher_0_value:String}", "match(tags[concat('', {instant_matcher_1_key:String})], {instant_matcher_1_value:String})", "tags[concat('', {instant_matcher_2_key:String})] != {instant_matcher_2_value:String}", "fromUnixTimestamp64Milli({required_start_ms:Int64})", "fromUnixTimestamp64Milli({required_end_ms:Int64})"} {
+	for _, expected := range []string{"src.metric_name = {instant_matcher_0_value:String}", "match(src.tags[concat('', {instant_matcher_1_key:String})], {instant_matcher_1_value:String})", "src.tags[concat('', {instant_matcher_2_key:String})] != {instant_matcher_2_value:String}", "fromUnixTimestamp64Milli({required_start_ms:Int64})", "fromUnixTimestamp64Milli({required_end_ms:Int64})"} {
 		if !strings.Contains(sql, expected) {
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)
 		}
@@ -51,7 +51,7 @@ func TestBuildInstantSelectorQuerySQLSupportsEqualityAndNegativeRegex(t *testing
 	if err != nil {
 		t.Fatalf("expected instant selector SQL, got error: %v", err)
 	}
-	for _, expected := range []string{"tags[concat('', {instant_matcher_0_key:String})] = {instant_matcher_0_value:String}", "NOT match(tags[concat('', {instant_matcher_1_key:String})], {instant_matcher_1_value:String})"} {
+	for _, expected := range []string{"src.tags[concat('', {instant_matcher_0_key:String})] = {instant_matcher_0_value:String}", "NOT match(src.tags[concat('', {instant_matcher_1_key:String})], {instant_matcher_1_value:String})"} {
 		if !strings.Contains(sql, expected) {
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)
 		}
@@ -75,6 +75,23 @@ func TestBuildInstantSelectorQuerySQLOmitsTagsProjectionWhenUnneeded(t *testing.
 	}
 	if !strings.Contains(sql, "CAST([], 'Array(Tuple(String, String))') AS tags") {
 		t.Fatalf("expected synthesized empty tags, got %q", sql)
+	}
+}
+
+func TestBuildRangeWindowSelectorQuerySQLUsesStepGridAndRangeWindow(t *testing.T) {
+	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, time.Minute, SelectorKindRangeVector)
+
+	sql, params, err := BuildRangeWindowSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -360000, 300000, 0, 300000, 30000, "arraySum(arrayMap(point -> point.2, window_series))", 0)
+	if err != nil {
+		t.Fatalf("expected range window selector SQL, got error: %v", err)
+	}
+	for _, expected := range []string{"arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts", "arraySort(item -> item.1, groupArray((d.timestamp, d.value))) AS window_series", "d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64})", "d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})", "GROUP BY grid.id, grid.tags, grid.eval_ts"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected %q in SQL, got %q", expected, sql)
+		}
+	}
+	if params["param_lookback_ms"] != "300000" || params["param_offset_ms"] != "60000" {
+		t.Fatalf("expected lookback/offset params, got %#v", params)
 	}
 }
 

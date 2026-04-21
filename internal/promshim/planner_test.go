@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/plan"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -238,8 +239,12 @@ func TestBuildPlanCreatesHistogramQuantilePlan(t *testing.T) {
 	if histogramPlan.Quantile != 0.9 {
 		t.Fatalf("expected quantile 0.9, got %#v", histogramPlan.Quantile)
 	}
-	if _, ok := histogramPlan.Child.(*localAggregationPlan); !ok {
+	agg, ok := histogramPlan.Child.(*localAggregationPlan)
+	if !ok {
 		t.Fatalf("expected local aggregation child, got %T", histogramPlan.Child)
+	}
+	if _, ok := agg.Child.(*nativeSubtreePlan); !ok {
+		t.Fatalf("expected native child under local histogram_quantile aggregation, got %T", agg.Child)
 	}
 }
 
@@ -260,8 +265,12 @@ func TestBuildPlanCreatesHistogramProjectionPlan(t *testing.T) {
 	if histogramPlan.Func != "histogram_count" {
 		t.Fatalf("expected histogram_count function, got %#v", histogramPlan.Func)
 	}
-	if _, ok := histogramPlan.Child.(*localAggregationPlan); !ok {
+	agg, ok := histogramPlan.Child.(*localAggregationPlan)
+	if !ok {
 		t.Fatalf("expected local aggregation child, got %T", histogramPlan.Child)
+	}
+	if _, ok := agg.Child.(*nativeSubtreePlan); !ok {
+		t.Fatalf("expected native child under local histogram_count aggregation, got %T", agg.Child)
 	}
 }
 
@@ -282,12 +291,36 @@ func TestBuildPlanCreatesHistogramFractionPlan(t *testing.T) {
 	if histogramPlan.Lower != 0 || histogramPlan.Upper != 1 {
 		t.Fatalf("expected bounds [0,1], got [%v,%v]", histogramPlan.Lower, histogramPlan.Upper)
 	}
-	if _, ok := histogramPlan.Child.(*localAggregationPlan); !ok {
+	agg, ok := histogramPlan.Child.(*localAggregationPlan)
+	if !ok {
 		t.Fatalf("expected local aggregation child, got %T", histogramPlan.Child)
+	}
+	if _, ok := agg.Child.(*nativeSubtreePlan); !ok {
+		t.Fatalf("expected native child under local histogram_fraction aggregation, got %T", agg.Child)
 	}
 }
 
-func TestBuildPlanCreatesIncreasePlan(t *testing.T) {
+func TestBuildPlanCreatesNativeRatePlanForDirectSelector(t *testing.T) {
+	for _, fn := range []string{"rate", "irate"} {
+		expr, err := plan.ParseExpression(fn + "(up[5m])")
+		if err != nil {
+			t.Fatal(err)
+		}
+		execPlan, err := buildPlan(expr)
+		if err != nil {
+			t.Fatalf("expected %s plan, got error: %v", fn, err)
+		}
+		ratePlan, ok := execPlan.(*nativeSubtreePlan)
+		if !ok {
+			t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
+		}
+		if ratePlan.Fragment == nil || ratePlan.Fragment.RangeFunction == nil || ratePlan.Fragment.RangeFunction.Func != fn {
+			t.Fatalf("expected native %s fragment, got %#v", fn, ratePlan)
+		}
+	}
+}
+
+func TestBuildPlanCreatesNativeIncreasePlan(t *testing.T) {
 	expr, err := plan.ParseExpression("increase(up[5m])")
 	if err != nil {
 		t.Fatal(err)
@@ -297,12 +330,57 @@ func TestBuildPlanCreatesIncreasePlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected increase plan, got error: %v", err)
 	}
-	increasePlan, ok := execPlan.(*localIncreasePlan)
+	increasePlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localIncreasePlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if _, ok := increasePlan.Child.(*delegatedExprPlan); !ok {
-		t.Fatalf("expected delegated child, got %T", increasePlan.Child)
+	if increasePlan.Fragment == nil || increasePlan.Fragment.RangeFunction == nil || increasePlan.Fragment.RangeFunction.Func != "increase" {
+		t.Fatalf("expected native increase fragment, got %#v", increasePlan)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeRangeFunctionPlanInRangeModeForDirectSelector(t *testing.T) {
+	for _, query := range []string{"sum_over_time(up[5m])", "rate(up[5m])", "increase(up[5m])", "changes(up[5m])"} {
+		expr, err := plan.ParseExpression(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+		if err != nil {
+			t.Fatalf("expected native range plan for %q, got error: %v", query, err)
+		}
+		rangePlan, ok := execPlan.(*nativeSubtreePlan)
+		if !ok {
+			t.Fatalf("expected nativeSubtreePlan for %q, got %T", query, execPlan)
+		}
+		if rangePlan.Fragment == nil || rangePlan.Fragment.RangeFunction == nil {
+			t.Fatalf("expected native range function fragment for %q, got %#v", query, rangePlan)
+		}
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeRangeFunctionPlanInRangeModeForSubquery(t *testing.T) {
+	for _, query := range []string{"sum_over_time(sum(up)[5m:1m])", "rate(sum(up)[5m:1m])", "increase(sum(up)[5m:1m])", "changes(sum(up)[5m:1m])"} {
+		expr, err := plan.ParseExpression(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+		if err != nil {
+			t.Fatalf("expected native range subquery plan for %q, got error: %v", query, err)
+		}
+		rangePlan, ok := execPlan.(*nativeSubtreePlan)
+		if !ok {
+			t.Fatalf("expected nativeSubtreePlan for %q, got %T", query, execPlan)
+		}
+		if rangePlan.Fragment == nil || rangePlan.Fragment.RangeFunction == nil {
+			t.Fatalf("expected native range function fragment for %q, got %#v", query, rangePlan)
+		}
+		if rangePlan.Fragment.RangeFunction.Child == nil || rangePlan.Fragment.RangeFunction.Child.Subquery == nil {
+			t.Fatalf("expected native subquery child for %q, got %#v", query, rangePlan.Fragment)
+		}
 	}
 }
 
@@ -379,12 +457,12 @@ func TestBuildPlanCreatesLastOverTimePlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected last_over_time plan, got error: %v", err)
 	}
-	rangeFn, ok := execPlan.(*localRangeFunctionPlan)
+	rangeFn, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localRangeFunctionPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if rangeFn.Func != "last_over_time" {
-		t.Fatalf("expected last_over_time function, got %#v", rangeFn.Func)
+	if rangeFn.Fragment == nil || rangeFn.Fragment.RangeFunction == nil || rangeFn.Fragment.RangeFunction.Func != "last_over_time" {
+		t.Fatalf("expected native last_over_time fragment, got %#v", rangeFn)
 	}
 }
 
@@ -398,12 +476,12 @@ func TestBuildPlanCreatesSumOverTimePlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected sum_over_time plan, got error: %v", err)
 	}
-	rangeFn, ok := execPlan.(*localRangeFunctionPlan)
+	rangeFn, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localRangeFunctionPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if rangeFn.Func != "sum_over_time" {
-		t.Fatalf("expected sum_over_time function, got %#v", rangeFn.Func)
+	if rangeFn.Fragment == nil || rangeFn.Fragment.RangeFunction == nil || rangeFn.Fragment.RangeFunction.Func != "sum_over_time" {
+		t.Fatalf("expected native sum_over_time fragment, got %#v", rangeFn)
 	}
 }
 
@@ -417,12 +495,12 @@ func TestBuildPlanCreatesAvgOverTimePlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected avg_over_time plan, got error: %v", err)
 	}
-	rangeFn, ok := execPlan.(*localRangeFunctionPlan)
+	rangeFn, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localRangeFunctionPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if rangeFn.Func != "avg_over_time" {
-		t.Fatalf("expected avg_over_time function, got %#v", rangeFn.Func)
+	if rangeFn.Fragment == nil || rangeFn.Fragment.RangeFunction == nil || rangeFn.Fragment.RangeFunction.Func != "avg_over_time" {
+		t.Fatalf("expected native avg_over_time fragment, got %#v", rangeFn)
 	}
 }
 
@@ -436,12 +514,12 @@ func TestBuildPlanCreatesMaxOverTimePlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected max_over_time plan, got error: %v", err)
 	}
-	rangeFn, ok := execPlan.(*localRangeFunctionPlan)
+	rangeFn, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localRangeFunctionPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if rangeFn.Func != "max_over_time" {
-		t.Fatalf("expected max_over_time function, got %#v", rangeFn.Func)
+	if rangeFn.Fragment == nil || rangeFn.Fragment.RangeFunction == nil || rangeFn.Fragment.RangeFunction.Func != "max_over_time" {
+		t.Fatalf("expected native max_over_time fragment, got %#v", rangeFn)
 	}
 }
 
@@ -455,12 +533,12 @@ func TestBuildPlanCreatesMinOverTimePlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected min_over_time plan, got error: %v", err)
 	}
-	rangeFn, ok := execPlan.(*localRangeFunctionPlan)
+	rangeFn, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localRangeFunctionPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if rangeFn.Func != "min_over_time" {
-		t.Fatalf("expected min_over_time function, got %#v", rangeFn.Func)
+	if rangeFn.Fragment == nil || rangeFn.Fragment.RangeFunction == nil || rangeFn.Fragment.RangeFunction.Func != "min_over_time" {
+		t.Fatalf("expected native min_over_time fragment, got %#v", rangeFn)
 	}
 }
 
@@ -474,12 +552,31 @@ func TestBuildPlanCreatesCountOverTimePlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected count_over_time plan, got error: %v", err)
 	}
-	rangeFn, ok := execPlan.(*localRangeFunctionPlan)
+	rangeFn, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localRangeFunctionPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if rangeFn.Func != "count_over_time" {
-		t.Fatalf("expected count_over_time function, got %#v", rangeFn.Func)
+	if rangeFn.Fragment == nil || rangeFn.Fragment.RangeFunction == nil || rangeFn.Fragment.RangeFunction.Func != "count_over_time" {
+		t.Fatalf("expected native count_over_time fragment, got %#v", rangeFn)
+	}
+}
+
+func TestBuildPlanCreatesNativeRangeFunctionPlanForSubqueryArg(t *testing.T) {
+	expr, err := plan.ParseExpression("sum_over_time((up * 100)[5m:30s])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected native sum_over_time subquery plan, got error: %v", err)
+	}
+	rangeFn, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
+	}
+	if rangeFn.Fragment == nil || rangeFn.Fragment.RangeFunction == nil || rangeFn.Fragment.RangeFunction.Child == nil || rangeFn.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native range function over subquery fragment, got %#v", rangeFn)
 	}
 }
 
@@ -554,10 +651,14 @@ func TestBuildPlanCreatesNestedMatrixFunctionBinaryPlan(t *testing.T) {
 
 	execPlan, err := buildPlan(expr)
 	if err != nil {
-		t.Fatalf("expected nested matrix binary local plan, got error: %v", err)
+		t.Fatalf("expected nested matrix binary native plan, got error: %v", err)
 	}
-	if _, ok := execPlan.(*localBinaryPlan); !ok {
-		t.Fatalf("expected localBinaryPlan, got %T", execPlan)
+	binaryPlan, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
+	}
+	if binaryPlan.Fragment == nil || binaryPlan.Fragment.BinaryJoin == nil {
+		t.Fatalf("expected native binary join fragment, got %#v", binaryPlan)
 	}
 }
 
@@ -948,18 +1049,43 @@ func TestBuildPlanCreatesVectorMatchingBinaryPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected vector matching binary plan, got error: %v", err)
 	}
-	binaryPlan, ok := execPlan.(*localBinaryPlan)
+	binaryPlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localBinaryPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if binaryPlan.VectorMatching == nil {
-		t.Fatalf("expected vector matching metadata, got %#v", binaryPlan)
+	if binaryPlan.Fragment == nil || binaryPlan.Fragment.BinaryJoin == nil {
+		t.Fatalf("expected native binary join fragment, got %#v", binaryPlan)
 	}
-	if binaryPlan.VectorMatching.Card != parser.CardManyToOne {
-		t.Fatalf("expected many-to-one vector matching card, got %#v", binaryPlan.VectorMatching)
+	if binaryPlan.Fragment.BinaryJoin.VectorMatching == nil || binaryPlan.Fragment.BinaryJoin.VectorMatching.Card != parser.CardManyToOne {
+		t.Fatalf("expected many-to-one vector matching card, got %#v", binaryPlan.Fragment.BinaryJoin)
 	}
-	if !binaryPlan.VectorMatching.On || !sameStrings(binaryPlan.VectorMatching.MatchingLabels, []string{"job"}) {
-		t.Fatalf("unexpected vector matching labels: %#v", binaryPlan.VectorMatching)
+	if !binaryPlan.Fragment.BinaryJoin.VectorMatching.On || !sameStrings(binaryPlan.Fragment.BinaryJoin.VectorMatching.MatchingLabels, []string{"job"}) {
+		t.Fatalf("unexpected vector matching labels: %#v", binaryPlan.Fragment.BinaryJoin.VectorMatching)
+	}
+}
+
+func TestExplainPlanDescribesNativeVectorMatchingBinaryStrategy(t *testing.T) {
+	expr, err := plan.ParseExpression("up * on(job) group_left sum by (job) (up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, analysis, err := buildPlanWithContextAndAnalysis(expr, planContext{Mode: evalModeInstant, EvaluationTime: time.Unix(300, 0).UTC(), PreferNativeAggregationPushdown: true})
+	if err != nil {
+		t.Fatalf("expected native vector matching plan, got error: %v", err)
+	}
+	explain := explainPlanWithLowering(execPlan, analysis.Root)
+	if explain.Strategy != "native_sql" || explain.Kind != "binary" {
+		t.Fatalf("expected native binary strategy, got %#v", explain)
+	}
+	if explain.JoinShape != nativeplan.JoinShapeManyToOne || !sameStrings(explain.JoinLabels, []string{"job"}) {
+		t.Fatalf("expected join explain metadata, got %#v", explain)
+	}
+	if explain.RenderedSQL == "" || !strings.Contains(explain.RenderedSQL, "join_group") {
+		t.Fatalf("expected rendered join SQL with join_group, got %#v", explain)
+	}
+	if len(explain.Children) != 2 {
+		t.Fatalf("expected binary explain children, got %#v", explain.Children)
 	}
 }
 
@@ -1118,103 +1244,112 @@ func TestBuildPlanRejectsUnsupportedAggregationParameterExpression(t *testing.T)
 	}
 }
 
-func TestBuildPlanBuildsIncreasePlanForSubqueryArg(t *testing.T) {
+func TestBuildPlanBuildsNativeIncreasePlanForSubqueryArg(t *testing.T) {
 	expr, err := plan.ParseExpression("increase(sum(up)[5m:])")
 	if err != nil {
 		t.Fatal(err)
 	}
 	execPlan, err := buildPlan(expr)
 	if err != nil {
-		t.Fatalf("expected local plan for increase subquery, got error: %v", err)
+		t.Fatalf("expected native plan for increase subquery, got error: %v", err)
 	}
-	increasePlan, ok := execPlan.(*localIncreasePlan)
+	increasePlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localIncreasePlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if _, ok := increasePlan.Child.(*localSubqueryPlan); !ok {
-		t.Fatalf("expected local subquery child, got %T", increasePlan.Child)
+	if increasePlan.Fragment == nil || increasePlan.Fragment.RangeFunction == nil || increasePlan.Fragment.RangeFunction.Func != "increase" {
+		t.Fatalf("expected native increase fragment, got %#v", increasePlan)
+	}
+	if increasePlan.Fragment.RangeFunction.Child == nil || increasePlan.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native increase subquery child, got %#v", increasePlan.Fragment)
 	}
 }
 
-func TestBuildPlanBuildsDeltaPlanForSubqueryArg(t *testing.T) {
+func TestBuildPlanBuildsNativeDeltaPlanForSubqueryArg(t *testing.T) {
 	expr, err := plan.ParseExpression("delta(sum(up)[5m:])")
 	if err != nil {
 		t.Fatal(err)
 	}
 	execPlan, err := buildPlan(expr)
 	if err != nil {
-		t.Fatalf("expected local plan for delta subquery, got error: %v", err)
+		t.Fatalf("expected native plan for delta subquery, got error: %v", err)
 	}
-	deltaPlan, ok := execPlan.(*localDeltaPlan)
+	deltaPlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localDeltaPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if deltaPlan.Func != "delta" {
-		t.Fatalf("expected delta function, got %q", deltaPlan.Func)
+	if deltaPlan.Fragment == nil || deltaPlan.Fragment.RangeFunction == nil || deltaPlan.Fragment.RangeFunction.Func != "delta" {
+		t.Fatalf("expected native delta fragment, got %#v", deltaPlan)
 	}
-	if _, ok := deltaPlan.Child.(*localSubqueryPlan); !ok {
-		t.Fatalf("expected local subquery child, got %T", deltaPlan.Child)
+	if deltaPlan.Fragment.RangeFunction.Child == nil || deltaPlan.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native delta subquery child, got %#v", deltaPlan.Fragment)
 	}
 }
 
-func TestBuildPlanBuildsIDeltaPlanForSubqueryArg(t *testing.T) {
+func TestBuildPlanBuildsNativeIDeltaPlanForSubqueryArg(t *testing.T) {
 	expr, err := plan.ParseExpression("idelta(sum(up)[5m:])")
 	if err != nil {
 		t.Fatal(err)
 	}
 	execPlan, err := buildPlan(expr)
 	if err != nil {
-		t.Fatalf("expected local plan for idelta subquery, got error: %v", err)
+		t.Fatalf("expected native plan for idelta subquery, got error: %v", err)
 	}
-	deltaPlan, ok := execPlan.(*localDeltaPlan)
+	deltaPlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localDeltaPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if deltaPlan.Func != "idelta" {
-		t.Fatalf("expected idelta function, got %q", deltaPlan.Func)
+	if deltaPlan.Fragment == nil || deltaPlan.Fragment.RangeFunction == nil || deltaPlan.Fragment.RangeFunction.Func != "idelta" {
+		t.Fatalf("expected native idelta fragment, got %#v", deltaPlan)
 	}
-	if _, ok := deltaPlan.Child.(*localSubqueryPlan); !ok {
-		t.Fatalf("expected local subquery child, got %T", deltaPlan.Child)
+	if deltaPlan.Fragment.RangeFunction.Child == nil || deltaPlan.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native idelta subquery child, got %#v", deltaPlan.Fragment)
 	}
 }
 
-func TestBuildPlanBuildsChangesPlanForSubqueryArg(t *testing.T) {
+func TestBuildPlanBuildsNativeChangesPlanForSubqueryArg(t *testing.T) {
 	expr, err := plan.ParseExpression("changes(sum(up)[5m:])")
 	if err != nil {
 		t.Fatal(err)
 	}
 	execPlan, err := buildPlan(expr)
 	if err != nil {
-		t.Fatalf("expected local plan for changes subquery, got error: %v", err)
+		t.Fatalf("expected native plan for changes subquery, got error: %v", err)
 	}
-	changesPlan, ok := execPlan.(*localChangesPlan)
+	changesPlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localChangesPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if _, ok := changesPlan.Child.(*localSubqueryPlan); !ok {
-		t.Fatalf("expected local subquery child, got %T", changesPlan.Child)
+	if changesPlan.Fragment == nil || changesPlan.Fragment.RangeFunction == nil || changesPlan.Fragment.RangeFunction.Func != "changes" {
+		t.Fatalf("expected native changes fragment, got %#v", changesPlan)
+	}
+	if changesPlan.Fragment.RangeFunction.Child == nil || changesPlan.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native changes subquery child, got %#v", changesPlan.Fragment)
 	}
 }
 
-func TestBuildPlanBuildsDerivPlanForSubqueryArg(t *testing.T) {
+func TestBuildPlanBuildsNativeDerivPlanForSubqueryArg(t *testing.T) {
 	expr, err := plan.ParseExpression("deriv(sum(up)[5m:])")
 	if err != nil {
 		t.Fatal(err)
 	}
 	execPlan, err := buildPlan(expr)
 	if err != nil {
-		t.Fatalf("expected local plan for deriv subquery, got error: %v", err)
+		t.Fatalf("expected native plan for deriv subquery, got error: %v", err)
 	}
-	derivPlan, ok := execPlan.(*localDerivPlan)
+	derivPlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localDerivPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if _, ok := derivPlan.Child.(*localSubqueryPlan); !ok {
-		t.Fatalf("expected local subquery child, got %T", derivPlan.Child)
+	if derivPlan.Fragment == nil || derivPlan.Fragment.RangeFunction == nil || derivPlan.Fragment.RangeFunction.Func != "deriv" {
+		t.Fatalf("expected native deriv fragment, got %#v", derivPlan)
+	}
+	if derivPlan.Fragment.RangeFunction.Child == nil || derivPlan.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native deriv subquery child, got %#v", derivPlan.Fragment)
 	}
 }
 
-func TestBuildPlanBuildsRatePlanForSubqueryArg(t *testing.T) {
+func TestBuildPlanBuildsNativeRatePlanForSubqueryArg(t *testing.T) {
 	for _, fn := range []string{"rate", "irate"} {
 		exprText := fmt.Sprintf("%s(sum(up)[5m:])", fn)
 		expr, err := plan.ParseExpression(exprText)
@@ -1223,17 +1358,17 @@ func TestBuildPlanBuildsRatePlanForSubqueryArg(t *testing.T) {
 		}
 		execPlan, err := buildPlan(expr)
 		if err != nil {
-			t.Fatalf("expected local plan for %q, got error: %v", exprText, err)
+			t.Fatalf("expected native plan for %q, got error: %v", exprText, err)
 		}
-		ratePlan, ok := execPlan.(*localRatePlan)
+		ratePlan, ok := execPlan.(*nativeSubtreePlan)
 		if !ok {
-			t.Fatalf("expected localRatePlan for %q, got %T", exprText, execPlan)
+			t.Fatalf("expected nativeSubtreePlan for %q, got %T", exprText, execPlan)
 		}
-		if ratePlan.Func != fn {
-			t.Fatalf("expected %q function, got %q", fn, ratePlan.Func)
+		if ratePlan.Fragment == nil || ratePlan.Fragment.RangeFunction == nil || ratePlan.Fragment.RangeFunction.Func != fn {
+			t.Fatalf("expected native %q fragment, got %#v", fn, ratePlan)
 		}
-		if _, ok := ratePlan.Child.(*localSubqueryPlan); !ok {
-			t.Fatalf("expected local subquery child for %q, got %T", exprText, ratePlan.Child)
+		if ratePlan.Fragment.RangeFunction.Child == nil || ratePlan.Fragment.RangeFunction.Child.Subquery == nil {
+			t.Fatalf("expected native %q subquery child, got %#v", fn, ratePlan.Fragment)
 		}
 	}
 }
@@ -1246,17 +1381,17 @@ func TestBuildPlanWithContextCreatesDeltaPlanForSubqueryInRangeMode(t *testing.T
 
 	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
 	if err != nil {
-		t.Fatalf("expected local delta plan, got error: %v", err)
+		t.Fatalf("expected native delta plan, got error: %v", err)
 	}
-	deltaPlan, ok := execPlan.(*localDeltaPlan)
+	deltaPlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localDeltaPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if deltaPlan.Func != "delta" {
-		t.Fatalf("expected delta func, got %q", deltaPlan.Func)
+	if deltaPlan.Fragment == nil || deltaPlan.Fragment.RangeFunction == nil || deltaPlan.Fragment.RangeFunction.Func != "delta" {
+		t.Fatalf("expected native delta fragment, got %#v", deltaPlan)
 	}
-	if _, ok := deltaPlan.Child.(*localSubqueryPlan); !ok {
-		t.Fatalf("expected local subquery child, got %T", deltaPlan.Child)
+	if deltaPlan.Fragment.RangeFunction.Child == nil || deltaPlan.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native subquery child, got %#v", deltaPlan.Fragment)
 	}
 }
 
@@ -1268,17 +1403,17 @@ func TestBuildPlanWithContextCreatesIDeltaPlanForSubqueryInRangeMode(t *testing.
 
 	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
 	if err != nil {
-		t.Fatalf("expected local idelta plan, got error: %v", err)
+		t.Fatalf("expected native idelta plan, got error: %v", err)
 	}
-	deltaPlan, ok := execPlan.(*localDeltaPlan)
+	deltaPlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localDeltaPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if deltaPlan.Func != "idelta" {
-		t.Fatalf("expected idelta func, got %q", deltaPlan.Func)
+	if deltaPlan.Fragment == nil || deltaPlan.Fragment.RangeFunction == nil || deltaPlan.Fragment.RangeFunction.Func != "idelta" {
+		t.Fatalf("expected native idelta fragment, got %#v", deltaPlan)
 	}
-	if _, ok := deltaPlan.Child.(*localSubqueryPlan); !ok {
-		t.Fatalf("expected local subquery child, got %T", deltaPlan.Child)
+	if deltaPlan.Fragment.RangeFunction.Child == nil || deltaPlan.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native subquery child, got %#v", deltaPlan.Fragment)
 	}
 }
 
@@ -1290,14 +1425,17 @@ func TestBuildPlanWithContextCreatesChangesPlanForSubqueryInRangeMode(t *testing
 
 	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
 	if err != nil {
-		t.Fatalf("expected local changes plan, got error: %v", err)
+		t.Fatalf("expected native changes plan, got error: %v", err)
 	}
-	changesPlan, ok := execPlan.(*localChangesPlan)
+	changesPlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localChangesPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if _, ok := changesPlan.Child.(*localSubqueryPlan); !ok {
-		t.Fatalf("expected local subquery child, got %T", changesPlan.Child)
+	if changesPlan.Fragment == nil || changesPlan.Fragment.RangeFunction == nil || changesPlan.Fragment.RangeFunction.Func != "changes" {
+		t.Fatalf("expected native changes fragment, got %#v", changesPlan)
+	}
+	if changesPlan.Fragment.RangeFunction.Child == nil || changesPlan.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native subquery child, got %#v", changesPlan.Fragment)
 	}
 }
 
@@ -1309,14 +1447,17 @@ func TestBuildPlanWithContextCreatesDerivPlanForSubqueryInRangeMode(t *testing.T
 
 	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
 	if err != nil {
-		t.Fatalf("expected local deriv plan, got error: %v", err)
+		t.Fatalf("expected native deriv plan, got error: %v", err)
 	}
-	derivPlan, ok := execPlan.(*localDerivPlan)
+	derivPlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localDerivPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if _, ok := derivPlan.Child.(*localSubqueryPlan); !ok {
-		t.Fatalf("expected local subquery child, got %T", derivPlan.Child)
+	if derivPlan.Fragment == nil || derivPlan.Fragment.RangeFunction == nil || derivPlan.Fragment.RangeFunction.Func != "deriv" {
+		t.Fatalf("expected native deriv fragment, got %#v", derivPlan)
+	}
+	if derivPlan.Fragment.RangeFunction.Child == nil || derivPlan.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native subquery child, got %#v", derivPlan.Fragment)
 	}
 }
 
@@ -1328,17 +1469,17 @@ func TestBuildPlanWithContextCreatesRatePlanForSubqueryInRangeMode(t *testing.T)
 
 	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
 	if err != nil {
-		t.Fatalf("expected local rate plan, got error: %v", err)
+		t.Fatalf("expected native rate plan, got error: %v", err)
 	}
-	ratePlan, ok := execPlan.(*localRatePlan)
+	ratePlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localRatePlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if ratePlan.Func != "rate" {
-		t.Fatalf("expected rate func, got %q", ratePlan.Func)
+	if ratePlan.Fragment == nil || ratePlan.Fragment.RangeFunction == nil || ratePlan.Fragment.RangeFunction.Func != "rate" {
+		t.Fatalf("expected native rate fragment, got %#v", ratePlan)
 	}
-	if _, ok := ratePlan.Child.(*localSubqueryPlan); !ok {
-		t.Fatalf("expected local subquery child, got %T", ratePlan.Child)
+	if ratePlan.Fragment.RangeFunction.Child == nil || ratePlan.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native subquery child, got %#v", ratePlan.Fragment)
 	}
 }
 
@@ -1352,8 +1493,8 @@ func TestBuildPlanWithContextCreatesIncreasePlanInRangeMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected increase plan, got error: %v", err)
 	}
-	if _, ok := execPlan.(*localIncreasePlan); !ok {
-		t.Fatalf("expected localIncreasePlan, got %T", execPlan)
+	if _, ok := execPlan.(*nativeSubtreePlan); !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
 }
 
@@ -1365,14 +1506,17 @@ func TestBuildPlanWithContextCreatesIncreasePlanForSubqueryInRangeMode(t *testin
 
 	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
 	if err != nil {
-		t.Fatalf("expected local increase plan, got error: %v", err)
+		t.Fatalf("expected native increase plan, got error: %v", err)
 	}
-	increasePlan, ok := execPlan.(*localIncreasePlan)
+	increasePlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localIncreasePlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if _, ok := increasePlan.Child.(*localSubqueryPlan); !ok {
-		t.Fatalf("expected local subquery child, got %T", increasePlan.Child)
+	if increasePlan.Fragment == nil || increasePlan.Fragment.RangeFunction == nil || increasePlan.Fragment.RangeFunction.Func != "increase" {
+		t.Fatalf("expected native increase fragment, got %#v", increasePlan)
+	}
+	if increasePlan.Fragment.RangeFunction.Child == nil || increasePlan.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native subquery child, got %#v", increasePlan.Fragment)
 	}
 }
 
@@ -1390,8 +1534,8 @@ func TestBuildPlanWithContextCreatesLocalAggregationOverIncreaseInRangeMode(t *t
 	if !ok {
 		t.Fatalf("expected localAggregationPlan, got %T", execPlan)
 	}
-	if _, ok := agg.Child.(*localIncreasePlan); !ok {
-		t.Fatalf("expected localIncreasePlan child, got %T", agg.Child)
+	if _, ok := agg.Child.(*nativeSubtreePlan); !ok {
+		t.Fatalf("expected nativeSubtreePlan child, got %T", agg.Child)
 	}
 }
 

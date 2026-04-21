@@ -22,18 +22,53 @@ const (
 	FragmentKindLeafSource             FragmentKind = "leaf_source"
 	FragmentKindUnarySourceExpr        FragmentKind = "unary_source_expression"
 	FragmentKindBinaryScalarSourceExpr FragmentKind = "binary_scalar_source_expression"
+	FragmentKindBinaryVectorJoin       FragmentKind = "binary_vector_join"
+	FragmentKindRangeFunction          FragmentKind = "range_function"
+	FragmentKindSubquery               FragmentKind = "subquery"
 	FragmentKindAggregation            FragmentKind = "aggregation"
 )
 
 type NativeFragment struct {
-	Kind         FragmentKind
-	OutputKind   OutputKind
-	SourcePromQL parser.Expr
-	Selector     *SelectorSource
-	ValueExpr    string
-	TagsExpr     string
-	DropsMetric  bool
-	Aggregation  *AggregationFragment
+	Kind          FragmentKind
+	OutputKind    OutputKind
+	SourcePromQL  parser.Expr
+	Selector      *SelectorSource
+	ValueExpr     string
+	TagsExpr      string
+	DropsMetric   bool
+	BinaryJoin    *BinaryJoinFragment
+	RangeFunction *RangeFunctionFragment
+	Subquery      *SubqueryFragment
+	Aggregation   *AggregationFragment
+}
+
+const (
+	JoinShapeOneToOne  = "one_to_one"
+	JoinShapeManyToOne = "many_to_one"
+	JoinShapeOneToMany = "one_to_many"
+)
+
+type BinaryJoinFragment struct {
+	Op             parser.ItemType
+	ReturnBool     bool
+	VectorMatching *parser.VectorMatching
+	JoinShape      string
+	LHS            *NativeFragment
+	RHS            *NativeFragment
+}
+
+type RangeFunctionFragment struct {
+	Func  string
+	Child *NativeFragment
+}
+
+type SubqueryFragment struct {
+	Range      time.Duration
+	Step       time.Duration
+	Offset     time.Duration
+	Timestamp  *int64
+	StartOrEnd parser.ItemType
+	Child      *NativeFragment
 }
 
 type AggregationFragment struct {

@@ -28,7 +28,17 @@ type SelectorSource struct {
 }
 
 func BuildInstantSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
-	sql, params, err := buildInstantSelectorSourceSQL(cfg, selector, requiredStartMS, requiredEndMS)
+	var (
+		sql    string
+		params map[string]string
+		err    error
+	)
+	switch selector.Kind {
+	case SelectorKindRangeVector:
+		sql, params, err = buildRangeMatrixSelectorSourceSQL(cfg, selector, requiredStartMS, requiredEndMS)
+	default:
+		sql, params, err = buildInstantSelectorSourceSQL(cfg, selector, requiredStartMS, requiredEndMS)
+	}
 	if err != nil {
 		return "", nil, err
 	}
@@ -41,6 +51,76 @@ func BuildRangeSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, requir
 		return "", nil, err
 	}
 	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", params, nil
+}
+
+func BuildRangeWindowSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, windowValueExpr string, minimumSeriesLength int) (string, map[string]string, error) {
+	if selector.Kind != SelectorKindRangeVector {
+		return "", nil, fmt.Errorf("range-window selector SQL requires a range-vector selector, got %q", selector.Kind)
+	}
+	if stepMS <= 0 {
+		return "", nil, fmt.Errorf("range-window selector SQL requires a positive step")
+	}
+	matchedSeriesSQL, params, err := buildMatchedSeriesSQL(cfg, selector, "range_window", requiredStartMS, requiredEndMS, true)
+	if err != nil {
+		return "", nil, err
+	}
+	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
+	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
+	params["param_step_ms"] = strconv.FormatInt(stepMS, 10)
+	params["param_lookback_ms"] = strconv.FormatInt(selector.LookbackMS, 10)
+	params["param_offset_ms"] = strconv.FormatInt(selector.OffsetMS, 10)
+	tableRef := timeSeriesTableRef(cfg)
+	gridTags := "series.tags AS tags,"
+	windowTags := "grid.tags AS tags,"
+	finalTagsExpr := "arrayFilter(tag -> tag.1 != '__name__', tags)"
+	groupByWindow := "grid.id, grid.tags, grid.eval_ts"
+	groupByOuter := "final_tags"
+	orderBy := "ORDER BY final_tags"
+	if !selector.NeedTags {
+		gridTags = "CAST([], 'Array(Tuple(String, String))') AS tags,"
+		windowTags = "CAST([], 'Array(Tuple(String, String))') AS tags,"
+		finalTagsExpr = "tags"
+		groupByWindow = "grid.id, grid.eval_ts"
+		groupByOuter = "final_tags"
+		orderBy = ""
+	}
+	return fmt.Sprintf(`
+SELECT
+    final_tags AS tags,
+    arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series
+FROM (
+    SELECT
+        %s AS final_tags,
+        eval_ts AS timestamp,
+        %s AS value
+    FROM (
+        SELECT
+            %s
+            grid.eval_ts AS eval_ts,
+            arraySort(item -> item.1, groupArray((d.timestamp, d.value))) AS window_series
+        FROM (
+            SELECT
+                series.id AS id,
+                %s
+                arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts
+            FROM (
+%s
+            ) AS series
+        ) AS grid
+        INNER JOIN timeSeriesData(%s) AS d ON d.id = grid.id
+        WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64})
+          AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})
+          AND d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64})
+          AND d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})
+        GROUP BY %s
+    )
+    WHERE length(window_series) > %d
+)
+GROUP BY %s
+%s
+SETTINGS allow_experimental_time_series_table = 1
+FORMAT JSONEachRow
+`, finalTagsExpr, windowValueExpr, windowTags, gridTags, indentSQL(matchedSeriesSQL, 16), tableRef, groupByWindow, minimumSeriesLength, groupByOuter, orderBy), params, nil
 }
 
 func buildInstantSourceQuerySQL(cfg QueryConfig, source AggregationSource, evaluationTimeMS, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
@@ -220,8 +300,8 @@ GROUP BY %s
 `, selectTags, tableRef, indentSQL(matchedSeriesSQL, 4), groupBy, orderBy), params, nil
 }
 
-func selectorTagsExpr(selector SelectorSource) string {
-	base := "arrayConcat([tuple('__name__', metric_name)], arrayMap((k, v) -> tuple(k, v), mapKeys(tags), mapValues(tags)))"
+func selectorTagsExpr(selector SelectorSource, metricColumn, tagsColumn string) string {
+	base := fmt.Sprintf("arrayConcat([tuple('__name__', %s)], arrayMap((k, v) -> tuple(k, v), mapKeys(%s), mapValues(%s)))", metricColumn, tagsColumn, tagsColumn)
 	if !selector.RequireFullTags && len(selector.RequiredTagLabels) > 0 {
 		return fmt.Sprintf("arraySort(tag -> tag.1, arrayFilter(tag -> has(%s, tag.1), %s))", sqlStringArrayLiteral(selector.RequiredTagLabels), base)
 	}
@@ -232,6 +312,8 @@ func buildMatchedSeriesSQL(cfg QueryConfig, selector SelectorSource, prefix stri
 	params := baseParams(cfg)
 	params["param_required_start_ms"] = strconv.FormatInt(requiredStartMS, 10)
 	params["param_required_end_ms"] = strconv.FormatInt(requiredEndMS, 10)
+	metricColumn := "src.metric_name"
+	tagsColumn := "src.tags"
 	whereClauses := make([]string, 0, len(selector.Matchers)+3)
 	matcherIndex := 0
 	if selector.MetricName != "" {
@@ -239,7 +321,7 @@ func buildMatchedSeriesSQL(cfg QueryConfig, selector SelectorSource, prefix stri
 		if err != nil {
 			return "", nil, err
 		}
-		clause, extraParams := compileMatcherClause(prefix, matcherIndex, "metric_name", "tags", matcher)
+		clause, extraParams := compileMatcherClause(prefix, matcherIndex, metricColumn, tagsColumn, matcher)
 		matcherIndex++
 		whereClauses = append(whereClauses, clause)
 		mergeParams(params, extraParams)
@@ -251,24 +333,24 @@ func buildMatchedSeriesSQL(cfg QueryConfig, selector SelectorSource, prefix stri
 		if selector.MetricName != "" && matcher.Name == labels.MetricName && matcher.Type == labels.MatchEqual && matcher.Value == selector.MetricName {
 			continue
 		}
-		clause, extraParams := compileMatcherClause(prefix, matcherIndex, "metric_name", "tags", matcher)
+		clause, extraParams := compileMatcherClause(prefix, matcherIndex, metricColumn, tagsColumn, matcher)
 		matcherIndex++
 		whereClauses = append(whereClauses, clause)
 		mergeParams(params, extraParams)
 	}
 	if addTimeOverlap {
-		whereClauses = append(whereClauses, "max_time >= fromUnixTimestamp64Milli({required_start_ms:Int64})", "min_time <= fromUnixTimestamp64Milli({required_end_ms:Int64})")
+		whereClauses = append(whereClauses, "src.max_time >= fromUnixTimestamp64Milli({required_start_ms:Int64})", "src.min_time <= fromUnixTimestamp64Milli({required_end_ms:Int64})")
 	}
 	builder := strings.Builder{}
-	builder.WriteString("SELECT id")
+	builder.WriteString("SELECT src.id")
 	if selector.NeedTags {
 		builder.WriteString(", ")
-		builder.WriteString(selectorTagsExpr(selector))
+		builder.WriteString(selectorTagsExpr(selector, metricColumn, tagsColumn))
 		builder.WriteString(" AS tags")
 	}
 	builder.WriteString(" FROM timeSeriesTags(")
 	builder.WriteString(timeSeriesTableRef(cfg))
-	builder.WriteString(")")
+	builder.WriteString(") AS src")
 	if len(whereClauses) > 0 {
 		builder.WriteString(" WHERE ")
 		builder.WriteString(strings.Join(whereClauses, " AND "))

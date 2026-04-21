@@ -261,9 +261,6 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		if result := analyze(call); !result.Supported {
 			return nil, newPlanBuildError(call, result, "call planning")
 		}
-		if !expressionContainsSubquery(call.Args[0]) {
-			return buildLogicalDelegatedLeaf(call)
-		}
 		child, err := buildLogicalPlan(call.Args[0])
 		if err != nil {
 			return nil, withInternalContext(err, "building logical child plan for %s %q", name, call.String())
@@ -286,9 +283,6 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		if result := analyze(call); !result.Supported {
 			return nil, newPlanBuildError(call, result, "call planning")
 		}
-		if !expressionContainsSubquery(call.Args[0]) {
-			return buildLogicalDelegatedLeaf(call)
-		}
 		child, err := buildLogicalPlan(call.Args[0])
 		if err != nil {
 			return nil, withInternalContext(err, "building logical child plan for %s %q", name, call.String())
@@ -298,9 +292,6 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		if result := plan.AnalyzeChangesCall(call); !result.Supported {
 			return nil, newPlanBuildError(call, result, "call planning")
 		}
-		if !expressionContainsSubquery(call.Args[0]) {
-			return buildLogicalDelegatedLeaf(call)
-		}
 		child, err := buildLogicalPlan(call.Args[0])
 		if err != nil {
 			return nil, withInternalContext(err, "building logical child plan for changes %q", call.String())
@@ -309,9 +300,6 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 	case "deriv":
 		if result := plan.AnalyzeDerivCall(call); !result.Supported {
 			return nil, newPlanBuildError(call, result, "call planning")
-		}
-		if !expressionContainsSubquery(call.Args[0]) {
-			return buildLogicalDelegatedLeaf(call)
 		}
 		child, err := buildLogicalPlan(call.Args[0])
 		if err != nil {

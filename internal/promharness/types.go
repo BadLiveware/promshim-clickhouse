@@ -32,9 +32,13 @@ type CompareConfig struct {
 	// the compare pass runs as a 2-way comparison (Prometheus vs shim) as
 	// before.
 	PromClickBaseURL string
-	CorpusPath       string
-	ArtifactDir      string
-	Timeout          time.Duration
+	// Subjects restricts comparison to a subset of configured subjects.
+	// Supported names today: "shim", "promclick". Empty means all configured
+	// subjects.
+	Subjects    []string
+	CorpusPath  string
+	ArtifactDir string
+	Timeout     time.Duration
 }
 
 type QuerySpec struct {
@@ -48,6 +52,10 @@ type QuerySpec struct {
 	ExpectedStatus        string `json:"expectedStatus,omitempty"`
 	ExpectedErrorType     string `json:"expectedErrorType,omitempty"`
 	ExpectedErrorContains string `json:"expectedErrorContains,omitempty"`
+	// Subjects restricts this query row to a subset of configured subjects.
+	// Supported names today: "shim", "promclick". Empty means compare against
+	// all configured subjects.
+	Subjects []string `json:"subjects,omitempty"`
 	// CompareMode selects how Prometheus and promshim responses are compared.
 	// "exact" (default) requires byte-for-byte value equality. "structural" only
 	// checks result type, series set, labels, timestamps, and NaN positions —

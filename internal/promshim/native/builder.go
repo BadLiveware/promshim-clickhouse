@@ -36,6 +36,22 @@ func cloneFragment(fragment *NativeFragment) *NativeFragment {
 		TagsExpr:     fragment.TagsExpr,
 		DropsMetric:  fragment.DropsMetric,
 	}
+	if fragment.BinaryJoin != nil {
+		cloned.BinaryJoin = &BinaryJoinFragment{
+			Op:             fragment.BinaryJoin.Op,
+			ReturnBool:     fragment.BinaryJoin.ReturnBool,
+			VectorMatching: cloneVectorMatching(fragment.BinaryJoin.VectorMatching),
+			JoinShape:      fragment.BinaryJoin.JoinShape,
+			LHS:            cloneFragment(fragment.BinaryJoin.LHS),
+			RHS:            cloneFragment(fragment.BinaryJoin.RHS),
+		}
+	}
+	if fragment.RangeFunction != nil {
+		cloned.RangeFunction = &RangeFunctionFragment{Func: fragment.RangeFunction.Func, Child: cloneFragment(fragment.RangeFunction.Child)}
+	}
+	if fragment.Subquery != nil {
+		cloned.Subquery = &SubqueryFragment{Range: fragment.Subquery.Range, Step: fragment.Subquery.Step, Offset: fragment.Subquery.Offset, Timestamp: cloneInt64Pointer(fragment.Subquery.Timestamp), StartOrEnd: fragment.Subquery.StartOrEnd, Child: cloneFragment(fragment.Subquery.Child)}
+	}
 	if fragment.Aggregation != nil {
 		cloned.Aggregation = &AggregationFragment{
 			Op:       fragment.Aggregation.Op,
@@ -45,4 +61,12 @@ func cloneFragment(fragment *NativeFragment) *NativeFragment {
 		}
 	}
 	return cloned
+}
+
+func cloneInt64Pointer(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }

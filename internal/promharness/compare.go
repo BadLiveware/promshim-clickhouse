@@ -105,7 +105,40 @@ func configuredSubjects(cfg CompareConfig) []compareSubject {
 	if cfg.PromClickBaseURL != "" {
 		subjects = append(subjects, compareSubject{Name: "promclick", BaseURL: cfg.PromClickBaseURL})
 	}
-	return subjects
+	if len(cfg.Subjects) == 0 {
+		return subjects
+	}
+	allowed := map[string]struct{}{}
+	for _, subject := range cfg.Subjects {
+		allowed[strings.ToLower(strings.TrimSpace(subject))] = struct{}{}
+	}
+	filtered := make([]compareSubject, 0, len(subjects))
+	for _, subject := range subjects {
+		if _, ok := allowed[subject.Name]; ok {
+			filtered = append(filtered, subject)
+		}
+	}
+	return filtered
+}
+
+func subjectsForQuery(query QuerySpec, configured []compareSubject) ([]compareSubject, error) {
+	if len(query.Subjects) == 0 {
+		return configured, nil
+	}
+	allowed := map[string]struct{}{}
+	for _, subject := range query.Subjects {
+		allowed[strings.ToLower(strings.TrimSpace(subject))] = struct{}{}
+	}
+	filtered := make([]compareSubject, 0, len(configured))
+	for _, subject := range configured {
+		if _, ok := allowed[subject.Name]; ok {
+			filtered = append(filtered, subject)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil, fmt.Errorf("query %q requested subjects %v but none are configured", query.Name, query.Subjects)
+	}
+	return filtered, nil
 }
 
 func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
@@ -119,6 +152,9 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 	}
 	client := &http.Client{Timeout: cfg.Timeout}
 	subjects := configuredSubjects(cfg)
+	if len(subjects) == 0 {
+		return CompareReport{}, fmt.Errorf("no compare subjects configured")
+	}
 	if err := waitForDatasetAvailability(ctx, client, cfg, manifest, subjects); err != nil {
 		return CompareReport{}, err
 	}
@@ -139,9 +175,17 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 		})
 	}
 	for _, query := range queries {
+		querySubjects, err := subjectsForQuery(query, subjects)
+		if err != nil {
+			appendResult(query, "harness", "error", err.Error())
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
 		promResult, err := QueryAndFetch(client, cfg.PrometheusBaseURL, manifest, query)
 		if err != nil {
-			for _, subject := range subjects {
+			for _, subject := range querySubjects {
 				appendResult(query, subject.Name, "error", err.Error())
 			}
 			if firstErr == nil {
@@ -149,7 +193,7 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 			}
 			continue
 		}
-		for _, subject := range subjects {
+		for _, subject := range querySubjects {
 			subjectResult, err := QueryAndFetch(client, subject.BaseURL, manifest, query)
 			if err != nil {
 				appendResult(query, subject.Name, "error", err.Error())

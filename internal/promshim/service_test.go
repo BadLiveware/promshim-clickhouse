@@ -8,13 +8,13 @@ import (
 	"testing"
 )
 
-func TestQueryExplainReturnsNativePlan(t *testing.T) {
+func TestQueryExplainReturnsDelegatedWholeQueryPlanWhenClassifierAllowsIt(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=sum%20by%20(job)%20(up)&time=300", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=up%7Bjob%3D%22api%22%7D&time=300", nil)
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 
@@ -38,10 +38,10 @@ func TestQueryExplainReturnsNativePlan(t *testing.T) {
 	if body.Data.Mode != "instant" {
 		t.Fatalf("expected instant mode, got %#v", body.Data)
 	}
-	if body.Data.Plan.Strategy != "native_sql" {
-		t.Fatalf("expected native_sql plan, got %#v", body.Data.Plan)
+	if body.Data.Plan.Strategy != "delegated_promql" {
+		t.Fatalf("expected delegated_promql plan, got %#v", body.Data.Plan)
 	}
-	if body.Data.Plan.Lowering == nil || !body.Data.Plan.Lowering.AggregationPushdownEligible {
+	if body.Data.Plan.Lowering == nil {
 		t.Fatalf("expected lowering metadata in explain response, got %#v", body.Data.Plan)
 	}
 }
@@ -535,6 +535,283 @@ func TestQueryRangeWithExplainIncludesPlanAndNormalResult(t *testing.T) {
 	}
 	if body.Plan.Strategy != "local" {
 		t.Fatalf("expected local plan, got %#v", body.Plan)
+	}
+}
+
+func TestQueryExplainReportsEntireQueryDelegationEligibility(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", ClickHouseVersion: "26.3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=up%7Bjob%3D%22api%22%7D", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Data struct {
+			EntireQueryDelegation struct {
+				Eligible          bool   `json:"eligible"`
+				ClickHouseVersion string `json:"clickHouseVersion"`
+			} `json:"entireQueryDelegation"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Data.EntireQueryDelegation.Eligible || body.Data.EntireQueryDelegation.ClickHouseVersion != "26.3" {
+		t.Fatalf("expected delegation eligibility in explain response, got %#v", body.Data.EntireQueryDelegation)
+	}
+}
+
+func TestQueryExplainReportsAggregationAsNotEligibleForEntireQueryDelegation(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", ClickHouseVersion: "26.3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=sum%20by%20(job)%20(up)", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Data struct {
+			EntireQueryDelegation struct {
+				Eligible bool   `json:"eligible"`
+				Reason   string `json:"reason"`
+			} `json:"entireQueryDelegation"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.EntireQueryDelegation.Eligible || !strings.Contains(body.Data.EntireQueryDelegation.Reason, "aggregations") {
+		t.Fatalf("expected aggregation query to be reported ineligible, got %#v", body.Data.EntireQueryDelegation)
+	}
+}
+
+func TestQueryExplainModeReturnsPlanWithoutExplainFlag(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: NativeLoweringModePrefer})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=1%20%2B%202&time=300&native_lowering_mode=explain", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status             string      `json:"status"`
+		NativeLoweringMode string      `json:"nativeLoweringMode"`
+		Plan               ExplainNode `json:"plan"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.NativeLoweringMode != string(NativeLoweringModeExplain) {
+		t.Fatalf("expected explain native lowering mode, got %#v", body)
+	}
+	if body.Plan.Strategy != "local" {
+		t.Fatalf("expected local plan for scalar query, got %#v", body.Plan)
+	}
+}
+
+func TestMetricsEndpointExportsShadowRolloutMetrics(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	queryReq := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=1%20%2B%202&time=300&native_lowering_mode=shadow&explain=1", nil)
+	queryRes := httptest.NewRecorder()
+	handler.ServeHTTP(queryRes, queryReq)
+	if queryRes.Code != http.StatusOK {
+		t.Fatalf("expected 200 from shadow query, got %d: %s", queryRes.Code, queryRes.Body.String())
+	}
+
+	metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRes := httptest.NewRecorder()
+	handler.ServeHTTP(metricsRes, metricsReq)
+	if metricsRes.Code != http.StatusOK {
+		t.Fatalf("expected 200 from metrics endpoint, got %d: %s", metricsRes.Code, metricsRes.Body.String())
+	}
+
+	metricsBody := metricsRes.Body.String()
+	for _, fragment := range []string{
+		"# HELP promshim_shadow_comparisons_total",
+		"# TYPE promshim_shadow_comparisons_total counter",
+		`promshim_shadow_comparisons_total{category="match",compare_mode="exact",status="match"} 1`,
+		"# HELP promshim_shadow_duration_milliseconds",
+		"# TYPE promshim_shadow_duration_milliseconds histogram",
+		`promshim_shadow_duration_milliseconds_bucket{compare_mode="exact",path="served",phase="plan",status="match",le="1"}`,
+		`promshim_shadow_duration_milliseconds_bucket{compare_mode="exact",path="shadow",phase="eval",status="match",le="1"}`,
+	} {
+		if !strings.Contains(metricsBody, fragment) {
+			t.Fatalf("expected metrics body to contain %q, got %s", fragment, metricsBody)
+		}
+	}
+}
+
+func TestQueryShadowModeReturnsServedPlanAndShadowReport(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=1%20%2B%202&time=300&native_lowering_mode=shadow&explain=1", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status             string      `json:"status"`
+		NativeLoweringMode string      `json:"nativeLoweringMode"`
+		Plan               ExplainNode `json:"plan"`
+		Shadow             struct {
+			ServedStrategy   string `json:"servedStrategy"`
+			ShadowStrategy   string `json:"shadowStrategy"`
+			CompareMode      string `json:"compareMode"`
+			Status           string `json:"status"`
+			ServedPlanMillis int64  `json:"servedPlanMillis"`
+			ServedEvalMillis int64  `json:"servedEvalMillis"`
+			ShadowPlanMillis int64  `json:"shadowPlanMillis"`
+			ShadowEvalMillis int64  `json:"shadowEvalMillis"`
+		} `json:"shadow"`
+		ShadowSummary struct {
+			Total             int64            `json:"total"`
+			ByStatus          map[string]int64 `json:"byStatus"`
+			ByCategory        map[string]int64 `json:"byCategory"`
+			TotalServedPlanMs int64            `json:"totalServedPlanMs"`
+			TotalServedEvalMs int64            `json:"totalServedEvalMs"`
+			TotalShadowPlanMs int64            `json:"totalShadowPlanMs"`
+			TotalShadowEvalMs int64            `json:"totalShadowEvalMs"`
+		} `json:"shadowSummary"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.NativeLoweringMode != string(NativeLoweringModeShadow) {
+		t.Fatalf("expected shadow mode, got %#v", body)
+	}
+	if body.Plan.Strategy != "local" {
+		t.Fatalf("expected served local plan in shadow mode, got %#v", body.Plan)
+	}
+	if body.Shadow.Status != "match" {
+		t.Fatalf("expected shadow match for scalar query, got %#v", body.Shadow)
+	}
+	if body.Shadow.ServedPlanMillis < 0 || body.Shadow.ServedEvalMillis < 0 || body.Shadow.ShadowPlanMillis < 0 || body.Shadow.ShadowEvalMillis < 0 {
+		t.Fatalf("expected non-negative shadow timing fields, got %#v", body.Shadow)
+	}
+	if body.ShadowSummary.Total != 1 || body.ShadowSummary.ByStatus["match"] != 1 || body.ShadowSummary.ByCategory["match"] != 1 {
+		t.Fatalf("expected shadow summary counts, got %#v", body.ShadowSummary)
+	}
+	if body.ShadowSummary.TotalServedPlanMs < 0 || body.ShadowSummary.TotalServedEvalMs < 0 || body.ShadowSummary.TotalShadowPlanMs < 0 || body.ShadowSummary.TotalShadowEvalMs < 0 {
+		t.Fatalf("expected non-negative shadow summary timing totals, got %#v", body.ShadowSummary)
+	}
+}
+
+func TestQueryExplainHonorsNativeLoweringModeOff(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: NativeLoweringModePrefer})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=sum%20by%20(job)%20(up)&native_lowering_mode=off", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			NativeLoweringMode string      `json:"nativeLoweringMode"`
+			Plan               ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.NativeLoweringMode != string(NativeLoweringModeOff) {
+		t.Fatalf("expected off mode in explain response, got %#v", body.Data)
+	}
+	if body.Data.Plan.Strategy != "local" {
+		t.Fatalf("expected local root when native lowering is off, got %#v", body.Data.Plan)
+	}
+}
+
+func TestQueryExplainForceSupportedRejectsNonNativeRoot(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	url := "/api/v1/query_explain?query=label_join(up,%20%22joined%22,%20%22/%22,%20%22job%22,%20%22namespace%22)&native_lowering_mode=force_supported"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code == http.StatusOK {
+		t.Fatalf("expected non-200 for unsupported force_supported request, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status    string `json:"status"`
+		ErrorType string `json:"errorType"`
+		Error     string `json:"error"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.ErrorType != "unsupported" {
+		t.Fatalf("expected unsupported error type, got %#v", body)
+	}
+	if !strings.Contains(body.Error, "force_supported") {
+		t.Fatalf("expected force_supported message, got %#v", body)
+	}
+}
+
+func TestQueryRejectsInvalidNativeLoweringMode(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=1&native_lowering_mode=definitely_not_real", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		ErrorType string `json:"errorType"`
+		Error     string `json:"error"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.ErrorType != "bad_data" {
+		t.Fatalf("expected bad_data for invalid mode, got %#v", body)
+	}
+	if !strings.Contains(body.Error, "native lowering mode") {
+		t.Fatalf("expected native lowering mode error, got %#v", body)
 	}
 }
 

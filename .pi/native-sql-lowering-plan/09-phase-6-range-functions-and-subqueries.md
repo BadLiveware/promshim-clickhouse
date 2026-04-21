@@ -31,6 +31,10 @@ Current status as of 2026-04-21:
 - **Local retirement has not happened yet.** The local path stays in
   place as the oracle until the observation / retirement work described
   below is completed during rollout.
+- **`quantile_over_time` is explicitly keep-local for now.** See
+  [13-keep-local-quantile-over-time.md](./13-keep-local-quantile-over-time.md).
+  It is intentionally excluded from the current native Phase 6 subset and
+  does not count as an untracked native-lowering gap.
 
 The policy from the status chunk still applies:
 

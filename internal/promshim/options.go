@@ -22,6 +22,8 @@ type Options struct {
 	Username                  string
 	Password                  string
 	RequestTimeout            time.Duration
+	ClickHouseVersion         string
+	NativeLoweringMode        NativeLoweringMode
 	MaxRangePointsPerSeries   int64
 	RangeChunkPointsPerSeries int64
 	MaxResponseSeries         int64
@@ -36,6 +38,8 @@ func LoadOptionsFromEnv() (Options, error) {
 		Username:                  getenv("PROM_SHIM_CLICKHOUSE_USERNAME", "default"),
 		Password:                  getenv("PROM_SHIM_CLICKHOUSE_PASSWORD", "otel"),
 		RequestTimeout:            time.Second * time.Duration(getenvInt("PROM_SHIM_REQUEST_TIMEOUT_SECONDS", 30)),
+		ClickHouseVersion:         getenv("PROM_SHIM_CLICKHOUSE_VERSION", "26.3"),
+		NativeLoweringMode:        NativeLoweringMode(getenv("PROM_SHIM_NATIVE_LOWERING_MODE", string(NativeLoweringModePrefer))),
 		MaxRangePointsPerSeries:   getenvInt64("PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES", defaultMaxRangePointsPerSeries),
 		RangeChunkPointsPerSeries: getenvInt64("PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES", defaultRangeChunkPointsPerSeries),
 		MaxResponseSeries:         getenvInt64("PROM_SHIM_MAX_RESPONSE_SERIES", defaultMaxResponseSeries),
@@ -43,6 +47,9 @@ func LoadOptionsFromEnv() (Options, error) {
 	}
 
 	opts = normalizeOptions(opts)
+	if _, err := parseNativeLoweringMode(string(opts.NativeLoweringMode)); err != nil {
+		return Options{}, fmt.Errorf("invalid PROM_SHIM_NATIVE_LOWERING_MODE: %w", err)
+	}
 
 	if _, err := url.Parse(opts.ClickHouseEndpoint); err != nil {
 		return Options{}, fmt.Errorf("invalid PROM_SHIM_CLICKHOUSE_ENDPOINT: %w", err)
@@ -83,6 +90,8 @@ func getenvInt64(key string, fallback int64) int64 {
 }
 
 func normalizeOptions(opts Options) Options {
+	opts.ClickHouseVersion = normalizeClickHouseVersion(opts.ClickHouseVersion)
+	opts.NativeLoweringMode = normalizeNativeLoweringMode(opts.NativeLoweringMode)
 	if opts.MaxRangePointsPerSeries <= 0 {
 		opts.MaxRangePointsPerSeries = defaultMaxRangePointsPerSeries
 	}

@@ -21,7 +21,7 @@ type corpusMetadata struct {
 func TestLoadQueryCorpusFixtures(t *testing.T) {
 	t.Parallel()
 
-	for _, fixture := range []string{"queries.json", "native-lowering-starter.json"} {
+	for _, fixture := range []string{"queries.json", "native-lowering-starter.json", "phase7-rollout.json", "phase12-harness-variants.json", "draft-grafana-top-panel-shortlist.json", "common-dashboard-subset.json"} {
 		fixture := fixture
 		t.Run(fixture, func(t *testing.T) {
 			t.Parallel()
@@ -32,6 +32,75 @@ func TestLoadQueryCorpusFixtures(t *testing.T) {
 			}
 			validateQueryCorpus(t, fixture, queries)
 		})
+	}
+}
+
+func TestDraftGrafanaTopPanelThemeCorporaLoadAndValidate(t *testing.T) {
+	t.Parallel()
+
+	paths, err := filepath.Glob(filepath.Join("..", "..", "harness", "corpus", "draft-grafana-top-panel-shortlist.themes", "*.json"))
+	if err != nil {
+		t.Fatalf("glob theme corpora: %v", err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("expected at least one themed dashboard corpus")
+	}
+	for _, path := range paths {
+		themeBase := filepath.Base(path)
+		if strings.HasSuffix(themeBase, ".metadata.json") || themeBase == "summary.json" {
+			continue
+		}
+		path := path
+		baseForRun := themeBase
+		t.Run(baseForRun, func(t *testing.T) {
+			t.Parallel()
+			queries, err := LoadQueryCorpus(path)
+			if err != nil {
+				t.Fatalf("load theme corpus %s: %v", baseForRun, err)
+			}
+			validateQueryCorpus(t, baseForRun, queries)
+		})
+	}
+}
+
+func TestCommonDashboardSubsetMetadataMatchesCorpus(t *testing.T) {
+	t.Parallel()
+
+	queries, err := LoadQueryCorpus(corpusFixturePath("common-dashboard-subset.json"))
+	if err != nil {
+		t.Fatalf("load common dashboard subset: %v", err)
+	}
+	validateQueryCorpus(t, "common-dashboard-subset.json", queries)
+
+	payload, err := os.ReadFile(corpusFixturePath("common-dashboard-subset.metadata.json"))
+	if err != nil {
+		t.Fatalf("read common dashboard subset metadata: %v", err)
+	}
+	var metadata struct {
+		IncludedCount      int `json:"includedCount"`
+		ExcludedCount      int `json:"excludedCount"`
+		ExcludedCandidates []struct {
+			Name string `json:"name"`
+		} `json:"excludedCandidates"`
+	}
+	if err := json.Unmarshal(payload, &metadata); err != nil {
+		t.Fatalf("unmarshal common dashboard subset metadata: %v", err)
+	}
+	if metadata.IncludedCount != len(queries) {
+		t.Fatalf("includedCount mismatch: metadata=%d corpus=%d", metadata.IncludedCount, len(queries))
+	}
+	if metadata.ExcludedCount != len(metadata.ExcludedCandidates) {
+		t.Fatalf("excludedCount mismatch: metadata=%d excludedCandidates=%d", metadata.ExcludedCount, len(metadata.ExcludedCandidates))
+	}
+
+	seen := map[string]struct{}{}
+	for _, query := range queries {
+		seen[query.Name] = struct{}{}
+	}
+	for _, excluded := range metadata.ExcludedCandidates {
+		if _, ok := seen[excluded.Name]; ok {
+			t.Fatalf("excluded candidate %q still present in common dashboard subset", excluded.Name)
+		}
 	}
 }
 
@@ -122,6 +191,12 @@ func validateQueryCorpus(t *testing.T, fixture string, queries []QuerySpec) {
 			if query.StepSeconds != 0 {
 				t.Fatalf("%s: instant query %q must not set stepSeconds", fixture, query.Name)
 			}
+			if len(query.RangeOffsets) > 0 {
+				t.Fatalf("%s: instant query %q must not set rangeOffsets", fixture, query.Name)
+			}
+			if query.RangeStepMatrix {
+				t.Fatalf("%s: instant query %q must not set rangeStepMatrix", fixture, query.Name)
+			}
 		case "query_range":
 			if query.StepSeconds <= 0 {
 				t.Fatalf("%s: range query %q must set stepSeconds > 0", fixture, query.Name)
@@ -129,8 +204,32 @@ func validateQueryCorpus(t *testing.T, fixture string, queries []QuerySpec) {
 			if query.EndOffsetSeconds < query.StartOffsetSeconds {
 				t.Fatalf("%s: range query %q has end before start", fixture, query.Name)
 			}
+			if len(query.TimeOffsets) > 0 {
+				t.Fatalf("%s: range query %q must not set timeOffsets", fixture, query.Name)
+			}
 		default:
 			t.Fatalf("%s: query %q has unsupported endpoint %q", fixture, query.Name, query.Endpoint)
+		}
+
+		seenVariantNames := map[string]struct{}{}
+		for _, variant := range query.TimeOffsets {
+			if name := strings.TrimSpace(variant.Name); name != "" {
+				if _, dup := seenVariantNames[name]; dup {
+					t.Fatalf("%s: query %q has duplicate timeOffsets variant name %q", fixture, query.Name, name)
+				}
+				seenVariantNames[name] = struct{}{}
+			}
+		}
+		for _, variant := range query.RangeOffsets {
+			if variant.EndOffsetSeconds < variant.StartOffsetSeconds {
+				t.Fatalf("%s: query %q has rangeOffsets entry with end before start", fixture, query.Name)
+			}
+			if name := strings.TrimSpace(variant.Name); name != "" {
+				if _, dup := seenVariantNames[name]; dup {
+					t.Fatalf("%s: query %q has duplicate variant name %q", fixture, query.Name, name)
+				}
+				seenVariantNames[name] = struct{}{}
+			}
 		}
 
 		switch expectedStatus {
@@ -151,6 +250,12 @@ func validateQueryCorpus(t *testing.T, fixture string, queries []QuerySpec) {
 		case "", CompareModeExact, CompareModeStructural:
 		default:
 			t.Fatalf("%s: query %q has unsupported compareMode %q", fixture, query.Name, query.CompareMode)
+		}
+
+		switch strings.ToLower(strings.TrimSpace(query.NativeLoweringMode)) {
+		case "", "off", "explain", "shadow", "prefer", "force_supported":
+		default:
+			t.Fatalf("%s: query %q has unsupported nativeLoweringMode %q", fixture, query.Name, query.NativeLoweringMode)
 		}
 	}
 }

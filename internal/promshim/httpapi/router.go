@@ -19,17 +19,19 @@ type Response struct {
 }
 
 type InstantQueryRequest struct {
-	Query   string
-	Time    string
-	Explain bool
+	Query              string
+	Time               string
+	Explain            bool
+	NativeLoweringMode string
 }
 
 type RangeQueryRequest struct {
-	Query   string
-	Start   string
-	End     string
-	Step    string
-	Explain bool
+	Query              string
+	Start              string
+	End                string
+	Step               string
+	Explain            bool
+	NativeLoweringMode string
 }
 
 type MetadataRequest struct {
@@ -91,40 +93,44 @@ func (h *Handler) handleReady(w http.ResponseWriter, _ *http.Request) {
 
 func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 	resp, apiErr := h.service.InstantQuery(r.Context(), InstantQueryRequest{
-		Query:   r.URL.Query().Get("query"),
-		Time:    r.URL.Query().Get("time"),
-		Explain: wantsExplain(r),
+		Query:              r.URL.Query().Get("query"),
+		Time:               r.URL.Query().Get("time"),
+		Explain:            wantsExplain(r),
+		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
 	})
 	writeServiceResult(w, resp, apiErr)
 }
 
 func (h *Handler) handleQueryRange(w http.ResponseWriter, r *http.Request) {
 	resp, apiErr := h.service.RangeQuery(r.Context(), RangeQueryRequest{
-		Query:   r.URL.Query().Get("query"),
-		Start:   r.URL.Query().Get("start"),
-		End:     r.URL.Query().Get("end"),
-		Step:    r.URL.Query().Get("step"),
-		Explain: wantsExplain(r),
+		Query:              r.URL.Query().Get("query"),
+		Start:              r.URL.Query().Get("start"),
+		End:                r.URL.Query().Get("end"),
+		Step:               r.URL.Query().Get("step"),
+		Explain:            wantsExplain(r),
+		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
 	})
 	writeServiceResult(w, resp, apiErr)
 }
 
 func (h *Handler) handleQueryExplain(w http.ResponseWriter, r *http.Request) {
 	resp, apiErr := h.service.ExplainInstant(r.Context(), InstantQueryRequest{
-		Query:   r.URL.Query().Get("query"),
-		Time:    r.URL.Query().Get("time"),
-		Explain: true,
+		Query:              r.URL.Query().Get("query"),
+		Time:               r.URL.Query().Get("time"),
+		Explain:            true,
+		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
 	})
 	writeServiceResult(w, resp, apiErr)
 }
 
 func (h *Handler) handleQueryRangeExplain(w http.ResponseWriter, r *http.Request) {
 	resp, apiErr := h.service.ExplainRange(r.Context(), RangeQueryRequest{
-		Query:   r.URL.Query().Get("query"),
-		Start:   r.URL.Query().Get("start"),
-		End:     r.URL.Query().Get("end"),
-		Step:    r.URL.Query().Get("step"),
-		Explain: true,
+		Query:              r.URL.Query().Get("query"),
+		Start:              r.URL.Query().Get("start"),
+		End:                r.URL.Query().Get("end"),
+		Step:               r.URL.Query().Get("step"),
+		Explain:            true,
+		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
 	})
 	writeServiceResult(w, resp, apiErr)
 }

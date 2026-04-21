@@ -49,6 +49,7 @@ The Go promshim exposes the normal Prometheus-compatible endpoints:
 
 - `/api/v1/query`
 - `/api/v1/query_range`
+- `/metrics`
 
 It also exposes plan-only debug endpoints:
 
@@ -66,6 +67,8 @@ curl 'http://127.0.0.1:9090/api/v1/query_range_explain?query=sum%20by%20(job)%20
 ```
 
 For side-by-side debugging, the normal query endpoints also accept `explain=1` (or `explain=true`). When present, the response keeps the normal Prometheus `status` + `data` payload and adds a top-level `plan` object. Default requests without `explain` are unchanged.
+
+`/metrics` exposes Prometheus-format process-local rollout signals for shadow mode, including shadow comparison counters partitioned by status/category/compare-mode and served/shadow plan/eval duration histograms.
 
 Examples:
 

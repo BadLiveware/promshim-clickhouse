@@ -79,3 +79,22 @@ Shadow mode should:
 - controlled corpus promotion based on comparison results
 - unit tests for the delegation classifier: each capability-map entry
   has explicit yes/no coverage in the classifier's test corpus
+
+## Current implementation status
+
+Delivered in the current slice:
+- request/config-native lowering modes: `off`, `explain`, `shadow`, `prefer`, `force_supported`
+- query-entry classifier wiring for rung 1 whole-query delegation
+- explain/query responses surfacing `nativeLoweringMode` and `entireQueryDelegation`
+- shadow execution that serves the baseline result, runs a shadow candidate, logs outcomes, and exposes `shadow` + `shadowSummary` in explain-enabled responses
+- shadow rollout telemetry now includes served/shadow plan/eval timing in per-request reports plus aggregated timing totals in the in-memory shadow summary
+- focused harness validation via `harness/corpus/phase7-rollout.json` covering `native_lowering_mode=off|prefer|explain|shadow` plus explicit `explain=1` on normal query endpoints
+
+Important correction discovered during rollout validation:
+- ClickHouse 26.3 whole-query delegation does **not** yet support PromQL aggregation roots like `sum by (...) (...)`
+- the classifier was tightened accordingly; simple selectors can qualify for rung 1 today, while aggregation roots continue through the normal planner/native-subtree path
+
+Still deferred / not yet done:
+- broader promotion policy for when `prefer` should become the default operational gate beyond the current focused corpus
+- durable cross-process storage/aggregation beyond the new per-process `/metrics` export
+- expanding the ClickHouse capability map as upstream whole-query support actually lands

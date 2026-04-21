@@ -41,17 +41,33 @@ type CompareConfig struct {
 	Timeout     time.Duration
 }
 
+type QueryInstantVariantSpec struct {
+	Name              string `json:"name,omitempty"`
+	TimeOffsetSeconds int64  `json:"timeOffsetSeconds"`
+}
+
+type QueryRangeVariantSpec struct {
+	Name               string `json:"name,omitempty"`
+	StartOffsetSeconds int64  `json:"startOffsetSeconds"`
+	EndOffsetSeconds   int64  `json:"endOffsetSeconds"`
+}
+
 type QuerySpec struct {
-	Name                  string `json:"name"`
-	Endpoint              string `json:"endpoint"`
-	Query                 string `json:"query"`
-	TimeOffsetSeconds     int64  `json:"timeOffsetSeconds,omitempty"`
-	StartOffsetSeconds    int64  `json:"startOffsetSeconds,omitempty"`
-	EndOffsetSeconds      int64  `json:"endOffsetSeconds,omitempty"`
-	StepSeconds           int64  `json:"stepSeconds,omitempty"`
-	ExpectedStatus        string `json:"expectedStatus,omitempty"`
-	ExpectedErrorType     string `json:"expectedErrorType,omitempty"`
-	ExpectedErrorContains string `json:"expectedErrorContains,omitempty"`
+	Name                  string                    `json:"name"`
+	Endpoint              string                    `json:"endpoint"`
+	Query                 string                    `json:"query"`
+	TimeOffsetSeconds     int64                     `json:"timeOffsetSeconds,omitempty"`
+	StartOffsetSeconds    int64                     `json:"startOffsetSeconds,omitempty"`
+	EndOffsetSeconds      int64                     `json:"endOffsetSeconds,omitempty"`
+	StepSeconds           int64                     `json:"stepSeconds,omitempty"`
+	TimeOffsets           []QueryInstantVariantSpec `json:"timeOffsets,omitempty"`
+	RangeOffsets          []QueryRangeVariantSpec   `json:"rangeOffsets,omitempty"`
+	RangeStepMatrix       bool                      `json:"rangeStepMatrix,omitempty"`
+	Explain               bool                      `json:"explain,omitempty"`
+	NativeLoweringMode    string                    `json:"nativeLoweringMode,omitempty"`
+	ExpectedStatus        string                    `json:"expectedStatus,omitempty"`
+	ExpectedErrorType     string                    `json:"expectedErrorType,omitempty"`
+	ExpectedErrorContains string                    `json:"expectedErrorContains,omitempty"`
 	// Subjects restricts this query row to a subset of configured subjects.
 	// Supported names today: "shim", "promclick". Empty means compare against
 	// all configured subjects.
@@ -64,14 +80,29 @@ type QuerySpec struct {
 	CompareMode string `json:"compareMode,omitempty"`
 }
 
+type CompareCauseCluster struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Severity string   `json:"severity,omitempty"`
+	Bucket   string   `json:"bucket,omitempty"`
+	Detail   string   `json:"detail,omitempty"`
+	Count    int      `json:"count"`
+	Variants []string `json:"variants,omitempty"`
+	Subjects []string `json:"subjects,omitempty"`
+}
+
 type CompareReport struct {
-	CorpusPath string            `json:"corpusPath"`
-	Manifest   Manifest          `json:"manifest"`
-	Results    []QueryComparison `json:"results"`
+	CorpusPath string                `json:"corpusPath"`
+	Manifest   Manifest              `json:"manifest"`
+	Results    []QueryComparison     `json:"results"`
+	Clusters   []CompareCauseCluster `json:"clusters,omitempty"`
 }
 
 type QueryComparison struct {
-	Name string `json:"name"`
+	Name             string `json:"name"`
+	Variant          string `json:"variant,omitempty"`
+	CauseCluster     string `json:"causeCluster,omitempty"`
+	CauseClusterSize int    `json:"causeClusterSize,omitempty"`
 	// Subject identifies which subject-under-test this row compares against
 	// the Prometheus oracle. Values today: "shim", "promclick". Each query
 	// produces one row per configured subject so N-way compares stay flat.

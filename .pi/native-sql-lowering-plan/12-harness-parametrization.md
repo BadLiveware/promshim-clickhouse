@@ -117,6 +117,38 @@ path-3 policy this supports.
 - each layer's PR includes a sample `compare-report.json` artifact
   showing the new variant naming
 
+## Current status
+
+As of 2026-04-21:
+
+- The original pre-Phase-6 harness gap is only **partly** resolved.
+- The harness already supported single per-query timing fields
+  (`timeOffsetSeconds`, `startOffsetSeconds`, `endOffsetSeconds`,
+  `stepSeconds`) and later gained `compareMode`, `subjects`,
+  `nativeLoweringMode`, and `explain` controls.
+- **Layer 1 is now delivered** for curated per-query offset variants:
+  - instant-query rows may set `timeOffsets`
+  - range-query rows may set `rangeOffsets`
+  - compare results keep the base `name` and add an explicit `variant`
+    field in `compare-report.json`
+  - existing single-offset corpus rows continue to work unchanged
+- **Layer 2 is now delivered** for an opt-in range-query step sweep:
+  - range-query rows may set `rangeStepMatrix: true`
+  - the default per-range matrix currently emits:
+    - `step_evenly_divides_range`
+    - `step_not_evenly_divides_range`
+    - `step_gt_range_over_2`
+    - `step_eq_range`
+  - when combined with `rangeOffsets`, variant names are joined
+    (for example `boundary/step_eq_range`)
+- A small focused example corpus now exists at
+  `harness/corpus/phase12-harness-variants.json`.
+- **Task 5 triage clustering is now delivered**:
+  - repeated non-ok rows with the same base query + severity + bucket +
+    detail are tagged with `causeCluster` / `causeClusterSize`
+  - `compare-report.json` also emits a top-level `clusters` summary so
+    one underlying issue does not need to be triaged as many unrelated p0/p1 rows
+
 ## When to apply each layer
 
 - **Phase 1 refactor** (type extraction from the planner): **do not block

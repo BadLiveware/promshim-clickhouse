@@ -1,0 +1,24 @@
+[
+  {
+    "name": "phase12_selector_instant_variants",
+    "endpoint": "query",
+    "query": "harness_up{job=\"api\"}",
+    "timeOffsets": [
+      {"name": "early", "timeOffsetSeconds": 60},
+      {"name": "late", "timeOffsetSeconds": 540}
+    ],
+    "subjects": ["shim"]
+  },
+  {
+    "name": "phase12_selector_range_variants",
+    "endpoint": "query_range",
+    "query": "harness_up{job=\"api\"}",
+    "stepSeconds": 60,
+    "rangeStepMatrix": true,
+    "rangeOffsets": [
+      {"name": "middle", "startOffsetSeconds": 300, "endOffsetSeconds": 540},
+      {"name": "boundary", "startOffsetSeconds": 0, "endOffsetSeconds": 240}
+    ],
+    "subjects": ["shim"]
+  }
+]

@@ -1,53 +1,41 @@
 {
-  "nextId": 128,
+  "nextId": 152,
   "tasks": [
     {
-      "id": "124",
-      "subject": "Assess remaining Phase 6 harness promotion work",
-      "description": "Assessed the remaining Phase 6 harness/promotion work. The remaining implementation work was not additional native lowering; it was harness-side promotion plumbing and stable-corpus promotion for the now-green Phase 6 shim rows. Identified the smallest in-scope work: add subject filtering so optional promclick behavior does not block shim-native promotions, then promote the missing stable Phase 6 rows.",
-      "status": "completed",
-      "activeForm": "Assessing remaining Phase 6 harness promotion work",
+      "id": "149",
+      "subject": "Update native-lowering plan index README",
+      "description": "Refresh `.pi/native-sql-lowering-plan/README.md` so it matches current reality: Phase 6b delivered for the current supported subset, later docs 11/12/13 completed, and the remaining work is rollout/retirement/coverage expansion rather than core architecture implementation.",
+      "status": "in_progress",
+      "activeForm": "Updating plan index README",
       "metadata": {},
       "blocks": [],
       "blockedBy": [],
-      "createdAt": 1776780518455,
-      "updatedAt": 1776781197397
+      "createdAt": 1776789891017,
+      "updatedAt": 1776789910425
     },
     {
-      "id": "125",
-      "subject": "Add per-query harness subject filtering",
-      "description": "Added harness subject selection globally and per query. scripts/run-harness.sh now supports --subjects, compare config honors PROM_HARNESS_SUBJECTS, and corpus rows can declare \"subjects\": [\"shim\"] or similar to restrict optional subjects. Added promharness tests and updated harness README accordingly.",
-      "status": "completed",
-      "activeForm": "Adding per-query harness subject filtering",
+      "id": "150",
+      "subject": "Implement Layer 3 harness dataset variants",
+      "description": "Add the optional Phase 12 Layer 3 harness support for multiple seeded dataset shapes while preserving current single-dataset behavior by default. Introduce a backward-compatible dataset variant marker/config, seed at least one additional shape that exercises resets/gaps/disappearing-series behavior, expand compare runs across dataset variants, and surface explicit dataset variant metadata in compare reports.",
+      "status": "pending",
+      "activeForm": "Implementing dataset variants",
       "metadata": {},
       "blocks": [],
       "blockedBy": [],
-      "createdAt": 1776780595451,
-      "updatedAt": 1776781197398
+      "createdAt": 1776789900682,
+      "updatedAt": 1776789900682
     },
     {
-      "id": "126",
-      "subject": "Promote stable Phase 6 native rows into the main harness corpus",
-      "description": "Promoted the missing stable Phase 6 native rows from harness/corpus/native-lowering-starter.json into harness/corpus/queries.json: rate selector instant/range, increase selector instant/range, sum by(job)(rate(...)) instant, sum_over_time selector range, count_over_time selector range, and rate(subquery) range. Rows that are only meaningful against promshim today are scoped to subjects=[\"shim\"].",
-      "status": "completed",
-      "activeForm": "Promoting stable Phase 6 native rows",
+      "id": "151",
+      "subject": "Document and validate Layer 3 harness behavior",
+      "description": "Update `harness/README.md` and `.pi/native-sql-lowering-plan/12-harness-parametrization.md` to describe the new dataset-variant semantics, add focused tests/corpus/examples, and validate the harness runner plus report shape with a focused multi-dataset run.",
+      "status": "pending",
+      "activeForm": "Documenting dataset variants",
       "metadata": {},
       "blocks": [],
       "blockedBy": [],
-      "createdAt": 1776780603580,
-      "updatedAt": 1776781197398
-    },
-    {
-      "id": "127",
-      "subject": "Validate full stable corpus after Phase 6 promotion",
-      "description": "Validated the promotion work with go test ./internal/promharness/... ./internal/promshim/... and harness runs. The promoted Phase 6 stable-corpus rows are green in shim-only stable-corpus runs (./scripts/run-harness.sh --subjects shim). Full all-subject corpus runs still carry unrelated optional promclick divergences and some unrelated non-Phase-6 shim mismatches, which were recorded honestly rather than treated as Phase 6 blockers.",
-      "status": "completed",
-      "activeForm": "Validating the full stable corpus",
-      "metadata": {},
-      "blocks": [],
-      "blockedBy": [],
-      "createdAt": 1776780607120,
-      "updatedAt": 1776781197398
+      "createdAt": 1776789906466,
+      "updatedAt": 1776789906466
     }
   ]
 }

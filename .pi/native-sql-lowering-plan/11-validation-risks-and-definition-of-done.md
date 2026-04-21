@@ -22,11 +22,13 @@ Against the local ClickHouse fixture:
 For the supported native subset:
 - compare native result vs delegated PromQL result
 - compare native result vs Prometheus where practical for edge semantics
-- the differential harness at `harness/` + `internal/promharness/` is
-  currently a single-point check (one base time, one step, one seeded
-  dataset). Before the first native range-function lowering lands, it
-  needs per-query time-window and range-step parametrization — see
-  [12-harness-parametrization.md](./12-harness-parametrization.md)
+- the differential harness at `harness/` + `internal/promharness/` now
+  supports per-query time-window and range-step parametrization (`timeOffsetSeconds`,
+  `startOffsetSeconds`, `endOffsetSeconds`, `stepSeconds`, `compareMode`,
+  `subjects`, `nativeLoweringMode`, `explain`). The original harness gap
+  called out here has been addressed; remaining work is coverage breadth,
+  corpus promotion discipline, and rollout-signal quality rather than basic
+  parametrization.
 
 ### Explain tests
 Ensure explain surfaces:
@@ -134,6 +136,24 @@ Do not consider the native lowering track “real” until all of the following 
   that exists on both paths
 - no net-new path-3 range / counter function has shipped without either a
   native-lowering tracking note or a "keep local" design note
+
+## Current status against this document
+
+### Delivered or substantially delivered
+- **Unit-test coverage** exists for lowerability classification, join planning, rendered SQL, optimizer passes, explain surfacing, shadow mode, and the whole-query delegation classifier.
+- **Integration tests** exist under `integration/promshim/` and cover selectors, aggregations, vector matching, label transforms, range/subquery behavior, and histogram helpers against a local ClickHouse-backed fixture.
+- **Differential coverage** exists for the supported native subset, including Phase 6 native-vs-local/native-vs-Prometheus checks plus harness-driven corpus validation in `harness/`.
+- **Explain tests** are in place and now cover lowering selection, fallback reasons, rollout modes, entire-query delegation eligibility, shadow reports, and shadow metrics export.
+- **Phase 7 rollout guardrails** now exist in code: `nativeLoweringMode`, shadow comparison, explain surfacing, an in-memory `shadowSummary`, and per-process `/metrics` export for shadow counters/timings.
+
+### Status conclusion
+- For the **current supported native-lowering scope**, this document's validation and definition-of-done checklist is now satisfied.
+- The explicit path-3 range/counter retirement rule is closed for the currently known local-only outlier: `quantile_over_time` has an explicit keep-local design note in [13-keep-local-quantile-over-time.md](./13-keep-local-quantile-over-time.md).
+- The common dashboard subset is now defined concretely as `harness/corpus/common-dashboard-subset.json`, with metadata in `harness/corpus/common-dashboard-subset.metadata.json`. It is carved from the broader exploratory top-panel shortlist (`draft-grafana-top-panel-shortlist.json`) by excluding the currently known failing candidates, and is green under `./scripts/run-harness.sh --corpus common-dashboard-subset.json --subjects shim`.
+
+### Non-blocking follow-up
+- The broader exploratory top-panel shortlist and themed corpora remain useful for gap discovery and are not expected to be fully green at all times.
+- `/metrics` now exports rollout telemetry, but durable cross-process history/aggregation still depends on external scraping/retention rather than an in-repo durable store.
 
 ## Short summary
 The right shape for this repo is:

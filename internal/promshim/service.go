@@ -15,9 +15,10 @@ import (
 )
 
 type queryService struct {
-	opts      Options
-	client    *storage.Client
-	evaluator *evaluator
+	opts          Options
+	client        *storage.Client
+	evaluator     *evaluator
+	shadowSummary *shadowSummaryRecorder
 }
 
 func NewHandler(opts Options) (http.Handler, error) {
@@ -31,15 +32,27 @@ func NewHandler(opts Options) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	shadowMetrics := newShadowMetrics()
 	service := &queryService{
-		opts:      opts,
-		client:    client,
-		evaluator: newEvaluator(opts, client),
+		opts:          opts,
+		client:        client,
+		evaluator:     newEvaluator(opts, client),
+		shadowSummary: newShadowSummaryRecorder(shadowMetrics),
 	}
-	return httpapi.NewHandler(service), nil
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", shadowMetrics.handler())
+	mux.Handle("/", httpapi.NewHandler(service))
+	return mux, nil
 }
 
 func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQueryRequest) (*httpapi.Response, *httpapi.APIError) {
+	mode, apiErr := h.nativeLoweringModeForRequest(req.NativeLoweringMode)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	if mode == NativeLoweringModeShadow {
+		return h.instantQueryShadow(ctx, req)
+	}
 	_, evaluationTime, plan, analysis, apiErr := h.buildInstantPlan(req)
 	if apiErr != nil {
 		return nil, apiErr
@@ -52,15 +65,17 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, apiErrorToHTTP(err)
 	}
-	if req.Explain {
+	if req.Explain || mode.forcesExplainResponse() {
 		resultType, result, err := httpapi.RenderInstantQueryValue(value)
 		if err != nil {
 			return nil, apiErrorToHTTP(newExecutionErrorf("rendering instant query response: %v", err))
 		}
 		return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{
-			"status": "success",
-			"data":   map[string]any{"resultType": resultType, "result": result},
-			"plan":   explainPlanWithLowering(plan, analysis.Root),
+			"status":                "success",
+			"nativeLoweringMode":    string(mode),
+			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
+			"data":                  map[string]any{"resultType": resultType, "result": result},
+			"plan":                  explainPlanWithLowering(plan, analysis.Root),
 		}}, nil
 	}
 	return &httpapi.Response{Stream: func(w http.ResponseWriter) error {
@@ -69,6 +84,13 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 }
 
 func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryRequest) (*httpapi.Response, *httpapi.APIError) {
+	mode, apiErr := h.nativeLoweringModeForRequest(req.NativeLoweringMode)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	if mode == NativeLoweringModeShadow {
+		return h.rangeQueryShadow(ctx, req)
+	}
 	_, start, end, step, plan, analysis, apiErr := h.buildRangePlan(req)
 	if apiErr != nil {
 		return nil, apiErr
@@ -81,15 +103,95 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, apiErrorToHTTP(err)
 	}
+	if req.Explain || mode.forcesExplainResponse() {
+		resultType, result, err := httpapi.RenderRangeQueryValue(value)
+		if err != nil {
+			return nil, apiErrorToHTTP(newExecutionErrorf("rendering range query response: %v", err))
+		}
+		return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{
+			"status":                "success",
+			"nativeLoweringMode":    string(mode),
+			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
+			"data":                  map[string]any{"resultType": resultType, "result": result},
+			"plan":                  explainPlanWithLowering(plan, analysis.Root),
+		}}, nil
+	}
+	return &httpapi.Response{Stream: func(w http.ResponseWriter) error {
+		return httpapi.WritePromSuccessRangeValue(w, value)
+	}}, nil
+}
+
+func (h *queryService) instantQueryShadow(ctx context.Context, req httpapi.InstantQueryRequest) (*httpapi.Response, *httpapi.APIError) {
+	servedReq := req
+	servedReq.NativeLoweringMode = string(NativeLoweringModeOff)
+	planStart := time.Now()
+	_, evaluationTime, plan, analysis, apiErr := h.buildInstantPlan(servedReq)
+	servedPlanDuration := time.Since(planStart)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	evalStart := time.Now()
+	value, err := h.evaluator.evaluate(ctx, plan, evalParams{Mode: evalModeInstant, EvaluationTime: evaluationTime})
+	servedEvalDuration := time.Since(evalStart)
+	if err != nil {
+		return nil, apiErrorToHTTP(err)
+	}
+	if err := enforceResponseLimits(value, h.opts); err != nil {
+		return nil, apiErrorToHTTP(err)
+	}
+	shadow := h.runInstantShadowComparison(ctx, req, plan, value, servedPlanDuration, servedEvalDuration)
+	if req.Explain {
+		resultType, result, err := httpapi.RenderInstantQueryValue(value)
+		if err != nil {
+			return nil, apiErrorToHTTP(newExecutionErrorf("rendering instant query response: %v", err))
+		}
+		return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{
+			"status":                "success",
+			"nativeLoweringMode":    string(NativeLoweringModeShadow),
+			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
+			"data":                  map[string]any{"resultType": resultType, "result": result},
+			"plan":                  explainPlanWithLowering(plan, analysis.Root),
+			"shadow":                shadow,
+			"shadowSummary":         h.shadowSummary.snapshot(),
+		}}, nil
+	}
+	return &httpapi.Response{Stream: func(w http.ResponseWriter) error {
+		return httpapi.WritePromSuccessInstantValue(w, value)
+	}}, nil
+}
+
+func (h *queryService) rangeQueryShadow(ctx context.Context, req httpapi.RangeQueryRequest) (*httpapi.Response, *httpapi.APIError) {
+	servedReq := req
+	servedReq.NativeLoweringMode = string(NativeLoweringModeOff)
+	planStart := time.Now()
+	_, start, end, step, plan, analysis, apiErr := h.buildRangePlan(servedReq)
+	servedPlanDuration := time.Since(planStart)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	evalStart := time.Now()
+	value, err := h.evaluator.evaluate(ctx, plan, evalParams{Mode: evalModeRange, Start: start, End: end, Step: step})
+	servedEvalDuration := time.Since(evalStart)
+	if err != nil {
+		return nil, apiErrorToHTTP(err)
+	}
+	if err := enforceResponseLimits(value, h.opts); err != nil {
+		return nil, apiErrorToHTTP(err)
+	}
+	shadow := h.runRangeShadowComparison(ctx, req, plan, value, servedPlanDuration, servedEvalDuration)
 	if req.Explain {
 		resultType, result, err := httpapi.RenderRangeQueryValue(value)
 		if err != nil {
 			return nil, apiErrorToHTTP(newExecutionErrorf("rendering range query response: %v", err))
 		}
 		return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{
-			"status": "success",
-			"data":   map[string]any{"resultType": resultType, "result": result},
-			"plan":   explainPlanWithLowering(plan, analysis.Root),
+			"status":                "success",
+			"nativeLoweringMode":    string(NativeLoweringModeShadow),
+			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
+			"data":                  map[string]any{"resultType": resultType, "result": result},
+			"plan":                  explainPlanWithLowering(plan, analysis.Root),
+			"shadow":                shadow,
+			"shadowSummary":         h.shadowSummary.snapshot(),
 		}}, nil
 	}
 	return &httpapi.Response{Stream: func(w http.ResponseWriter) error {
@@ -98,6 +200,10 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 }
 
 func (h *queryService) ExplainInstant(_ context.Context, req httpapi.InstantQueryRequest) (*httpapi.Response, *httpapi.APIError) {
+	mode, apiErr := h.nativeLoweringModeForRequest(req.NativeLoweringMode)
+	if apiErr != nil {
+		return nil, apiErr
+	}
 	query, evaluationTime, plan, analysis, apiErr := h.buildInstantPlan(req)
 	if apiErr != nil {
 		return nil, apiErr
@@ -105,15 +211,21 @@ func (h *queryService) ExplainInstant(_ context.Context, req httpapi.InstantQuer
 	return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{
 		"status": "success",
 		"data": map[string]any{
-			"mode":           string(evalModeInstant),
-			"query":          query,
-			"evaluationTime": evaluationTime.UTC().Format(time.RFC3339Nano),
-			"plan":           explainPlanWithLowering(plan, analysis.Root),
+			"mode":                  string(evalModeInstant),
+			"nativeLoweringMode":    string(mode),
+			"entireQueryDelegation": h.entireQueryDelegationForQuery(query),
+			"query":                 query,
+			"evaluationTime":        evaluationTime.UTC().Format(time.RFC3339Nano),
+			"plan":                  explainPlanWithLowering(plan, analysis.Root),
 		},
 	}}, nil
 }
 
 func (h *queryService) ExplainRange(_ context.Context, req httpapi.RangeQueryRequest) (*httpapi.Response, *httpapi.APIError) {
+	mode, apiErr := h.nativeLoweringModeForRequest(req.NativeLoweringMode)
+	if apiErr != nil {
+		return nil, apiErr
+	}
 	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(req)
 	if apiErr != nil {
 		return nil, apiErr
@@ -121,12 +233,14 @@ func (h *queryService) ExplainRange(_ context.Context, req httpapi.RangeQueryReq
 	return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{
 		"status": "success",
 		"data": map[string]any{
-			"mode":  string(evalModeRange),
-			"query": query,
-			"start": start.UTC().Format(time.RFC3339Nano),
-			"end":   end.UTC().Format(time.RFC3339Nano),
-			"step":  step.String(),
-			"plan":  explainPlanWithLowering(plan, analysis.Root),
+			"mode":                  string(evalModeRange),
+			"nativeLoweringMode":    string(mode),
+			"entireQueryDelegation": h.entireQueryDelegationForQuery(query),
+			"query":                 query,
+			"start":                 start.UTC().Format(time.RFC3339Nano),
+			"end":                   end.UTC().Format(time.RFC3339Nano),
+			"step":                  step.String(),
+			"plan":                  explainPlanWithLowering(plan, analysis.Root),
 		},
 	}}, nil
 }
@@ -208,6 +322,27 @@ func enforceResponseLimits(value model.RuntimeValue, opts Options) error {
 	return nil
 }
 
+func (h *queryService) nativeLoweringModeForRequest(requestMode string) (NativeLoweringMode, *httpapi.APIError) {
+	mode := h.opts.NativeLoweringMode
+	if requestMode != "" {
+		parsed, err := parseNativeLoweringMode(requestMode)
+		if err != nil {
+			return "", badRequestHTTPError(err.Error())
+		}
+		mode = parsed
+	}
+	return normalizeNativeLoweringMode(mode), nil
+}
+
+func (h *queryService) entireQueryDelegationForQuery(query string) *delegationClassifierResult {
+	expr, err := plan.ParseExpression(query)
+	if err != nil {
+		return nil
+	}
+	result := classifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion)
+	return &result
+}
+
 func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string, time.Time, queryPlan, *nativeplan.Analysis, *httpapi.APIError) {
 	query := req.Query
 	if query == "" {
@@ -224,9 +359,30 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 			return "", time.Time{}, nil, nil, badRequestHTTPError(err.Error())
 		}
 	}
-	plan, analysis, err := buildPlanWithContextAndAnalysis(expr, planContext{Mode: evalModeInstant, EvaluationTime: evaluationTime, PreferNativeAggregationPushdown: true, MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries})
-	if err != nil {
-		return "", time.Time{}, nil, nil, apiErrorToHTTP(err)
+	mode, apiErr := h.nativeLoweringModeForRequest(req.NativeLoweringMode)
+	if apiErr != nil {
+		return "", time.Time{}, nil, nil, apiErr
+	}
+	ctx := planContext{Mode: evalModeInstant, EvaluationTime: evaluationTime, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.enablesNativePlanning(), MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries}
+	delegation := classifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion)
+	var plan queryPlan
+	var analysis *nativeplan.Analysis
+	if mode != NativeLoweringModeOff && delegation.Eligible {
+		plan, analysis, err = buildEntireQueryDelegatedPlan(expr)
+		if err != nil {
+			return "", time.Time{}, nil, nil, apiErrorToHTTP(err)
+		}
+	} else {
+		plan, analysis, err = buildPlanWithContextAndAnalysis(expr, ctx)
+		if err != nil {
+			return "", time.Time{}, nil, nil, apiErrorToHTTP(err)
+		}
+	}
+	if mode.forcesNativeRoot() {
+		explain := explainPlan(plan)
+		if explain.Strategy != "native_sql" {
+			return "", time.Time{}, nil, nil, apiErrorToHTTP(newUnsupportedErrorf("native lowering mode %q requires a native_sql root plan for %q, got %s", mode, query, explain.Strategy))
+		}
 	}
 	return query, evaluationTime, plan, analysis, nil
 }
@@ -258,9 +414,30 @@ func (h *queryService) buildRangePlan(req httpapi.RangeQueryRequest) (string, ti
 	if err != nil {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, badRequestHTTPError(err.Error())
 	}
-	plan, analysis, err := buildPlanWithContextAndAnalysis(expr, planContext{Mode: evalModeRange, Start: start, End: end, Step: step, PreferNativeAggregationPushdown: true, MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries})
-	if err != nil {
-		return "", time.Time{}, time.Time{}, 0, nil, nil, apiErrorToHTTP(err)
+	mode, apiErr := h.nativeLoweringModeForRequest(req.NativeLoweringMode)
+	if apiErr != nil {
+		return "", time.Time{}, time.Time{}, 0, nil, nil, apiErr
+	}
+	ctx := planContext{Mode: evalModeRange, Start: start, End: end, Step: step, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.enablesNativePlanning(), MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries}
+	delegation := classifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion)
+	var plan queryPlan
+	var analysis *nativeplan.Analysis
+	if mode != NativeLoweringModeOff && delegation.Eligible {
+		plan, analysis, err = buildEntireQueryDelegatedPlan(expr)
+		if err != nil {
+			return "", time.Time{}, time.Time{}, 0, nil, nil, apiErrorToHTTP(err)
+		}
+	} else {
+		plan, analysis, err = buildPlanWithContextAndAnalysis(expr, ctx)
+		if err != nil {
+			return "", time.Time{}, time.Time{}, 0, nil, nil, apiErrorToHTTP(err)
+		}
+	}
+	if mode.forcesNativeRoot() {
+		explain := explainPlan(plan)
+		if explain.Strategy != "native_sql" {
+			return "", time.Time{}, time.Time{}, 0, nil, nil, apiErrorToHTTP(newUnsupportedErrorf("native lowering mode %q requires a native_sql root plan for %q, got %s", mode, query, explain.Strategy))
+		}
 	}
 	return query, start, end, step, plan, analysis, nil
 }

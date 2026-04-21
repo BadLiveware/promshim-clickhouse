@@ -87,6 +87,23 @@ func TestApplyMaxOverTimeInstantUsesMaxPerSeries(t *testing.T) {
 	}
 }
 
+func TestApplyRangeFunctionInstantDropsMetricName(t *testing.T) {
+	input := model.MatrixValue{Series: []model.RangeSeries{{
+		Metric: map[string]string{"__name__": "harness_queue_depth", "job": "api", "instance": "a"},
+		Values: []model.RangePoint{{Timestamp: 10, Value: 1}, {Timestamp: 20, Value: 3}},
+	}}}
+	vector, err := ApplyRangeFunctionInstant("max_over_time", input)
+	if err != nil {
+		t.Fatalf("expected max_over_time instant result, got error: %v", err)
+	}
+	if len(vector.Samples) != 1 {
+		t.Fatalf("expected one output sample, got %#v", vector.Samples)
+	}
+	if _, ok := vector.Samples[0].Metric["__name__"]; ok {
+		t.Fatalf("did not expect __name__ in range-function output: %#v", vector.Samples[0].Metric)
+	}
+}
+
 func TestApplyMinOverTimeInstantUsesMinPerSeries(t *testing.T) {
 	input := model.MatrixValue{Series: []model.RangeSeries{
 		{Metric: map[string]string{"job": "api", "instance": "a"}, Values: []model.RangePoint{{Timestamp: 10, Value: 1}, {Timestamp: 20, Value: 3}}},
@@ -144,6 +161,23 @@ func TestApplyQuantileOverTimeInstantComputesMedianPerSeries(t *testing.T) {
 	}
 	if vector.Samples[1].Metric["instance"] != "b" || vector.Samples[1].Timestamp != 30 || vector.Samples[1].Value != 6 {
 		t.Fatalf("unexpected second sample: %#v", vector.Samples[1])
+	}
+}
+
+func TestApplyQuantileOverTimeDropsMetricName(t *testing.T) {
+	input := model.MatrixValue{Series: []model.RangeSeries{{
+		Metric: map[string]string{"__name__": "harness_queue_depth", "job": "api", "instance": "a"},
+		Values: []model.RangePoint{{Timestamp: 10, Value: 3}, {Timestamp: 20, Value: 1}, {Timestamp: 30, Value: 2}},
+	}}}
+	vector, err := ApplyQuantileOverTime(0.5, input)
+	if err != nil {
+		t.Fatalf("expected quantile_over_time instant result, got error: %v", err)
+	}
+	if len(vector.Samples) != 1 {
+		t.Fatalf("expected one output sample, got %#v", vector.Samples)
+	}
+	if _, ok := vector.Samples[0].Metric["__name__"]; ok {
+		t.Fatalf("did not expect __name__ in quantile_over_time output: %#v", vector.Samples[0].Metric)
 	}
 }
 

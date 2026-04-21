@@ -143,6 +143,144 @@ func TestBuildLogicalPlanCreatesHistogramProjectionPlan(t *testing.T) {
 	}
 }
 
+func TestBuildLogicalPlanCreatesIncreasePlan(t *testing.T) {
+	expr, err := plan.ParseExpression("increase(up[5m])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logical, err := buildLogicalPlan(expr)
+	if err != nil {
+		t.Fatalf("expected logical increase plan, got error: %v", err)
+	}
+	increasePlan, ok := logical.(*logicalIncreasePlan)
+	if !ok {
+		t.Fatalf("expected logicalIncreasePlan, got %T", logical)
+	}
+	if _, ok := increasePlan.Child.(*logicalLeafExprPlan); !ok {
+		t.Fatalf("expected delegated leaf child, got %T", increasePlan.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesRatePlanForSubqueryArg(t *testing.T) {
+	expr, err := plan.ParseExpression("rate(sum(up)[5m:])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logical, err := buildLogicalPlan(expr)
+	if err != nil {
+		t.Fatalf("expected logical rate plan, got error: %v", err)
+	}
+	ratePlan, ok := logical.(*logicalRatePlan)
+	if !ok {
+		t.Fatalf("expected logicalRatePlan, got %T", logical)
+	}
+	if ratePlan.Func != "rate" {
+		t.Fatalf("expected function rate, got %q", ratePlan.Func)
+	}
+	if _, ok := ratePlan.Child.(*logicalSubqueryPlan); !ok {
+		t.Fatalf("expected logical subquery child, got %T", ratePlan.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesIratePlanForSubqueryArg(t *testing.T) {
+	expr, err := plan.ParseExpression("irate(sum(up)[5m:])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logical, err := buildLogicalPlan(expr)
+	if err != nil {
+		t.Fatalf("expected logical irate plan, got error: %v", err)
+	}
+	ratePlan, ok := logical.(*logicalRatePlan)
+	if !ok {
+		t.Fatalf("expected logicalRatePlan, got %T", logical)
+	}
+	if ratePlan.Func != "irate" {
+		t.Fatalf("expected function irate, got %q", ratePlan.Func)
+	}
+	if _, ok := ratePlan.Child.(*logicalSubqueryPlan); !ok {
+		t.Fatalf("expected logical subquery child, got %T", ratePlan.Child)
+	}
+}
+
+func TestBuildLogicalPlanRejectsSubqueryDeltaWithCleanError(t *testing.T) {
+	expr, err := plan.ParseExpression("delta(up[5m:30s])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = buildLogicalPlan(expr)
+	if err == nil {
+		t.Fatal("expected unsupported delta(subquery) plan build error")
+	}
+}
+
+func TestBuildLogicalPlanCreatesVectorPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("vector(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logical, err := buildLogicalPlan(expr)
+	if err != nil {
+		t.Fatalf("expected logical vector plan, got error: %v", err)
+	}
+	vecPlan, ok := logical.(*logicalVectorPlan)
+	if !ok {
+		t.Fatalf("expected logicalVectorPlan, got %T", logical)
+	}
+	if _, ok := vecPlan.Child.(*logicalScalarLiteralPlan); !ok {
+		t.Fatalf("expected scalar child for vector(), got %T", vecPlan.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesRoundPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("round(up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logical, err := buildLogicalPlan(expr)
+	if err != nil {
+		t.Fatalf("expected logical round plan, got error: %v", err)
+	}
+	roundPlan, ok := logical.(*logicalRoundPlan)
+	if !ok {
+		t.Fatalf("expected logicalRoundPlan, got %T", logical)
+	}
+	if roundPlan.Decimals != nil {
+		t.Fatalf("expected nil decimals for round(up), got %#v", roundPlan.Decimals)
+	}
+	if _, ok := roundPlan.Child.(*logicalLeafExprPlan); !ok {
+		t.Fatalf("expected vector child for round(), got %T", roundPlan.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesNestedAggregationPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("count(count by (job) (up))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logical, err := buildLogicalPlan(expr)
+	if err != nil {
+		t.Fatalf("expected logical nested aggregation plan, got error: %v", err)
+	}
+	outer, ok := logical.(*logicalAggregationPlan)
+	if !ok {
+		t.Fatalf("expected logicalAggregationPlan, got %T", logical)
+	}
+	if outer.Op != parser.COUNT {
+		t.Fatalf("expected outer aggregation op count, got %v", outer.Op)
+	}
+	if _, ok := outer.Child.(*logicalAggregationPlan); !ok {
+		t.Fatalf("expected nested aggregation child, got %T", outer.Child)
+	}
+}
+
 func TestBuildLogicalPlanCreatesLastOverTimePlan(t *testing.T) {
 	expr, err := plan.ParseExpression("last_over_time(up[5m])")
 	if err != nil {

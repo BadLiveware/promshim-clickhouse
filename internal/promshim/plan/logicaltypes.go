@@ -180,6 +180,92 @@ func (p *LogicalRangeFunctionPlan) exprString() string {
 }
 func (p *LogicalRangeFunctionPlan) ExprString() string { return p.exprString() }
 
+type LogicalVectorPlan struct {
+	Expr  parser.Expr
+	Child LogicalPlan
+}
+
+func (*LogicalVectorPlan) logicalPlan() {}
+func (p *LogicalVectorPlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalVectorPlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalVectorPlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalVectorPlan) ExprString() string { return p.exprString() }
+
+type LogicalRoundPlan struct {
+	Expr     parser.Expr
+	Decimals *float64
+	Child    LogicalPlan
+}
+
+func (*LogicalRoundPlan) logicalPlan() {}
+func (p *LogicalRoundPlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalRoundPlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalRoundPlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalRoundPlan) ExprString() string { return p.exprString() }
+
+type LogicalRatePlan struct {
+	Expr  parser.Expr
+	Func  string
+	Child LogicalPlan
+}
+
+func (*LogicalRatePlan) logicalPlan() {}
+func (p *LogicalRatePlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalRatePlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalRatePlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalRatePlan) ExprString() string { return p.exprString() }
+
+type LogicalIncreasePlan struct {
+	Expr  parser.Expr
+	Child LogicalPlan
+}
+
+func (*LogicalIncreasePlan) logicalPlan() {}
+func (p *LogicalIncreasePlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalIncreasePlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalIncreasePlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalIncreasePlan) ExprString() string { return p.exprString() }
+
 type LogicalQuantileOverTimePlan struct {
 	Expr     parser.Expr
 	Quantile float64

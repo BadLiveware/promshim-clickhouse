@@ -2,6 +2,9 @@
   {
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
+    "expectedErrorContains": "unexpected <group_left>",
+    "expectedErrorType": "bad_data",
+    "expectedStatus": "error",
     "name": "draft_cand_0152_rate_family_vector_matching_aggregation_selector",
     "query": "((1 - sum (rate(harness_requests_total{job=\"node-exporter\",instance=\"a\"}[5m]))) / group_left count (harness_requests_total{job=\"node-exporter\",instance=\"a\"}))",
     "startOffsetSeconds": 300,
@@ -18,6 +21,9 @@
   {
     "endOffsetSeconds": 540,
     "endpoint": "query_range",
+    "expectedErrorContains": "unexpected <group_left>",
+    "expectedErrorType": "bad_data",
+    "expectedStatus": "error",
     "name": "draft_cand_0257_rate_family_vector_matching_aggregation_selector",
     "query": "sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s])) / group_left sum by(job) (rate(harness_requests_total{job=~\"api\"}[60s]))",
     "startOffsetSeconds": 300,

@@ -168,6 +168,48 @@ func TestAnalyzeExpressionSupportsHistogramProjectionFunctions(t *testing.T) {
 	}
 }
 
+func TestAnalyzeExpressionSupportsVectorFunction(t *testing.T) {
+	expr, err := ParseExpression("vector(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := AnalyzeExpression(expr)
+	if !result.Supported {
+		t.Fatalf("expected supported vector() expression, got %#v", result)
+	}
+	if result.Difficulty != DifficultyMedium {
+		t.Fatalf("expected medium difficulty for vector(), got %s", result.Difficulty)
+	}
+}
+
+func TestAnalyzeExpressionSupportsRoundFunction(t *testing.T) {
+	expr, err := ParseExpression("round(up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := AnalyzeExpression(expr)
+	if !result.Supported {
+		t.Fatalf("expected supported round() expression, got %#v", result)
+	}
+	if result.Difficulty != DifficultyHard {
+		t.Fatalf("expected hard difficulty for round(), got %s", result.Difficulty)
+	}
+}
+
+func TestAnalyzeExpressionSupportsNestedAggregationExpression(t *testing.T) {
+	expr, err := ParseExpression("count(count by (job) (up))")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := AnalyzeExpression(expr)
+	if !result.Supported {
+		t.Fatalf("expected supported nested aggregation, got %#v", result)
+	}
+	if result.Difficulty != DifficultyMedium {
+		t.Fatalf("expected medium difficulty for nested aggregation, got %s", result.Difficulty)
+	}
+}
+
 func TestAnalyzeExpressionRejectsNonLiteralHistogramQuantileParameter(t *testing.T) {
 	expr, err := ParseExpression("histogram_quantile(1 / 2, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
 	if err != nil {
@@ -493,7 +535,7 @@ func TestAnalyzeExpressionSupportsNestedSubqueryViaLastOverTime(t *testing.T) {
 }
 
 func TestAnalyzeExpressionRejectsDelegationSensitiveLeafFunctionsWithSubquery(t *testing.T) {
-	for _, fn := range []string{"rate", "irate", "increase", "delta", "idelta", "deriv", "changes"} {
+	for _, fn := range []string{"increase", "delta", "idelta", "deriv", "changes"} {
 		exprText := fmt.Sprintf("%s(up[5m:30s])", fn)
 		expr, err := ParseExpression(exprText)
 		if err != nil {
@@ -512,8 +554,25 @@ func TestAnalyzeExpressionRejectsDelegationSensitiveLeafFunctionsWithSubquery(t 
 	}
 }
 
+func TestAnalyzeExpressionSupportsRateFamilyWithSubquery(t *testing.T) {
+	for _, fn := range []string{"rate", "irate"} {
+		exprText := fmt.Sprintf("%s(sum(up)[5m:])", fn)
+		expr, err := ParseExpression(exprText)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := AnalyzeExpression(expr)
+		if !result.Supported {
+			t.Fatalf("expected supported %s(aggregation-subquery) expression, got %#v", fn, result)
+		}
+		if result.Difficulty != DifficultyHard {
+			t.Fatalf("expected hard difficulty for %s subquery support, got %s", fn, result.Difficulty)
+		}
+	}
+}
+
 func TestAnalyzeExpressionRejectsDelegationSensitiveLeafFunctionsNestedInAggregateWithSubquery(t *testing.T) {
-	for _, fn := range []string{"rate", "irate", "increase", "delta", "idelta", "deriv", "changes"} {
+	for _, fn := range []string{"increase", "delta", "idelta", "deriv", "changes"} {
 		exprText := fmt.Sprintf("sum(%s(up[5m:30s]))", fn)
 		expr, err := ParseExpression(exprText)
 		if err != nil {

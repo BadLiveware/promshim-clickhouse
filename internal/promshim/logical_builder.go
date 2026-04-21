@@ -28,6 +28,14 @@ type logicalHistogramProjectionPlan = plan.LogicalHistogramProjectionPlan
 
 type logicalRangeFunctionPlan = plan.LogicalRangeFunctionPlan
 
+type logicalVectorPlan = plan.LogicalVectorPlan
+
+type logicalRoundPlan = plan.LogicalRoundPlan
+
+type logicalRatePlan = plan.LogicalRatePlan
+
+type logicalIncreasePlan = plan.LogicalIncreasePlan
+
 type logicalQuantileOverTimePlan = plan.LogicalQuantileOverTimePlan
 
 type logicalAbsentPlan = plan.LogicalAbsentPlan
@@ -194,6 +202,57 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 			return nil, withInternalContext(err, "building logical child plan for %s %q", name, call.String())
 		}
 		return &logicalHistogramProjectionPlan{Expr: call, Func: name, Child: child}, nil
+	case "vector":
+		if result := plan.AnalyzeVectorCall(call); !result.Supported {
+			return nil, newPlanBuildError(call, result, "call planning")
+		}
+		child, err := buildLogicalPlan(call.Args[0])
+		if err != nil {
+			return nil, withInternalContext(err, "building logical child plan for vector %q", call.String())
+		}
+		return &logicalVectorPlan{Expr: call, Child: child}, nil
+	case "round":
+		if result := plan.AnalyzeRoundCall(call); !result.Supported {
+			return nil, newPlanBuildError(call, result, "call planning")
+		}
+		child, err := buildLogicalPlan(call.Args[0])
+		if err != nil {
+			return nil, withInternalContext(err, "building logical child plan for round %q", call.String())
+		}
+		plan := &logicalRoundPlan{Expr: call, Child: child}
+		if len(call.Args) > 1 {
+			decimals, err := numberLiteralArgument(call.Args[1], "round decimals")
+			if err != nil {
+				return nil, withInternalContext(err, "building logical round %q", call.String())
+			}
+			plan.Decimals = &decimals
+		}
+		return plan, nil
+	case "rate", "irate":
+		analyze := plan.AnalyzeRateCall
+		if name == "irate" {
+			analyze = plan.AnalyzeIrateCall
+		}
+		if result := analyze(call); !result.Supported {
+			return nil, newPlanBuildError(call, result, "call planning")
+		}
+		if !expressionContainsSubquery(call.Args[0]) {
+			return buildLogicalDelegatedLeaf(call)
+		}
+		child, err := buildLogicalPlan(call.Args[0])
+		if err != nil {
+			return nil, withInternalContext(err, "building logical child plan for %s %q", name, call.String())
+		}
+		return &logicalRatePlan{Expr: call, Func: name, Child: child}, nil
+	case "increase":
+		if result := plan.AnalyzeIncreaseCall(call); !result.Supported {
+			return nil, newPlanBuildError(call, result, "call planning")
+		}
+		child, err := buildLogicalPlan(call.Args[0])
+		if err != nil {
+			return nil, withInternalContext(err, "building logical child plan for increase %q", call.String())
+		}
+		return &logicalIncreasePlan{Expr: call, Child: child}, nil
 	case "last_over_time", "sum_over_time", "avg_over_time", "max_over_time", "min_over_time", "count_over_time":
 		if result := plan.AnalyzeRangeFunctionCall(name, call); !result.Supported {
 			return nil, newPlanBuildError(call, result, "call planning")
@@ -347,5 +406,35 @@ func unwrapTransparentExpr(expr parser.Expr) parser.Expr {
 		default:
 			return expr
 		}
+	}
+}
+
+func expressionContainsSubquery(expr parser.Expr) bool {
+	expr = unwrapTransparentExpr(expr)
+	switch node := expr.(type) {
+	case *parser.SubqueryExpr:
+		return true
+	case *parser.Call:
+		for _, arg := range node.Args {
+			if expressionContainsSubquery(arg) {
+				return true
+			}
+		}
+		return false
+	case *parser.AggregateExpr:
+		if node.Param != nil && expressionContainsSubquery(node.Param) {
+			return true
+		}
+		return expressionContainsSubquery(node.Expr)
+	case *parser.BinaryExpr:
+		return expressionContainsSubquery(node.LHS) || expressionContainsSubquery(node.RHS)
+	case *parser.UnaryExpr:
+		return expressionContainsSubquery(node.Expr)
+	case *parser.ParenExpr, *parser.StepInvariantExpr:
+		return false
+	case *parser.MatrixSelector:
+		return expressionContainsSubquery(node.VectorSelector)
+	default:
+		return false
 	}
 }

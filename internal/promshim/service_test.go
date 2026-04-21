@@ -79,6 +79,48 @@ func TestQueryRangeExplainReturnsLocalFallbackReason(t *testing.T) {
 	}
 }
 
+func TestQueryRangeExplainBuildsVectorAndRoundPlans(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query=vector(0)&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200 for vector explain, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Plan ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "success" {
+		t.Fatalf("expected success status, got %#v", body)
+	}
+	if body.Data.Plan.Kind != "vector" || body.Data.Plan.Strategy != "local" {
+		t.Fatalf("expected local vector plan, got %#v", body.Data.Plan)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query=round(up)&start=0&end=300&step=30", nil)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200 for round explain, got %d: %s", res.Code, res.Body.String())
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Plan.Kind != "round" || body.Data.Plan.Strategy != "local" {
+		t.Fatalf("expected local round plan, got %#v", body.Data.Plan)
+	}
+}
+
 func TestQueryExplainRejectsMissingQuery(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
@@ -106,13 +148,13 @@ func TestQueryExplainRejectsMissingQuery(t *testing.T) {
 	}
 }
 
-func TestQueryRejectsUnsupportedSubqueryRateWithCleanUserFacingError(t *testing.T) {
+func TestQueryRejectsUnsupportedSubqueryDeltaWithCleanUserFacingError(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=rate(up%5B5m%3A30s%5D)", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=delta(up%5B5m%3A30s%5D)", nil)
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 
@@ -131,11 +173,83 @@ func TestQueryRejectsUnsupportedSubqueryRateWithCleanUserFacingError(t *testing.
 	if body.ErrorType != "unsupported" {
 		t.Fatalf("expected unsupported error type, got %#v", body)
 	}
-	if body.Error != `unsupported PromQL (difficulty=hard): function "rate" with subquery arguments is not implemented yet` {
+	if body.Error != `unsupported PromQL (difficulty=hard): function "delta" with subquery arguments is not implemented yet` {
 		t.Fatalf("unexpected unsupported message: %#v", body)
 	}
 	if strings.Contains(body.Error, "planner cannot build plan") || strings.Contains(body.Error, "call planning") {
 		t.Fatalf("did not expect internal planner context in response: %#v", body)
+	}
+}
+
+func TestQueryRangeExplainBuildsIncreasePlan(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query=increase(up%5B5m%5D)&start=0&end=300&step=60", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Plan ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "success" {
+		t.Fatalf("expected success response, got %#v", body)
+	}
+	if body.Data.Plan.Kind != "increase" || body.Data.Plan.Strategy != "local" {
+		t.Fatalf("expected local increase plan, got %#v", body.Data.Plan)
+	}
+}
+
+func TestQueryExplainBuildsRateAndIratePlansForSubquerySelectors(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testQueries := []string{
+		"rate(sum(up)%5B5m%3A%5D)",
+		"irate(sum(up)%5B5m%3A%5D)",
+	}
+	for _, query := range testQueries {
+		url := "/api/v1/query_explain?query=" + query
+		res := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, url, nil)
+		handler.ServeHTTP(res, req)
+
+		if res.Code != http.StatusOK {
+			t.Fatalf("expected 200 for %q, got %d: %s", query, res.Code, res.Body.String())
+		}
+
+		var body struct {
+			Status string `json:"status"`
+			Data   struct {
+				Plan ExplainNode `json:"plan"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Status != "success" {
+			t.Fatalf("expected success response for %q, got %#v", query, body)
+		}
+		if body.Data.Plan.Strategy != "local" {
+			t.Fatalf("expected local plan for %q, got %#v", query, body.Data.Plan)
+		}
+		if body.Data.Plan.Kind != "rate" && body.Data.Plan.Kind != "irate" {
+			t.Fatalf("expected rate-like plan for %q, got %#v", query, body.Data.Plan)
+		}
 	}
 }
 

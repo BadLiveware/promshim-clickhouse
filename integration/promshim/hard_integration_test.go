@@ -165,7 +165,7 @@ func TestHardAtModifierRangeQuery(t *testing.T) {
 
 func TestHardSubqueryRateLikeFunctionsQuery(t *testing.T) {
 	f := requireFixture(t)
-	for _, fn := range []string{"rate", "irate", "increase", "delta", "idelta", "deriv", "changes"} {
+	for _, fn := range []string{"increase", "delta", "idelta", "deriv", "changes"} {
 		query := fmt.Sprintf("%s(coredns_dns_request_size_bytes_count[5m:30s])", fn)
 		payload, err := f.getJSON("/api/v1/query?query=" + url.QueryEscape(query))
 		if err != nil {
@@ -175,15 +175,41 @@ func TestHardSubqueryRateLikeFunctionsQuery(t *testing.T) {
 	}
 }
 
+func TestHardSubqueryRateAndIrateQueriesNowSupported(t *testing.T) {
+	f := requireFixture(t)
+	for _, fn := range []string{"rate", "irate"} {
+		query := fmt.Sprintf("%s(coredns_dns_request_size_bytes_count[5m:30s])", fn)
+		payload, err := f.getJSON("/api/v1/query?query=" + url.QueryEscape(query))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertEqual(t, payload["status"], "success")
+		requireVectorRows(t, payload)
+	}
+}
+
 func TestHardSubqueryRateLikeFunctionsWrappedInAggregateQuery(t *testing.T) {
 	f := requireFixture(t)
-	for _, fn := range []string{"rate", "irate", "increase", "delta", "idelta", "deriv", "changes"} {
+	for _, fn := range []string{"increase", "delta", "idelta", "deriv", "changes"} {
 		query := fmt.Sprintf("sum(%s(coredns_dns_request_size_bytes_count[5m:30s]))", fn)
 		payload, err := f.getJSON("/api/v1/query?query=" + url.QueryEscape(query))
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertUnsupportedContains(t, payload, "function \""+fn+"\" with subquery arguments")
+	}
+}
+
+func TestHardSubqueryRateAndIrateQueriesWrappedInAggregateNowSupported(t *testing.T) {
+	f := requireFixture(t)
+	for _, fn := range []string{"rate", "irate"} {
+		query := fmt.Sprintf("sum(%s(coredns_dns_request_size_bytes_count[5m:30s]))", fn)
+		payload, err := f.getJSON("/api/v1/query?query=" + url.QueryEscape(query))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertEqual(t, payload["status"], "success")
+		requireVectorRows(t, payload)
 	}
 }
 
@@ -226,7 +252,7 @@ func TestHardQueryRangeRejectsMatrixExpressionType(t *testing.T) {
 
 func TestHardQueryRangeRejectsRateLikeFunctionsWithSubqueryArgs(t *testing.T) {
 	f := requireFixture(t)
-	for _, fn := range []string{"rate", "irate", "increase", "delta", "idelta", "deriv", "changes"} {
+	for _, fn := range []string{"increase", "delta", "idelta", "deriv", "changes"} {
 		query := fmt.Sprintf("%s(coredns_dns_request_size_bytes_count[5m:30s])", fn)
 		payload, err := f.getJSON("/api/v1/query_range?query=" + url.QueryEscape(query) + "&start=2026-04-20T11:33:00Z&end=2026-04-20T11:35:00Z&step=30s")
 		if err != nil {
@@ -236,15 +262,41 @@ func TestHardQueryRangeRejectsRateLikeFunctionsWithSubqueryArgs(t *testing.T) {
 	}
 }
 
+func TestHardQueryRangeRateAndIrateWithSubqueryArgsNowSupported(t *testing.T) {
+	f := requireFixture(t)
+	for _, fn := range []string{"rate", "irate"} {
+		query := fmt.Sprintf("%s(coredns_dns_request_size_bytes_count[5m:30s])", fn)
+		payload, err := f.getJSON("/api/v1/query_range?query=" + url.QueryEscape(query) + "&start=2026-04-20T11:33:00Z&end=2026-04-20T11:35:00Z&step=30s")
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertEqual(t, payload["status"], "success")
+		requireMatrixRows(t, payload)
+	}
+}
+
 func TestHardQueryRangeRejectsRateLikeFunctionsWrappedInAggregateWithSubqueryArgs(t *testing.T) {
 	f := requireFixture(t)
-	for _, fn := range []string{"rate", "irate", "increase", "delta", "idelta", "deriv", "changes"} {
+	for _, fn := range []string{"increase", "delta", "idelta", "deriv", "changes"} {
 		query := fmt.Sprintf("sum(%s(coredns_dns_request_size_bytes_count[5m:30s]))", fn)
 		payload, err := f.getJSON("/api/v1/query_range?query=" + url.QueryEscape(query) + "&start=2026-04-20T11:33:00Z&end=2026-04-20T11:35:00Z&step=30s")
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertUnsupportedContains(t, payload, "function \""+fn+"\" with subquery arguments")
+	}
+}
+
+func TestHardQueryRangeRateAndIrateWrappedInAggregateWithSubqueryArgsNowSupported(t *testing.T) {
+	f := requireFixture(t)
+	for _, fn := range []string{"rate", "irate"} {
+		query := fmt.Sprintf("sum(%s(coredns_dns_request_size_bytes_count[5m:30s]))", fn)
+		payload, err := f.getJSON("/api/v1/query_range?query=" + url.QueryEscape(query) + "&start=2026-04-20T11:33:00Z&end=2026-04-20T11:35:00Z&step=30s")
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertEqual(t, payload["status"], "success")
+		requireMatrixRows(t, payload)
 	}
 }
 

@@ -68,7 +68,7 @@ func AnalyzeDelegatableExpression(expr parser.Expr) SupportResult {
 	case *parser.Call:
 		return analyzeCallExpression(e, AnalyzeDelegatableExpression)
 	case *parser.AggregateExpr:
-		return unsupported(DifficultyMedium, "nested aggregation operators are not implemented yet")
+		return AnalyzeAggregateExpression(e)
 	case *parser.BinaryExpr:
 		return AnalyzeBinaryExpression(e)
 	case *parser.SubqueryExpr:
@@ -86,8 +86,23 @@ func AnalyzeDelegatableExpression(expr parser.Expr) SupportResult {
 
 func analyzeCallExpression(call *parser.Call, recurse func(parser.Expr) SupportResult) SupportResult {
 	name := strings.ToLower(call.Func.Name)
+	if name == "increase" {
+		return AnalyzeIncreaseCall(call)
+	}
+	if name == "vector" {
+		return AnalyzeVectorCall(call)
+	}
+	if name == "round" {
+		return AnalyzeRoundCall(call)
+	}
+	if name == "rate" {
+		return AnalyzeRateCall(call)
+	}
+	if name == "irate" {
+		return AnalyzeIrateCall(call)
+	}
 	if isSupportedLeafFunction(name) {
-		if isDelegationSensitiveRateFunction(name) {
+		if isSubqueryUnsupportedFunction(name) {
 			for _, arg := range call.Args {
 				if containsSubqueryExpr(arg) {
 					return unsupported(DifficultyHard, fmt.Sprintf("function %q with subquery arguments is not implemented yet", name))
@@ -225,6 +240,103 @@ func AnalyzeRangeFunctionCall(name string, call *parser.Call) SupportResult {
 	}
 	if call.Args[0].Type() != parser.ValueTypeMatrix {
 		return unsupported(DifficultyHard, fmt.Sprintf("%s requires a matrix argument", name))
+	}
+	child := AnalyzeExpression(call.Args[0])
+	if !child.Supported {
+		return child
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyHard}
+}
+
+func AnalyzeIncreaseCall(call *parser.Call) SupportResult {
+	if len(call.Args) != 1 {
+		return unsupported(DifficultyHard, "increase requires one argument")
+	}
+	if call.Args[0].Type() != parser.ValueTypeMatrix {
+		return unsupported(DifficultyHard, "increase requires a matrix argument")
+	}
+	if containsSubqueryExpr(call.Args[0]) {
+		return unsupported(DifficultyHard, `function "increase" with subquery arguments is not implemented yet`)
+	}
+	child := AnalyzeExpression(call.Args[0])
+	if !child.Supported {
+		return child
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyMedium}
+}
+
+func AnalyzeRateCall(call *parser.Call) SupportResult {
+	if len(call.Args) != 1 {
+		return unsupported(DifficultyHard, "rate requires one argument")
+	}
+	if call.Args[0].Type() != parser.ValueTypeMatrix {
+		return unsupported(DifficultyHard, "rate requires a matrix argument")
+	}
+	if containsSubqueryExpr(call.Args[0]) {
+		child := AnalyzeExpression(call.Args[0])
+		if !child.Supported {
+			return child
+		}
+		return SupportResult{Supported: true, Difficulty: DifficultyHard}
+	}
+	child := AnalyzeExpression(call.Args[0])
+	if !child.Supported {
+		return child
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyEasy}
+}
+
+func AnalyzeIrateCall(call *parser.Call) SupportResult {
+	if len(call.Args) != 1 {
+		return unsupported(DifficultyHard, "irate requires one argument")
+	}
+	if call.Args[0].Type() != parser.ValueTypeMatrix {
+		return unsupported(DifficultyHard, "irate requires a matrix argument")
+	}
+	if containsSubqueryExpr(call.Args[0]) {
+		child := AnalyzeExpression(call.Args[0])
+		if !child.Supported {
+			return child
+		}
+		return SupportResult{Supported: true, Difficulty: DifficultyHard}
+	}
+	child := AnalyzeExpression(call.Args[0])
+	if !child.Supported {
+		return child
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyEasy}
+}
+
+func AnalyzeVectorCall(call *parser.Call) SupportResult {
+	if len(call.Args) != 1 {
+		return unsupported(DifficultyMedium, "vector requires one argument")
+	}
+	if call.Args[0].Type() != parser.ValueTypeScalar {
+		return unsupported(DifficultyHard, "vector requires a scalar argument")
+	}
+	child := AnalyzeExpression(call.Args[0])
+	if !child.Supported {
+		return child
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyMedium}
+}
+
+func AnalyzeRoundCall(call *parser.Call) SupportResult {
+	if len(call.Args) < 1 || len(call.Args) > 2 {
+		return unsupported(DifficultyMedium, "round requires one or two arguments")
+	}
+	if call.Args[0].Type() != parser.ValueTypeVector {
+		return unsupported(DifficultyHard, "round requires a vector argument")
+	}
+	if len(call.Args) > 1 {
+		n := call.Args[1]
+		if n.Type() != parser.ValueTypeScalar {
+			return unsupported(DifficultyHard, "round requires scalar second argument")
+		}
+		child := AnalyzeExpression(n)
+		if !child.Supported {
+			return child
+		}
 	}
 	child := AnalyzeExpression(call.Args[0])
 	if !child.Supported {
@@ -449,9 +561,9 @@ func isSupportedLeafFunction(name string) bool {
 	}
 }
 
-func isDelegationSensitiveRateFunction(name string) bool {
+func isSubqueryUnsupportedFunction(name string) bool {
 	switch name {
-	case "rate", "irate", "increase", "delta", "idelta", "deriv", "changes":
+	case "increase", "delta", "idelta", "deriv", "changes":
 		return true
 	default:
 		return false

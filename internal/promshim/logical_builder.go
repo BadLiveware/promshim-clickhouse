@@ -36,6 +36,12 @@ type logicalRatePlan = plan.LogicalRatePlan
 
 type logicalIncreasePlan = plan.LogicalIncreasePlan
 
+type logicalDeltaPlan = plan.LogicalDeltaPlan
+
+type logicalChangesPlan = plan.LogicalChangesPlan
+
+type logicalDerivPlan = plan.LogicalDerivPlan
+
 type logicalQuantileOverTimePlan = plan.LogicalQuantileOverTimePlan
 
 type logicalAbsentPlan = plan.LogicalAbsentPlan
@@ -253,6 +259,46 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 			return nil, withInternalContext(err, "building logical child plan for increase %q", call.String())
 		}
 		return &logicalIncreasePlan{Expr: call, Child: child}, nil
+	case "delta", "idelta":
+		analyze := plan.AnalyzeDeltaCall
+		if name == "idelta" {
+			analyze = plan.AnalyzeIDeltaCall
+		}
+		if result := analyze(call); !result.Supported {
+			return nil, newPlanBuildError(call, result, "call planning")
+		}
+		if !expressionContainsSubquery(call.Args[0]) {
+			return buildLogicalDelegatedLeaf(call)
+		}
+		child, err := buildLogicalPlan(call.Args[0])
+		if err != nil {
+			return nil, withInternalContext(err, "building logical child plan for %s %q", name, call.String())
+		}
+		return &logicalDeltaPlan{Expr: call, Func: name, Child: child}, nil
+	case "changes":
+		if result := plan.AnalyzeChangesCall(call); !result.Supported {
+			return nil, newPlanBuildError(call, result, "call planning")
+		}
+		if !expressionContainsSubquery(call.Args[0]) {
+			return buildLogicalDelegatedLeaf(call)
+		}
+		child, err := buildLogicalPlan(call.Args[0])
+		if err != nil {
+			return nil, withInternalContext(err, "building logical child plan for changes %q", call.String())
+		}
+		return &logicalChangesPlan{Expr: call, Child: child}, nil
+	case "deriv":
+		if result := plan.AnalyzeDerivCall(call); !result.Supported {
+			return nil, newPlanBuildError(call, result, "call planning")
+		}
+		if !expressionContainsSubquery(call.Args[0]) {
+			return buildLogicalDelegatedLeaf(call)
+		}
+		child, err := buildLogicalPlan(call.Args[0])
+		if err != nil {
+			return nil, withInternalContext(err, "building logical child plan for deriv %q", call.String())
+		}
+		return &logicalDerivPlan{Expr: call, Child: child}, nil
 	case "last_over_time", "sum_over_time", "avg_over_time", "max_over_time", "min_over_time", "count_over_time":
 		if result := plan.AnalyzeRangeFunctionCall(name, call); !result.Supported {
 			return nil, newPlanBuildError(call, result, "call planning")

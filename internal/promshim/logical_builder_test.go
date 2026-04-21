@@ -162,6 +162,25 @@ func TestBuildLogicalPlanCreatesIncreasePlan(t *testing.T) {
 	}
 }
 
+func TestBuildLogicalPlanCreatesIncreasePlanForSubqueryArg(t *testing.T) {
+	expr, err := plan.ParseExpression("increase(sum(up)[5m:])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logical, err := buildLogicalPlan(expr)
+	if err != nil {
+		t.Fatalf("expected logical increase plan, got error: %v", err)
+	}
+	increasePlan, ok := logical.(*logicalIncreasePlan)
+	if !ok {
+		t.Fatalf("expected logicalIncreasePlan, got %T", logical)
+	}
+	if _, ok := increasePlan.Child.(*logicalSubqueryPlan); !ok {
+		t.Fatalf("expected logical subquery child, got %T", increasePlan.Child)
+	}
+}
+
 func TestBuildLogicalPlanCreatesRatePlanForSubqueryArg(t *testing.T) {
 	expr, err := plan.ParseExpression("rate(sum(up)[5m:])")
 	if err != nil {
@@ -206,15 +225,85 @@ func TestBuildLogicalPlanCreatesIratePlanForSubqueryArg(t *testing.T) {
 	}
 }
 
-func TestBuildLogicalPlanRejectsSubqueryDeltaWithCleanError(t *testing.T) {
-	expr, err := plan.ParseExpression("delta(up[5m:30s])")
+func TestBuildLogicalPlanCreatesDeltaPlanForSubqueryArg(t *testing.T) {
+	expr, err := plan.ParseExpression("delta(sum(up)[5m:])")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = buildLogicalPlan(expr)
-	if err == nil {
-		t.Fatal("expected unsupported delta(subquery) plan build error")
+	logical, err := buildLogicalPlan(expr)
+	if err != nil {
+		t.Fatalf("expected logical delta plan, got error: %v", err)
+	}
+	deltaPlan, ok := logical.(*logicalDeltaPlan)
+	if !ok {
+		t.Fatalf("expected logicalDeltaPlan, got %T", logical)
+	}
+	if deltaPlan.Func != "delta" {
+		t.Fatalf("expected function delta, got %q", deltaPlan.Func)
+	}
+	if _, ok := deltaPlan.Child.(*logicalSubqueryPlan); !ok {
+		t.Fatalf("expected logical subquery child, got %T", deltaPlan.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesIDeltaPlanForSubqueryArg(t *testing.T) {
+	expr, err := plan.ParseExpression("idelta(sum(up)[5m:])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logical, err := buildLogicalPlan(expr)
+	if err != nil {
+		t.Fatalf("expected logical idelta plan, got error: %v", err)
+	}
+	deltaPlan, ok := logical.(*logicalDeltaPlan)
+	if !ok {
+		t.Fatalf("expected logicalDeltaPlan, got %T", logical)
+	}
+	if deltaPlan.Func != "idelta" {
+		t.Fatalf("expected function idelta, got %q", deltaPlan.Func)
+	}
+	if _, ok := deltaPlan.Child.(*logicalSubqueryPlan); !ok {
+		t.Fatalf("expected logical subquery child, got %T", deltaPlan.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesChangesPlanForSubqueryArg(t *testing.T) {
+	expr, err := plan.ParseExpression("changes(sum(up)[5m:])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logical, err := buildLogicalPlan(expr)
+	if err != nil {
+		t.Fatalf("expected logical changes plan, got error: %v", err)
+	}
+	changesPlan, ok := logical.(*logicalChangesPlan)
+	if !ok {
+		t.Fatalf("expected logicalChangesPlan, got %T", logical)
+	}
+	if _, ok := changesPlan.Child.(*logicalSubqueryPlan); !ok {
+		t.Fatalf("expected logical subquery child, got %T", changesPlan.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesDerivPlanForSubqueryArg(t *testing.T) {
+	expr, err := plan.ParseExpression("deriv(sum(up)[5m:])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logical, err := buildLogicalPlan(expr)
+	if err != nil {
+		t.Fatalf("expected logical deriv plan, got error: %v", err)
+	}
+	derivPlan, ok := logical.(*logicalDerivPlan)
+	if !ok {
+		t.Fatalf("expected logicalDerivPlan, got %T", logical)
+	}
+	if _, ok := derivPlan.Child.(*logicalSubqueryPlan); !ok {
+		t.Fatalf("expected logical subquery child, got %T", derivPlan.Child)
 	}
 }
 

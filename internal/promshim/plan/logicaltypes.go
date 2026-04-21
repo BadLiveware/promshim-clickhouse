@@ -266,6 +266,70 @@ func (p *LogicalIncreasePlan) exprString() string {
 }
 func (p *LogicalIncreasePlan) ExprString() string { return p.exprString() }
 
+type LogicalDeltaPlan struct {
+	Expr  parser.Expr
+	Func  string
+	Child LogicalPlan
+}
+
+func (*LogicalDeltaPlan) logicalPlan() {}
+func (p *LogicalDeltaPlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalDeltaPlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalDeltaPlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalDeltaPlan) ExprString() string { return p.exprString() }
+
+type LogicalChangesPlan struct {
+	Expr  parser.Expr
+	Child LogicalPlan
+}
+
+func (*LogicalChangesPlan) logicalPlan() {}
+func (p *LogicalChangesPlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalChangesPlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalChangesPlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalChangesPlan) ExprString() string { return p.exprString() }
+
+type LogicalDerivPlan struct {
+	Expr  parser.Expr
+	Child LogicalPlan
+}
+
+func (*LogicalDerivPlan) logicalPlan() {}
+func (p *LogicalDerivPlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalDerivPlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalDerivPlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalDerivPlan) ExprString() string { return p.exprString() }
+
 type LogicalQuantileOverTimePlan struct {
 	Expr     parser.Expr
 	Quantile float64

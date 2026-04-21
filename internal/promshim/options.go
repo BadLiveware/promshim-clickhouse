@@ -28,6 +28,8 @@ type Options struct {
 	RangeChunkPointsPerSeries int64
 	MaxResponseSeries         int64
 	MaxResponsePoints         int64
+
+	DisableEntireQueryDelegation bool
 }
 
 func LoadOptionsFromEnv() (Options, error) {

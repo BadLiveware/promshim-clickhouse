@@ -4,10 +4,11 @@ Runs the upstream Prometheus PromQL compliance suite against promshim and refere
 
 ## Layout
 
-- `docker-compose.yml` — ClickHouse 26.3, Prometheus 2.53.0 (reference), promshim.
+- `docker-compose.yml` — ClickHouse 26.3, Prometheus 3.5.2 (LTS, reference), promshim.
 - `prom-compliance/` — submodule; upstream `prometheus/compliance` tester.
 - `test-promshim.yml` — tester config (endpoints, query window, tweaks).
 - `scripts/run-compliance.sh` — runs the suite, emits JSON report to `artifacts/`.
+- `scripts/patch-queries-for-prom3.py` — generates `artifacts/patched-queries.yml` from the upstream corpus, dropping `should_fail: true` markers on entries that Prom 3.x now accepts (UTF-8 label names). Upstream's corpus was last refreshed for Prom 2.26, so the tester would otherwise hard-abort at comparer.go:95 the moment such a query returns success.
 - `scripts/classify-failures.sh` — buckets failures by pattern (regex-matched in the script).
 
 ## Running
@@ -23,9 +24,7 @@ The tester hits `29090` (Prom reference) and `29091` (promshim) with a pinned en
 
 ## Current state — 536/539 passing (99.4%)
 
-The remaining 3 failures are documented below. All are tracked as **known limitations** rather than bugs in the shim.
-
-The topk tie-break failure is also encoded in `expected-failures.json` and asserted by `scripts/reconcile-expected.sh` after every compliance run — that matcher is intentionally narrow (exact query + specific diff substrings) so any drift (shape change, new failure, or the expected failure disappearing) surfaces as a regression rather than being silently absorbed.
+The remaining 3 failures are documented below. All are tracked as **known limitations** rather than bugs in the shim and encoded in `expected-failures.json`; `scripts/reconcile-expected.sh` asserts them after every run. The matchers are intentionally narrow (exact query + specific diff substrings where applicable) so any drift — new failure, shape change, or the expected failure disappearing — surfaces as a regression rather than being silently absorbed.
 
 ### 1. topk tie-break ordering (1 failure)
 
@@ -54,6 +53,18 @@ Both return correct results but exceed the compliance tester's hard-coded 10s HT
 **Expected to retire along two axes:**
 1. **Shim-side (rung 2 coverage):** teach native SQL to transpile these subquery shapes into a single ClickHouse query (no fan-out). Aligns with the shim's strategic intent — move queries from rung 3 (subtree+local) up to rung 2 (native SQL).
 2. **Upstream (rung 1 coverage):** as ClickHouse's `prometheusQueryRange` verifies parity on these constructs, the whole-query classifier adds them to the allowlist and they graduate to rung 1 — the shim stops touching them.
+
+### 3. UTF-8 label-name destinations in `label_replace` / `label_join` (no failures; allowlisted unsupported)
+
+**Queries:**
+- `label_replace(demo_num_cpus, "~invalid", "", "src", "(.*)")`
+- `label_join(demo_num_cpus, "~invalid", "-", "instance")`
+
+Under Prom 2.x both queries errored (invalid label name). Prom 3.x relaxed label names to full UTF-8, so both now succeed. The shim still rejects `~invalid` with `bad_data: invalid destination label name`, which is why these show up as unexpected-failure diffs rather than passes.
+
+Since the upstream corpus's `should_fail: true` markers reflect Prom 2.x behavior, `scripts/patch-queries-for-prom3.py` strips the markers from these two entries at the start of every run (otherwise the tester hard-aborts at comparer.go:95). The resulting unexpected-failure rows are then matched by `expected-failures.json`.
+
+**Impact.** 2/539 = 0.4%. Will retire when the shim implements Prom 3.x UTF-8 label-name support.
 
 ## Fixture
 

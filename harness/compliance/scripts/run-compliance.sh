@@ -14,12 +14,21 @@ fi
 OUTPUT_DIR="${ROOT}/artifacts"
 mkdir -p "$OUTPUT_DIR"
 
+# The upstream corpus was last updated for Prom 2.26. A few `should_fail`
+# entries no longer fail under Prom 3.x, and the tester hard-aborts at
+# comparer.go:95 when that happens. Generate a patched copy for each run.
+PATCHED_QUERIES="${OUTPUT_DIR}/patched-queries.yml"
+echo ">> Patching upstream corpus for Prom 3.x compatibility → ${PATCHED_QUERIES}"
+python3 "${ROOT}/scripts/patch-queries-for-prom3.py" \
+  --input "${SUBMODULE}/promql-test-queries.yml" \
+  --output "${PATCHED_QUERIES}"
+
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 OUTPUT_FILE="${OUTPUT_DIR}/compliance-report-${STAMP}.json"
 
 echo ">> Running compliance tester → ${OUTPUT_FILE}"
 "$TESTER" \
-  -config-file="${SUBMODULE}/promql-test-queries.yml" \
+  -config-file="${PATCHED_QUERIES}" \
   -config-file="${ROOT}/test-promshim.yml" \
   -output-format=json \
   -output-passing \

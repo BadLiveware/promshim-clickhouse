@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"ch-observability/internal/promshim/native/sqlb"
+	"ch-observability/internal/promshim/storage/schema"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -66,7 +67,7 @@ func buildInfoJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL string,
 		outer := &sqlb.Select{
 			Columns: []sqlb.ColExpr{
 				{Expr: sqlb.Ident("result_tags"), Alias: "tags"},
-				{Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((timestamp, value)))"}, Alias: "time_series"},
+				{Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"},
 			},
 			From:    sqlb.SubSelect{S: grouped},
 			GroupBy: []sqlb.Expr{sqlb.Ident("result_tags")},
@@ -76,7 +77,7 @@ func buildInfoJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL string,
 		if err != nil {
 			return "", nil, err
 		}
-		return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", params, nil
+		return sql + schema.QuerySuffix, params, nil
 	}
 
 	outer := &sqlb.Select{
@@ -93,7 +94,7 @@ func buildInfoJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL string,
 	if err != nil {
 		return "", nil, err
 	}
-	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", params, nil
+	return sql + schema.QuerySuffix, params, nil
 }
 
 func buildInfoJoinResultTagsExpr(cfg InfoJoinConfig) sqlb.Expr {
@@ -104,7 +105,7 @@ func buildInfoJoinResultTagsExpr(cfg InfoJoinConfig) sqlb.Expr {
 		condition += " AND has(" + sqlStringArrayLiteral(cfg.CopyLabelNames) + ", tag.1)"
 	}
 	filteredRHS := sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> " + condition}, sqlb.Ident("rhs.original_group")}}
-	merged := sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> tag.1"}, sqlb.Call{Name: "arrayConcat", Args: []sqlb.Expr{sqlb.Ident("lhs.original_group"), filteredRHS}}}}
+	merged := sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")}, sqlb.Call{Name: "arrayConcat", Args: []sqlb.Expr{sqlb.Ident("lhs.original_group"), filteredRHS}}}}
 	return sqlb.Call{Name: "if", Args: []sqlb.Expr{sqlb.RawLit{V: "length(rhs.original_group) = 0"}, sqlb.Ident("lhs.original_group"), merged}}
 }
 

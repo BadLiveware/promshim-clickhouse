@@ -3,107 +3,131 @@ package renderer
 import (
 	"ch-observability/internal/promshim/native"
 	"fmt"
-	"strconv"
 
+	"ch-observability/internal/promshim/native/sqlb"
 	"ch-observability/internal/promshim/storage"
+	"ch-observability/internal/promshim/storage/schema"
 )
 
-func renderSourceFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderSourceFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
 	source, err := renderAggregationSource(fragment, params)
 	if err != nil {
-		return RenderedQuery{}, err
+		return renderedFragment{}, err
 	}
 	switch params.Mode {
 	case native.RenderModeInstant:
 		if source.Selector != nil {
 			sql, queryParams, err := storage.BuildInstantSelectorQuerySQL(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS)
 			if err != nil {
-				return RenderedQuery{}, err
+				return renderedFragment{}, err
 			}
 			if sourceWrapperIsIdentity(fragment) {
-				return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
+				return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 			}
 			wrappedSQL, err := wrapInstantSourceQuery(sql, fragment.ValueExpr, fragment.TagsExpr)
 			if err != nil {
-				return RenderedQuery{}, err
+				return renderedFragment{}, err
 			}
-			return RenderedQuery{SQL: wrappedSQL, QueryParams: queryParams}, nil
+			return renderedFragment{RawSQL: trimRenderedQuerySQL(wrappedSQL), ExtraParams: queryParams}, nil
 		}
 		if params.ResolveSourcePromQL == nil || fragment.SourcePromQL == nil {
-			return RenderedQuery{}, fmt.Errorf("native fragment render requires a source PromQL resolver")
+			return renderedFragment{}, fmt.Errorf("native fragment render requires a source PromQL resolver")
 		}
 		promQL, err := params.ResolveSourcePromQL(fragment.SourcePromQL)
 		if err != nil {
-			return RenderedQuery{}, err
+			return renderedFragment{}, err
 		}
 		sql, queryParams := storage.BuildInstantQuerySQL(cfg, promQL, params.EvaluationTimeMS)
 		wrappedSQL, err := wrapInstantSourceQuery(sql, fragment.ValueExpr, fragment.TagsExpr)
 		if err != nil {
-			return RenderedQuery{}, err
+			return renderedFragment{}, err
 		}
-		return RenderedQuery{SQL: wrappedSQL, QueryParams: queryParams}, nil
+		return renderedFragment{RawSQL: trimRenderedQuerySQL(wrappedSQL), ExtraParams: queryParams}, nil
 	case native.RenderModeRange:
 		if source.Selector != nil {
 			sql, queryParams, err := storage.BuildRangeSelectorQuerySQL(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS, params.StartMS, params.EndMS, params.StepMS)
 			if err != nil {
-				return RenderedQuery{}, err
+				return renderedFragment{}, err
 			}
 			if sourceWrapperIsIdentity(fragment) {
-				return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
+				return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 			}
 			wrappedSQL, err := wrapRangeSourceQuery(sql, fragment.ValueExpr, fragment.TagsExpr)
 			if err != nil {
-				return RenderedQuery{}, err
+				return renderedFragment{}, err
 			}
-			return RenderedQuery{SQL: wrappedSQL, QueryParams: queryParams}, nil
+			return renderedFragment{RawSQL: trimRenderedQuerySQL(wrappedSQL), ExtraParams: queryParams}, nil
 		}
 		if params.ResolveSourcePromQL == nil || fragment.SourcePromQL == nil {
-			return RenderedQuery{}, fmt.Errorf("native fragment render requires a source PromQL resolver")
+			return renderedFragment{}, fmt.Errorf("native fragment render requires a source PromQL resolver")
 		}
 		promQL, err := params.ResolveSourcePromQL(fragment.SourcePromQL)
 		if err != nil {
-			return RenderedQuery{}, err
+			return renderedFragment{}, err
 		}
 		sql, queryParams := storage.BuildRangeQuerySQL(cfg, promQL, params.StartMS, params.EndMS, params.StepMS)
 		wrappedSQL, err := wrapRangeSourceQuery(sql, fragment.ValueExpr, fragment.TagsExpr)
 		if err != nil {
-			return RenderedQuery{}, err
+			return renderedFragment{}, err
 		}
-		return RenderedQuery{SQL: wrappedSQL, QueryParams: queryParams}, nil
+		return renderedFragment{RawSQL: trimRenderedQuerySQL(wrappedSQL), ExtraParams: queryParams}, nil
 	default:
-		return RenderedQuery{}, fmt.Errorf("unknown render mode %q", params.Mode)
+		return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
 	}
 }
 
-func renderSyntheticFragment(fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderSyntheticFragment(fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
 	if fragment == nil || fragment.Synthetic == nil {
-		return RenderedQuery{}, fmt.Errorf("synthetic series fragment is missing synthetic metadata")
+		return renderedFragment{}, fmt.Errorf("synthetic series fragment is missing synthetic metadata")
 	}
-	queryParams := map[string]string{}
+	emptyTags := schema.EmptyTagsArrayExpr()
 	switch params.Mode {
 	case native.RenderModeInstant:
 		valueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic.Func, "{evaluation_ms:Int64}")
 		if err != nil {
-			return RenderedQuery{}, err
+			return renderedFragment{}, err
 		}
-		queryParams["param_evaluation_ms"] = strconv.FormatInt(params.EvaluationTimeMS, 10)
-		sql := "SELECT CAST([], 'Array(Tuple(String, String))') AS tags, fromUnixTimestamp64Milli({evaluation_ms:Int64}) AS timestamp, " + valueSQL + " AS value\nFORMAT JSONEachRow\n"
-		return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
+		evalParam := sqlb.Param{Name: "evaluation_ms", Type: "Int64", V: params.EvaluationTimeMS}
+		return renderedFragment{Select: &sqlb.Select{
+			Columns: []sqlb.ColExpr{
+				{Expr: emptyTags, Alias: "tags"},
+				{Expr: sqlb.Call{Name: "fromUnixTimestamp64Milli", Args: []sqlb.Expr{evalParam}}, Alias: "timestamp"},
+				{Expr: sqlb.RawLit{V: valueSQL}, Alias: "value"},
+			},
+		}}, nil
 	case native.RenderModeRange:
 		if params.StepMS <= 0 {
-			return RenderedQuery{}, fmt.Errorf("synthetic range render requires a positive step")
+			return renderedFragment{}, fmt.Errorf("synthetic range render requires a positive step")
 		}
 		valueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic.Func, "ts_ms")
 		if err != nil {
-			return RenderedQuery{}, err
+			return renderedFragment{}, err
 		}
-		queryParams["param_start_ms"] = strconv.FormatInt(params.StartMS, 10)
-		queryParams["param_end_ms"] = strconv.FormatInt(params.EndMS, 10)
-		queryParams["param_step_ms"] = strconv.FormatInt(params.StepMS, 10)
-		sql := "SELECT CAST([], 'Array(Tuple(String, String))') AS tags, arrayMap(ts_ms -> (fromUnixTimestamp64Milli(ts_ms), " + valueSQL + "), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64})) AS time_series\nFORMAT JSONEachRow\n"
-		return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
+		startParam := sqlb.Param{Name: "start_ms", Type: "Int64", V: params.StartMS}
+		endParam := sqlb.Param{Name: "end_ms", Type: "Int64", V: params.EndMS}
+		stepParam := sqlb.Param{Name: "step_ms", Type: "Int64", V: params.StepMS}
+		timeSeriesExpr := sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{
+			sqlb.Lambda{
+				Params: []sqlb.Ident{"ts_ms"},
+				Body: sqlb.Tuple{Elems: []sqlb.Expr{
+					sqlb.Call{Name: "fromUnixTimestamp64Milli", Args: []sqlb.Expr{sqlb.Ident("ts_ms")}},
+					sqlb.RawLit{V: valueSQL},
+				}},
+			},
+			sqlb.Call{Name: "range", Args: []sqlb.Expr{
+				startParam,
+				sqlb.Binary{Op: "+", L: endParam, R: stepParam},
+				stepParam,
+			}},
+		}}
+		return renderedFragment{Select: &sqlb.Select{
+			Columns: []sqlb.ColExpr{
+				{Expr: emptyTags, Alias: "tags"},
+				{Expr: timeSeriesExpr, Alias: "time_series"},
+			},
+		}}, nil
 	default:
-		return RenderedQuery{}, fmt.Errorf("unknown render mode %q", params.Mode)
+		return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
 	}
 }
 
@@ -135,37 +159,96 @@ func syntheticSeriesValueSQL(name, tsMSExpr string) (string, error) {
 	}
 }
 
-func renderScalarConvertFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderScalarConvertFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
 	if fragment == nil || fragment.ScalarConvert == nil || fragment.ScalarConvert.Child == nil {
-		return RenderedQuery{}, fmt.Errorf("scalar convert fragment is missing child metadata")
+		return renderedFragment{}, fmt.Errorf("scalar convert fragment is missing child metadata")
 	}
-	childSQL, childParams, err := renderFragmentSubquery(cfg, fragment.ScalarConvert.Child, params, "scalar_child")
+	childSource, childParams, err := renderChildAsSource(cfg, fragment.ScalarConvert.Child, params, "scalar_child")
 	if err != nil {
-		return RenderedQuery{}, err
+		return renderedFragment{}, err
 	}
-	queryParams := map[string]string{}
-	for key, value := range childParams {
-		queryParams[key] = value
-	}
+	emptyTags := schema.EmptyTagsArrayExpr()
 	switch params.Mode {
 	case native.RenderModeInstant:
-		queryParams["param_evaluation_ms"] = strconv.FormatInt(params.EvaluationTimeMS, 10)
-		sql := "SELECT CAST([], 'Array(Tuple(String, String))') AS tags, fromUnixTimestamp64Milli({evaluation_ms:Int64}) AS timestamp, if(count() = 1, any(value), nan) AS value FROM (" + childSQL + ") AS scalar_child\nFORMAT JSONEachRow\n"
-		return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
+		evalParam := sqlb.Param{Name: "evaluation_ms", Type: "Int64", V: params.EvaluationTimeMS}
+		valueExpr := sqlb.Call{Name: "if", Args: []sqlb.Expr{
+			sqlb.RawLit{V: "count() = 1"},
+			sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("value")}},
+			sqlb.RawLit{V: "nan"},
+		}}
+		return renderedFragment{
+			Select: &sqlb.Select{
+				Columns: []sqlb.ColExpr{
+					{Expr: emptyTags, Alias: "tags"},
+					{Expr: sqlb.Call{Name: "fromUnixTimestamp64Milli", Args: []sqlb.Expr{evalParam}}, Alias: "timestamp"},
+					{Expr: valueExpr, Alias: "value"},
+				},
+				From: childSource,
+			},
+			ExtraParams: childParams,
+		}, nil
 	case native.RenderModeRange:
-		queryParams["param_start_ms"] = strconv.FormatInt(params.StartMS, 10)
-		queryParams["param_end_ms"] = strconv.FormatInt(params.EndMS, 10)
-		queryParams["param_step_ms"] = strconv.FormatInt(params.StepMS, 10)
-		sql := "SELECT CAST([], 'Array(Tuple(String, String))') AS tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series FROM (" +
-			"SELECT grid.timestamp AS timestamp, if(ifNull(scalar_values.sample_count, 0) = 1, scalar_values.any_value, nan) AS value FROM (" +
-			"SELECT arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS timestamp" +
-			") AS grid LEFT JOIN (" +
-			"SELECT point.1 AS timestamp, count() AS sample_count, any(point.2) AS any_value FROM (" + childSQL + ") AS scalar_child ARRAY JOIN scalar_child.time_series AS point GROUP BY point.1" +
-			") AS scalar_values ON scalar_values.timestamp = grid.timestamp ORDER BY timestamp" +
-			")\nFORMAT JSONEachRow\n"
-		return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
+		startParam := sqlb.Param{Name: "start_ms", Type: "Int64", V: params.StartMS}
+		endParam := sqlb.Param{Name: "end_ms", Type: "Int64", V: params.EndMS}
+		stepParam := sqlb.Param{Name: "step_ms", Type: "Int64", V: params.StepMS}
+
+		gridTimestampExpr := sqlb.Call{Name: "arrayJoin", Args: []sqlb.Expr{
+			sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{
+				sqlb.Lambda{Params: []sqlb.Ident{"ts_ms"}, Body: sqlb.Call{Name: "fromUnixTimestamp64Milli", Args: []sqlb.Expr{sqlb.Ident("ts_ms")}}},
+				sqlb.Call{Name: "range", Args: []sqlb.Expr{startParam, sqlb.Binary{Op: "+", L: endParam, R: stepParam}, stepParam}},
+			}},
+		}}
+		grid := &sqlb.Select{Columns: []sqlb.ColExpr{{Expr: gridTimestampExpr, Alias: "timestamp"}}}
+
+		scalarValues := &sqlb.Select{
+			Columns: []sqlb.ColExpr{
+				{Expr: sqlb.RawLit{V: "point.1"}, Alias: "timestamp"},
+				{Expr: sqlb.Call{Name: "count"}, Alias: "sample_count"},
+				{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.RawLit{V: "point.2"}}}, Alias: "any_value"},
+			},
+			From: sqlb.ArrayJoin{
+				Base:  childSource,
+				Expr:  sqlb.RawLit{V: "scalar_child.time_series"},
+				Alias: "point",
+			},
+			GroupBy: []sqlb.Expr{sqlb.RawLit{V: "point.1"}},
+		}
+
+		middleValue := sqlb.Call{Name: "if", Args: []sqlb.Expr{
+			sqlb.RawLit{V: "ifNull(scalar_values.sample_count, 0) = 1"},
+			sqlb.RawLit{V: "scalar_values.any_value"},
+			sqlb.RawLit{V: "nan"},
+		}}
+		middle := &sqlb.Select{
+			Columns: []sqlb.ColExpr{
+				{Expr: sqlb.RawLit{V: "grid.timestamp"}, Alias: "timestamp"},
+				{Expr: middleValue, Alias: "value"},
+			},
+			From: sqlb.Join{
+				Kind:  "LEFT",
+				Left:  sqlb.SubSelect{S: grid, Alias: "grid"},
+				Right: sqlb.SubSelect{S: scalarValues, Alias: "scalar_values"},
+				On:    sqlb.RawLit{V: "scalar_values.timestamp = grid.timestamp"},
+			},
+			OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("timestamp")}},
+		}
+
+		timeSeriesExpr := sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
+			sqlb.RawLit{V: "item -> item.1"},
+			sqlb.Call{Name: "groupArray", Args: []sqlb.Expr{sqlb.Tuple{Elems: []sqlb.Expr{sqlb.Ident("timestamp"), sqlb.Ident("value")}}}},
+		}}
+		return renderedFragment{
+			Select: &sqlb.Select{
+				Columns: []sqlb.ColExpr{
+					{Expr: emptyTags, Alias: "tags"},
+					{Expr: timeSeriesExpr, Alias: "time_series"},
+				},
+				From: sqlb.SubSelect{S: middle},
+			},
+			ExtraParams: childParams,
+		}, nil
 	default:
-		return RenderedQuery{}, fmt.Errorf("unknown render mode %q", params.Mode)
+		return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
 	}
 }
 

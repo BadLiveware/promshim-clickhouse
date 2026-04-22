@@ -256,14 +256,19 @@ func (s Subscr) writeExpr(ctx *buildCtx) {
 }
 
 func (l Lambda) writeExpr(ctx *buildCtx) {
-	ctx.write("(")
-	for i, param := range l.Params {
-		if i > 0 {
-			ctx.write(", ")
+	if len(l.Params) == 1 {
+		ctx.write(string(l.Params[0]))
+	} else {
+		ctx.write("(")
+		for i, param := range l.Params {
+			if i > 0 {
+				ctx.write(", ")
+			}
+			ctx.write(string(param))
 		}
-		ctx.write(string(param))
+		ctx.write(")")
 	}
-	ctx.write(") -> ")
+	ctx.write(" -> ")
 	writeExpr(ctx, l.Body)
 }
 

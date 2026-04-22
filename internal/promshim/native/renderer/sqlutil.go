@@ -8,13 +8,14 @@ import (
 
 	"ch-observability/internal/promshim/native/sqlb"
 	"ch-observability/internal/promshim/storage"
+	"ch-observability/internal/promshim/storage/schema"
 
 	"github.com/prometheus/prometheus/model/labels"
 )
 
 func outputMetricTagsSQL(metric map[string]string) string {
 	if len(metric) == 0 {
-		return "CAST([], 'Array(Tuple(String, String))')"
+		return "CAST([], '" + schema.TagsArrayType + "')"
 	}
 	keys := make([]string, 0, len(metric))
 	for key := range metric {
@@ -25,7 +26,7 @@ func outputMetricTagsSQL(metric map[string]string) string {
 	for _, key := range keys {
 		items = append(items, "tuple("+sqlStringLiteral(key)+", "+sqlStringLiteral(metric[key])+")")
 	}
-	return "CAST([" + strings.Join(items, ", ") + "], 'Array(Tuple(String, String))')"
+	return "CAST([" + strings.Join(items, ", ") + "], '" + schema.TagsArrayType + "')"
 }
 
 func sqlStringLiteral(value string) string {
@@ -46,7 +47,7 @@ func buildNativeWrapperSQL(query *sqlb.Select) (string, error) {
 	if len(params) != 0 {
 		return "", fmt.Errorf("native wrapper SQL unexpectedly produced params: %#v", params)
 	}
-	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", nil
+	return sql + schema.QuerySuffix, nil
 }
 
 func renderSQLExprNoParams(expr sqlb.Expr) string {

@@ -11,6 +11,7 @@ import (
 
 	modelpkg "ch-observability/internal/promshim/model"
 	"ch-observability/internal/promshim/native/sqlb"
+	"ch-observability/internal/promshim/storage/schema"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -51,7 +52,7 @@ func BuildInstantQuerySQL(cfg QueryConfig, promql string, evaluationTimeMS int64
 	params["param_table"] = cfg.Table
 	params["param_promql"] = promql
 	params["param_evaluation_ms"] = strconv.FormatInt(evaluationTimeMS, 10)
-	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", params
+	return sql + schema.QuerySuffix, params
 }
 
 func BuildRangeQuerySQL(cfg QueryConfig, promql string, startMS, endMS, stepMS int64) (string, map[string]string) {
@@ -76,7 +77,7 @@ func BuildRangeQuerySQL(cfg QueryConfig, promql string, startMS, endMS, stepMS i
 	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
 	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
 	params["param_step_ms"] = strconv.FormatInt(stepMS, 10)
-	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", params
+	return sql + schema.QuerySuffix, params
 }
 
 func BuildInstantAggregationQuerySQL(cfg QueryConfig, source AggregationSource, evaluationTimeMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
@@ -119,7 +120,7 @@ func BuildInstantAggregationOverSubquerySQL(source AggregationSource, sourceSQL 
 	for key, value := range params {
 		clonedParams[key] = value
 	}
-	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", clonedParams, nil
+	return sql + schema.QuerySuffix, clonedParams, nil
 }
 
 func BuildRangeAggregationQuerySQL(cfg QueryConfig, source AggregationSource, startMS, endMS, stepMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
@@ -154,7 +155,7 @@ func BuildRangeAggregationOverSubquerySQL(source AggregationSource, sourceSQL st
 		GroupBy: []sqlb.Expr{sqlb.Ident("grouping_tags"), sqlb.Ident("timestamp")},
 	}
 	outer := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((timestamp, value)))"}, Alias: "time_series"}},
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"}},
 		From:    sqlb.SubSelect{S: grouped},
 		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}},
@@ -167,7 +168,7 @@ func BuildRangeAggregationOverSubquerySQL(source AggregationSource, sourceSQL st
 	for key, value := range params {
 		clonedParams[key] = value
 	}
-	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", clonedParams, nil
+	return sql + schema.QuerySuffix, clonedParams, nil
 }
 
 func BuildLabelsQuery(cfg QueryConfig, request *http.Request) (string, map[string]string, error) {
@@ -189,7 +190,7 @@ func BuildLabelsQuery(cfg QueryConfig, request *http.Request) (string, map[strin
 	if err != nil {
 		return "", nil, err
 	}
-	return sql + "\nFORMAT JSONEachRow\n", params, nil
+	return sql + schema.FormatSuffix, params, nil
 }
 
 func BuildLabelValuesQuery(cfg QueryConfig, request *http.Request, labelName string) (string, map[string]string, error) {
@@ -213,7 +214,7 @@ func BuildLabelValuesQuery(cfg QueryConfig, request *http.Request, labelName str
 	if err != nil {
 		return "", nil, err
 	}
-	return sql + "\nFORMAT JSONEachRow\n", params, nil
+	return sql + schema.FormatSuffix, params, nil
 }
 
 func BuildSeriesQuery(cfg QueryConfig, request *http.Request) (string, map[string]string, error) {
@@ -230,7 +231,7 @@ func BuildSeriesQuery(cfg QueryConfig, request *http.Request) (string, map[strin
 	if err != nil {
 		return "", nil, err
 	}
-	return sql + "\nFORMAT JSONEachRow\n", params, nil
+	return sql + schema.FormatSuffix, params, nil
 }
 
 func baseParams(cfg QueryConfig) map[string]string {
@@ -364,7 +365,7 @@ func buildAggregationTagsExpr(column sqlb.Expr, grouping []string, without bool)
 	if without {
 		labels := append([]string{labels.MetricName}, grouping...)
 		return sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
-			sqlb.RawLit{V: "tag -> tag.1"},
+			sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},
 			sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{
 				sqlb.RawLit{V: "tag -> NOT has(" + sqlStringArrayLiteral(labels) + ", tag.1)"},
 				sqlb.RawLit{V: columnSQL},
@@ -372,10 +373,10 @@ func buildAggregationTagsExpr(column sqlb.Expr, grouping []string, without bool)
 		}}
 	}
 	if len(grouping) == 0 {
-		return sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}
+		return schema.EmptyTagsArrayExpr()
 	}
 	return sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
-		sqlb.RawLit{V: "tag -> tag.1"},
+		sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},
 		sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{
 			sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(grouping) + ", tag.1)"},
 			sqlb.RawLit{V: columnSQL},

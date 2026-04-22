@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"ch-observability/internal/promshim/native/sqlb"
+	"ch-observability/internal/promshim/storage/schema"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -72,7 +73,7 @@ func buildBinaryVectorJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL
 		outer := &sqlb.Select{
 			Columns: []sqlb.ColExpr{
 				{Expr: sqlb.Ident("result_tags"), Alias: "tags"},
-				{Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((timestamp, value)))"}, Alias: "time_series"},
+				{Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"},
 			},
 			From:    sqlb.SubSelect{S: grouped},
 			GroupBy: []sqlb.Expr{sqlb.Ident("result_tags")},
@@ -82,7 +83,7 @@ func buildBinaryVectorJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL
 		if err != nil {
 			return "", nil, err
 		}
-		return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", params, nil
+		return sql + schema.QuerySuffix, params, nil
 	}
 
 	outer := &sqlb.Select{
@@ -100,7 +101,7 @@ func buildBinaryVectorJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL
 	if err != nil {
 		return "", nil, err
 	}
-	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", params, nil
+	return sql + schema.QuerySuffix, params, nil
 }
 
 func buildPreparedJoinSideSelect(side string, source sqlb.Source, joinGroupExpr sqlb.Expr, withTimestamp bool, checkDuplicates bool) (*sqlb.Select, error) {
@@ -173,16 +174,16 @@ func buildJoinGroupExpr(tagsExpr sqlb.Expr, vectorMatching *parser.VectorMatchin
 	matching := normalizeStorageVectorMatching(vectorMatching)
 	if matching.On {
 		if len(matching.MatchingLabels) == 0 {
-			return sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}
+			return schema.EmptyTagsArrayExpr()
 		}
 		return sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
-			sqlb.RawLit{V: "tag -> tag.1"},
+			sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},
 			sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(matching.MatchingLabels) + ", tag.1)"}, tagsExpr}},
 		}}
 	}
 	ignored := append([]string{labels.MetricName}, matching.MatchingLabels...)
 	return sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
-		sqlb.RawLit{V: "tag -> tag.1"},
+		sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},
 		sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> NOT has(" + sqlStringArrayLiteral(ignored) + ", tag.1)"}, tagsExpr}},
 	}}
 }
@@ -199,16 +200,16 @@ func buildBinaryResultTagsExpr(cfg BinaryJoinConfig) sqlb.Expr {
 	if cfg.JoinShape == "one_to_one" {
 		if matching.On {
 			if len(matching.MatchingLabels) == 0 {
-				result = sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}
+				result = schema.EmptyTagsArrayExpr()
 			} else {
 				result = sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
-					sqlb.RawLit{V: "tag -> tag.1"},
+					sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},
 					sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(matching.MatchingLabels) + ", tag.1)"}, result}},
 				}}
 			}
 		} else if len(matching.MatchingLabels) > 0 {
 			result = sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
-				sqlb.RawLit{V: "tag -> tag.1"},
+				sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},
 				sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> NOT has(" + sqlStringArrayLiteral(matching.MatchingLabels) + ", tag.1)"}, result}},
 			}}
 		}
@@ -218,7 +219,7 @@ func buildBinaryResultTagsExpr(cfg BinaryJoinConfig) sqlb.Expr {
 	}
 	if len(matching.Include) > 0 {
 		result = sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
-			sqlb.RawLit{V: "tag -> tag.1"},
+			sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},
 			sqlb.Call{Name: "arrayConcat", Args: []sqlb.Expr{
 				sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> NOT has(" + sqlStringArrayLiteral(matching.Include) + ", tag.1)"}, result}},
 				sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(matching.Include) + ", tag.1)"}, oneSide}},

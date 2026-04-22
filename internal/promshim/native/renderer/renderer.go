@@ -6,6 +6,7 @@ import (
 
 	"ch-observability/internal/promshim/native"
 	"ch-observability/internal/promshim/storage"
+	"ch-observability/internal/promshim/storage/schema"
 
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -27,8 +28,16 @@ type RenderedQuery struct {
 }
 
 func RenderFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
+	rf, err := renderFragment(cfg, fragment, params)
+	if err != nil {
+		return RenderedQuery{}, err
+	}
+	return finalizeRenderedFragment(rf)
+}
+
+func renderFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
 	if fragment == nil {
-		return RenderedQuery{}, fmt.Errorf("native fragment render requires a fragment")
+		return renderedFragment{}, fmt.Errorf("native fragment render requires a fragment")
 	}
 	switch fragment.Kind {
 	case native.FragmentKindLeafSource, native.FragmentKindUnarySourceExpr, native.FragmentKindBinaryScalarSourceExpr:
@@ -56,7 +65,7 @@ func RenderFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, pa
 	case native.FragmentKindValueTransform:
 		return renderValueTransformFragment(cfg, fragment, params)
 	default:
-		return RenderedQuery{}, fmt.Errorf("native SQL rendering for fragment kind %q is not implemented yet", fragment.Kind)
+		return renderedFragment{}, fmt.Errorf("native SQL rendering for fragment kind %q is not implemented yet", fragment.Kind)
 	}
 }
 
@@ -68,10 +77,10 @@ func mergeRenderedQueryParams(dst, src map[string]string) {
 
 func trimRenderedQuerySQL(sql string) string {
 	sql = strings.TrimSpace(sql)
-	if idx := strings.LastIndex(sql, "SETTINGS allow_experimental_time_series_table = 1"); idx >= 0 {
+	if idx := strings.LastIndex(sql, schema.SettingsLine); idx >= 0 {
 		sql = strings.TrimSpace(sql[:idx])
 	}
-	if idx := strings.LastIndex(sql, "FORMAT JSONEachRow"); idx >= 0 {
+	if idx := strings.LastIndex(sql, schema.FormatLine); idx >= 0 {
 		sql = strings.TrimSpace(sql[:idx])
 	}
 	return sql

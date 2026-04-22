@@ -29,6 +29,32 @@ optimization claim.**
 confirmed by a `SelectedRows` drop visible in the matrix, or the commit is
 explicit plumbing/wiring with no runtime claim.
 
+## First: verify the claim matches the diff
+
+Before running any measurement tool, diff the commit message against
+`git show <ref>` or `git diff`. A mismatched message — "CSE'd X" while the
+patch actually adds a row-source fast path — is itself reject-or-rewrite
+signal. No counter or EXPLAIN output can rescue a commit whose claim
+doesn't describe the code. Only proceed to the signals below once the
+claim is coherent with the patch.
+
+## Claim → required signal
+
+Match the commit's *claim* to the signal that must move. If the claimed
+signal doesn't move, the rewrite didn't do what the message says — even
+if latency dropped for an unrelated reason.
+
+| Claim shape | Signal that must move | How to read |
+|---|---|---|
+| "CSE'd X", "deduped Y", "killed arrayMap" | `FunctionExecute`, `ArrayMap` counter drops in `profile_events_sum` | `ch-profile-diff.sh` |
+| "Aliased X", "shortened SQL" | `EXPLAIN SYNTAX` must still *differ* to be non-cosmetic | `ch-explain-diff.sh` — byte-identical = reject |
+| "Pushed X down", "__name__ first filter", "matcher canonicalized" | `SelectedRows` / `SelectedBytes` drops | `ch-profile-diff.sh`; `EXPLAIN PLAN indexes=1` |
+| "Fused A+B", "eliminated ARRAY JOIN", "row-source fast path" | `EXPLAIN PIPELINE` shows fewer stages; specific operator (e.g. `ArrayJoin`) absent in `EXPLAIN SYNTAX` | `ch-explain.sh` |
+| "Skipped stale NaNs", "pruned series" | `SelectedRows` drops; `result_rows` unchanged | `ch-profile-diff.sh` |
+| "Reduced memory" | `MemoryTrackerUsage` drops | `ch-profile-diff.sh` |
+| "Fewer network roundtrips" | `X-Promshim-CH-Roundtrips` response header drops | matrix bench report |
+| Any claim + `strategy_used` changed | **Hard regression signal.** Verify the claimed path still ran. | matrix bench `strategy` column |
+
 ## The signals, ranked
 
 1. **`EXPLAIN SYNTAX`** — CH's own rewriter runs before the planner and
@@ -63,8 +89,8 @@ All scripts live in `scripts/`. Run with `--help` for full flags.
 
 | Script | Added cost | Use when |
 |---|---:|---|
-| `ch-profile-capture.sh --matrix` | ~1–2 s | Every bench run. Emits `harness/artifacts/ch-profile.json`: p50 `query_duration_ms`, `read_rows`, `read_bytes`, per-query `profile_events_sum`/`_avg` over repeats. Put it in the bench path unconditionally. |
-| `ch-profile-diff.sh before.json after.json` | <1 s | After two captures. Markdown table sorted by Δp50_ms plus per-query ProfileEvents deltas. Flags: `--min-delta-ms`, `--events`, `--format json`. |
+| `ch-profile-capture.sh --matrix` | ~1–2 s | Every bench run. Emits `harness/artifacts/ch-profile.json`: p50 `query_duration_ms`, `read_rows`, `read_bytes`, per-query `profile_events_sum`/`_avg` over repeats. Put it in the bench path unconditionally. **Overwritten each run** — preserve a baseline before re-capturing: `cp harness/artifacts/ch-profile.json harness/artifacts/ch-profile-<sha>.json`. |
+| `ch-profile-diff.sh before.json after.json` | <1 s | After two preserved captures. Markdown table sorted by Δp50_ms plus per-query ProfileEvents deltas. Flags: `--min-delta-ms`, `--events`, `--format json`. |
 | `ch-explain.sh '<promql>' --mode instant` | ~2 s | One-PromQL deep dive. Runs through shim, pulls the lowered SQL from `system.query_log`, dumps `EXPLAIN SYNTAX/PLAN/PIPELINE/ESTIMATE` to `harness/artifacts/ch-explain/<ts>/`. Skip flags available. |
 | `ch-explain-diff.sh <ref-a> <ref-b> '<promql>'` | 30–180 s | Commit-to-commit verdict on a single PromQL. Builds/restarts the shim per ref; not for the inner loop. Prints "`EXPLAIN SYNTAX` is byte-identical" or "differs". |
 | `seed-long-range.sh --profile {7d\|30d\|1y}` | 2–15 s | Once per `docker volume rm`. Seeds a non-overlapping window into the same `observability.prometheus` table, distinct pinned eval-time. |
@@ -127,6 +153,9 @@ additive and persists until `docker volume rm`.
 | "Running long-range is expensive, I'll skip it." | Data is pre-seeded; cost is query time only. 7 d is ~90 s — same budget as a single CI lint step. |
 | "`ch-explain-diff.sh` takes minutes." | Reserve it for commits whose *claim* is suspect. Use `EXPLAIN SYNTAX` via `ch-explain.sh` (~2 s) for everything else. |
 | "Wall-clock latency is what users see." | True — but optimization attribution requires ProfileEvents. Ship on latency; accept/reject *claims* on counters. |
+| "The message says CSE; I'll just check the counters." | Check the *diff* first. If the patch doesn't actually do a CSE, no counter movement attributes to a CSE. Reject for the mismatch. |
+| "I ran `ch-profile-capture.sh` once, I have my before/after." | Single capture = no before. The file is overwritten each run; `cp` the baseline under a `-<sha>.json` name before re-capturing or the diff is meaningless. |
+| "My claim doesn't fit the signal table neatly." | Pick the closest row. If truly novel, state the expected signal *in the commit message* so review is decidable. |
 
 ## Red flags — stop and verify
 
@@ -135,6 +164,9 @@ additive and persists until `docker volume rm`.
 - `strategy_used` change not investigated.
 - Claim of "pushdown" without a `SelectedRows` or `SelectedBytes` drop.
 - Long-range profile skipped for a commit that claims storage-side work.
+- Commit message describes a different change than the diff (even if the
+  diff looks good — the message is part of the review contract).
+- Only one `ch-profile.json` on disk, claimed as before/after evidence.
 
 **All of these mean: the commit's claim is unverified. Check the signals
 before merging.**

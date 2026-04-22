@@ -818,9 +818,13 @@ func TestRenderFragmentBuildsScalarConvertSQL(t *testing.T) {
 }
 
 func TestRenderClassicHistogramGroupsQueryBuildsInstantMaterializationSQL(t *testing.T) {
-	rendered, err := renderClassicHistogramGroupsQuery(storage.QueryConfig{Database: "observability", Table: "prometheus"}, &native.NativeFragment{Kind: native.FragmentKindAggregation, OutputKind: native.OutputKindInstantVector, Aggregation: &native.AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindInstantVector, Selector: &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "http_request_duration_seconds_bucket", Lookback: native.DefaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}, RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456}, "hist")
+	fragment, err := renderClassicHistogramGroupsQuery(storage.QueryConfig{Database: "observability", Table: "prometheus"}, &native.NativeFragment{Kind: native.FragmentKindAggregation, OutputKind: native.OutputKindInstantVector, Aggregation: &native.AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindInstantVector, Selector: &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "http_request_duration_seconds_bucket", Lookback: native.DefaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}, RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456}, "hist")
 	if err != nil {
 		t.Fatalf("expected classic histogram instant materialization SQL, got error: %v", err)
+	}
+	rendered, err := finalizeRenderedFragment(fragment)
+	if err != nil {
+		t.Fatalf("expected finalized classic histogram instant SQL, got error: %v", err)
 	}
 	checks := []string{
 		"arrayFilter(tag -> tag.1 != 'le' AND tag.1 != '__name__'",
@@ -840,9 +844,13 @@ func TestRenderClassicHistogramGroupsQueryBuildsInstantMaterializationSQL(t *tes
 }
 
 func TestRenderClassicHistogramGroupsQueryBuildsRangeMaterializationSQL(t *testing.T) {
-	rendered, err := renderClassicHistogramGroupsQuery(storage.QueryConfig{Database: "observability", Table: "prometheus"}, &native.NativeFragment{Kind: native.FragmentKindAggregation, OutputKind: native.OutputKindInstantVector, Aggregation: &native.AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindInstantVector, Selector: &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "http_request_duration_seconds_bucket", Lookback: native.DefaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}, RenderParams{Mode: native.RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000}, "hist")
+	fragment, err := renderClassicHistogramGroupsQuery(storage.QueryConfig{Database: "observability", Table: "prometheus"}, &native.NativeFragment{Kind: native.FragmentKindAggregation, OutputKind: native.OutputKindInstantVector, Aggregation: &native.AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindInstantVector, Selector: &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "http_request_duration_seconds_bucket", Lookback: native.DefaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}, RenderParams{Mode: native.RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000}, "hist")
 	if err != nil {
 		t.Fatalf("expected classic histogram range materialization SQL, got error: %v", err)
+	}
+	rendered, err := finalizeRenderedFragment(fragment)
+	if err != nil {
+		t.Fatalf("expected finalized classic histogram range SQL, got error: %v", err)
 	}
 	checks := []string{
 		"ARRAY JOIN histogram_series.time_series AS point",

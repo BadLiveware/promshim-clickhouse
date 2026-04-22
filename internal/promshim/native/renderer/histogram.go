@@ -1,157 +1,398 @@
 package renderer
 
 import (
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"fmt"
 	"math"
 
+	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/storage/schema"
 )
 
-func renderHistogramProjectionFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderHistogramProjectionFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
 	if fragment == nil || fragment.HistogramProjection == nil || fragment.HistogramProjection.Child == nil {
-		return RenderedQuery{}, fmt.Errorf("histogram projection fragment is missing child metadata")
+		return renderedFragment{}, fmt.Errorf("histogram projection fragment is missing child metadata")
 	}
 	histograms, err := renderClassicHistogramGroupsQuery(cfg, fragment.HistogramProjection.Child, params, "histogram_projection_child")
 	if err != nil {
-		return RenderedQuery{}, err
+		return renderedFragment{}, err
 	}
-	countsExpr := "arrayMap(bucket -> toFloat64(tupleElement(bucket, 2)), buckets)"
-	finiteCountsExpr := "arrayFilter(v -> NOT isNaN(v), " + countsExpr + ")"
-	lastUpperExpr := "tupleElement(arrayElement(buckets, length(buckets)), 1)"
-	countExpr := "if(length(buckets) < 2 OR NOT isInfinite(" + lastUpperExpr + "), nan, if(length(" + finiteCountsExpr + ") = 0, nan, arrayMax(" + finiteCountsExpr + ")))"
-	prevCountsExpr := "arrayConcat([toFloat64(0)], arrayPopBack(" + countsExpr + "))"
-	upperBoundsExpr := "arrayMap(bucket -> toFloat64(tupleElement(bucket, 1)), buckets)"
-	prevUpperBoundsExpr := "arrayConcat([toFloat64(0)], arrayPopBack(" + upperBoundsExpr + "))"
-	lowerBoundsExpr := "arrayMap((idx, upper, prev_upper) -> if(idx = 1 AND upper <= 0, upper, prev_upper), arrayEnumerate(" + upperBoundsExpr + "), " + upperBoundsExpr + ", " + prevUpperBoundsExpr + ")"
-	adjustedUpperBoundsExpr := "arrayMap((upper, prev_upper) -> if(isInfinite(upper), prev_upper, upper), " + upperBoundsExpr + ", " + prevUpperBoundsExpr + ")"
-	deltasExpr := "arrayMap((count, prev_count) -> if(count - prev_count < 0, toFloat64(0), count - prev_count), " + countsExpr + ", " + prevCountsExpr + ")"
-	midpointsExpr := "arrayMap((lower, upper) -> if(isNaN(lower) OR isNaN(upper) OR isInfinite(lower) OR isInfinite(upper), toFloat64(0), lower + (upper - lower) / 2), " + lowerBoundsExpr + ", " + adjustedUpperBoundsExpr + ")"
-	sumExpr := "if(length(buckets) < 2 OR NOT isInfinite(" + lastUpperExpr + ") OR arrayExists(v -> isNaN(v), " + countsExpr + "), nan, arraySum(arrayMap((delta, midpoint) -> delta * midpoint, " + deltasExpr + ", " + midpointsExpr + ")))"
-	avgExpr := "if(isNaN(" + countExpr + ") OR (" + countExpr + ") <= 0 OR isNaN(" + sumExpr + "), nan, (" + sumExpr + ") / (" + countExpr + "))"
-	valueExpr := countExpr
-	switch fragment.HistogramProjection.Func {
-	case "histogram_count":
-		valueExpr = countExpr
-	case "histogram_sum":
-		valueExpr = sumExpr
-	case "histogram_avg":
-		valueExpr = avgExpr
-	default:
-		return RenderedQuery{}, fmt.Errorf("histogram projection function %q is not implemented yet", fragment.HistogramProjection.Func)
+	valueExpr, err := classicHistogramProjectionValueExpr(sqlb.Ident("buckets"), fragment.HistogramProjection.Func)
+	if err != nil {
+		return renderedFragment{}, err
 	}
-	query := "SELECT tags AS tags, timestamp AS timestamp, " + valueExpr + " AS value FROM (" + trimRenderedQuerySQL(histograms.SQL) + ") AS classic_histograms\nFORMAT JSONEachRow\n"
-	if params.Mode == native.RenderModeRange {
-		query = "SELECT tags AS tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series FROM (SELECT tags AS tags, timestamp AS timestamp, " + valueExpr + " AS value FROM (" + trimRenderedQuerySQL(histograms.SQL) + ") AS classic_histograms ORDER BY tags, timestamp) AS histogram_projection_steps GROUP BY tags ORDER BY tags\nFORMAT JSONEachRow\n"
-	}
-	return RenderedQuery{SQL: query, QueryParams: histograms.QueryParams}, nil
+	return histogramOutputFragment(histograms, valueExpr, params.Mode, "histogram_projection_steps"), nil
 }
 
-func classicHistogramFractionValueExpr(bucketsExpr string, lower, upper float64) string {
+func classicHistogramProjectionValueExpr(buckets sqlb.Expr, fn string) (sqlb.Expr, error) {
+	counts := bucketCountsExpr(buckets)
+	upperBounds := bucketUpperBoundsExpr(buckets)
+	prevCounts := prependZeroPopBack(counts)
+	prevUpperBounds := prependZeroPopBack(upperBounds)
+	finiteCounts := sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{
+		sqlb.Lambda{Params: []sqlb.Ident{"v"}, Body: sqlb.RawLit{V: "NOT isNaN(v)"}},
+		counts,
+	}}
+	lastUpper := sqlb.TupleElem{X: arrayLastElement(buckets), K: 1}
+
+	bucketsTooShort := sqlb.RawLit{V: "length(buckets) < 2 OR NOT isInfinite(" + renderSQLExprNoParams(lastUpper) + ")"}
+
+	countExpr := sqlb.Call{Name: "if", Args: []sqlb.Expr{
+		bucketsTooShort,
+		sqlb.RawLit{V: "nan"},
+		sqlb.Call{Name: "if", Args: []sqlb.Expr{
+			sqlb.RawLit{V: "length(" + renderSQLExprNoParams(finiteCounts) + ") = 0"},
+			sqlb.RawLit{V: "nan"},
+			sqlb.Call{Name: "arrayMax", Args: []sqlb.Expr{finiteCounts}},
+		}},
+	}}
+
+	lowerBounds := sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{
+		sqlb.Lambda{
+			Params: []sqlb.Ident{"idx", "upper", "prev_upper"},
+			Body:   sqlb.RawLit{V: "if(idx = 1 AND upper <= 0, upper, prev_upper)"},
+		},
+		sqlb.Call{Name: "arrayEnumerate", Args: []sqlb.Expr{upperBounds}},
+		upperBounds,
+		prevUpperBounds,
+	}}
+	adjustedUpperBounds := sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{
+		sqlb.Lambda{
+			Params: []sqlb.Ident{"upper", "prev_upper"},
+			Body:   sqlb.RawLit{V: "if(isInfinite(upper), prev_upper, upper)"},
+		},
+		upperBounds,
+		prevUpperBounds,
+	}}
+	deltas := sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{
+		sqlb.Lambda{
+			Params: []sqlb.Ident{"count", "prev_count"},
+			Body:   sqlb.RawLit{V: "if(count - prev_count < 0, toFloat64(0), count - prev_count)"},
+		},
+		counts,
+		prevCounts,
+	}}
+	midpoints := sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{
+		sqlb.Lambda{
+			Params: []sqlb.Ident{"lower", "upper"},
+			Body:   sqlb.RawLit{V: "if(isNaN(lower) OR isNaN(upper) OR isInfinite(lower) OR isInfinite(upper), toFloat64(0), lower + (upper - lower) / 2)"},
+		},
+		lowerBounds,
+		adjustedUpperBounds,
+	}}
+
+	sumExpr := sqlb.Call{Name: "if", Args: []sqlb.Expr{
+		sqlb.RawLit{V: "length(buckets) < 2 OR NOT isInfinite(" + renderSQLExprNoParams(lastUpper) + ") OR " +
+			"arrayExists(v -> isNaN(v), " + renderSQLExprNoParams(counts) + ")"},
+		sqlb.RawLit{V: "nan"},
+		sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{
+			sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{
+				sqlb.Lambda{
+					Params: []sqlb.Ident{"delta", "midpoint"},
+					Body:   sqlb.RawLit{V: "delta * midpoint"},
+				},
+				deltas,
+				midpoints,
+			}},
+		}},
+	}}
+
+	countRendered := renderSQLExprNoParams(countExpr)
+	sumRendered := renderSQLExprNoParams(sumExpr)
+	avgExpr := sqlb.RawLit{V: "if(isNaN(" + countRendered + ") OR (" + countRendered + ") <= 0 OR isNaN(" + sumRendered + "), nan, (" + sumRendered + ") / (" + countRendered + "))"}
+
+	switch fn {
+	case "histogram_count":
+		return countExpr, nil
+	case "histogram_sum":
+		return sumExpr, nil
+	case "histogram_avg":
+		return avgExpr, nil
+	default:
+		return nil, fmt.Errorf("histogram projection function %q is not implemented yet", fn)
+	}
+}
+
+func classicHistogramFractionValueExpr(buckets sqlb.Expr, lower, upper float64) sqlb.Expr {
 	if math.IsNaN(lower) || math.IsNaN(upper) {
-		return "nan"
+		return sqlb.RawLit{V: "nan"}
 	}
 	if lower >= upper {
-		return "0"
+		return sqlb.RawLit{V: "0"}
 	}
-	lowerLiteral := storage.NativeFloatLiteral(lower)
-	upperLiteral := storage.NativeFloatLiteral(upper)
-	countsExpr := "arrayMap(bucket -> toFloat64(tupleElement(bucket, 2)), " + bucketsExpr + ")"
-	upperBoundsExpr := "arrayMap(bucket -> toFloat64(tupleElement(bucket, 1)), " + bucketsExpr + ")"
-	prevCountsExpr := "arrayConcat([toFloat64(0)], arrayPopBack(" + countsExpr + "))"
-	normalizedCountsExpr := "arrayCumSum(arrayMap((count, prev_count) -> if(isNaN(count), nan, greatest(count - prev_count, toFloat64(0))), " + countsExpr + ", " + prevCountsExpr + "))"
-	observationsExpr := "arrayElement(" + normalizedCountsExpr + ", length(" + normalizedCountsExpr + "))"
-	prevNormalizedCountsExpr := "arrayConcat([toFloat64(0)], arrayPopBack(" + normalizedCountsExpr + "))"
-	initialLowerExpr := "if(arrayElement(" + upperBoundsExpr + ", 1) <= 0, -inf, toFloat64(0))"
-	lowerBoundsExpr := "arrayConcat([" + initialLowerExpr + "], arrayPopBack(" + upperBoundsExpr + "))"
-	boundaryRankExpr := func(boundary string) string {
-		insideIdxExpr := "arrayFirstIndex((lower_bound, upper_bound) -> lower_bound < (" + boundary + ") AND upper_bound > (" + boundary + "), " + lowerBoundsExpr + ", " + upperBoundsExpr + ")"
-		prevIdxExpr := "arrayFirstIndex(lower_bound -> lower_bound >= (" + boundary + "), " + lowerBoundsExpr + ")"
-		interpExpr := "if(isInfinite(arrayElement(" + lowerBoundsExpr + ", " + insideIdxExpr + ")) AND arrayElement(" + lowerBoundsExpr + ", " + insideIdxExpr + ") < 0, arrayElement(" + normalizedCountsExpr + ", " + insideIdxExpr + "), arrayElement(" + prevNormalizedCountsExpr + ", " + insideIdxExpr + ") + (arrayElement(" + normalizedCountsExpr + ", " + insideIdxExpr + ") - arrayElement(" + prevNormalizedCountsExpr + ", " + insideIdxExpr + ")) * ((" + boundary + ") - arrayElement(" + lowerBoundsExpr + ", " + insideIdxExpr + ")) / (arrayElement(" + upperBoundsExpr + ", " + insideIdxExpr + ") - arrayElement(" + lowerBoundsExpr + ", " + insideIdxExpr + ")))"
-		return "if((" + insideIdxExpr + ") > 0, " + interpExpr + ", if((" + prevIdxExpr + ") > 0, arrayElement(" + prevNormalizedCountsExpr + ", " + prevIdxExpr + "), (" + observationsExpr + ")))"
+	counts := bucketCountsExpr(buckets)
+	upperBounds := bucketUpperBoundsExpr(buckets)
+	prevCounts := prependZeroPopBack(counts)
+	normalizedCounts := bucketNormalizedCountsExpr(counts, prevCounts)
+	observations := arrayLastValue(normalizedCounts)
+	prevNormalizedCounts := prependZeroPopBack(normalizedCounts)
+	initialLower := sqlb.RawLit{V: "if(arrayElement(" + renderSQLExprNoParams(upperBounds) + ", 1) <= 0, -inf, toFloat64(0))"}
+	lowerBounds := sqlb.Call{Name: "arrayConcat", Args: []sqlb.Expr{
+		sqlb.RawLit{V: "[" + renderSQLExprNoParams(initialLower) + "]"},
+		sqlb.Call{Name: "arrayPopBack", Args: []sqlb.Expr{upperBounds}},
+	}}
+
+	lowerBoundsSQL := renderSQLExprNoParams(lowerBounds)
+	upperBoundsSQL := renderSQLExprNoParams(upperBounds)
+	normalizedSQL := renderSQLExprNoParams(normalizedCounts)
+	prevNormalizedSQL := renderSQLExprNoParams(prevNormalizedCounts)
+	observationsSQL := renderSQLExprNoParams(observations)
+
+	boundaryRank := func(boundarySQL string) string {
+		insideIdx := "arrayFirstIndex((lower_bound, upper_bound) -> lower_bound < (" + boundarySQL + ") AND upper_bound > (" + boundarySQL + "), " + lowerBoundsSQL + ", " + upperBoundsSQL + ")"
+		prevIdx := "arrayFirstIndex(lower_bound -> lower_bound >= (" + boundarySQL + "), " + lowerBoundsSQL + ")"
+		interp := "if(isInfinite(arrayElement(" + lowerBoundsSQL + ", " + insideIdx + ")) AND arrayElement(" + lowerBoundsSQL + ", " + insideIdx + ") < 0, arrayElement(" + normalizedSQL + ", " + insideIdx + "), arrayElement(" + prevNormalizedSQL + ", " + insideIdx + ") + (arrayElement(" + normalizedSQL + ", " + insideIdx + ") - arrayElement(" + prevNormalizedSQL + ", " + insideIdx + ")) * ((" + boundarySQL + ") - arrayElement(" + lowerBoundsSQL + ", " + insideIdx + ")) / (arrayElement(" + upperBoundsSQL + ", " + insideIdx + ") - arrayElement(" + lowerBoundsSQL + ", " + insideIdx + ")))"
+		return "if((" + insideIdx + ") > 0, " + interp + ", if((" + prevIdx + ") > 0, arrayElement(" + prevNormalizedSQL + ", " + prevIdx + "), (" + observationsSQL + ")))"
 	}
-	lowerRankExpr := boundaryRankExpr(lowerLiteral)
-	upperRankExpr := boundaryRankExpr(upperLiteral)
-	return "multiIf(length(" + bucketsExpr + ") < 2, nan, NOT isInfinite(tupleElement(arrayElement(" + bucketsExpr + ", length(" + bucketsExpr + ")), 1)), nan, isNaN(" + observationsExpr + ") OR (" + observationsExpr + ") = 0, nan, ((" + upperRankExpr + ") - (" + lowerRankExpr + ")) / (" + observationsExpr + "))"
+	lowerRank := boundaryRank(storage.NativeFloatLiteral(lower))
+	upperRank := boundaryRank(storage.NativeFloatLiteral(upper))
+
+	lastUpperSQL := renderSQLExprNoParams(sqlb.TupleElem{X: arrayLastElement(buckets), K: 1})
+	return sqlb.MultiIf{
+		Cases: []sqlb.MultiIfArm{
+			{When: sqlb.RawLit{V: "length(buckets) < 2"}, Then: sqlb.RawLit{V: "nan"}},
+			{When: sqlb.RawLit{V: "NOT isInfinite(" + lastUpperSQL + ")"}, Then: sqlb.RawLit{V: "nan"}},
+			{When: sqlb.RawLit{V: "isNaN(" + observationsSQL + ") OR (" + observationsSQL + ") = 0"}, Then: sqlb.RawLit{V: "nan"}},
+		},
+		Else: sqlb.RawLit{V: "((" + upperRank + ") - (" + lowerRank + ")) / (" + observationsSQL + ")"},
+	}
 }
 
-func classicHistogramQuantileValueExpr(bucketsExpr string, quantile float64) string {
+func classicHistogramQuantileValueExpr(buckets sqlb.Expr, quantile float64) sqlb.Expr {
 	if math.IsNaN(quantile) {
-		return "nan"
+		return sqlb.RawLit{V: "nan"}
 	}
 	if quantile < 0 {
-		return "-inf"
+		return sqlb.RawLit{V: "-inf"}
 	}
 	if quantile > 1 {
-		return "inf"
+		return sqlb.RawLit{V: "inf"}
 	}
-	q := storage.NativeFloatLiteral(quantile)
-	countsExpr := "arrayMap(bucket -> toFloat64(tupleElement(bucket, 2)), " + bucketsExpr + ")"
-	upperBoundsExpr := "arrayMap(bucket -> toFloat64(tupleElement(bucket, 1)), " + bucketsExpr + ")"
-	prevCountsExpr := "arrayConcat([toFloat64(0)], arrayPopBack(" + countsExpr + "))"
-	normalizedCountsExpr := "arrayCumSum(arrayMap((count, prev_count) -> if(isNaN(count), nan, greatest(count - prev_count, toFloat64(0))), " + countsExpr + ", " + prevCountsExpr + "))"
-	observationsExpr := "arrayElement(" + normalizedCountsExpr + ", length(" + normalizedCountsExpr + "))"
-	rankExpr := "(" + q + " * (" + observationsExpr + "))"
-	searchCountsExpr := "arraySlice(" + normalizedCountsExpr + ", 1, length(" + normalizedCountsExpr + ") - 1)"
-	bucketIndexExpr := "arrayFirstIndex(v -> v >= (" + rankExpr + "), " + searchCountsExpr + ")"
-	bucketEndExpr := "arrayElement(" + upperBoundsExpr + ", " + bucketIndexExpr + ")"
-	bucketStartExpr := "if((" + bucketIndexExpr + ") > 1, arrayElement(" + upperBoundsExpr + ", (" + bucketIndexExpr + ") - 1), toFloat64(0))"
-	bucketCountExpr := "if((" + bucketIndexExpr + ") > 1, arrayElement(" + normalizedCountsExpr + ", " + bucketIndexExpr + ") - arrayElement(" + normalizedCountsExpr + ", (" + bucketIndexExpr + ") - 1), arrayElement(" + normalizedCountsExpr + ", " + bucketIndexExpr + "))"
-	rankInBucketExpr := "if((" + bucketIndexExpr + ") > 1, (" + rankExpr + ") - arrayElement(" + normalizedCountsExpr + ", (" + bucketIndexExpr + ") - 1), (" + rankExpr + "))"
-	return "multiIf(length(" + bucketsExpr + ") < 2, nan, NOT isInfinite(tupleElement(arrayElement(" + bucketsExpr + ", length(" + bucketsExpr + ")), 1)), nan, isNaN(" + observationsExpr + ") OR (" + observationsExpr + ") <= 0, nan, (" + bucketIndexExpr + ") = 0, arrayElement(" + upperBoundsExpr + ", length(" + upperBoundsExpr + ") - 1), (" + bucketIndexExpr + ") = 1 AND arrayElement(" + upperBoundsExpr + ", 1) <= 0, arrayElement(" + upperBoundsExpr + ", 1), isNaN(" + bucketCountExpr + ") OR (" + bucketCountExpr + ") <= 0, nan, (" + bucketStartExpr + ") + ((" + bucketEndExpr + ") - (" + bucketStartExpr + ")) * ((" + rankInBucketExpr + ") / (" + bucketCountExpr + ")))"
+	counts := bucketCountsExpr(buckets)
+	upperBounds := bucketUpperBoundsExpr(buckets)
+	prevCounts := prependZeroPopBack(counts)
+	normalizedCounts := bucketNormalizedCountsExpr(counts, prevCounts)
+	observations := arrayLastValue(normalizedCounts)
+
+	qLit := storage.NativeFloatLiteral(quantile)
+	observationsSQL := renderSQLExprNoParams(observations)
+	normalizedSQL := renderSQLExprNoParams(normalizedCounts)
+	upperBoundsSQL := renderSQLExprNoParams(upperBounds)
+
+	rankSQL := "(" + qLit + " * (" + observationsSQL + "))"
+	searchCountsSQL := "arraySlice(" + normalizedSQL + ", 1, length(" + normalizedSQL + ") - 1)"
+	bucketIndexSQL := "arrayFirstIndex(v -> v >= " + rankSQL + ", " + searchCountsSQL + ")"
+	bucketEndSQL := "arrayElement(" + upperBoundsSQL + ", " + bucketIndexSQL + ")"
+	bucketStartSQL := "if((" + bucketIndexSQL + ") > 1, arrayElement(" + upperBoundsSQL + ", (" + bucketIndexSQL + ") - 1), toFloat64(0))"
+	bucketCountSQL := "if((" + bucketIndexSQL + ") > 1, arrayElement(" + normalizedSQL + ", " + bucketIndexSQL + ") - arrayElement(" + normalizedSQL + ", (" + bucketIndexSQL + ") - 1), arrayElement(" + normalizedSQL + ", " + bucketIndexSQL + "))"
+	rankInBucketSQL := "if((" + bucketIndexSQL + ") > 1, " + rankSQL + " - arrayElement(" + normalizedSQL + ", (" + bucketIndexSQL + ") - 1), " + rankSQL + ")"
+
+	lastUpperSQL := renderSQLExprNoParams(sqlb.TupleElem{X: arrayLastElement(buckets), K: 1})
+	return sqlb.MultiIf{
+		Cases: []sqlb.MultiIfArm{
+			{When: sqlb.RawLit{V: "length(buckets) < 2"}, Then: sqlb.RawLit{V: "nan"}},
+			{When: sqlb.RawLit{V: "NOT isInfinite(" + lastUpperSQL + ")"}, Then: sqlb.RawLit{V: "nan"}},
+			{When: sqlb.RawLit{V: "isNaN(" + observationsSQL + ") OR (" + observationsSQL + ") <= 0"}, Then: sqlb.RawLit{V: "nan"}},
+			{When: sqlb.RawLit{V: "(" + bucketIndexSQL + ") = 0"}, Then: sqlb.RawLit{V: "arrayElement(" + upperBoundsSQL + ", length(" + upperBoundsSQL + ") - 1)"}},
+			{When: sqlb.RawLit{V: "(" + bucketIndexSQL + ") = 1 AND arrayElement(" + upperBoundsSQL + ", 1) <= 0"}, Then: sqlb.RawLit{V: "arrayElement(" + upperBoundsSQL + ", 1)"}},
+			{When: sqlb.RawLit{V: "isNaN(" + bucketCountSQL + ") OR (" + bucketCountSQL + ") <= 0"}, Then: sqlb.RawLit{V: "nan"}},
+		},
+		Else: sqlb.RawLit{V: "(" + bucketStartSQL + ") + ((" + bucketEndSQL + ") - (" + bucketStartSQL + ")) * ((" + rankInBucketSQL + ") / (" + bucketCountSQL + "))"},
+	}
 }
 
-func renderHistogramFunctionFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderHistogramFunctionFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
 	if fragment == nil || fragment.HistogramFunction == nil || fragment.HistogramFunction.Child == nil {
-		return RenderedQuery{}, fmt.Errorf("histogram function fragment is missing child metadata")
+		return renderedFragment{}, fmt.Errorf("histogram function fragment is missing child metadata")
 	}
 	histograms, err := renderClassicHistogramGroupsQuery(cfg, fragment.HistogramFunction.Child, params, "histogram_function_child")
 	if err != nil {
-		return RenderedQuery{}, err
+		return renderedFragment{}, err
 	}
-	valueExpr := "nan"
+	var valueExpr sqlb.Expr
 	switch fragment.HistogramFunction.Func {
 	case "histogram_quantile":
 		if fragment.HistogramFunction.Quantile == nil {
-			return RenderedQuery{}, fmt.Errorf("histogram_quantile fragment requires a quantile parameter")
+			return renderedFragment{}, fmt.Errorf("histogram_quantile fragment requires a quantile parameter")
 		}
-		valueExpr = classicHistogramQuantileValueExpr("buckets", *fragment.HistogramFunction.Quantile)
+		valueExpr = classicHistogramQuantileValueExpr(sqlb.Ident("buckets"), *fragment.HistogramFunction.Quantile)
 	case "histogram_fraction":
 		if fragment.HistogramFunction.Lower == nil || fragment.HistogramFunction.Upper == nil {
-			return RenderedQuery{}, fmt.Errorf("histogram_fraction fragment requires lower and upper parameters")
+			return renderedFragment{}, fmt.Errorf("histogram_fraction fragment requires lower and upper parameters")
 		}
-		valueExpr = classicHistogramFractionValueExpr("buckets", *fragment.HistogramFunction.Lower, *fragment.HistogramFunction.Upper)
+		valueExpr = classicHistogramFractionValueExpr(sqlb.Ident("buckets"), *fragment.HistogramFunction.Lower, *fragment.HistogramFunction.Upper)
 	default:
-		return RenderedQuery{}, fmt.Errorf("histogram function %q is not implemented yet", fragment.HistogramFunction.Func)
+		return renderedFragment{}, fmt.Errorf("histogram function %q is not implemented yet", fragment.HistogramFunction.Func)
 	}
-	query := "SELECT tags AS tags, timestamp AS timestamp, " + valueExpr + " AS value FROM (" + trimRenderedQuerySQL(histograms.SQL) + ") AS classic_histograms\nFORMAT JSONEachRow\n"
-	if params.Mode == native.RenderModeRange {
-		query = "SELECT tags AS tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series FROM (SELECT tags AS tags, timestamp AS timestamp, " + valueExpr + " AS value FROM (" + trimRenderedQuerySQL(histograms.SQL) + ") AS classic_histograms ORDER BY tags, timestamp) AS histogram_function_steps GROUP BY tags ORDER BY tags\nFORMAT JSONEachRow\n"
+	return histogramOutputFragment(histograms, valueExpr, params.Mode, "histogram_function_steps"), nil
+}
+
+func histogramOutputFragment(histograms renderedFragment, valueExpr sqlb.Expr, mode native.RenderMode, rangeAlias string) renderedFragment {
+	histogramsSource := sqlb.SubSelect{S: histograms.Select, Alias: "classic_histograms"}
+	innerSelect := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("tags"), Alias: "tags"},
+			{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
+			{Expr: valueExpr, Alias: "value"},
+		},
+		From: histogramsSource,
 	}
-	return RenderedQuery{SQL: query, QueryParams: histograms.QueryParams}, nil
+	if mode != native.RenderModeRange {
+		return renderedFragment{Select: innerSelect, ExtraParams: histograms.ExtraParams}
+	}
+	innerSelect.OrderBy = []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}, {Expr: sqlb.Ident("timestamp")}}
+	outerSelect := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("tags"), Alias: "tags"},
+			{Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"},
+		},
+		From:    sqlb.SubSelect{S: innerSelect, Alias: rangeAlias},
+		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
+		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}},
+	}
+	return renderedFragment{Select: outerSelect, ExtraParams: histograms.ExtraParams}
+}
+
+// bucketCountsExpr yields arrayMap(bucket -> toFloat64(tupleElement(bucket, 2)), buckets).
+func bucketCountsExpr(buckets sqlb.Expr) sqlb.Expr {
+	return sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{
+		sqlb.RawLit{V: "bucket -> toFloat64(tupleElement(bucket, 2))"},
+		buckets,
+	}}
+}
+
+// bucketUpperBoundsExpr yields arrayMap(bucket -> toFloat64(tupleElement(bucket, 1)), buckets).
+func bucketUpperBoundsExpr(buckets sqlb.Expr) sqlb.Expr {
+	return sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{
+		sqlb.RawLit{V: "bucket -> toFloat64(tupleElement(bucket, 1))"},
+		buckets,
+	}}
+}
+
+// prependZeroPopBack yields arrayConcat([toFloat64(0)], arrayPopBack(x)).
+func prependZeroPopBack(x sqlb.Expr) sqlb.Expr {
+	return sqlb.Call{Name: "arrayConcat", Args: []sqlb.Expr{
+		sqlb.RawLit{V: "[toFloat64(0)]"},
+		sqlb.Call{Name: "arrayPopBack", Args: []sqlb.Expr{x}},
+	}}
+}
+
+// bucketNormalizedCountsExpr yields the cumulative per-bucket observation count
+// (non-decreasing, NaN-propagating) from raw cumulative counts + their shifted
+// copy. Mirrors Prometheus' classic-histogram normalisation.
+func bucketNormalizedCountsExpr(counts, prevCounts sqlb.Expr) sqlb.Expr {
+	return sqlb.Call{Name: "arrayCumSum", Args: []sqlb.Expr{
+		sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{
+			sqlb.RawLit{V: "(count, prev_count) -> if(isNaN(count), nan, greatest(count - prev_count, toFloat64(0)))"},
+			counts,
+			prevCounts,
+		}},
+	}}
+}
+
+// arrayLastElement yields arrayElement(x, length(x)).
+func arrayLastElement(x sqlb.Expr) sqlb.Expr {
+	return sqlb.Call{Name: "arrayElement", Args: []sqlb.Expr{x, sqlb.Call{Name: "length", Args: []sqlb.Expr{x}}}}
+}
+
+// arrayLastValue is arrayLastElement but emphasises "last value of a scalar
+// array" (vs. last tuple element). Same SQL.
+func arrayLastValue(x sqlb.Expr) sqlb.Expr {
+	return arrayLastElement(x)
 }
 
 // renderClassicHistogramGroupsQuery normalizes classic histogram bucket vectors into
 // one grouped row per histogram identity and timestamp. It removes __name__ and le
 // from the output tags, parses le into a numeric upper bound, and coalesces repeated
 // bucket boundaries before later projection helpers consume the grouped bucket array.
-func renderClassicHistogramGroupsQuery(cfg storage.QueryConfig, child *native.NativeFragment, params RenderParams, prefix string) (RenderedQuery, error) {
+func renderClassicHistogramGroupsQuery(cfg storage.QueryConfig, child *native.NativeFragment, params RenderParams, prefix string) (renderedFragment, error) {
 	if child == nil {
-		return RenderedQuery{}, fmt.Errorf("classic histogram materialization requires a child fragment")
+		return renderedFragment{}, fmt.Errorf("classic histogram materialization requires a child fragment")
 	}
 	childSQL, childParams, err := renderFragmentSubquery(cfg, child, params, prefix)
 	if err != nil {
-		return RenderedQuery{}, err
+		return renderedFragment{}, err
 	}
-	var flattenedSQL string
+
+	leRaw := sqlb.RawLit{V: "tupleElement(arrayFirst(tag -> tag.1 = 'le', tags), 2)"}
+	upperBoundExpr := sqlb.RawLit{V: "multiIf(le_raw IN ['+Inf', 'Inf', '+inf', 'inf'], inf, le_raw IN ['-Inf', '-inf'], -inf, toFloat64OrNull(le_raw))"}
+	histogramTagsExpr := sqlb.RawLit{V: "arrayFilter(tag -> tag.1 != 'le' AND tag.1 != '__name__', tags)"}
+	whereExpr := sqlb.RawLit{V: "le_raw != '' AND upper_bound IS NOT NULL"}
+
+	var flattened *sqlb.Select
 	switch params.Mode {
 	case native.RenderModeInstant:
-		flattenedSQL = "SELECT arrayFilter(tag -> tag.1 != 'le' AND tag.1 != '__name__', tags) AS histogram_tags, timestamp AS timestamp, multiIf(le_raw IN ['+Inf', 'Inf', '+inf', 'inf'], inf, le_raw IN ['-Inf', '-inf'], -inf, toFloat64OrNull(le_raw)) AS upper_bound, ifNull(toFloat64(value), nan) AS cumulative_count FROM (SELECT tags AS tags, timestamp AS timestamp, value AS value, tupleElement(arrayFirst(tag -> tag.1 = 'le', tags), 2) AS le_raw FROM (" + childSQL + ") AS histogram_child) AS histogram_points WHERE le_raw != '' AND upper_bound IS NOT NULL"
+		innerPoints := &sqlb.Select{
+			Columns: []sqlb.ColExpr{
+				{Expr: sqlb.Ident("tags"), Alias: "tags"},
+				{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
+				{Expr: sqlb.Ident("value"), Alias: "value"},
+				{Expr: leRaw, Alias: "le_raw"},
+			},
+			From: rawRenderedSubquerySourceWithAlias(childSQL, "histogram_child"),
+		}
+		flattened = &sqlb.Select{
+			Columns: []sqlb.ColExpr{
+				{Expr: histogramTagsExpr, Alias: "histogram_tags"},
+				{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
+				{Expr: upperBoundExpr, Alias: "upper_bound"},
+				{Expr: sqlb.RawLit{V: "ifNull(toFloat64(value), nan)"}, Alias: "cumulative_count"},
+			},
+			From:  sqlb.SubSelect{S: innerPoints, Alias: "histogram_points"},
+			Where: whereExpr,
+		}
 	case native.RenderModeRange:
-		flattenedSQL = "SELECT arrayFilter(tag -> tag.1 != 'le' AND tag.1 != '__name__', tags) AS histogram_tags, point.1 AS timestamp, multiIf(le_raw IN ['+Inf', 'Inf', '+inf', 'inf'], inf, le_raw IN ['-Inf', '-inf'], -inf, toFloat64OrNull(le_raw)) AS upper_bound, ifNull(toFloat64(point.2), nan) AS cumulative_count FROM (SELECT tags AS tags, time_series AS time_series, tupleElement(arrayFirst(tag -> tag.1 = 'le', tags), 2) AS le_raw FROM (" + childSQL + ") AS histogram_child) AS histogram_series ARRAY JOIN histogram_series.time_series AS point WHERE le_raw != '' AND upper_bound IS NOT NULL"
+		innerSeries := &sqlb.Select{
+			Columns: []sqlb.ColExpr{
+				{Expr: sqlb.Ident("tags"), Alias: "tags"},
+				{Expr: sqlb.Ident("time_series"), Alias: "time_series"},
+				{Expr: leRaw, Alias: "le_raw"},
+			},
+			From: rawRenderedSubquerySourceWithAlias(childSQL, "histogram_child"),
+		}
+		flattened = &sqlb.Select{
+			Columns: []sqlb.ColExpr{
+				{Expr: histogramTagsExpr, Alias: "histogram_tags"},
+				{Expr: sqlb.RawLit{V: "point.1"}, Alias: "timestamp"},
+				{Expr: upperBoundExpr, Alias: "upper_bound"},
+				{Expr: sqlb.RawLit{V: "ifNull(toFloat64(point.2), nan)"}, Alias: "cumulative_count"},
+			},
+			From: sqlb.ArrayJoin{
+				Base:  sqlb.SubSelect{S: innerSeries, Alias: "histogram_series"},
+				Expr:  sqlb.RawLit{V: "histogram_series.time_series"},
+				Alias: "point",
+			},
+			Where: whereExpr,
+		}
 	default:
-		return RenderedQuery{}, fmt.Errorf("unknown render mode %q", params.Mode)
+		return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
 	}
-	groupedSQL := "SELECT histogram_tags AS tags, timestamp AS timestamp, arraySort(item -> item.1, groupArray((upper_bound, cumulative_count))) AS buckets FROM (SELECT histogram_tags AS histogram_tags, timestamp AS timestamp, upper_bound AS upper_bound, sum(cumulative_count) AS cumulative_count FROM (" + flattenedSQL + ") AS histogram_rows GROUP BY histogram_tags, timestamp, upper_bound) AS coalesced_histogram_rows GROUP BY histogram_tags, timestamp ORDER BY tags, timestamp"
-	return RenderedQuery{SQL: groupedSQL + "\nFORMAT JSONEachRow\n", QueryParams: childParams}, nil
+
+	coalesced := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("histogram_tags"), Alias: "histogram_tags"},
+			{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
+			{Expr: sqlb.Ident("upper_bound"), Alias: "upper_bound"},
+			{Expr: sqlb.Call{Name: "sum", Args: []sqlb.Expr{sqlb.Ident("cumulative_count")}}, Alias: "cumulative_count"},
+		},
+		From: sqlb.SubSelect{S: flattened, Alias: "histogram_rows"},
+		GroupBy: []sqlb.Expr{
+			sqlb.Ident("histogram_tags"),
+			sqlb.Ident("timestamp"),
+			sqlb.Ident("upper_bound"),
+		},
+	}
+
+	grouped := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("histogram_tags"), Alias: "tags"},
+			{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
+			{Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((upper_bound, cumulative_count)))"}, Alias: "buckets"},
+		},
+		From:    sqlb.SubSelect{S: coalesced, Alias: "coalesced_histogram_rows"},
+		GroupBy: []sqlb.Expr{sqlb.Ident("histogram_tags"), sqlb.Ident("timestamp")},
+		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}, {Expr: sqlb.Ident("timestamp")}},
+	}
+	return renderedFragment{Select: grouped, ExtraParams: childParams}, nil
 }

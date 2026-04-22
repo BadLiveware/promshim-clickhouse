@@ -106,10 +106,10 @@ func TestAdvancedExprSurfaceBuildsComposableArrayAndConditionalForms(t *testing.
 	}
 	checks := []string{
 		"multiIf(",
-		"arrayAll((v) -> (v = window_values[{p1:Int64}]), window_values)",
+		"arrayAll(v -> (v = window_values[{p1:Int64}]), window_values)",
 		"arrayFold((acc, x) -> (acc, x), window_values, ({p2:Int64}, {p3:Int64}))",
 		"tupleElement(",
-		"arrayReduce({p4:String}, arrayMap((x) -> x, window_values))",
+		"arrayReduce({p4:String}, arrayMap(x -> x, window_values))",
 		"CAST(",
 	}
 	for _, check := range checks {

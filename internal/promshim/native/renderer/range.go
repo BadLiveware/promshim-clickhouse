@@ -8,14 +8,15 @@ import (
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/storage/schema"
 )
 
-func renderSubqueryFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderSubqueryFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
 	if fragment.Subquery == nil || fragment.Subquery.Child == nil {
-		return RenderedQuery{}, fmt.Errorf("subquery fragment is missing subquery metadata")
+		return renderedFragment{}, fmt.Errorf("subquery fragment is missing subquery metadata")
 	}
 	if params.Mode != native.RenderModeInstant {
-		return RenderedQuery{}, fmt.Errorf("native subquery rendering in %s mode is not implemented yet", params.Mode)
+		return renderedFragment{}, fmt.Errorf("native subquery rendering in %s mode is not implemented yet", params.Mode)
 	}
 	endMS := params.EvaluationTimeMS
 	if fragment.Subquery.Timestamp != nil {
@@ -31,7 +32,7 @@ func renderSubqueryFragment(cfg storage.QueryConfig, fragment *native.NativeFrag
 	stepMS := step.Milliseconds()
 	startMS := alignSubqueryStepStart(endMS-fragment.Subquery.Range.Milliseconds(), stepMS)
 	childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(fragment.Subquery.Child, startMS, endMS)
-	childRendered, err := RenderFragment(cfg, fragment.Subquery.Child, RenderParams{
+	return renderFragment(cfg, fragment.Subquery.Child, RenderParams{
 		Mode:                native.RenderModeRange,
 		StartMS:             startMS,
 		EndMS:               endMS,
@@ -40,27 +41,23 @@ func renderSubqueryFragment(cfg storage.QueryConfig, fragment *native.NativeFrag
 		RequiredEndMS:       childRequiredEndMS,
 		ResolveSourcePromQL: params.ResolveSourcePromQL,
 	})
-	if err != nil {
-		return RenderedQuery{}, err
-	}
-	return childRendered, nil
 }
 
-func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
 	if fragment.RangeFunction == nil || fragment.RangeFunction.Child == nil {
-		return RenderedQuery{}, fmt.Errorf("range function fragment is missing range metadata")
+		return renderedFragment{}, fmt.Errorf("range function fragment is missing range metadata")
 	}
 	switch params.Mode {
 	case native.RenderModeInstant:
 		childRendered, err := RenderFragment(cfg, fragment.RangeFunction.Child, params)
 		if err != nil {
-			return RenderedQuery{}, err
+			return renderedFragment{}, err
 		}
 		sql, err := buildInstantRangeFunctionSQL(childRendered.SQL, fragment.RangeFunction.Func, fragment.RangeFunction.ParamNumber, fragment.RangeFunction.ParamNumbers, params.EvaluationTimeMS, rangeFunctionChildRangeMS(fragment.RangeFunction.Child))
 		if err != nil {
-			return RenderedQuery{}, err
+			return renderedFragment{}, err
 		}
-		return RenderedQuery{SQL: sql, QueryParams: childRendered.QueryParams}, nil
+		return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childRendered.QueryParams}, nil
 	case native.RenderModeRange:
 		selectorFragment := fragment.RangeFunction.Child
 		if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector {
@@ -75,13 +72,13 @@ func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *native.Nativ
 				ResolveSourcePromQL: params.ResolveSourcePromQL,
 			})
 			if err != nil {
-				return RenderedQuery{}, err
+				return renderedFragment{}, err
 			}
 			sql, err := buildRangeFunctionOverWindowedArraysSQL(trimRenderedQuerySQL(childRendered.SQL), fragment.RangeFunction.Func, fragment.RangeFunction.ParamNumber, fragment.RangeFunction.ParamNumbers, params.StartMS, params.EndMS, params.StepMS, selectorFragment.Selector.Lookback.Milliseconds(), selectorFragment.Selector.Offset.Milliseconds())
 			if err != nil {
-				return RenderedQuery{}, err
+				return renderedFragment{}, err
 			}
-			return RenderedQuery{SQL: sql, QueryParams: childRendered.QueryParams}, nil
+			return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childRendered.QueryParams}, nil
 		}
 		if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindSubquery && selectorFragment.Subquery != nil && selectorFragment.Subquery.Child != nil {
 			subqueryStep := selectorFragment.Subquery.Step
@@ -102,17 +99,17 @@ func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *native.Nativ
 				ResolveSourcePromQL: params.ResolveSourcePromQL,
 			})
 			if err != nil {
-				return RenderedQuery{}, err
+				return renderedFragment{}, err
 			}
 			sql, err := buildRangeFunctionOverWindowedArraysSQL(trimRenderedQuerySQL(childRendered.SQL), fragment.RangeFunction.Func, fragment.RangeFunction.ParamNumber, fragment.RangeFunction.ParamNumbers, params.StartMS, params.EndMS, params.StepMS, selectorFragment.Subquery.Range.Milliseconds(), selectorFragment.Subquery.Offset.Milliseconds())
 			if err != nil {
-				return RenderedQuery{}, err
+				return renderedFragment{}, err
 			}
-			return RenderedQuery{SQL: sql, QueryParams: childRendered.QueryParams}, nil
+			return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childRendered.QueryParams}, nil
 		}
-		return RenderedQuery{}, fmt.Errorf("native range-mode rendering for %s currently requires a direct range-vector selector child or supported subquery child", fragment.RangeFunction.Func)
+		return renderedFragment{}, fmt.Errorf("native range-mode rendering for %s currently requires a direct range-vector selector child or supported subquery child", fragment.RangeFunction.Func)
 	default:
-		return RenderedQuery{}, fmt.Errorf("unknown render mode %q", params.Mode)
+		return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
 	}
 }
 
@@ -143,7 +140,7 @@ func buildRangeFunctionOverWindowedArraysSQL(sourceSQL, fn string, paramNumber *
 		Where:   sqlb.RawLit{V: "length(window_series) > " + strconv.Itoa(minimumSeriesLengthForRangeFunction(fn))},
 	}
 	outer := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((timestamp, value)))"}, Alias: "time_series"}},
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"}},
 		From:    sqlb.SubSelect{S: perStep},
 		GroupBy: []sqlb.Expr{sqlb.Ident("final_tags")},
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("final_tags")}},
@@ -213,8 +210,8 @@ func rangeFunctionValueExpr(fn, seriesExpr string, paramNumber *float64, paramNu
 	series := sqlb.RawLit{V: seriesExpr}
 	valuesExpr := sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "point -> ifNull(toFloat64(tupleElement(point, 2)), nan)"}, series}}
 	timestampsExpr := sqlb.RawLit{V: timestampsSourceExpr}
-	hasNaN := sqlb.Call{Name: "arrayExists", Args: []sqlb.Expr{sqlb.RawLit{V: "v -> isNaN(v)"}, valuesExpr}}
-	finiteValues := sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "v -> NOT isNaN(v)"}, valuesExpr}}
+	hasNaN := sqlb.Call{Name: "arrayExists", Args: []sqlb.Expr{sqlb.Lambda{Params: []sqlb.Ident{"v"}, Body: sqlb.Call{Name: "isNaN", Args: []sqlb.Expr{sqlb.Ident("v")}}}, valuesExpr}}
+	finiteValues := sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.Lambda{Params: []sqlb.Ident{"v"}, Body: sqlb.RawLit{V: "NOT isNaN(v)"}}, valuesExpr}}
 	seriesLength := sqlb.Call{Name: "length", Args: []sqlb.Expr{series}}
 	lenMinusOne := sqlb.RawLit{V: renderSQLExprNoParams(seriesLength) + " - 1"}
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/storage/schema"
 	"github.com/prometheus/prometheus/model/labels"
 )
 
@@ -43,7 +44,7 @@ func BuildInstantSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, requ
 	if err != nil {
 		return "", nil, err
 	}
-	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", params, nil
+	return sql + schema.QuerySuffix, params, nil
 }
 
 func BuildRangeSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64) (string, map[string]string, error) {
@@ -51,7 +52,7 @@ func BuildRangeSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, requir
 	if err != nil {
 		return "", nil, err
 	}
-	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", params, nil
+	return sql + schema.QuerySuffix, params, nil
 }
 
 func BuildRangeWindowSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, windowValueExpr string, minimumSeriesLength int) (string, map[string]string, error) {
@@ -77,8 +78,8 @@ func BuildRangeWindowSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, 
 	groupByWindow := []sqlb.Expr{sqlb.Ident("grid.id"), sqlb.Ident("grid.tags"), sqlb.Ident("grid.eval_ts")}
 	orderBy := []sqlb.OrderExpr{{Expr: sqlb.Ident("final_tags")}}
 	if !selector.NeedTags {
-		gridTagsExpr = sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}
-		windowTagsExpr = sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}
+		gridTagsExpr = schema.EmptyTagsArrayExpr()
+		windowTagsExpr = schema.EmptyTagsArrayExpr()
 		finalTagsExpr = sqlb.Ident("tags")
 		groupByWindow = []sqlb.Expr{sqlb.Ident("grid.id"), sqlb.Ident("grid.eval_ts")}
 		orderBy = nil
@@ -90,7 +91,7 @@ func BuildRangeWindowSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, 
 	}
 	windowed := &sqlb.Select{
 		Columns: []sqlb.ColExpr{{Expr: windowTagsExpr, Alias: "tags"}, {Expr: sqlb.Ident("grid.eval_ts"), Alias: "eval_ts"}, {Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((d.timestamp, d.value)))"}, Alias: "window_series"}},
-		From:    sqlb.Join{Left: sqlb.SubSelect{S: grid, Alias: "grid"}, Right: sqlb.RawSource{SQL: "timeSeriesData(" + timeSeriesTableRef(cfg) + ")", Alias: "d"}, Kind: "INNER", On: sqlb.RawLit{V: "d.id = grid.id"}},
+		From:    sqlb.Join{Left: sqlb.SubSelect{S: grid, Alias: "grid"}, Right: sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"}, Kind: "INNER", On: sqlb.RawLit{V: "d.id = grid.id"}},
 		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64}) AND d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64}) AND " + staleNaNFilterSQL("d.value")},
 		GroupBy: groupByWindow,
 	}
@@ -100,7 +101,7 @@ func BuildRangeWindowSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, 
 		Where:   sqlb.RawLit{V: "length(window_series) > " + strconv.Itoa(minimumSeriesLength)},
 	}
 	outer := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((timestamp, value)))"}, Alias: "time_series"}},
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"}},
 		From:    sqlb.SubSelect{S: perStep},
 		GroupBy: []sqlb.Expr{sqlb.Ident("final_tags")},
 		OrderBy: orderBy,
@@ -109,7 +110,7 @@ func BuildRangeWindowSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, 
 	if err != nil {
 		return "", nil, err
 	}
-	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", params, nil
+	return sql + schema.QuerySuffix, params, nil
 }
 
 func buildInstantSourceQuerySQL(cfg QueryConfig, source AggregationSource, evaluationTimeMS, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
@@ -174,12 +175,12 @@ func buildInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, req
 		groupBy = append(groupBy, sqlb.Ident("series.tags"))
 		orderBy = append(orderBy, sqlb.OrderExpr{Expr: sqlb.Ident("tags")})
 	} else {
-		columns = append([]sqlb.ColExpr{{Expr: sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}, Alias: "tags"}}, columns...)
+		columns = append([]sqlb.ColExpr{{Expr: schema.EmptyTagsArrayExpr(), Alias: "tags"}}, columns...)
 	}
 	query := &sqlb.Select{
 		Columns: columns,
 		From: sqlb.Join{
-			Left:  sqlb.RawSource{SQL: "timeSeriesData(" + timeSeriesTableRef(cfg) + ")", Alias: "d"},
+			Left:  sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"},
 			Right: sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},
 			Kind:  "INNER",
 			On:    sqlb.RawLit{V: "d.id = series.id"},
@@ -227,9 +228,9 @@ func buildRangeInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource
 	groupByInner := []sqlb.Expr{sqlb.Ident("grid.id"), sqlb.Ident("grid.tags"), sqlb.Ident("grid.eval_ts")}
 	orderBy := []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}}
 	if !selector.NeedTags {
-		gridTagsExpr = sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}
-		innerTagsExpr = sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}
-		outerTagsExpr = sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}
+		gridTagsExpr = schema.EmptyTagsArrayExpr()
+		innerTagsExpr = schema.EmptyTagsArrayExpr()
+		outerTagsExpr = schema.EmptyTagsArrayExpr()
 		groupByInner = []sqlb.Expr{sqlb.Ident("grid.id"), sqlb.Ident("grid.eval_ts")}
 		orderBy = nil
 	}
@@ -250,7 +251,7 @@ func buildRangeInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource
 		},
 		From: sqlb.Join{
 			Left:  sqlb.SubSelect{S: grid, Alias: "grid"},
-			Right: sqlb.RawSource{SQL: "timeSeriesData(" + timeSeriesTableRef(cfg) + ")", Alias: "d"},
+			Right: sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"},
 			Kind:  "INNER",
 			On:    sqlb.RawLit{V: "d.id = grid.id"},
 		},
@@ -261,7 +262,7 @@ func buildRangeInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource
 	outer := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
 			{Expr: outerTagsExpr, Alias: "tags"},
-			{Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((timestamp, value)))"}, Alias: "time_series"},
+			{Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"},
 		},
 		From:    sqlb.SubSelect{S: inner},
 		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
@@ -282,7 +283,7 @@ func buildRangeMatrixSelectorSourceSQL(cfg QueryConfig, selector SelectorSource,
 	selectTagsExpr := sqlb.Expr(sqlb.Ident("series.tags"))
 	orderBy := []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}}
 	if !selector.NeedTags {
-		selectTagsExpr = sqlb.RawLit{V: "CAST([], 'Array(Tuple(String, String))')"}
+		selectTagsExpr = schema.EmptyTagsArrayExpr()
 		orderBy = nil
 	}
 	inner := &sqlb.Select{
@@ -292,7 +293,7 @@ func buildRangeMatrixSelectorSourceSQL(cfg QueryConfig, selector SelectorSource,
 			{Expr: sqlb.Ident("d.value"), Alias: "value"},
 		},
 		From: sqlb.Join{
-			Left:  sqlb.RawSource{SQL: "timeSeriesData(" + timeSeriesTableRef(cfg) + ")", Alias: "d"},
+			Left:  sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"},
 			Right: sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},
 			Kind:  "INNER",
 			On:    sqlb.RawLit{V: "d.id = series.id"},
@@ -302,7 +303,7 @@ func buildRangeMatrixSelectorSourceSQL(cfg QueryConfig, selector SelectorSource,
 	outer := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
 			{Expr: sqlb.Ident("tags"), Alias: "tags"},
-			{Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((timestamp, value)))"}, Alias: "time_series"},
+			{Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"},
 		},
 		From:    sqlb.SubSelect{S: inner},
 		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
@@ -326,7 +327,7 @@ func selectorTagsExpr(selector SelectorSource, metricColumn, tagsColumn string) 
 	}}
 	if !selector.RequireFullTags && len(selector.RequiredTagLabels) > 0 {
 		return renderStorageExprNoParams(sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
-			sqlb.RawLit{V: "tag -> tag.1"},
+			sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},
 			sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{
 				sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(selector.RequiredTagLabels) + ", tag.1)"},
 				base,
@@ -375,7 +376,7 @@ func buildMatchedSeriesSQL(cfg QueryConfig, selector SelectorSource, prefix stri
 	}
 	query := &sqlb.Select{
 		Columns: columns,
-		From:    sqlb.RawSource{SQL: "timeSeriesTags(" + timeSeriesTableRef(cfg) + ")", Alias: "src"},
+		From:    sqlb.RawSource{SQL: schema.TimeSeriesTagsRef(timeSeriesTableRef(cfg)), Alias: "src"},
 	}
 	if len(whereClauses) > 0 {
 		query.Where = sqlb.RawLit{V: strings.Join(whereClauses, " AND ")}

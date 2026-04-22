@@ -143,17 +143,21 @@ func buildSetVectorJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL st
 	if err != nil {
 		return "", nil, err
 	}
-	lhsPresenceSQL := "SELECT " + presenceCols + " FROM (" + lhsPreparedSQL + ") AS lhs GROUP BY " + groupCols
-	rhsPresenceSQL := "SELECT " + presenceCols + " FROM (" + rhsPreparedSQL + ") AS rhs GROUP BY " + groupCols
+	// ClickHouse LEFT JOIN fills unmatched non-nullable columns with type defaults
+	// rather than NULL. Expose an explicit nullable-ish presence marker so set
+	// operators can reliably distinguish unmatched rows after joining against the
+	// grouped presence side.
+	lhsPresenceSQL := "SELECT " + presenceCols + ", toUInt8(1) AS present_marker FROM (" + lhsPreparedSQL + ") AS lhs GROUP BY " + groupCols
+	rhsPresenceSQL := "SELECT " + presenceCols + ", toUInt8(1) AS present_marker FROM (" + rhsPreparedSQL + ") AS rhs GROUP BY " + groupCols
 	var combinedRowsSQL string
 	switch cfg.Op {
 	case parser.LAND:
 		combinedRowsSQL = "SELECT lhs.original_group AS result_tags, " + lhsTs + " AS timestamp, lhs.value AS value FROM (" + lhsPreparedSQL + ") AS lhs INNER JOIN (" + rhsPresenceSQL + ") AS rhs ON " + joinOn
 	case parser.LUNLESS:
-		combinedRowsSQL = "SELECT lhs.original_group AS result_tags, " + lhsTs + " AS timestamp, lhs.value AS value FROM (" + lhsPreparedSQL + ") AS lhs LEFT JOIN (" + rhsPresenceSQL + ") AS rhs ON " + joinOn + " WHERE rhs.join_group IS NULL"
+		combinedRowsSQL = "SELECT lhs.original_group AS result_tags, " + lhsTs + " AS timestamp, lhs.value AS value FROM (" + lhsPreparedSQL + ") AS lhs LEFT JOIN (" + rhsPresenceSQL + ") AS rhs ON " + joinOn + " WHERE ifNull(rhs.present_marker, 0) = 0"
 	case parser.LOR:
 		combinedRowsSQL = "SELECT lhs.original_group AS result_tags, " + lhsTs + " AS timestamp, lhs.value AS value FROM (" + lhsPreparedSQL + ") AS lhs UNION ALL " +
-			"SELECT rhs.original_group AS result_tags, " + rhsTs + " AS timestamp, rhs.value AS value FROM (" + rhsPreparedSQL + ") AS rhs LEFT JOIN (" + lhsPresenceSQL + ") AS lhs ON " + joinOn + " WHERE lhs.join_group IS NULL"
+			"SELECT rhs.original_group AS result_tags, " + rhsTs + " AS timestamp, rhs.value AS value FROM (" + rhsPreparedSQL + ") AS rhs LEFT JOIN (" + lhsPresenceSQL + ") AS lhs ON " + joinOn + " WHERE ifNull(lhs.present_marker, 0) = 0"
 	default:
 		return "", nil, fmt.Errorf("native vector join SQL for operator %q is not implemented yet", cfg.Op.String())
 	}

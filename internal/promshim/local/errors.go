@@ -4,9 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/local/exec"
 	httpapi "github.com/BadLiveware/promshim-ch/internal/promshim/httpapi"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/local/exec"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/plan"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -124,6 +125,9 @@ func NormalizeInternalError(err error) error {
 
 	var queryErr *storage.QueryError
 	if asQueryError(err, &queryErr) {
+		if normalized := normalizeQueryError(queryErr); normalized != nil {
+			return normalized
+		}
 		switch queryErr.ErrorType {
 		case string(internalErrorKindBadData):
 			return &promshimError{kind: internalErrorKindBadData, message: queryErr.Message}
@@ -135,6 +139,19 @@ func NormalizeInternalError(err error) error {
 	}
 
 	return &promshimError{kind: internalErrorKindExecution, message: err.Error()}
+}
+
+func normalizeQueryError(err *storage.QueryError) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Message, "found duplicate series for the match group on the ") {
+		// ClickHouse surfaces the SQL-side uniqueness guard as an execution error,
+		// but Prometheus classifies this join shape as bad-data and reports the
+		// higher-level vector-matching contract instead.
+		return NewBadDataErrorf("multiple matches for labels: many-to-one matching must be explicit (group_left/group_right)")
+	}
+	return nil
 }
 
 func internalErrorKindOf(err error) internalErrorKind {

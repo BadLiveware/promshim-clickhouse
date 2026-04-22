@@ -1,5 +1,13 @@
 {
   "comment": "Known compliance failures tracked as EXPECTED (not bugs in the shim). Each entry must match exactly; any drift (different query, different diff shape, or allowlist entry that no longer matches anything) fails reconciliation so regressions surface.",
+  "tolerances": [
+    {
+      "id": "native-modulo-small-float-drift",
+      "query_regex": "%",
+      "margin": 0.000001,
+      "reason": "ClickHouse native modulo uses x - trunc(x / y) * y instead of Go/Prometheus math.Mod, which causes tiny float drift on large operands. Accept only when the rerun against both APIs stays within a 1e-6 absolute margin and labels/timestamps still match exactly."
+    }
+  ],
   "entries": [
     {
       "id": "topk-tie-break-ordering",

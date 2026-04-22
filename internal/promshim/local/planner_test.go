@@ -1124,6 +1124,50 @@ func TestBuildPlanWithContextCreatesNativeRangeAggregationForStartEndAnchors(t *
 	}
 }
 
+func TestBuildPlanWithContextCreatesNativeRangeBinaryWithStartEndAnchors(t *testing.T) {
+	expr, err := plan.ParseExpression("up @ start() + up @ end()")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModePrefer})
+	if err != nil {
+		t.Fatalf("expected native binary plan for anchored range binary, got error: %v", err)
+	}
+	nativePlan, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan for anchored range binary, got %T", built)
+	}
+	if nativePlan.Fragment == nil || nativePlan.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin || nativePlan.Fragment.BinaryJoin == nil {
+		t.Fatalf("expected native binary join fragment, got %#v", nativePlan)
+	}
+	if nativePlan.Fragment.BinaryJoin.Op != parser.ADD {
+		t.Fatalf("expected ADD anchored binary join, got %#v", nativePlan.Fragment.BinaryJoin)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeRangeBinaryWithOffsets(t *testing.T) {
+	expr, err := plan.ParseExpression("up - up offset 60s")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModePrefer})
+	if err != nil {
+		t.Fatalf("expected native binary plan for offset range binary, got error: %v", err)
+	}
+	nativePlan, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan for offset range binary, got %T", built)
+	}
+	if nativePlan.Fragment == nil || nativePlan.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin || nativePlan.Fragment.BinaryJoin == nil {
+		t.Fatalf("expected native binary join fragment, got %#v", nativePlan)
+	}
+	if nativePlan.Fragment.BinaryJoin.Op != parser.SUB {
+		t.Fatalf("expected SUB offset binary join, got %#v", nativePlan.Fragment.BinaryJoin)
+	}
+}
+
 func TestBuildPlanWithContextCreatesNativePlanForScalarConvert(t *testing.T) {
 	expr, err := plan.ParseExpression("scalar(up)")
 	if err != nil {
@@ -2327,29 +2371,55 @@ func TestBuildPlanWithContextCreatesNativeLimitRatioRootUnderForceSupported(t *t
 	}
 }
 
-func TestBuildPlanWithContextCreatesNativeSetOperatorRootsUnderForceSupported(t *testing.T) {
-	for _, query := range []string{"up and on(job) up", "up or on(job) up", "up unless on(job) up"} {
-		expr, err := plan.ParseExpression(query)
-		if err != nil {
-			t.Fatal(err)
-		}
-		execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
-		if err != nil {
-			t.Fatalf("expected native set-operator root for %q, got error: %v", query, err)
-		}
-		nativeRoot, ok := execPlan.(*nativeSubtreePlan)
-		if !ok {
-			t.Fatalf("expected nativeSubtreePlan root for %q, got %T", query, execPlan)
-		}
-		if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin || nativeRoot.Fragment.BinaryJoin == nil {
-			t.Fatalf("expected native binary join fragment for %q, got %#v", query, nativeRoot)
-		}
-		if nativeRoot.Fragment.BinaryJoin.JoinShape != nativeplan.JoinShapeManyToMany {
-			t.Fatalf("expected many-to-many join shape for %q, got %#v", query, nativeRoot.Fragment.BinaryJoin)
-		}
-		if nativeRoot.Fragment.BinaryJoin.Op.String() != mustParseExpr(t, query).(*parser.BinaryExpr).Op.String() {
-			t.Fatalf("expected matching set op for %q, got %#v", query, nativeRoot.Fragment.BinaryJoin)
-		}
+func TestBuildPlanWithContextCreatesNativeSetAndRootUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression("up and on(job) up")
+	if err != nil {
+		t.Fatal(err)
+	}
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native set-and root, got error: %v", err)
+	}
+	nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin || nativeRoot.Fragment.BinaryJoin == nil {
+		t.Fatalf("expected native binary join fragment, got %#v", nativeRoot)
+	}
+	if nativeRoot.Fragment.BinaryJoin.Op != parser.LAND || nativeRoot.Fragment.BinaryJoin.JoinShape != nativeplan.JoinShapeManyToMany {
+		t.Fatalf("expected many-to-many LAND join shape, got %#v", nativeRoot.Fragment.BinaryJoin)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeSetOrAndUnlessInPreferMode(t *testing.T) {
+	for _, tc := range []struct {
+		query string
+		op    parser.ItemType
+	}{
+		{query: "up or on(job) up", op: parser.LOR},
+		{query: "up unless on(job) up", op: parser.LUNLESS},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			expr, err := plan.ParseExpression(tc.query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModePrefer})
+			if err != nil {
+				t.Fatalf("expected native set-operator plan for %q, got error: %v", tc.query, err)
+			}
+			nativePlan, ok := execPlan.(*nativeSubtreePlan)
+			if !ok {
+				t.Fatalf("expected nativeSubtreePlan for %q, got %T", tc.query, execPlan)
+			}
+			if nativePlan.Fragment == nil || nativePlan.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin || nativePlan.Fragment.BinaryJoin == nil {
+				t.Fatalf("expected native binary join fragment for %q, got %#v", tc.query, nativePlan)
+			}
+			if nativePlan.Fragment.BinaryJoin.Op != tc.op || nativePlan.Fragment.BinaryJoin.JoinShape != nativeplan.JoinShapeManyToMany {
+				t.Fatalf("expected many-to-many native join for %q, got %#v", tc.query, nativePlan.Fragment.BinaryJoin)
+			}
+		})
 	}
 }
 

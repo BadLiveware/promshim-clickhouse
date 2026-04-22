@@ -39,7 +39,7 @@ func renderFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, pa
 	if fragment == nil {
 		return renderedFragment{}, fmt.Errorf("native fragment render requires a fragment")
 	}
-	if params.Mode == native.RenderModeRange && native.HasFixedTemporalAnchor(fragment) {
+	if params.Mode == native.RenderModeRange && native.HasFixedTemporalAnchor(fragment) && fragment.Kind != native.FragmentKindBinaryVectorJoin {
 		return renderAnchoredRangeFragment(cfg, fragment, params)
 	}
 	switch fragment.Kind {

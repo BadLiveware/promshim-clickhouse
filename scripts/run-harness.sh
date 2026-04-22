@@ -133,6 +133,7 @@ if [[ ! -d "$HARNESS_DIR" ]] || [[ ! -f "$HARNESS_DIR/docker-compose.yml" ]]; th
 fi
 
 MAIN_STACK_STARTED=0
+COMPLIANCE_STACK_STARTED=0
 
 cleanup() {
   if (( KEEP_UP == 1 )); then
@@ -143,7 +144,10 @@ cleanup() {
     log "Stopping main harness stack (docker compose down -v)."
     (cd "$HARNESS_DIR" && docker compose down -v >/dev/null 2>&1 || true)
   fi
-  # The compliance runner manages its own teardown; no-op here.
+  if (( COMPLIANCE_STACK_STARTED == 1 )); then
+    log "Stopping compliance stack (docker compose down)."
+    (cd "${REPO_ROOT}/harness/compliance" && docker compose down >/dev/null 2>&1 || true)
+  fi
 }
 trap cleanup EXIT
 
@@ -270,19 +274,24 @@ run_dashboard_suite() {
 run_compliance_suite() {
   local args=()
   if (( BUILD_IMAGES == 0 )); then args+=(--no-build); fi
-  if (( KEEP_UP == 1 )); then args+=(--keep-up); fi
+  if (( KEEP_UP == 1 )) || [[ "$SUITE" == "all" ]]; then
+    args+=(--keep-up)
+    COMPLIANCE_STACK_STARTED=1
+  fi
   args+=(--ready-timeout "$READY_TIMEOUT")
   log "Delegating to scripts/run-compliance.sh ${args[*]}"
   "${REPO_ROOT}/scripts/run-compliance.sh" "${args[@]}" || true
 }
 
 run_bench_suite() {
-  # The bench reuses the compliance stack. When SUITE=all we've just run
-  # the compliance suite, which left the stack up if --keep-up was set.
-  # When SUITE=bench alone, we bring up the compliance stack ourselves.
+  # The bench reuses the compliance stack. When SUITE=all we explicitly keep
+  # the compliance stack up so bench can run against the same fixture without
+  # re-running the compliance tester. When SUITE=bench alone, we bring up the
+  # compliance stack ourselves.
   local args=(--ready-timeout "$READY_TIMEOUT")
   if [[ "$SUITE" == "bench" ]]; then
     args+=(--bring-up)
+    COMPLIANCE_STACK_STARTED=1
   fi
   log "Delegating to scripts/run-bench.sh ${args[*]}"
   "${REPO_ROOT}/scripts/run-bench.sh" "${args[@]}" || true

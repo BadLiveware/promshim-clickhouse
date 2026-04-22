@@ -158,7 +158,7 @@ func captureIndexForReplacementName(name string, subexpNames []string) int {
 		if err != nil {
 			return -1
 		}
-		if idx >= 0 {
+		if idx >= 0 && idx < len(subexpNames) {
 			return idx
 		}
 		return -1

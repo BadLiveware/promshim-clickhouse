@@ -787,6 +787,48 @@ func TestAnalyzeSubqueryAccumulatesChildAndOwnOffsetsSeparatelyFromLookback(t *t
 	}
 }
 
+func TestBuildBinaryTemplateForScalarExprWrapsCompositeScalarExpressions(t *testing.T) {
+	template, dropsMetric, ok := buildBinaryTemplateForScalarExpr(parser.DIV, "toFloat64(toUnixTimestamp64Milli({timestamp})) / 1000.0", "{value}", false)
+	if !ok {
+		t.Fatal("expected vector/synthetic-scalar division template")
+	}
+	if !dropsMetric {
+		t.Fatal("expected arithmetic template to drop metric name")
+	}
+	want := "({value}) / (toFloat64(toUnixTimestamp64Milli({timestamp})) / 1000.0)"
+	if template != want {
+		t.Fatalf("unexpected template: got %q want %q", template, want)
+	}
+}
+
+func TestBuildBinaryTemplateForScalarExprSupportsModulo(t *testing.T) {
+	template, dropsMetric, ok := buildBinaryTemplateForScalarExpr(parser.MOD, "1.2345", "{value}", false)
+	if !ok {
+		t.Fatal("expected modulo template to be native-lowerable")
+	}
+	if !dropsMetric {
+		t.Fatal("expected modulo template to drop metric name")
+	}
+	want := "modulo(({value}), (1.2345))"
+	if template != want {
+		t.Fatalf("unexpected template: got %q want %q", template, want)
+	}
+}
+
+func TestApplyBinarySourceTransformSupportsModulo(t *testing.T) {
+	template, dropsMetric, ok := applyBinarySourceTransform(parser.MOD, "{value}", 1.2345, false)
+	if !ok {
+		t.Fatal("expected modulo source transform to be native-lowerable")
+	}
+	if !dropsMetric {
+		t.Fatal("expected modulo source transform to drop metric name")
+	}
+	want := "modulo(({value}), 1.2345)"
+	if template != want {
+		t.Fatalf("unexpected template: got %q want %q", template, want)
+	}
+}
+
 func mustParseExpr(t *testing.T, query string) parser.Expr {
 	t.Helper()
 	expr, err := planpkg.ParseExpression(query)

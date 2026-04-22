@@ -83,7 +83,7 @@ func TestBuildInstantBinaryVectorJoinSQLSupportsSetOperators(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected set-operator SQL for %v, got error: %v", tc.op, err)
 		}
-		for _, expected := range []string{"SELECT join_group FROM", tc.check, "lhs.join_group = rhs.join_group", "result_tags AS tags"} {
+		for _, expected := range []string{"toUInt8(1) AS present_marker", tc.check, "lhs.join_group = rhs.join_group", "result_tags AS tags"} {
 			if !strings.Contains(sql, expected) {
 				t.Fatalf("expected %q in %v SQL, got %q", expected, tc.op, sql)
 			}

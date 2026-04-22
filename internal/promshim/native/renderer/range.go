@@ -89,6 +89,19 @@ func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *native.Nativ
 		return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childRendered.QueryParams}, nil
 	case native.RenderModeRange:
 		selectorFragment := fragment.RangeFunction.Child
+		if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector && sourceWrapperIsIdentity(selectorFragment) && preferDirectSelectorWindowJoin(selectorFragment.Selector.Lookback.Milliseconds(), params.StepMS) {
+			childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment, params.StartMS, params.EndMS)
+			source, err := renderAggregationSource(selectorFragment, params)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			windowValueExpr := rangeFunctionValueExpr(fragment.RangeFunction.Func, "window_series", "window_values", fragment.RangeFunction.ParamNumber, fragment.RangeFunction.ParamNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", selectorFragment.Selector.Lookback.Milliseconds())
+			sql, queryParams, err := storage.BuildRangeWindowSelectorQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, windowValueExpr, rangeFunctionTagsExpr(fragment.RangeFunction.Func), minimumSeriesLengthForRangeFunction(fragment.RangeFunction.Func))
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
+		}
 		if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector {
 			childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment, params.StartMS, params.EndMS)
 			childRendered, err := RenderFragment(cfg, selectorFragment, RenderParams{
@@ -134,6 +147,19 @@ func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *native.Nativ
 	}
 }
 
+func preferDirectSelectorWindowJoin(lookbackMS, stepMS int64) bool {
+	if lookbackMS <= 0 || stepMS <= 0 {
+		return false
+	}
+	// The direct window-join path duplicates raw points into every overlapping
+	// step bucket. That is a good trade when overlap is shallow (for example
+	// 1m windows on a 30s step), but once each point fan-outs across many step
+	// buckets the older materialize-then-window path is cheaper. Keep the fast
+	// path for low-overlap windows only.
+	overlapSlots := ((lookbackMS + stepMS - 1) / stepMS) + 1
+	return overlapSlots <= 4
+}
+
 func buildWindowedArraysSourceSQL(sourceSQL string, startMS, endMS, stepMS, rangeMS, offsetMS int64) (string, error) {
 	grid := &sqlb.Select{Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: "arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range(" + strconv.FormatInt(startMS, 10) + ", " + strconv.FormatInt(endMS, 10) + " + 1, " + strconv.FormatInt(stepMS, 10) + ")))"}, Alias: "eval_ts"}}}
 	stepWindows := &sqlb.Select{
@@ -143,6 +169,10 @@ func buildWindowedArraysSourceSQL(sourceSQL string, startMS, endMS, stepMS, rang
 			{Expr: sqlb.RawLit{V: "arrayFilter(point -> tupleElement(point, 1) <= grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(offsetMS, 10) + ") AND tupleElement(point, 1) >= grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(offsetMS+rangeMS, 10) + "), source.time_series)"}, Alias: "window_series"},
 			{Expr: sqlb.RawLit{V: "arrayMap(point -> tupleElement(point, 1), window_series)"}, Alias: "window_timestamps"},
 			{Expr: sqlb.RawLit{V: "arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series)"}, Alias: "window_values"},
+			{Expr: sqlb.RawLit{V: "arrayPopBack(window_values)"}, Alias: "window_values_prev"},
+			{Expr: sqlb.RawLit{V: "arrayPopFront(window_values)"}, Alias: "window_values_cur"},
+			{Expr: sqlb.RawLit{V: "arraySum(arrayMap((p, c) -> if(c < p, c, c - p), window_values_prev, window_values_cur))"}, Alias: "counter_delta_sum"},
+			{Expr: sqlb.RawLit{V: "toFloat64(arraySum(arrayMap((p, c) -> if(c != p, 1, 0), window_values_prev, window_values_cur)))"}, Alias: "changes_count"},
 		},
 		From: sqlb.Join{Left: sqlb.SubSelect{S: grid, Alias: "grid"}, Right: rawRenderedSubquerySourceWithAlias(sourceSQL, "source"), Kind: "CROSS"},
 	}
@@ -154,7 +184,7 @@ func buildRangeFunctionOverWindowedArraysSQL(sourceSQL, fn string, paramNumber *
 	if err != nil {
 		return "", err
 	}
-	valueExpr := rangeFunctionValueExpr(fn, "window_series", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", rangeMS)
+	valueExpr := rangeFunctionValueExpr(fn, "window_series", "window_values", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", rangeMS)
 	perStep := &sqlb.Select{
 		Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: rangeFunctionTagsExpr(fn)}, Alias: "final_tags"}, {Expr: sqlb.Ident("eval_ts"), Alias: "timestamp"}, {Expr: sqlb.RawLit{V: valueExpr}, Alias: "value"}},
 		From:    rawRenderedSubquerySourceWithAlias(trimRenderedQuerySQL(windowedSourceSQL), "step_windows"),
@@ -175,7 +205,7 @@ func buildInstantRangeFunctionSQL(sourceSQL, fn string, paramNumber *float64, pa
 		timestampExpr = "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"
 	}
 	query := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: rangeFunctionTagsExpr(fn)}, Alias: "tags"}, {Expr: sqlb.RawLit{V: timestampExpr}, Alias: "timestamp"}, {Expr: sqlb.RawLit{V: rangeFunctionValueExpr(fn, "time_series", paramNumber, paramNumbers, "arrayMap(point -> tupleElement(point, 1), time_series)", strconv.FormatInt(evaluationTimeMS, 10), rangeMS)}, Alias: "value"}},
+		Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: rangeFunctionTagsExpr(fn)}, Alias: "tags"}, {Expr: sqlb.RawLit{V: timestampExpr}, Alias: "timestamp"}, {Expr: sqlb.RawLit{V: rangeFunctionValueExpr(fn, "time_series", "", paramNumber, paramNumbers, "arrayMap(point -> tupleElement(point, 1), time_series)", strconv.FormatInt(evaluationTimeMS, 10), rangeMS)}, Alias: "value"}},
 		From:    rawRenderedSubquerySource(sourceSQL),
 		Where:   sqlb.RawLit{V: "length(time_series) > " + strconv.Itoa(minimumSeriesLengthForRangeFunction(fn))},
 	}
@@ -227,9 +257,12 @@ func rangeFunctionChildRangeMS(child *native.NativeFragment) int64 {
 	return 0
 }
 
-func rangeFunctionValueExpr(fn, seriesExpr string, paramNumber *float64, paramNumbers []*float64, timestampsSourceExpr string, interceptTimeMSExpr string, rangeMS int64) string {
+func rangeFunctionValueExpr(fn, seriesExpr, valuesSourceExpr string, paramNumber *float64, paramNumbers []*float64, timestampsSourceExpr string, interceptTimeMSExpr string, rangeMS int64) string {
 	series := sqlb.RawLit{V: seriesExpr}
-	valuesExpr := sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "point -> ifNull(toFloat64(tupleElement(point, 2)), nan)"}, series}}
+	valuesExpr := sqlb.Expr(sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "point -> ifNull(toFloat64(tupleElement(point, 2)), nan)"}, series}})
+	if valuesSourceExpr != "" {
+		valuesExpr = sqlb.RawLit{V: valuesSourceExpr}
+	}
 	timestampsExpr := sqlb.RawLit{V: timestampsSourceExpr}
 	hasNaN := sqlb.Call{Name: "arrayExists", Args: []sqlb.Expr{sqlb.Lambda{Params: []sqlb.Ident{"v"}, Body: sqlb.Call{Name: "isNaN", Args: []sqlb.Expr{sqlb.Ident("v")}}}, valuesExpr}}
 	finiteValues := sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.Lambda{Params: []sqlb.Ident{"v"}, Body: sqlb.RawLit{V: "NOT isNaN(v)"}}, valuesExpr}}
@@ -242,10 +275,16 @@ func rangeFunctionValueExpr(fn, seriesExpr string, paramNumber *float64, paramNu
 	arrayElementAtLengthMinusOne := func(expr sqlb.Expr) sqlb.Expr {
 		return sqlb.Call{Name: "arrayElement", Args: []sqlb.Expr{expr, lenMinusOne}}
 	}
-	prevValues := sqlb.Call{Name: "arraySlice", Args: []sqlb.Expr{valuesExpr, sqlb.RawLit{V: "1"}, lenMinusOne}}
-	curValues := sqlb.Call{Name: "arraySlice", Args: []sqlb.Expr{valuesExpr, sqlb.RawLit{V: "2"}, lenMinusOne}}
-	counterDeltaExpr := sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "(prev, cur) -> if(cur < prev, cur, cur - prev)"}, prevValues, curValues}}}}
-	changesExpr := sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "(prev, cur) -> if(cur != prev, 1, 0)"}, prevValues, curValues}}}}}}
+	prevValues := sqlb.Expr(sqlb.Call{Name: "arrayPopBack", Args: []sqlb.Expr{valuesExpr}})
+	curValues := sqlb.Expr(sqlb.Call{Name: "arrayPopFront", Args: []sqlb.Expr{valuesExpr}})
+	counterDeltaExpr := sqlb.Expr(sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "(p, c) -> if(c < p, c, c - p)"}, prevValues, curValues}}}})
+	changesExpr := sqlb.Expr(sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "(p, c) -> if(c != p, 1, 0)"}, prevValues, curValues}}}}}})
+	if valuesSourceExpr == "window_values" {
+		prevValues = sqlb.Ident("window_values_prev")
+		curValues = sqlb.Ident("window_values_cur")
+		counterDeltaExpr = sqlb.Ident("counter_delta_sum")
+		changesExpr = sqlb.Ident("changes_count")
+	}
 	lenFiniteIsZero := sqlb.Binary{Op: "=", L: sqlb.Call{Name: "length", Args: []sqlb.Expr{finiteValues}}, R: sqlb.RawLit{V: "0"}}
 	interpolatedQuantileExpr := func(q float64, valuesSQL string) string {
 		qLit := storage.NativeFloatLiteral(q)

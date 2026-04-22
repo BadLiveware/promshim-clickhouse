@@ -6,6 +6,9 @@ usage() {
 Usage: ./scripts/run-harness.sh [options]
 
 Run the differential + compliance harnesses against promshim.
+Full run completes in ~25s on a warm docker cache; ~90s cold including
+image builds. Runs in the foreground — do NOT add a minutes-long timeout
+wrapper.
 
 Default (no args) runs every suite:
   1) differential  — harness/corpus/queries.json (all subjects)

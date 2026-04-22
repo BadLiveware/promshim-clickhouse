@@ -7,7 +7,9 @@ Usage: ./scripts/run-bench.sh [options]
 
 Run the promshim native-SQL lowering tripwire benchmark against the
 compliance stack (Prometheus :29090, promshim :29091 sharing the frozen
-1h30m fixture).
+1h30m fixture). Completes in ~10s against an already-running stack;
+add --bring-up and it's ~30s total. Runs in the foreground — do NOT
+add a minutes-long timeout wrapper.
 
 Options:
   --bring-up         Start the compliance stack first via

@@ -143,9 +143,11 @@ func OptimizeFragment(fragment *NativeFragment, info *LoweringInfo, ctx Optimiza
 		report: &OptimizationReport{
 			FunctionCatalog: append([]string(nil), functionRewriteCatalog...),
 		},
-		info: info,
-		ctx:  ctx,
+		info:     info,
+		ctx:      ctx,
+		interner: newMatcherInterner(),
 	}
+	internMatchersInFragment(state.fragment, state.interner)
 	for _, pass := range optimizerPasses {
 		state.report.RulesApplied = append(state.report.RulesApplied, string(pass.ID))
 		if err := pass.Apply(state); err != nil {
@@ -173,6 +175,59 @@ type optimizerState struct {
 	report   *OptimizationReport
 	info     *LoweringInfo
 	ctx      OptimizationContext
+	interner *matcherInterner
+}
+
+type matcherKey struct {
+	typ   labels.MatchType
+	name  string
+	value string
+}
+
+// matcherInterner deduplicates equal matcher structs within a single optimizer
+// run so repeated selector/inferred/pushed matcher slices can share pointers.
+type matcherInterner struct {
+	byKey map[matcherKey]*labels.Matcher
+}
+
+func newMatcherInterner() *matcherInterner {
+	return &matcherInterner{byKey: map[matcherKey]*labels.Matcher{}}
+}
+
+func matcherIdentityKey(matcher *labels.Matcher) matcherKey {
+	if matcher == nil {
+		return matcherKey{}
+	}
+	return matcherKey{typ: matcher.Type, name: matcher.Name, value: matcher.Value}
+}
+
+func (m *matcherInterner) intern(matcher *labels.Matcher) *labels.Matcher {
+	if m == nil || matcher == nil {
+		return matcher
+	}
+	key := matcherIdentityKey(matcher)
+	if existing, ok := m.byKey[key]; ok {
+		return existing
+	}
+	m.byKey[key] = matcher
+	return matcher
+}
+
+func (m *matcherInterner) internSlice(matchers []*labels.Matcher) []*labels.Matcher {
+	if len(matchers) == 0 {
+		return nil
+	}
+	interned := matchers[:0]
+	for _, matcher := range matchers {
+		if matcher == nil {
+			continue
+		}
+		interned = append(interned, m.intern(matcher))
+	}
+	if len(interned) == 0 {
+		return nil
+	}
+	return interned
 }
 
 func applyTrivialExpressionNormalization(state *optimizerState) error {
@@ -196,7 +251,7 @@ func applyCommonMatcherInference(state *optimizerState) error {
 	if selector == nil {
 		return nil
 	}
-	selector.InferredMatchers = inferSourceMatchers(selector)
+	selector.InferredMatchers = state.interner.internSlice(inferSourceMatchers(selector))
 	state.report.InferredPredicates = mergeUniqueStrings(state.report.InferredPredicates, matcherStrings(selector.InferredMatchers)...)
 	return nil
 }
@@ -206,7 +261,7 @@ func applyLabelPredicatePushdown(state *optimizerState) error {
 	if selector == nil {
 		return nil
 	}
-	selector.PushedMatchers = mergeMatchers(selector.Matchers, selector.InferredMatchers)
+	selector.PushedMatchers = mergeMatchers(state.interner, selector.Matchers, selector.InferredMatchers)
 	state.report.PushedPredicates = mergeUniqueStrings(state.report.PushedPredicates, matcherStrings(selector.PushedMatchers)...)
 	return nil
 }
@@ -489,11 +544,73 @@ func inferSourceMatchers(selector *SelectorSource) []*labels.Matcher {
 	if selector == nil || selector.MetricName == "" {
 		return nil
 	}
+	for _, matcher := range selector.Matchers {
+		if matcher != nil && matcher.Type == labels.MatchEqual && matcher.Name == labels.MetricName && matcher.Value == selector.MetricName {
+			return []*labels.Matcher{matcher}
+		}
+	}
 	matcher, err := labels.NewMatcher(labels.MatchEqual, labels.MetricName, selector.MetricName)
 	if err != nil {
 		return nil
 	}
 	return []*labels.Matcher{matcher}
+}
+
+func internMatchersInFragment(fragment *NativeFragment, interner *matcherInterner) {
+	if fragment == nil || interner == nil {
+		return
+	}
+	if fragment.Selector != nil {
+		fragment.Selector.Matchers = interner.internSlice(fragment.Selector.Matchers)
+		fragment.Selector.InferredMatchers = interner.internSlice(fragment.Selector.InferredMatchers)
+		fragment.Selector.PushedMatchers = interner.internSlice(fragment.Selector.PushedMatchers)
+	}
+	if fragment.Aggregation != nil {
+		internMatchersInFragment(fragment.Aggregation.Source, interner)
+	}
+	if fragment.RangeFunction != nil {
+		internMatchersInFragment(fragment.RangeFunction.Child, interner)
+	}
+	if fragment.Subquery != nil {
+		internMatchersInFragment(fragment.Subquery.Child, interner)
+	}
+	if fragment.BinaryJoin != nil {
+		internMatchersInFragment(fragment.BinaryJoin.LHS, interner)
+		internMatchersInFragment(fragment.BinaryJoin.RHS, interner)
+	}
+	if fragment.ScalarConvert != nil {
+		internMatchersInFragment(fragment.ScalarConvert.Child, interner)
+	}
+	if fragment.InfoJoin != nil {
+		fragment.InfoJoin.SelectorMatchers = interner.internSlice(fragment.InfoJoin.SelectorMatchers)
+		internMatchersInFragment(fragment.InfoJoin.Child, interner)
+	}
+	if fragment.Absent != nil {
+		internMatchersInFragment(fragment.Absent.Child, interner)
+	}
+	if fragment.HistogramProjection != nil {
+		internMatchersInFragment(fragment.HistogramProjection.Child, interner)
+	}
+	if fragment.HistogramFunction != nil {
+		internMatchersInFragment(fragment.HistogramFunction.Child, interner)
+		for _, quantile := range fragment.HistogramFunction.Quantiles {
+			internMatchersInFragment(quantile, interner)
+		}
+	}
+	if fragment.SortTransform != nil {
+		internMatchersInFragment(fragment.SortTransform.Child, interner)
+	}
+	if fragment.LabelTransform != nil {
+		internMatchersInFragment(fragment.LabelTransform.Child, interner)
+	}
+	if fragment.ClampTransform != nil {
+		internMatchersInFragment(fragment.ClampTransform.Child, interner)
+		internMatchersInFragment(fragment.ClampTransform.Min, interner)
+		internMatchersInFragment(fragment.ClampTransform.Max, interner)
+	}
+	if fragment.ValueTransform != nil {
+		internMatchersInFragment(fragment.ValueTransform.Child, interner)
+	}
 }
 
 func matcherStrings(matchers []*labels.Matcher) []string {
@@ -853,20 +970,21 @@ func joinNormalizationForFragment(fragment *NativeFragment) string {
 	}
 }
 
-func mergeMatchers(groups ...[]*labels.Matcher) []*labels.Matcher {
+func mergeMatchers(interner *matcherInterner, groups ...[]*labels.Matcher) []*labels.Matcher {
 	merged := make([]*labels.Matcher, 0)
-	seen := map[string]struct{}{}
+	seen := map[matcherKey]struct{}{}
 	for _, group := range groups {
 		for _, matcher := range group {
 			if matcher == nil {
 				continue
 			}
-			key := matcher.String()
+			matcher = interner.intern(matcher)
+			key := matcherIdentityKey(matcher)
 			if _, ok := seen[key]; ok {
 				continue
 			}
 			seen[key] = struct{}{}
-			merged = append(merged, labels.MustNewMatcher(matcher.Type, matcher.Name, matcher.Value))
+			merged = append(merged, matcher)
 		}
 	}
 	return merged

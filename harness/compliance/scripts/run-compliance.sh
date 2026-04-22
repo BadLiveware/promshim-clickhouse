@@ -26,6 +26,13 @@ echo ">> Running compliance tester → ${OUTPUT_FILE}"
   > "$OUTPUT_FILE" || echo ">> Tester exited non-zero (expected when failures exist)"
 
 echo ">> Report written to: ${OUTPUT_FILE}"
+
+python3 "${ROOT}/scripts/apply-query-tolerances.py" \
+  --report "${OUTPUT_FILE}" \
+  --expected "${ROOT}/expected-failures.json" \
+  --reference-url "http://localhost:29090" \
+  --test-url "http://localhost:29091"
+
 echo ">> Summary:"
 jq '{
   total: .totalResults,

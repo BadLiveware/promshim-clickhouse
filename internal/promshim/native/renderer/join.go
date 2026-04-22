@@ -10,19 +10,12 @@ import (
 	"ch-observability/internal/promshim/storage"
 	"ch-observability/internal/promshim/storage/schema"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/promql/parser"
 )
 
 func renderBinaryJoinFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
 	if fragment.BinaryJoin == nil || fragment.BinaryJoin.LHS == nil || fragment.BinaryJoin.RHS == nil {
 		return renderedFragment{}, fmt.Errorf("binary join fragment is missing join metadata")
-	}
-	lhsSQL, lhsParams, err := renderFragmentSubquery(cfg, fragment.BinaryJoin.LHS, params, "lhs")
-	if err != nil {
-		return renderedFragment{}, err
-	}
-	rhsSQL, rhsParams, err := renderFragmentSubquery(cfg, fragment.BinaryJoin.RHS, params, "rhs")
-	if err != nil {
-		return renderedFragment{}, err
 	}
 	joinCfg := storage.BinaryJoinConfig{
 		Op:             fragment.BinaryJoin.Op,
@@ -32,12 +25,30 @@ func renderBinaryJoinFragment(cfg storage.QueryConfig, fragment *native.NativeFr
 	}
 	switch params.Mode {
 	case native.RenderModeInstant:
+		lhsSQL, lhsParams, err := renderFragmentSubquery(cfg, fragment.BinaryJoin.LHS, params, "lhs")
+		if err != nil {
+			return renderedFragment{}, err
+		}
+		rhsSQL, rhsParams, err := renderFragmentSubquery(cfg, fragment.BinaryJoin.RHS, params, "rhs")
+		if err != nil {
+			return renderedFragment{}, err
+		}
 		sql, queryParams, err := storage.BuildInstantBinaryVectorJoinSQL(lhsSQL, lhsParams, rhsSQL, rhsParams, joinCfg)
 		if err != nil {
 			return renderedFragment{}, err
 		}
 		return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 	case native.RenderModeRange:
+		lhsRequiredStartMS, lhsRequiredEndMS, _ := native.RequiredInputBounds(fragment.BinaryJoin.LHS, nil, native.OptimizationContext{Mode: native.RenderModeRange, StartMS: params.StartMS, EndMS: params.EndMS, StepMS: params.StepMS})
+		rhsRequiredStartMS, rhsRequiredEndMS, _ := native.RequiredInputBounds(fragment.BinaryJoin.RHS, nil, native.OptimizationContext{Mode: native.RenderModeRange, StartMS: params.StartMS, EndMS: params.EndMS, StepMS: params.StepMS})
+		lhsSQL, lhsParams, err := renderFragmentSubquery(cfg, fragment.BinaryJoin.LHS, RenderParams{Mode: native.RenderModeRange, StartMS: params.StartMS, EndMS: params.EndMS, StepMS: params.StepMS, RequiredStartMS: lhsRequiredStartMS, RequiredEndMS: lhsRequiredEndMS, ResolveSourcePromQL: params.ResolveSourcePromQL}, "lhs")
+		if err != nil {
+			return renderedFragment{}, err
+		}
+		rhsSQL, rhsParams, err := renderFragmentSubquery(cfg, fragment.BinaryJoin.RHS, RenderParams{Mode: native.RenderModeRange, StartMS: params.StartMS, EndMS: params.EndMS, StepMS: params.StepMS, RequiredStartMS: rhsRequiredStartMS, RequiredEndMS: rhsRequiredEndMS, ResolveSourcePromQL: params.ResolveSourcePromQL}, "rhs")
+		if err != nil {
+			return renderedFragment{}, err
+		}
 		sql, queryParams, err := storage.BuildRangeBinaryVectorJoinSQL(lhsSQL, lhsParams, rhsSQL, rhsParams, joinCfg)
 		if err != nil {
 			return renderedFragment{}, err
@@ -53,8 +64,11 @@ func renderAggregationFragment(cfg storage.QueryConfig, fragment *native.NativeF
 		return renderedFragment{}, fmt.Errorf("aggregation fragment is missing aggregation metadata")
 	}
 	sourceFragment := fragment.Aggregation.Source
-	if native.IsSelectionNativeAggregation(fragment.Aggregation.Op) {
+	if native.IsSelectionNativeAggregation(fragment.Aggregation.Op) || fragment.Aggregation.Op == parser.COUNT_VALUES {
 		sourceFragment = native.CloneFragment(sourceFragment)
+		// count_values, like the selection aggregations, synthesizes output labels
+		// from the input series labelset. It therefore cannot lower through the
+		// empty-tags selector fast path.
 		forceFragmentFullTags(sourceFragment)
 	}
 	if source, err := renderAggregationSource(sourceFragment, params); err == nil {
@@ -270,6 +284,9 @@ func renderValueTransformFragment(cfg storage.QueryConfig, fragment *native.Nati
 				{Expr: sqlb.RawLit{V: "arrayMap(point -> (point.1, " + valueSQL + "), " + seriesExpr + ")"}, Alias: "time_series"},
 			},
 			From: rawRenderedSubquerySource(trimRenderedQuerySQL(childRendered.SQL)),
+		}
+		if strings.TrimSpace(spec.FilterExpr) != "" {
+			query.Where = sqlb.RawLit{V: "length(" + seriesExpr + ") > 0"}
 		}
 		sql, err := buildNativeWrapperSQL(query)
 		if err != nil {

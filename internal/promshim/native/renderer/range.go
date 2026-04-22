@@ -247,6 +247,18 @@ func rangeFunctionValueExpr(fn, seriesExpr string, paramNumber *float64, paramNu
 	counterDeltaExpr := sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "(prev, cur) -> if(cur < prev, cur, cur - prev)"}, prevValues, curValues}}}}
 	changesExpr := sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "(prev, cur) -> if(cur != prev, 1, 0)"}, prevValues, curValues}}}}}}
 	lenFiniteIsZero := sqlb.Binary{Op: "=", L: sqlb.Call{Name: "length", Args: []sqlb.Expr{finiteValues}}, R: sqlb.RawLit{V: "0"}}
+	interpolatedQuantileExpr := func(q float64, valuesSQL string) string {
+		qLit := storage.NativeFloatLiteral(q)
+		sortedExpr := "arrayConcat(arrayFilter(v -> isNaN(v), " + valuesSQL + "), arraySort(arrayFilter(v -> NOT isNaN(v), " + valuesSQL + ")))"
+		lengthExpr := "length(" + sortedExpr + ")"
+		rankExpr := "(" + qLit + ") * (toFloat64(" + lengthExpr + ") - 1)"
+		lowerIndexExpr := "greatest(1, toInt64(floor(" + rankExpr + ")) + 1)"
+		upperIndexExpr := "least(toInt64(" + lengthExpr + "), (" + lowerIndexExpr + ") + 1)"
+		weightExpr := "(" + rankExpr + ") - floor(" + rankExpr + ")"
+		lowerValueExpr := "toFloat64(arrayElement(" + sortedExpr + ", " + lowerIndexExpr + "))"
+		upperValueExpr := "toFloat64(arrayElement(" + sortedExpr + ", " + upperIndexExpr + "))"
+		return "multiIf(" + lengthExpr + " = 0, nan, isNaN(" + qLit + "), nan, (" + qLit + ") < 0, -inf, (" + qLit + ") > 1, inf, (" + lowerValueExpr + ") * (1 - (" + weightExpr + ")) + (" + upperValueExpr + ") * (" + weightExpr + "))"
+	}
 
 	switch fn {
 	case "last_over_time":
@@ -283,24 +295,15 @@ func rangeFunctionValueExpr(fn, seriesExpr string, paramNumber *float64, paramNu
 		foldExpr := "arrayFold((acc, ts, v) -> if((" + compare + ") OR isNaN(tupleElement(acc, 1)), (v, ts), acc), " + timestampSecondsSQL + ", " + valuesSQL + ", (nan, toFloat64(0)))"
 		return "tupleElement(" + foldExpr + ", 2)"
 	case "mad_over_time":
-		medianExpr := sqlb.Call{Name: "arrayReduce", Args: []sqlb.Expr{sqlb.RawLit{V: "'quantileExact(0.5)'"}, valuesExpr}}
-		deviationsExpr := sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "x -> abs(x - " + renderSQLExprNoParams(medianExpr) + ")"}, valuesExpr}}
-		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{sqlb.Binary{Op: "=", L: seriesLength, R: sqlb.RawLit{V: "0"}}, sqlb.RawLit{V: "nan"}, sqlb.Call{Name: "arrayReduce", Args: []sqlb.Expr{sqlb.RawLit{V: "'quantileExact(0.5)'"}, deviationsExpr}}}})
+		valuesSQL := renderSQLExprNoParams(valuesExpr)
+		medianExpr := interpolatedQuantileExpr(0.5, valuesSQL)
+		deviationsExpr := "arrayMap(x -> abs(x - (" + medianExpr + ")), " + valuesSQL + ")"
+		return interpolatedQuantileExpr(0.5, deviationsExpr)
 	case "quantile_over_time":
 		if paramNumber == nil {
 			return "nan"
 		}
-		valuesSQL := renderSQLExprNoParams(valuesExpr)
-		sortedExpr := "arrayConcat(arrayFilter(v -> isNaN(v), " + valuesSQL + "), arraySort(arrayFilter(v -> NOT isNaN(v), " + valuesSQL + ")))"
-		lengthExpr := "length(" + sortedExpr + ")"
-		qLit := storage.NativeFloatLiteral(*paramNumber)
-		rankExpr := "(" + qLit + ") * (toFloat64(" + lengthExpr + ") - 1)"
-		lowerIndexExpr := "greatest(1, toInt64(floor(" + rankExpr + ")) + 1)"
-		upperIndexExpr := "least(toInt64(" + lengthExpr + "), (" + lowerIndexExpr + ") + 1)"
-		weightExpr := "(" + rankExpr + ") - floor(" + rankExpr + ")"
-		lowerValueExpr := "toFloat64(arrayElement(" + sortedExpr + ", " + lowerIndexExpr + "))"
-		upperValueExpr := "toFloat64(arrayElement(" + sortedExpr + ", " + upperIndexExpr + "))"
-		return "multiIf(" + lengthExpr + " = 0, nan, isNaN(" + qLit + "), nan, (" + qLit + ") < 0, -inf, (" + qLit + ") > 1, inf, (" + lowerValueExpr + ") * (1 - (" + weightExpr + ")) + (" + upperValueExpr + ") * (" + weightExpr + "))"
+		return interpolatedQuantileExpr(*paramNumber, renderSQLExprNoParams(valuesExpr))
 	case "increase":
 		factor := extrapolationFactorSQL(timestampsExpr, seriesLength, interceptTimeMSExpr, rangeMS)
 		resultExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(counterDeltaExpr) + ") * (" + factor + ")"}

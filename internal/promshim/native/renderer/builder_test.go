@@ -663,6 +663,115 @@ func TestRenderFragmentBuildsAnchoredRangeBroadcastSQL(t *testing.T) {
 	}
 }
 
+func TestRenderFragmentBuildsRangeBinarySQLWithDifferentlyAnchoredChildren(t *testing.T) {
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindBinaryVectorJoin,
+		OutputKind: native.OutputKindRangeMatrix,
+		BinaryJoin: &native.BinaryJoinFragment{
+			Op: parser.ADD,
+			VectorMatching: &parser.VectorMatching{
+				Card: parser.CardOneToOne,
+			},
+			JoinShape: native.JoinShapeOneToOne,
+			LHS: &native.NativeFragment{
+				Kind:       native.FragmentKindLeafSource,
+				OutputKind: native.OutputKindInstantVector,
+				Selector: &native.SelectorSource{
+					Kind:       native.SelectorKindInstantVector,
+					MetricName: "up",
+					Lookback:   native.DefaultInstantSelectorLookback,
+					StartOrEnd: parser.START,
+				},
+				ValueExpr: "{value}",
+				TagsExpr:  "{tags}",
+			},
+			RHS: &native.NativeFragment{
+				Kind:       native.FragmentKindLeafSource,
+				OutputKind: native.OutputKindInstantVector,
+				Selector: &native.SelectorSource{
+					Kind:       native.SelectorKindInstantVector,
+					MetricName: "up",
+					Lookback:   native.DefaultInstantSelectorLookback,
+					StartOrEnd: parser.END,
+				},
+				ValueExpr: "{value}",
+				TagsExpr:  "{tags}",
+			},
+		},
+	}
+
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
+		Mode:            native.RenderModeRange,
+		StartMS:         0,
+		EndMS:           300000,
+		StepMS:          60000,
+		RequiredStartMS: 0,
+		RequiredEndMS:   300000,
+	})
+	if err != nil {
+		t.Fatalf("expected rendered range binary SQL, got error: %v", err)
+	}
+	for _, check := range []string{"lhs.join_group = rhs.join_group AND lhs.timestamp = rhs.timestamp", "lhs_anchored_range_start_ms", "rhs_anchored_range_start_ms", "anchored_child.value"} {
+		if !strings.Contains(rendered.SQL, check) {
+			t.Fatalf("expected range binary SQL to contain %q, got %q", check, rendered.SQL)
+		}
+	}
+	if _, ok := rendered.QueryParams["param_anchored_range_start_ms"]; ok {
+		t.Fatalf("did not expect root anchored broadcast params, got %#v", rendered.QueryParams)
+	}
+	for _, key := range []string{"param_lhs_anchored_range_start_ms", "param_rhs_anchored_range_start_ms", "param_lhs_anchored_child_required_end_ms", "param_rhs_anchored_child_required_end_ms"} {
+		if _, ok := rendered.QueryParams[key]; !ok {
+			t.Fatalf("expected namespaced anchored child param %q, got %#v", key, rendered.QueryParams)
+		}
+	}
+}
+
+func TestRenderFragmentBuildsRangeBinarySQLWithOffsetChildSpecificBounds(t *testing.T) {
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindBinaryVectorJoin,
+		OutputKind: native.OutputKindRangeMatrix,
+		BinaryJoin: &native.BinaryJoinFragment{
+			Op: parser.SUB,
+			VectorMatching: &parser.VectorMatching{
+				Card: parser.CardOneToOne,
+			},
+			JoinShape: native.JoinShapeOneToOne,
+			LHS: &native.NativeFragment{
+				Kind:       native.FragmentKindLeafSource,
+				OutputKind: native.OutputKindInstantVector,
+				Selector:   &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "up", Lookback: native.DefaultInstantSelectorLookback},
+				ValueExpr:  "{value}",
+				TagsExpr:   "{tags}",
+			},
+			RHS: &native.NativeFragment{
+				Kind:       native.FragmentKindLeafSource,
+				OutputKind: native.OutputKindInstantVector,
+				Selector:   &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "up", Lookback: native.DefaultInstantSelectorLookback, Offset: time.Minute},
+				ValueExpr:  "{value}",
+				TagsExpr:   "{tags}",
+			},
+		},
+	}
+
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
+		Mode:            native.RenderModeRange,
+		StartMS:         0,
+		EndMS:           300000,
+		StepMS:          60000,
+		RequiredStartMS: -360000,
+		RequiredEndMS:   240000,
+	})
+	if err != nil {
+		t.Fatalf("expected rendered range binary SQL with offset child, got error: %v", err)
+	}
+	if got, want := rendered.QueryParams["param_lhs_required_end_ms"], "300000"; got != want {
+		t.Fatalf("expected lhs to use its own required end %q, got %#v", want, rendered.QueryParams)
+	}
+	if got, want := rendered.QueryParams["param_rhs_required_end_ms"], "240000"; got != want {
+		t.Fatalf("expected rhs to use offset-adjusted required end %q, got %#v", want, rendered.QueryParams)
+	}
+}
+
 func TestRenderFragmentDefaultsMissingSubqueryStepToOneMinute(t *testing.T) {
 	fragment := &native.NativeFragment{
 		Kind:       native.FragmentKindRangeFunction,
@@ -772,7 +881,7 @@ func TestRenderFragmentBuildsInstantPointwiseTransformSQL(t *testing.T) {
 		{name: "atan", want: "atan(value) AS value"},
 		{name: "sinh", want: "sinh(value) AS value"},
 		{name: "cosh", want: "cosh(value) AS value"},
-		{name: "tanh", want: "tanh(value) AS value"},
+		{name: "tanh", want: "(exp(2 * value) - 1) / (exp(2 * value) + 1) AS value"},
 		{name: "asinh", want: "asinh(value) AS value"},
 		{name: "acosh", want: "acosh(value) AS value"},
 		{name: "atanh", want: "atanh(value) AS value"},
@@ -867,6 +976,43 @@ func TestRenderFragmentBuildsLabelReplaceTransformRangeSQL(t *testing.T) {
 		if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(check)) {
 			t.Fatalf("expected label_replace range SQL to contain %q, got %q", check, rendered.SQL)
 		}
+	}
+}
+
+func TestGoReplacementToClickHouseDropsOutOfRangeNumericCaptureReferences(t *testing.T) {
+	got := goReplacementToClickHouse("value-$1", []string{""})
+	if got != "value-" {
+		t.Fatalf("expected out-of-range capture reference to be omitted, got %q", got)
+	}
+}
+
+func TestRenderFragmentBuildsRangeValueTransformFilterSQLThatDropsEmptySeries(t *testing.T) {
+	fragment := &native.NativeFragment{Kind: native.FragmentKindValueTransform, OutputKind: native.OutputKindInstantVector, ValueTransform: &native.ValueTransformFragment{Child: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindInstantVector, Selector: &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "up", Lookback: native.DefaultInstantSelectorLookback, RequireFullTags: true}, ValueExpr: "{value}", TagsExpr: "{tags}"}, ValueExpr: "{value}", FilterExpr: "({value}) = 1.2345"}}
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000})
+	if err != nil {
+		t.Fatalf("expected rendered range value-transform SQL, got error: %v", err)
+	}
+	normalized := sqlb.NormalizeSQL(rendered.SQL)
+	if !strings.Contains(normalized, sqlb.NormalizeSQL("arrayFilter(point -> (point.2) = 1.2345, time_series)")) {
+		t.Fatalf("expected point-level range filter in SQL, got %q", rendered.SQL)
+	}
+	if !strings.Contains(normalized, sqlb.NormalizeSQL("WHERE length(arrayFilter(point -> (point.2) = 1.2345, time_series)) > 0")) {
+		t.Fatalf("expected filtered-out empty series in SQL, got %q", rendered.SQL)
+	}
+}
+
+func TestRenderFragmentBuildsLabelReplaceSQLWithoutInvalidBackrefsForNoCaptureRegex(t *testing.T) {
+	fragment := &native.NativeFragment{Kind: native.FragmentKindLabelTransform, OutputKind: native.OutputKindInstantVector, LabelTransform: &native.LabelTransformFragment{Func: "label_replace", Dst: "job", Repl: "value-$1", Regex: "^(?s:non-matching-regex)$", RegexSubexpNames: []string{""}, Src: "instance", Child: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindInstantVector, Selector: &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "up", Lookback: native.DefaultInstantSelectorLookback, RequireFullTags: true}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456})
+	if err != nil {
+		t.Fatalf("expected rendered label_replace instant SQL, got error: %v", err)
+	}
+	normalized := sqlb.NormalizeSQL(rendered.SQL)
+	if strings.Contains(normalized, sqlb.NormalizeSQL("'value-\\\\1'")) {
+		t.Fatalf("expected non-capturing regex replacement to avoid invalid ClickHouse backrefs, got %q", rendered.SQL)
+	}
+	if !strings.Contains(normalized, sqlb.NormalizeSQL("'value-'")) {
+		t.Fatalf("expected rendered SQL to preserve the literal replacement prefix, got %q", rendered.SQL)
 	}
 }
 
@@ -1272,7 +1418,7 @@ func TestRenderFragmentBuildsMadOverTimeSQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected rendered SQL, got error: %v", err)
 	}
-	checks := []string{"arrayReduce('quantileExact(0.5)'", "arrayMap(x -> abs(x - arrayReduce('quantileExact(0.5)'", "window_values"}
+	checks := []string{"arrayMap(x -> abs(x - (multiIf(", "arrayConcat(arrayFilter(v -> isNaN(v)", "floor((0.5) * (toFloat64(length(", "window_values"}
 	for _, check := range checks {
 		if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(check)) {
 			t.Fatalf("expected mad_over_time SQL to contain %q, got %q", check, rendered.SQL)
@@ -1366,6 +1512,79 @@ func TestRenderFragmentBuildsRangeAggregationSQL(t *testing.T) {
 	}
 	if got := rendered.QueryParams["param_range_instant_matcher_0_value"]; got != "up" {
 		t.Fatalf("expected metric-name selector param, got %q with params=%#v", got, rendered.QueryParams)
+	}
+}
+
+func TestRenderFragmentBuildsCountValuesAggregationSQLWithFullTags(t *testing.T) {
+	cases := []struct {
+		name         string
+		mode         native.RenderMode
+		outputKind   native.OutputKind
+		selectorKind native.SelectorKind
+		params       RenderParams
+	}{
+		{
+			name:         "instant",
+			mode:         native.RenderModeInstant,
+			outputKind:   native.OutputKindInstantVector,
+			selectorKind: native.SelectorKindInstantVector,
+			params: RenderParams{
+				Mode:             native.RenderModeInstant,
+				EvaluationTimeMS: 123456,
+				RequiredStartMS:  0,
+				RequiredEndMS:    123456,
+			},
+		},
+		{
+			name:         "range",
+			mode:         native.RenderModeRange,
+			outputKind:   native.OutputKindInstantVector,
+			selectorKind: native.SelectorKindInstantVector,
+			params: RenderParams{
+				Mode:            native.RenderModeRange,
+				StartMS:         0,
+				EndMS:           300000,
+				StepMS:          60000,
+				RequiredStartMS: 0,
+				RequiredEndMS:   300000,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fragment := &native.NativeFragment{
+				Kind:       native.FragmentKindAggregation,
+				OutputKind: tc.outputKind,
+				Aggregation: &native.AggregationFragment{
+					Op:          parser.COUNT_VALUES,
+					ParamString: "sample_value",
+					Source: &native.NativeFragment{
+						Kind:       native.FragmentKindLeafSource,
+						OutputKind: tc.outputKind,
+						Selector: &native.SelectorSource{
+							Kind:       tc.selectorKind,
+							MetricName: "up",
+							Lookback:   native.DefaultInstantSelectorLookback,
+						},
+						ValueExpr: "{value}",
+						TagsExpr:  "{tags}",
+					},
+				},
+			}
+
+			rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, tc.params)
+			if err != nil {
+				t.Fatalf("expected rendered SQL, got error: %v", err)
+			}
+			normalized := sqlb.NormalizeSQL(rendered.SQL)
+			if !strings.Contains(normalized, sqlb.NormalizeSQL("tuple('sample_value'")) {
+				t.Fatalf("expected count_values label synthesis in SQL, got %q", rendered.SQL)
+			}
+			if strings.Contains(normalized, sqlb.NormalizeSQL("CAST([], 'Array(Tuple(String, String))') AS tags")) {
+				t.Fatalf("expected count_values renderer to force full tags instead of the empty-tags fast path, got %q", rendered.SQL)
+			}
+		})
 	}
 }
 

@@ -131,7 +131,11 @@ func NativePointwiseSourceTemplate(name string, paramNumbers []*float64) (string
 	case "cosh":
 		return "cosh({value})", true
 	case "tanh":
-		return "tanh({value})", true
+		// ClickHouse's built-in tanh() drifts enough from Go/Prometheus to trip
+		// exact differential checks on simple fixture values (e.g. tanh(0.5)).
+		// Re-express it through exp() so the native path tracks math.Tanh much
+		// more closely while still staying fully in SQL.
+		return "(exp(2 * {value}) - 1) / (exp(2 * {value}) + 1)", true
 	case "asinh":
 		return "asinh({value})", true
 	case "acosh":

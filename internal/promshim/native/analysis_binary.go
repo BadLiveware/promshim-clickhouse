@@ -294,11 +294,11 @@ func comparisonOperatorSymbol(op parser.ItemType) (string, bool) {
 }
 
 func buildBinaryTemplateForScalarExpr(op parser.ItemType, scalarExpr, valueExpr string, scalarOnLeft bool) (string, bool, bool) {
-	left := scalarExpr
+	left := "(" + scalarExpr + ")"
 	right := "(" + valueExpr + ")"
 	if !scalarOnLeft {
 		left = "(" + valueExpr + ")"
-		right = scalarExpr
+		right = "(" + scalarExpr + ")"
 	}
 	switch op {
 	case parser.ADD:

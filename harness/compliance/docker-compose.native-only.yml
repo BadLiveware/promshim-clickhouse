@@ -1,0 +1,12 @@
+# Compose override: force promshim to the native_sql lowering path only.
+# Anything the shim can't lower responds with an explicit 501/unsupported
+# error instead of falling back to local evaluation. Useful for measuring
+# native-path compliance coverage directly.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.native-only.yml up -d promshim
+
+services:
+  promshim:
+    environment:
+      PROM_SHIM_NATIVE_LOWERING_MODE: force_supported

@@ -5,66 +5,80 @@ Runs the upstream Prometheus PromQL compliance suite against promshim and refere
 ## Layout
 
 - `docker-compose.yml` — ClickHouse 26.3, Prometheus 3.5.2 (LTS, reference), promshim.
+- `docker-compose.native-only.yml` — override that forces promshim into `native_lowering_mode=force_supported`; unsupported shapes fail explicitly instead of falling back to local evaluation. Used for pass #2.
 - `prom-compliance/` — submodule; upstream `prometheus/compliance` tester.
 - `test-promshim.yml` — tester config (endpoints, query window, tweaks).
-- `scripts/run-compliance.sh` — runs the suite, emits JSON report to `artifacts/`.
-- `scripts/patch-queries-for-prom3.py` — generates `artifacts/patched-queries.yml` from the upstream corpus, dropping `should_fail: true` markers on entries that Prom 3.x now accepts (UTF-8 label names). Upstream's corpus was last refreshed for Prom 2.26, so the tester would otherwise hard-abort at comparer.go:95 the moment such a query returns success.
-- `scripts/classify-failures.sh` — buckets failures by pattern (regex-matched in the script).
+- `scripts/run-compliance.sh` — runs one pass against whatever promshim is up; emits JSON report to `artifacts/` and reconciles against the allowlist (skipped in `--mode native`).
+- `scripts/patch-queries-for-prom3.py` — generates `artifacts/patched-queries.yml` from the upstream corpus, dropping `should_fail: true` markers on entries Prom 3.x now accepts (UTF-8 label names). Upstream's corpus was last refreshed for Prom 2.26, so the tester would otherwise hard-abort at `comparer.go:95` the moment such a query returns success.
+- `scripts/reconcile-expected.sh` — matches the report against `expected-failures.json`; any drift fails.
+- `scripts/classify-failures.sh` — buckets failures by pattern (regex-matched).
+- `scripts/native-gap-report.sh` — categorized breakdown of a native-mode report (diff failures, unsupported-root shapes, other errors). Informational only; never gates.
+- `../../scripts/run-compliance.sh` — top-level runner: brings the stack up, runs pass #1 (prefer) and pass #2 (native-only), tears down.
 
 ## Running
+
+Two-pass run from the repo root:
+
+```
+scripts/run-compliance.sh
+```
+
+That brings the stack up, runs pass #1 against the default `prefer` mode (reconciled against `expected-failures.json`), recreates promshim with the `native-only` override, runs pass #2 (informational gap report), and tears the stack down.
+
+Single pass from this directory (stack must already be up):
 
 ```
 cd harness/compliance
 docker compose up -d
-scripts/run-compliance.sh
-scripts/classify-failures.sh artifacts/compliance-report-<stamp>.json
+scripts/run-compliance.sh --mode prefer --suffix prefer
+scripts/classify-failures.sh artifacts/compliance-report-prefer-<stamp>.json
 ```
 
-The tester hits `29090` (Prom reference) and `29091` (promshim) with a pinned end_time inside the scraped fixture window.
+The tester hits `29090` (Prom reference) and `29091` (promshim) with a pinned `end_time` inside the scraped fixture window.
 
-## Current state — 536/539 passing (99.4%)
+## Philosophy: gaps stay visible
 
-The remaining 3 failures are documented below. All are tracked as **known limitations** rather than bugs in the shim and encoded in `expected-failures.json`; `scripts/reconcile-expected.sh` asserts them after every run. The matchers are intentionally narrow (exact query + specific diff substrings where applicable) so any drift — new failure, shape change, or the expected failure disappearing — surfaces as a regression rather than being silently absorbed.
+The shim's native-SQL path is under active development. Any PromQL shape the shim doesn't yet handle is a **gap**, not an "expected failure." Gaps must stay visible so we keep pressure on ourselves to close them.
 
-### 1. topk tie-break ordering (1 failure)
+The allowlist (`expected-failures.json`) is reserved strictly for failures that are **not** shim gaps — failures driven by reference-side implementation details we can't reproduce exactly (e.g., Prometheus's TSDB iteration order leaking into `topk` tie-breaks). If you're tempted to add a shim-side limitation, don't; let it fail loudly until it's fixed.
 
-**Query:** `topk without(instance) (2, demo_memory_usage_bytes)`
+## Two passes
 
-At one timestep, `instance=10001` and `instance=10002` both have value `173015040` (exact tie). Prometheus keeps `10002`; the shim keeps `10001`.
+Each full run does two passes against the same frozen fixture:
 
-**Root cause.** Prom's `topk` heap uses strict `<` on value (`engine.go:3865`), so first-seen wins on tie. Iteration is `for si := range inputMatrix` — TSDB series-ref order, determined by scrape discovery time. For this fixture the observed order at that step is `(10002, 10000, 10001)`.
+1. **`prefer` mode (gated)** — the default runtime lowering mode. The shim lowers whatever it can to native SQL and falls back to local evaluation for everything else. Reconciled against `expected-failures.json`; any unexpected failure exits non-zero.
+2. **`native-only` mode (informational)** — `PROM_SHIM_NATIVE_LOWERING_MODE=force_supported`. Unsupported shapes return an explicit error instead of falling back. Produces a categorized gap inventory via `native-gap-report.sh`. Never gates — the numbers are the work queue, and they trend down as native lowering coverage grows.
 
-Neither `labels.Hash()` nor `labels.StableHash()` reproduces that order — both give alphabetical `(10000, 10001, 10002)`. No label-derivable tie-break can match exactly; reproducing it would require mirroring Prom's storage layer.
+## Allowlist (`expected-failures.json`)
 
-**Impact.** 1/539 = 0.2%. Cosmetic — affects only exact-value ties, which are rare in real data.
+One entry: `topk-tie-break-ordering`.
 
-### 2. Nested subquery timeouts (2 failures)
+`topk`'s tie-break is a Prometheus storage-layer implementation detail. `promql/engine.go:1052` calls `querier.Select` with `sortSeries=false`, so the TSDB `SeriesSet` is iterated in native postings order (essentially scrape-discovery order). `aggregationK` (`engine.go:3776`) then iterates `for si := range inputMatrix` preserving that order, and the heap replacement at `engine.go:3865` uses strict `<` — on an exact tie the new element does **not** displace the heap root, so first-seen wins. That first-seen order is not derivable from labels alone (both `labels.Hash` and `labels.StableHash` give alphabetical order, but the fixture's TSDB order differs). Reproducing Prom's tie-break exactly would require mirroring its storage layer.
 
-**Queries:**
-- `avg_over_time(rate(demo_cpu_usage_seconds_total[1m])[2m:10s])` — ~11s
-- `max_over_time((time() - max(demo_batch_last_success_timestamp_seconds) < 1000)[5m:10s] offset 5m)` — ~19s
+For this fixture, `demo_memory_usage_bytes` across `instance=demo.promlabs.com:10000/10001/10002` occasionally hits the same value (`173015040`) at the same timestep; Prom and the shim disagree on which instance survives the cut. Impact is cosmetic — affects only exact-value ties, which are rare in real data. Verified against `prometheus@57821524d`.
 
-Both return correct results but exceed the compliance tester's hard-coded 10s HTTP timeout (`comparer.go:78`).
+The allowlist matcher is intentionally narrow (exact query + specific diff substrings) so any drift surfaces as a regression rather than being silently absorbed.
 
-**Root cause.** These queries hit **rung 3** (native-SQL matrix source + local execution): the whole-query classifier rejects any root that isn't a plain selector, so `max_over_time(...)[5m:10s]` and `avg_over_time(rate(...)[2m:10s])` fall through to subtree-plus-local. The Go planner fans out an outer evaluation per step, each invoking an inner subquery evaluation per inner step — O(outer × inner) shim-issued ClickHouse queries. Profiling a single `avg_over_time(rate(...)[2m:10s])` run showed ~793 ClickHouse requests issued by the shim; the slowness is on **our** side, not ClickHouse's. Correctness is fine because each fan-out call evaluates the correct inner window; only the issue count and round-trip cost blow the compliance tester's budget.
+## Known gaps (visible; not allowlisted)
 
-**Impact.** 2/539 = 0.4%.
+These surface as failures every run. They're tracked openly here, not in `expected-failures.json`:
 
-**Expected to retire along two axes:**
-1. **Shim-side (rung 2 coverage):** teach native SQL to transpile these subquery shapes into a single ClickHouse query (no fan-out). Aligns with the shim's strategic intent — move queries from rung 3 (subtree+local) up to rung 2 (native SQL).
-2. **Upstream (rung 1 coverage):** as ClickHouse's `prometheusQueryRange` verifies parity on these constructs, the whole-query classifier adds them to the allowlist and they graduate to rung 1 — the shim stops touching them.
+### UTF-8 label-name destinations in `label_replace` / `label_join`
 
-### 3. UTF-8 label-name destinations in `label_replace` / `label_join` (no failures; allowlisted unsupported)
-
-**Queries:**
 - `label_replace(demo_num_cpus, "~invalid", "", "src", "(.*)")`
 - `label_join(demo_num_cpus, "~invalid", "-", "instance")`
 
-Under Prom 2.x both queries errored (invalid label name). Prom 3.x relaxed label names to full UTF-8, so both now succeed. The shim still rejects `~invalid` with `bad_data: invalid destination label name`, which is why these show up as unexpected-failure diffs rather than passes.
+Under Prom 2.x both errored (invalid label name). Prom 3.x relaxed label names to full UTF-8, so both now succeed in the reference. The shim still rejects `~invalid` with `bad_data: invalid destination label name`. Upstream's `should_fail: true` markers reflect Prom 2.x; `patch-queries-for-prom3.py` strips them so the tester doesn't hard-abort at `comparer.go:95`. The resulting unexpected-failure rows are real — the shim needs Prom 3.x UTF-8 label-name support. Will close when that lands.
 
-Since the upstream corpus's `should_fail: true` markers reflect Prom 2.x behavior, `scripts/patch-queries-for-prom3.py` strips the markers from these two entries at the start of every run (otherwise the tester hard-aborts at comparer.go:95). The resulting unexpected-failure rows are then matched by `expected-failures.json`.
+### Native-mode coverage gaps
 
-**Impact.** 2/539 = 0.4%. Will retire when the shim implements Prom 3.x UTF-8 label-name support.
+Pass #2 catches everything the native-SQL path doesn't yet cover. Run `scripts/native-gap-report.sh` against the latest native-mode report for a categorized view:
+
+- `diff_failure` — native lowered the query but returned wrong values. These are **real native-SQL correctness bugs**.
+- `unsupported_root` — planner refused to lower (root-plan rejection). Missing coverage.
+- `other` — bad_data, timeouts, etc.
+
+Each number should trend down over time. None are allowlistable.
 
 ## Fixture
 

@@ -546,6 +546,67 @@ func TestOptimizeFragmentDoesNotMutateInputFragment(t *testing.T) {
 	}
 }
 
+func TestOptimizeFragmentInternsEquivalentMatchersAcrossSelectorFields(t *testing.T) {
+	aggExpr := mustParseExpr(t, `sum(up{job="api"})`)
+	agg, ok := aggExpr.(*parser.AggregateExpr)
+	if !ok {
+		t.Fatalf("expected aggregate expr, got %T", aggExpr)
+	}
+	logical := &planpkg.LogicalAggregationPlan{Expr: agg, Op: agg.Op, Child: &planpkg.LogicalLeafExprPlan{Expr: agg.Expr}}
+	optimized, err := BuildOptimizedFragment(logical, nil)
+	if err != nil {
+		t.Fatalf("expected optimized fragment, got error: %v", err)
+	}
+	selector := BaseSelectorSource(optimized.Fragment)
+	if selector == nil {
+		t.Fatalf("expected selector source, got %#v", optimized.Fragment)
+	}
+	selectorMetric := findMatcher(selector.Matchers, labels.MatchEqual, labels.MetricName, "up")
+	inferredMetric := findMatcher(selector.InferredMatchers, labels.MatchEqual, labels.MetricName, "up")
+	pushedMetric := findMatcher(selector.PushedMatchers, labels.MatchEqual, labels.MetricName, "up")
+	if selectorMetric == nil || inferredMetric == nil || pushedMetric == nil {
+		t.Fatalf("expected selector/inferred/pushed metric matchers, got selector=%#v inferred=%#v pushed=%#v", selector.Matchers, selector.InferredMatchers, selector.PushedMatchers)
+	}
+	if selectorMetric != inferredMetric || inferredMetric != pushedMetric {
+		t.Fatalf("expected optimizer matcher interning to share identical pointers, got selector=%p inferred=%p pushed=%p", selectorMetric, inferredMetric, pushedMetric)
+	}
+}
+
+func TestOptimizeFragmentMatcherInternerDoesNotLeakAcrossRuns(t *testing.T) {
+	fragment := &NativeFragment{
+		Kind:       FragmentKindLeafSource,
+		OutputKind: OutputKindInstantVector,
+		Selector: &SelectorSource{
+			Kind:       SelectorKindInstantVector,
+			MetricName: "up",
+			Matchers: []*labels.Matcher{
+				labels.MustNewMatcher(labels.MatchEqual, labels.MetricName, "up"),
+			},
+			RequireFullTags: true,
+			Lookback:        DefaultInstantSelectorLookback,
+		},
+		ValueExpr: "{value}",
+		TagsExpr:  "{tags}",
+	}
+
+	optimizedA, err := OptimizeFragment(fragment, nil, OptimizationContext{Mode: RenderModeInstant, EvaluationTimeMS: 300000})
+	if err != nil {
+		t.Fatalf("expected first optimize to succeed, got error: %v", err)
+	}
+	optimizedB, err := OptimizeFragment(fragment, nil, OptimizationContext{Mode: RenderModeInstant, EvaluationTimeMS: 300000})
+	if err != nil {
+		t.Fatalf("expected second optimize to succeed, got error: %v", err)
+	}
+	matcherA := findMatcher(BaseSelectorSource(optimizedA.Fragment).Matchers, labels.MatchEqual, labels.MetricName, "up")
+	matcherB := findMatcher(BaseSelectorSource(optimizedB.Fragment).Matchers, labels.MatchEqual, labels.MetricName, "up")
+	if matcherA == nil || matcherB == nil {
+		t.Fatalf("expected metric matchers in both optimize runs, got a=%#v b=%#v", BaseSelectorSource(optimizedA.Fragment), BaseSelectorSource(optimizedB.Fragment))
+	}
+	if matcherA == matcherB {
+		t.Fatalf("expected per-run matcher interning, but both runs shared matcher pointer %p", matcherA)
+	}
+}
+
 func BenchmarkOptimizeFragmentWide(b *testing.B) {
 	fragment := &NativeFragment{
 		Kind:       FragmentKindAggregation,
@@ -609,6 +670,18 @@ func BenchmarkOptimizeFragmentWide(b *testing.B) {
 			b.Fatal("expected optimized fragment result")
 		}
 	}
+}
+
+func findMatcher(matchers []*labels.Matcher, typ labels.MatchType, name, value string) *labels.Matcher {
+	for _, matcher := range matchers {
+		if matcher == nil {
+			continue
+		}
+		if matcher.Type == typ && matcher.Name == name && matcher.Value == value {
+			return matcher
+		}
+	}
+	return nil
 }
 
 func equalStrings(lhs, rhs []string) bool {

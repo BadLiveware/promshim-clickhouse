@@ -23,6 +23,9 @@ Options:
   --repeats N        Timed repeats per (query, mode) (default: 10).
   --warmup N         Warmup repeats per (query, mode) (default: 2).
   --ready-timeout N  Seconds to wait for endpoints (default: 60).
+  --matrix           Print a Markdown native-SQL vs Prometheus matrix
+                     (sorted by N/P ratio, descending) after the bench
+                     finishes. Reads harness/artifacts/bench-report.json.
   -h, --help         Show this help text.
 EOF
 }
@@ -54,6 +57,7 @@ UPDATE_BASELINE=0
 REPEATS=10
 WARMUP=2
 READY_TIMEOUT=60
+MATRIX=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -64,6 +68,7 @@ while [[ $# -gt 0 ]]; do
     --repeats)         REPEATS="$2"; shift 2 ;;
     --warmup)          WARMUP="$2"; shift 2 ;;
     --ready-timeout)   READY_TIMEOUT="$2"; shift 2 ;;
+    --matrix)          MATRIX=1; shift ;;
     -h|--help)         usage; exit 0 ;;
     *)                 fatal "Unknown argument: $1" ;;
   esac
@@ -144,6 +149,35 @@ if (( STATUS == 0 )); then
   log "Bench completed with no regressions."
 else
   log "Bench exited non-zero (status=${STATUS})."
+fi
+
+if (( MATRIX == 1 )); then
+  report="${REPO_ROOT}/harness/artifacts/bench-report.json"
+  if [[ ! -f "$report" ]]; then
+    log "--matrix requested but report not found: $report"
+  elif ! command -v jq >/dev/null 2>&1; then
+    log "--matrix requested but jq is not installed; skipping matrix."
+  else
+    echo
+    echo "## Native-SQL vs Prometheus matrix"
+    echo
+    echo "Sorted by native/prom ratio (highest first). N/P < 1 means native beat Prom."
+    echo "F/N compares the local-evaluator fallback to native at the same query (< 1 means"
+    echo "the fallback is faster)."
+    echo
+    echo "| Query | Endpoint | Strategy | CH rts | CH ms | Prom p50 (ms) | Native p50 (ms) | N/P | Fallback p50 (ms) | F/N |"
+    echo "|---|---|---|---:|---:|---:|---:|---:|---:|---:|"
+    jq -r '
+      def r2: if . == null then "—" else (. * 100 | round / 100 | tostring) end;
+      def r1: if . == null then "—" else ((. * 10 | round / 10 | tostring) + "×") end;
+      .rows
+      | sort_by(.nativePromRatio // 0)
+      | reverse
+      | .[]
+      | "| \(.name) | \(.endpoint) | \(.strategy) | \(.chRoundtrips) | \(.chMillis) | \(.promP50Ms | r2) | \(.nativeP50Ms | r2) | \(.nativePromRatio | r1) | \(.fallbackP50Ms | r2) | \(.fallbackNativeRatio | r1) |"
+    ' "$report"
+    echo
+  fi
 fi
 
 exit "$STATUS"

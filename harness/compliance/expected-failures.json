@@ -1,0 +1,21 @@
+{
+  "comment": "Known compliance failures tracked as EXPECTED (not bugs in the shim). Each entry must match exactly; any drift (different query, different diff shape, or allowlist entry that no longer matches anything) fails reconciliation so regressions surface.",
+  "entries": [
+    {
+      "id": "topk-tie-break-ordering",
+      "query": "topk without(instance) (2, demo_memory_usage_bytes)",
+      "must_match": {
+        "diff_contains_all": [
+          "demo.promlabs.com:",
+          "173015040 @["
+        ],
+        "diff_contains_none": [
+          "NaN @[",
+          "+Inf",
+          "-Inf"
+        ]
+      },
+      "reason": "Prometheus topk's tie-break is a storage-layer implementation detail. promql/engine.go:1052 calls querier.Select with sortSeries=false, so the TSDB SeriesSet is iterated in its native postings order (essentially series-ref / scrape-discovery order). aggregationK (engine.go:3776) then iterates 'for si := range inputMatrix' preserving that order, and the heap replacement at engine.go:3865 uses a strict '<' comparison (group.heap[0].F < s.F), so on an exact tie the new element does NOT displace the heap root — first-seen wins. That first-seen order is not derivable from labels alone (labels.Hash / labels.StableHash give alphabetical order; the fixture's TSDB order differs). Reproducing Prom's tie-break exactly would require mirroring its storage layer. On this fixture, demo_memory_usage_bytes series across instance demo.promlabs.com:10000/10001/10002 occasionally hit the same float value (173015040) at the same timestep; Prom and the shim disagree on which instance survives the cut. Affects only exact-value ties, which are rare in real data. Verified against prometheus@57821524d. See harness/compliance/README.md section 'topk tie-break ordering'."
+    }
+  ]
+}

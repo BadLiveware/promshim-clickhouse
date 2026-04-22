@@ -35,3 +35,7 @@ jq '{
   unexpected_success: [.results[] | select(.unexpectedSuccess == true)] | length,
   unsupported: [.results[] | select(.unsupported == true)] | length
 }' < "$OUTPUT_FILE"
+
+echo
+echo ">> Reconciling against expected-failures allowlist"
+"${ROOT}/scripts/reconcile-expected.sh" "$OUTPUT_FILE" || echo ">> Reconcile flagged drift (exit 1) — see above"

@@ -5,34 +5,39 @@ usage() {
   cat <<'EOF'
 Usage: ./scripts/run-harness.sh [options]
 
-Run the full differential Prometheus vs promshim harness workflow in one command.
+Run the differential + compliance harnesses against promshim.
 
-Default flow:
-  1) docker compose build promshim seed compare
-  2) docker compose up -d clickhouse prometheus promshim
-  3) docker compose run --rm clickhouse-init   (with retries)
-  4) docker compose --profile jobs run --rm seed
-  5) docker compose --profile jobs run --rm compare
-  6) docker compose down -v
+Default (no args) runs every suite:
+  1) differential  — harness/corpus/queries.json (all subjects)
+  2) dashboard     — harness/corpus/common-dashboard-subset.json (--subjects shim)
+  3) compliance    — upstream PromQL compliance tester (delegates to
+                     scripts/run-compliance.sh)
 
-Options:
-  --theme <name>        Run against a single themed corpus from draft-grafana-top-panel-shortlist.themes/.
-  --all-themes          Run against every theme corpus in sequence (seeds once, compares per theme).
-                        Per-theme reports are written to artifacts/compare-report-{theme}.json.
-  --corpus <path>       Run against a specific corpus JSON relative to harness/corpus/
-                        (for example: native-lowering-starter.json).
-  --subjects <list>     Restrict compare subjects to a comma-separated subset
-                        (for example: shim or shim,promclick).
+Suites 1+2 share a single main-harness stack (clickhouse/prometheus/promshim)
+and a single seed. Suite 3 runs against the separate compliance stack with
+its frozen fixture. Each suite prints its own summary; the runner exits 0 as
+long as the tooling itself completes.
+
+Suite selection:
+  --suite <name>        all (default) | differential | dashboard | compliance
+
+Differential-only knobs (imply --suite differential when used alone):
+  --theme <name>        Run one themed corpus from
+                        draft-grafana-top-panel-shortlist.themes/.
+  --all-themes          Run every theme corpus in sequence
+                        (per-theme reports at artifacts/compare-report-{theme}.json).
+  --corpus <path>       Run one corpus JSON under harness/corpus/.
+  --subjects <list>     Restrict compare subjects (e.g. shim or shim,promclick).
   --dataset-variants <list>
-                        Seed multiple dataset shapes in one run (for example:
-                        baseline,resets_gaps). Default keeps the legacy single
-                        dataset shape.
-  --native-only         Force `native_lowering_mode=force_supported` for every
-                        query row that does not already set an explicit mode.
-  --no-build            Skip image build step.
-  --keep-up             Keep containers/network/volumes after completion.
-  --init-retries <n>    Retry attempts for clickhouse-init (default: 10).
-  -h, --help            Show this help text.
+                        Seed multiple dataset shapes (e.g. baseline,resets_gaps).
+  --native-only         Force native_lowering_mode=force_supported.
+
+Common:
+  --no-build            Skip image builds.
+  --keep-up             Keep all stacks up after the run.
+  --init-retries <n>    clickhouse-init retry attempts (default: 10).
+  --ready-timeout <n>   Seconds to wait for compliance endpoints (default: 60).
+  -h, --help            Show this help.
 EOF
 }
 
@@ -54,88 +59,90 @@ ensure_command() {
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 HARNESS_DIR="${REPO_ROOT}/harness"
+THEMES_HOST_DIR="${HARNESS_DIR}/corpus/draft-grafana-top-panel-shortlist.themes"
 
+SUITE=""
 BUILD_IMAGES=1
 KEEP_UP=0
 INIT_RETRIES=10
+READY_TIMEOUT=60
 THEME=""
 ALL_THEMES=0
 CUSTOM_CORPUS=""
 SUBJECTS=""
 DATASET_VARIANTS=""
 NATIVE_ONLY=0
+DIFFERENTIAL_OVERRIDE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --theme)
-      THEME="$2"
-      shift 2
-      ;;
-    --all-themes)
-      ALL_THEMES=1
-      shift
-      ;;
-    --corpus)
-      CUSTOM_CORPUS="$2"
-      shift 2
-      ;;
-    --subjects)
-      SUBJECTS="$2"
-      shift 2
-      ;;
-    --dataset-variants)
-      DATASET_VARIANTS="$2"
-      shift 2
-      ;;
-    --native-only)
-      NATIVE_ONLY=1
-      shift
-      ;;
-    --no-build)
-      BUILD_IMAGES=0
-      shift
-      ;;
-    --keep-up)
-      KEEP_UP=1
-      shift
-      ;;
-    --init-retries)
-      INIT_RETRIES="$2"
-      shift 2
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      fatal "Unknown argument: $1"
-      ;;
+    --suite)             SUITE="$2"; shift 2 ;;
+    --theme)             THEME="$2"; DIFFERENTIAL_OVERRIDE=1; shift 2 ;;
+    --all-themes)        ALL_THEMES=1; DIFFERENTIAL_OVERRIDE=1; shift ;;
+    --corpus)            CUSTOM_CORPUS="$2"; DIFFERENTIAL_OVERRIDE=1; shift 2 ;;
+    --subjects)          SUBJECTS="$2"; shift 2 ;;
+    --dataset-variants)  DATASET_VARIANTS="$2"; shift 2 ;;
+    --native-only)       NATIVE_ONLY=1; shift ;;
+    --no-build)          BUILD_IMAGES=0; shift ;;
+    --keep-up)           KEEP_UP=1; shift ;;
+    --init-retries)      INIT_RETRIES="$2"; shift 2 ;;
+    --ready-timeout)     READY_TIMEOUT="$2"; shift 2 ;;
+    -h|--help)           usage; exit 0 ;;
+    *)                   fatal "Unknown argument: $1" ;;
   esac
 done
 
+if [[ -z "$SUITE" ]]; then
+  if (( DIFFERENTIAL_OVERRIDE == 1 )); then
+    SUITE="differential"
+  else
+    SUITE="all"
+  fi
+fi
+
+case "$SUITE" in
+  all|differential|dashboard|compliance) ;;
+  *) fatal "--suite must be one of: all, differential, dashboard, compliance" ;;
+esac
+
 if ! [[ "$INIT_RETRIES" =~ ^[0-9]+$ ]] || [[ "$INIT_RETRIES" -lt 1 ]]; then
   fatal "--init-retries must be a positive integer"
+fi
+if ! [[ "$READY_TIMEOUT" =~ ^[0-9]+$ ]] || [[ "$READY_TIMEOUT" -lt 1 ]]; then
+  fatal "--ready-timeout must be a positive integer"
 fi
 
 if [[ -n "$THEME" ]] && (( ALL_THEMES == 1 )); then
   fatal "--theme and --all-themes are mutually exclusive"
 fi
-
 if [[ -n "$CUSTOM_CORPUS" ]] && { [[ -n "$THEME" ]] || (( ALL_THEMES == 1 )); }; then
   fatal "--corpus cannot be combined with --theme or --all-themes"
 fi
-
-CORPUS_PATH_OVERRIDE=""
-if [[ -n "$THEME" ]]; then
-  CORPUS_PATH_OVERRIDE="/app/harness/corpus/draft-grafana-top-panel-shortlist.themes/${THEME}.json"
-elif [[ -n "$CUSTOM_CORPUS" ]]; then
-  if [[ ! -f "${HARNESS_DIR}/corpus/${CUSTOM_CORPUS}" ]]; then
-    fatal "Corpus file not found under harness/corpus/: ${CUSTOM_CORPUS}"
-  fi
-  CORPUS_PATH_OVERRIDE="/app/harness/corpus/${CUSTOM_CORPUS}"
+if (( DIFFERENTIAL_OVERRIDE == 1 )) && [[ "$SUITE" != "differential" ]]; then
+  fatal "--theme/--all-themes/--corpus only apply to --suite differential"
 fi
 
-THEMES_HOST_DIR="${HARNESS_DIR}/corpus/draft-grafana-top-panel-shortlist.themes"
+ensure_command docker
+ensure_command curl
+
+if [[ ! -d "$HARNESS_DIR" ]] || [[ ! -f "$HARNESS_DIR/docker-compose.yml" ]]; then
+  fatal "Harness directory not found or invalid: $HARNESS_DIR"
+fi
+
+MAIN_STACK_STARTED=0
+
+cleanup() {
+  if (( KEEP_UP == 1 )); then
+    log "Leaving stacks running (--keep-up)."
+    return
+  fi
+  if (( MAIN_STACK_STARTED == 1 )); then
+    log "Stopping main harness stack (docker compose down -v)."
+    (cd "$HARNESS_DIR" && docker compose down -v >/dev/null 2>&1 || true)
+  fi
+  # The compliance runner manages its own teardown; no-op here.
+}
+trap cleanup EXIT
 
 discover_themes() {
   local theme_file theme_name
@@ -160,60 +167,12 @@ print_compare_summary() {
   }' "$report_path"
 }
 
-ensure_command docker
-
-if [[ ! -d "$HARNESS_DIR" ]] || [[ ! -f "$HARNESS_DIR/docker-compose.yml" ]]; then
-  fatal "Harness directory not found or invalid: $HARNESS_DIR"
-fi
-
-cleanup() {
-  if (( KEEP_UP == 0 )); then
-    log "Stopping harness stack (docker compose down -v)."
-    docker compose down -v >/dev/null 2>&1 || true
-  else
-    log "Leaving harness stack running (--keep-up)."
-  fi
-}
-
-cd "$HARNESS_DIR"
-trap cleanup EXIT
-
-if (( BUILD_IMAGES == 1 )); then
-  log "Building harness images (promshim/seed/compare)."
-  docker compose build promshim seed compare
-else
-  log "Skipping image build (--no-build)."
-fi
-
-log "Starting harness services (clickhouse/prometheus/promshim)."
-docker compose up -d clickhouse prometheus promshim
-
-log "Initializing ClickHouse schema."
-init_ok=0
-for attempt in $(seq 1 "$INIT_RETRIES"); do
-  if docker compose run --rm clickhouse-init; then
-    init_ok=1
-    break
-  fi
-  log "clickhouse-init attempt ${attempt}/${INIT_RETRIES} failed; retrying in 2s."
-  sleep 2
-done
-if (( init_ok == 0 )); then
-  fatal "clickhouse-init failed after ${INIT_RETRIES} attempts"
-fi
-
-log "Seeding deterministic dataset."
-seed_env_args=()
-if [[ -n "$DATASET_VARIANTS" ]]; then
-  seed_env_args+=(-e "PROM_HARNESS_DATASET_VARIANTS=${DATASET_VARIANTS}")
-fi
-docker compose --profile jobs run --rm "${seed_env_args[@]}" seed
-
 run_compare() {
-  local corpus_path="$1" report_dest="$2" label="$3"
+  local corpus_path="$1" report_dest="$2" label="$3" subjects_override="${4:-}"
   local env_args=(-e "PROM_HARNESS_CORPUS_PATH=${corpus_path}")
-  if [[ -n "$SUBJECTS" ]]; then
-    env_args+=(-e "PROM_HARNESS_SUBJECTS=${SUBJECTS}")
+  local subjects_effective="${subjects_override:-${SUBJECTS}}"
+  if [[ -n "$subjects_effective" ]]; then
+    env_args+=(-e "PROM_HARNESS_SUBJECTS=${subjects_effective}")
   fi
   if (( NATIVE_ONLY == 1 )); then
     env_args+=(-e "PROM_HARNESS_NATIVE_LOWERING_MODE=force_supported")
@@ -226,22 +185,109 @@ run_compare() {
   print_compare_summary "${report_dest}" "${label}"
 }
 
-if (( ALL_THEMES == 1 )); then
-  mapfile -t themes < <(discover_themes)
-  if [[ ${#themes[@]} -eq 0 ]]; then
-    fatal "No theme corpus files found in ${THEMES_HOST_DIR}"
-  fi
-  log "Running all ${#themes[@]} themes: ${themes[*]}"
-  for theme in "${themes[@]}"; do
-    run_compare \
-      "/app/harness/corpus/draft-grafana-top-panel-shortlist.themes/${theme}.json" \
-      "${HARNESS_DIR}/artifacts/compare-report-${theme}.json" \
-      "${theme}"
-  done
-  log "All theme reports written to ${HARNESS_DIR}/artifacts/compare-report-{theme}.json"
-else
-  corpus="${CORPUS_PATH_OVERRIDE:-/app/harness/corpus/queries.json}"
-  run_compare "$corpus" "${HARNESS_DIR}/artifacts/compare-report.json" "${THEME:-default}"
-fi
+start_main_stack_and_seed() {
+  cd "$HARNESS_DIR"
 
-log "Harness run completed successfully."
+  if (( BUILD_IMAGES == 1 )); then
+    log "Building main harness images (promshim/seed/compare)."
+    docker compose build promshim seed compare
+  else
+    log "Skipping main image build (--no-build)."
+  fi
+
+  log "Starting main harness stack (clickhouse/prometheus/promshim)."
+  docker compose up -d clickhouse prometheus promshim
+  MAIN_STACK_STARTED=1
+
+  log "Initializing ClickHouse schema."
+  local init_ok=0 attempt
+  for attempt in $(seq 1 "$INIT_RETRIES"); do
+    if docker compose run --rm clickhouse-init; then
+      init_ok=1
+      break
+    fi
+    log "clickhouse-init attempt ${attempt}/${INIT_RETRIES} failed; retrying in 2s."
+    sleep 2
+  done
+  if (( init_ok == 0 )); then
+    fatal "clickhouse-init failed after ${INIT_RETRIES} attempts"
+  fi
+
+  log "Seeding deterministic dataset."
+  local seed_env_args=()
+  if [[ -n "$DATASET_VARIANTS" ]]; then
+    seed_env_args+=(-e "PROM_HARNESS_DATASET_VARIANTS=${DATASET_VARIANTS}")
+  fi
+  docker compose --profile jobs run --rm "${seed_env_args[@]}" seed
+}
+
+run_differential_suite() {
+  if (( ALL_THEMES == 1 )); then
+    mapfile -t themes < <(discover_themes)
+    if [[ ${#themes[@]} -eq 0 ]]; then
+      fatal "No theme corpus files found in ${THEMES_HOST_DIR}"
+    fi
+    log "Running all ${#themes[@]} themes: ${themes[*]}"
+    for theme in "${themes[@]}"; do
+      run_compare \
+        "/app/harness/corpus/draft-grafana-top-panel-shortlist.themes/${theme}.json" \
+        "${HARNESS_DIR}/artifacts/compare-report-${theme}.json" \
+        "${theme}"
+    done
+    log "All theme reports written to ${HARNESS_DIR}/artifacts/compare-report-{theme}.json"
+    return
+  fi
+
+  local corpus
+  if [[ -n "$THEME" ]]; then
+    corpus="/app/harness/corpus/draft-grafana-top-panel-shortlist.themes/${THEME}.json"
+  elif [[ -n "$CUSTOM_CORPUS" ]]; then
+    if [[ ! -f "${HARNESS_DIR}/corpus/${CUSTOM_CORPUS}" ]]; then
+      fatal "Corpus file not found under harness/corpus/: ${CUSTOM_CORPUS}"
+    fi
+    corpus="/app/harness/corpus/${CUSTOM_CORPUS}"
+  else
+    corpus="/app/harness/corpus/queries.json"
+  fi
+
+  run_compare "$corpus" "${HARNESS_DIR}/artifacts/compare-report.json" "${THEME:-differential}"
+}
+
+run_dashboard_suite() {
+  if [[ ! -f "${HARNESS_DIR}/corpus/common-dashboard-subset.json" ]]; then
+    fatal "Dashboard corpus missing: harness/corpus/common-dashboard-subset.json"
+  fi
+  run_compare \
+    "/app/harness/corpus/common-dashboard-subset.json" \
+    "${HARNESS_DIR}/artifacts/compare-report-dashboard.json" \
+    "dashboard" \
+    "shim"
+}
+
+run_compliance_suite() {
+  local args=()
+  if (( BUILD_IMAGES == 0 )); then args+=(--no-build); fi
+  if (( KEEP_UP == 1 )); then args+=(--keep-up); fi
+  args+=(--ready-timeout "$READY_TIMEOUT")
+  log "Delegating to scripts/run-compliance.sh ${args[*]}"
+  "${REPO_ROOT}/scripts/run-compliance.sh" "${args[@]}" || true
+}
+
+log "Suite: ${SUITE}"
+
+case "$SUITE" in
+  differential|dashboard|all)
+    start_main_stack_and_seed
+    case "$SUITE" in
+      differential) run_differential_suite ;;
+      dashboard)    run_dashboard_suite ;;
+      all)          run_differential_suite; run_dashboard_suite ;;
+    esac
+    ;;
+esac
+
+case "$SUITE" in
+  compliance|all) run_compliance_suite ;;
+esac
+
+log "Harness run completed."

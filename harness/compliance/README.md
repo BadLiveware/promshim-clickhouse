@@ -25,6 +25,8 @@ The tester hits `29090` (Prom reference) and `29091` (promshim) with a pinned en
 
 The remaining 3 failures are documented below. All are tracked as **known limitations** rather than bugs in the shim.
 
+The topk tie-break failure is also encoded in `expected-failures.json` and asserted by `scripts/reconcile-expected.sh` after every compliance run — that matcher is intentionally narrow (exact query + specific diff substrings) so any drift (shape change, new failure, or the expected failure disappearing) surfaces as a regression rather than being silently absorbed.
+
 ### 1. topk tie-break ordering (1 failure)
 
 **Query:** `topk without(instance) (2, demo_memory_usage_bytes)`

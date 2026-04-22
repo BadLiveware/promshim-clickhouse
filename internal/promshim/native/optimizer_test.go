@@ -281,6 +281,48 @@ func TestBuildOptimizedFragmentUsesRangeLookbackEnvelopeForLeafSelector(t *testi
 	}
 }
 
+func TestBuildOptimizedFragmentUsesFixedSelectorTimestampForRangeBounds(t *testing.T) {
+	logical := &planpkg.LogicalLeafExprPlan{Expr: mustParseExpr(t, `up @ 300`)}
+
+	optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeRange, StartMS: 0, EndMS: 600000, StepMS: 30000})
+	if err != nil {
+		t.Fatalf("expected optimized fragment, got error: %v", err)
+	}
+	if got, want := optimized.Report.RequiredInputEndMS, int64(300000); got != want {
+		t.Fatalf("expected anchored range end %d, got %d", want, got)
+	}
+	if got, want := optimized.Report.RequiredInputStartMS, int64(0); got != want {
+		t.Fatalf("expected anchored range start %d, got %d", want, got)
+	}
+}
+
+func TestBuildOptimizedFragmentUsesRangeStartEndAnchorForRangeBounds(t *testing.T) {
+	testCases := []struct {
+		name      string
+		query     string
+		wantStart int64
+		wantEnd   int64
+	}{
+		{name: "start", query: `up @ start()`, wantStart: -300000, wantEnd: 0},
+		{name: "end", query: `up @ end()`, wantStart: 300000, wantEnd: 600000},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			logical := &planpkg.LogicalLeafExprPlan{Expr: mustParseExpr(t, tc.query)}
+			optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeRange, StartMS: 0, EndMS: 600000, StepMS: 30000})
+			if err != nil {
+				t.Fatalf("expected optimized fragment, got error: %v", err)
+			}
+			if got := optimized.Report.RequiredInputStartMS; got != tc.wantStart {
+				t.Fatalf("expected anchored range start %d, got %d", tc.wantStart, got)
+			}
+			if got := optimized.Report.RequiredInputEndMS; got != tc.wantEnd {
+				t.Fatalf("expected anchored range end %d, got %d", tc.wantEnd, got)
+			}
+		})
+	}
+}
+
 func TestBuildOptimizedFragmentMarksSubqueryStepGridSemanticBarrier(t *testing.T) {
 	subqueryExpr := mustParseExpr(t, `(up * 100)[5m:1m]`)
 	subquery, ok := subqueryExpr.(*parser.SubqueryExpr)

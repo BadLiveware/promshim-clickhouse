@@ -314,6 +314,49 @@ func TestApplyQuantileOverTimeReturnsNaNForNaNQuantile(t *testing.T) {
 	}
 }
 
+func TestApplyFirstAndLastOverTimePreserveMetricName(t *testing.T) {
+	input := model.MatrixValue{Series: []model.RangeSeries{{
+		Metric: map[string]string{"__name__": "harness_queue_depth", "job": "api", "instance": "a"},
+		Values: []model.RangePoint{{Timestamp: 10, Value: 3}, {Timestamp: 20, Value: 1}, {Timestamp: 30, Value: 2}},
+	}}}
+	first, err := ApplyFirstOverTimeInstant(input)
+	if err != nil {
+		t.Fatalf("expected first_over_time result, got error: %v", err)
+	}
+	last, err := ApplyLastOverTimeInstant(input)
+	if err != nil {
+		t.Fatalf("expected last_over_time result, got error: %v", err)
+	}
+	for name, vector := range map[string]model.VectorValue{"first": first, "last": last} {
+		if len(vector.Samples) != 1 || vector.Samples[0].Metric["__name__"] != "harness_queue_depth" {
+			t.Fatalf("expected %s_over_time to preserve __name__, got %#v", name, vector.Samples)
+		}
+	}
+	if first.Samples[0].Value != 3 || last.Samples[0].Value != 2 {
+		t.Fatalf("unexpected first/last values: first=%#v last=%#v", first.Samples[0], last.Samples[0])
+	}
+}
+
+func TestApplyTsOverTimeFunctionsDropMetricNameAndTrackExpectedTimestamp(t *testing.T) {
+	input := model.MatrixValue{Series: []model.RangeSeries{{
+		Metric: map[string]string{"__name__": "harness_queue_depth", "job": "api", "instance": "a"},
+		Values: []model.RangePoint{{Timestamp: 10, Value: 3}, {Timestamp: 20, Value: 7}, {Timestamp: 30, Value: 7}, {Timestamp: 40, Value: 1}},
+	}}}
+	cases := map[string]float64{"ts_of_first_over_time": 10, "ts_of_last_over_time": 40, "ts_of_max_over_time": 30, "ts_of_min_over_time": 40}
+	for name, want := range cases {
+		vector, err := ApplyRangeFunctionInstant(name, input)
+		if err != nil {
+			t.Fatalf("expected %s result, got error: %v", name, err)
+		}
+		if len(vector.Samples) != 1 || vector.Samples[0].Value != want {
+			t.Fatalf("unexpected %s output: %#v", name, vector.Samples)
+		}
+		if _, ok := vector.Samples[0].Metric["__name__"]; ok {
+			t.Fatalf("expected %s to drop __name__, got %#v", name, vector.Samples[0].Metric)
+		}
+	}
+}
+
 func TestApplyLastOverTimeInstantRejectsNonMatrixInput(t *testing.T) {
 	_, err := ApplyLastOverTimeInstant(model.VectorValue{})
 	if err == nil {

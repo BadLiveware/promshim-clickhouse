@@ -58,6 +58,14 @@ type localHistogramProjectionPlan struct {
 	Child Plan
 }
 
+type localHistogramQuantilesPlan struct {
+	Expr          string
+	Label         string
+	ParamNumbers  []*float64
+	ParamChildren []Plan
+	Child         Plan
+}
+
 func (p *localHistogramProjectionPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 	childValue, err := p.Child.execute(ctx, Evaluator, params)
 	if err != nil {
@@ -71,6 +79,10 @@ func (p *localHistogramProjectionPlan) execute(ctx context.Context, Evaluator *E
 		result, err = exec.ApplyHistogramSumRuntimeValue(childValue)
 	case "histogram_avg":
 		result, err = exec.ApplyHistogramAvgRuntimeValue(childValue)
+	case "histogram_stddev":
+		result, err = exec.ApplyHistogramStdDevRuntimeValue(childValue)
+	case "histogram_stdvar":
+		result, err = exec.ApplyHistogramStdVarRuntimeValue(childValue)
 	default:
 		return nil, NewExecutionErrorf("unknown histogram projection function %q", p.Func)
 	}
@@ -82,4 +94,38 @@ func (p *localHistogramProjectionPlan) execute(ctx context.Context, Evaluator *E
 
 func (p *localHistogramProjectionPlan) explain() ExplainNode {
 	return ExplainNode{Kind: p.Func, Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
+}
+
+func (p *localHistogramQuantilesPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+	switch params.Mode {
+	case EvalModeInstant:
+		childValue, err := p.Child.execute(ctx, Evaluator, params)
+		if err != nil {
+			return nil, WithInternalContext(err, "evaluating histogram_quantiles child")
+		}
+		paramNumbers, err := evalScalarParamNumbers(ctx, Evaluator, params, "histogram_quantiles", p.ParamNumbers, p.ParamChildren)
+		if err != nil {
+			return nil, err
+		}
+		result, err := exec.ApplyHistogramQuantilesRuntimeValue(p.Label, paramNumbers, childValue)
+		if err != nil {
+			return nil, WithInternalContext(FromExecError(err), "applying histogram_quantiles")
+		}
+		return result, nil
+	case EvalModeRange:
+		return executeRangeVectorPlan(ctx, Evaluator, params, "histogram_quantiles", p.execute)
+	default:
+		return nil, NewExecutionErrorf("unknown evaluation mode %q", params.Mode)
+	}
+}
+
+func (p *localHistogramQuantilesPlan) explain() ExplainNode {
+	children := []ExplainNode{p.Child.explain()}
+	for _, child := range p.ParamChildren {
+		if child == nil {
+			continue
+		}
+		children = append(children, child.explain())
+	}
+	return ExplainNode{Kind: "histogram_quantiles", Strategy: "local", Expr: p.Expr, Children: children}
 }

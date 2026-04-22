@@ -7,6 +7,7 @@ import (
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
 	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -66,6 +67,10 @@ func TestAnalyzeTier1AdditionalAggregationsMarkNativeLowerable(t *testing.T) {
 		{query: `stdvar by (job) (up)`, op: parser.STDVAR},
 		{query: `group by (job) (up)`, op: parser.GROUP},
 		{query: `quantile by (job) (0.9, up)`, op: parser.QUANTILE},
+		{query: `topk by (job) (3, up)`, op: parser.TOPK},
+		{query: `limitk by (job) (2, up)`, op: parser.LIMITK},
+		{query: `limit_ratio by (job) (0.5, up)`, op: parser.LIMIT_RATIO},
+		{query: `count_values("sample_value", up)`, op: parser.COUNT_VALUES},
 	}
 	for _, tc := range cases {
 		aggExpr := mustParseExpr(t, tc.query)
@@ -75,11 +80,14 @@ func TestAnalyzeTier1AdditionalAggregationsMarkNativeLowerable(t *testing.T) {
 		}
 		logical := &planpkg.LogicalAggregationPlan{Expr: agg, Op: agg.Op, Grouping: append([]string(nil), agg.Grouping...), Without: agg.Without, Child: &planpkg.LogicalLeafExprPlan{Expr: agg.Expr}}
 		if agg.Param != nil {
-			literal, ok := agg.Param.(*parser.NumberLiteral)
-			if !ok {
-				t.Fatalf("expected numeric aggregation parameter for %q, got %T", tc.query, agg.Param)
+			switch param := agg.Param.(type) {
+			case *parser.NumberLiteral:
+				logical.ParamNumber = &param.Val
+			case *parser.StringLiteral:
+				logical.ParamString = param.Val
+			default:
+				t.Fatalf("expected supported aggregation parameter for %q, got %T", tc.query, agg.Param)
 			}
-			logical.ParamNumber = &literal.Val
 		}
 		info := Analyze(logical).InfoFor(logical)
 		if info == nil || !info.NativeLowerable {
@@ -87,6 +95,17 @@ func TestAnalyzeTier1AdditionalAggregationsMarkNativeLowerable(t *testing.T) {
 		}
 		if info.Fragment == nil || info.Fragment.Aggregation == nil || info.Fragment.Aggregation.Op != tc.op {
 			t.Fatalf("expected native aggregation fragment for %q, got %#v", tc.query, info)
+		}
+		if (tc.op == parser.TOPK || tc.op == parser.LIMITK || tc.op == parser.LIMIT_RATIO) && info.LabelLineage.MetricName != LabelLineageOriginal {
+			t.Fatalf("expected selection aggregation to preserve metric-name lineage, got %#v", info.LabelLineage)
+		}
+		if tc.op == parser.COUNT_VALUES {
+			if info.Fragment.Aggregation.ParamString != "sample_value" {
+				t.Fatalf("expected count_values param string, got %#v", info.Fragment.Aggregation)
+			}
+			if info.LabelLineage.MetricName != LabelLineageDropped || info.LabelLineage.Known["sample_value"] != LabelLineageSynthetic {
+				t.Fatalf("expected count_values synthetic label lineage, got %#v", info.LabelLineage)
+			}
 		}
 	}
 }
@@ -123,7 +142,7 @@ func TestAnalyzeInfoMarksNativeLowerableForDefaultTargetInfo(t *testing.T) {
 	}
 }
 
-func TestAnalyzeInfoStaysLocalForUnsupportedMetricNameMatcher(t *testing.T) {
+func TestAnalyzeInfoMarksRegexMetricNameMatcherNativeLowerable(t *testing.T) {
 	callExpr := mustParseExpr(t, `info(up, {__name__=~".+_info"})`)
 	call, ok := callExpr.(*parser.Call)
 	if !ok {
@@ -132,11 +151,81 @@ func TestAnalyzeInfoStaysLocalForUnsupportedMetricNameMatcher(t *testing.T) {
 	selector := call.Args[1].(*parser.VectorSelector)
 	logical := &planpkg.LogicalInfoPlan{Expr: call, SelectorMatchers: CloneMatchers(selector.LabelMatchers), Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
 	info := Analyze(logical).InfoFor(logical)
-	if info == nil {
-		t.Fatal("expected lowering info")
+	if info == nil || !info.NativeLowerable {
+		t.Fatalf("expected regex info() metric-name matcher to be native-lowerable, got %#v", info)
 	}
-	if info.NativeLowerable {
-		t.Fatalf("expected regex info() metric-name matcher to stay local, got %#v", info)
+	if info.Fragment == nil || info.Fragment.InfoJoin == nil || info.Fragment.InfoJoin.InfoMetricName != "" {
+		t.Fatalf("expected matcher-driven info join fragment, got %#v", info)
+	}
+	foundRegex := false
+	for _, matcher := range info.Fragment.InfoJoin.SelectorMatchers {
+		if matcher != nil && matcher.Name == labels.MetricName && matcher.Type == labels.MatchRegexp && matcher.Value == ".+_info" {
+			foundRegex = true
+			break
+		}
+	}
+	if !foundRegex {
+		t.Fatalf("expected regex metric-name matcher to be preserved, got %#v", info.Fragment.InfoJoin)
+	}
+}
+
+func TestAnalyzeVectorMarksNativeLowerableForScalarLiteral(t *testing.T) {
+	callExpr := mustParseExpr(t, `vector(1)`)
+	call, ok := callExpr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected call expr, got %T", callExpr)
+	}
+	logical := &planpkg.LogicalVectorPlan{Expr: call, Child: &planpkg.LogicalScalarLiteralPlan{Expr: call.Args[0], Value: 1}}
+	info := Analyze(logical).InfoFor(logical)
+	if info == nil || !info.NativeLowerable {
+		t.Fatalf("expected vector() to be native-lowerable, got %#v", info)
+	}
+	if info.Fragment == nil || info.Fragment.Kind != FragmentKindSyntheticSeries || info.Fragment.Synthetic == nil || info.Fragment.Synthetic.Value == nil || *info.Fragment.Synthetic.Value != 1 {
+		t.Fatalf("expected lifted synthetic literal vector fragment, got %#v", info)
+	}
+}
+
+func TestAnalyzeSortByLabelMarksNativeLowerable(t *testing.T) {
+	callExpr := mustParseExpr(t, `sort_by_label(up, "instance", "job")`)
+	call, ok := callExpr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected call expr, got %T", callExpr)
+	}
+	logical := &planpkg.LogicalSortPlan{Expr: call, Func: "sort_by_label", Labels: []string{"instance", "job"}, Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+	info := Analyze(logical).InfoFor(logical)
+	if info == nil || !info.NativeLowerable {
+		t.Fatalf("expected sort_by_label to be native-lowerable, got %#v", info)
+	}
+	if info.Fragment == nil || info.Fragment.Kind != FragmentKindSortTransform || info.Fragment.SortTransform == nil {
+		t.Fatalf("expected sort transform fragment, got %#v", info)
+	}
+}
+
+func TestAnalyzeClampMinMarksNativeLowerableForScalarParameterChild(t *testing.T) {
+	callExpr := mustParseExpr(t, `clamp_min(up, scalar(sum(up)))`)
+	call, ok := callExpr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected call expr, got %T", callExpr)
+	}
+	aggExpr := call.Args[1].(*parser.Call).Args[0].(*parser.AggregateExpr)
+	logical := &planpkg.LogicalPointwiseFunctionPlan{
+		Expr:  call,
+		Func:  "clamp_min",
+		Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]},
+		ParamChildren: []planpkg.LogicalPlan{
+			&planpkg.LogicalScalarConvertPlan{Expr: call.Args[1], Child: &planpkg.LogicalAggregationPlan{Expr: aggExpr, Op: aggExpr.Op, Grouping: append([]string(nil), aggExpr.Grouping...), Without: aggExpr.Without, Child: &planpkg.LogicalLeafExprPlan{Expr: aggExpr.Expr}}},
+		},
+		ParamNumbers: []*float64{nil},
+	}
+	info := Analyze(logical).InfoFor(logical)
+	if info == nil || !info.NativeLowerable {
+		t.Fatalf("expected clamp_min to be native-lowerable, got %#v", info)
+	}
+	if info.Fragment == nil || info.Fragment.Kind != FragmentKindClampTransform || info.Fragment.ClampTransform == nil || info.Fragment.ClampTransform.Min == nil {
+		t.Fatalf("expected clamp transform fragment, got %#v", info)
+	}
+	if info.LabelLineage.MetricName != LabelLineageDropped {
+		t.Fatalf("expected clamp_min to drop metric name, got %#v", info.LabelLineage)
 	}
 }
 
@@ -189,7 +278,7 @@ func TestAnalyzeScalarBuiltinMarksNativeLowerable(t *testing.T) {
 }
 
 func TestAnalyzeHistogramProjectionMarksNativeLowerable(t *testing.T) {
-	for _, fn := range []string{"histogram_count", "histogram_sum", "histogram_avg"} {
+	for _, fn := range []string{"histogram_count", "histogram_sum", "histogram_avg", "histogram_stddev", "histogram_stdvar"} {
 		t.Run(fn, func(t *testing.T) {
 			callExpr := mustParseExpr(t, fn+`(http_request_duration_seconds_bucket{job="api"})`)
 			call, ok := callExpr.(*parser.Call)
@@ -223,6 +312,36 @@ func TestAnalyzeHistogramQuantileMarksNativeLowerable(t *testing.T) {
 	}
 	if info.Fragment == nil || info.Fragment.Kind != FragmentKindHistogramFunction || info.Fragment.HistogramFunction == nil || info.Fragment.HistogramFunction.Func != "histogram_quantile" {
 		t.Fatalf("expected histogram function fragment, got %#v", info)
+	}
+}
+
+func TestAnalyzeHistogramQuantilesMarksNativeLowerable(t *testing.T) {
+	callExpr := mustParseExpr(t, `histogram_quantiles(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])), "quantile", 0.5, scalar(sum(up)))`)
+	call, ok := callExpr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected call expr, got %T", callExpr)
+	}
+	histAgg := call.Args[0].(*parser.AggregateExpr)
+	histRate := histAgg.Expr.(*parser.Call)
+	scalarCall := call.Args[3].(*parser.Call)
+	scalarAgg := scalarCall.Args[0].(*parser.AggregateExpr)
+	literal := 0.5
+	logical := &planpkg.LogicalHistogramQuantilesPlan{
+		Expr:         call,
+		Label:        "quantile",
+		ParamNumbers: []*float64{&literal, nil},
+		ParamChildren: []planpkg.LogicalPlan{
+			&planpkg.LogicalScalarLiteralPlan{Expr: call.Args[2], Value: literal},
+			&planpkg.LogicalScalarConvertPlan{Expr: call.Args[3], Child: &planpkg.LogicalAggregationPlan{Expr: scalarAgg, Op: scalarAgg.Op, Grouping: append([]string(nil), scalarAgg.Grouping...), Without: scalarAgg.Without, Child: &planpkg.LogicalLeafExprPlan{Expr: scalarAgg.Expr}}},
+		},
+		Child: &planpkg.LogicalAggregationPlan{Expr: histAgg, Op: histAgg.Op, Grouping: append([]string(nil), histAgg.Grouping...), Without: histAgg.Without, Child: &planpkg.LogicalRatePlan{Expr: histRate, Func: "rate", Child: &planpkg.LogicalLeafExprPlan{Expr: histRate.Args[0]}}},
+	}
+	info := Analyze(logical).InfoFor(logical)
+	if info == nil || !info.NativeLowerable {
+		t.Fatalf("expected histogram_quantiles to be native-lowerable, got %#v", info)
+	}
+	if info.Fragment == nil || info.Fragment.Kind != FragmentKindHistogramFunction || info.Fragment.HistogramFunction == nil || info.Fragment.HistogramFunction.Func != "histogram_quantiles" || len(info.Fragment.HistogramFunction.Quantiles) != 2 {
+		t.Fatalf("expected histogram_quantiles fragment, got %#v", info)
 	}
 }
 
@@ -299,11 +418,31 @@ func TestAnalyzeLabelJoinMarksSyntheticDestination(t *testing.T) {
 	if info == nil {
 		t.Fatal("expected lowering info")
 	}
-	if info.NativeLowerable {
-		t.Fatalf("expected label_join to stay local, got %#v", info)
+	if !info.NativeLowerable || info.Fragment == nil || info.Fragment.Kind != FragmentKindLabelTransform || info.Fragment.LabelTransform == nil {
+		t.Fatalf("expected native label_join transform, got %#v", info)
 	}
 	if got := info.LabelLineage.Known["joined"]; got != LabelLineageSynthetic {
 		t.Fatalf("expected synthetic destination lineage, got %#v", info.LabelLineage)
+	}
+}
+
+func TestAnalyzeLabelReplaceCanRestoreMetricNameLineage(t *testing.T) {
+	callExpr := mustParseExpr(t, `label_replace(rate(up[5m]), "__name__", "rate_$1", "__name__", "(.+)")`)
+	call, ok := callExpr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected call expr, got %T", callExpr)
+	}
+	cfg, err := model.BuildLabelReplaceConfig("__name__", "rate_$1", "__name__", "(.+)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	logical := &planpkg.LogicalLabelReplacePlan{Expr: call, Config: cfg, Child: &planpkg.LogicalRatePlan{Expr: call.Args[0], Func: "rate", Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0].(*parser.Call).Args[0]}}}
+	info := Analyze(logical).InfoFor(logical)
+	if info == nil || !info.NativeLowerable || info.Fragment == nil || info.Fragment.LabelTransform == nil {
+		t.Fatalf("expected native label_replace transform, got %#v", info)
+	}
+	if info.LabelLineage.MetricName != LabelLineageMutated {
+		t.Fatalf("expected metric-name lineage to be mutated, got %#v", info.LabelLineage)
 	}
 }
 
@@ -463,7 +602,7 @@ func TestAnalyzeChangesAndDerivOverSubqueryMarkNativeLowerable(t *testing.T) {
 }
 
 func TestAnalyzeTier1AdditionalRangeFunctionsMarkNativeLowerable(t *testing.T) {
-	for _, fn := range []string{"stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time", "resets"} {
+	for _, fn := range []string{"first_over_time", "stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time", "resets", "ts_of_first_over_time", "ts_of_last_over_time", "ts_of_max_over_time", "ts_of_min_over_time"} {
 		callExpr := mustParseExpr(t, fn+`(up[5m])`)
 		call, ok := callExpr.(*parser.Call)
 		if !ok {
@@ -477,6 +616,28 @@ func TestAnalyzeTier1AdditionalRangeFunctionsMarkNativeLowerable(t *testing.T) {
 		if info.Fragment == nil || info.Fragment.RangeFunction == nil || info.Fragment.RangeFunction.Func != fn {
 			t.Fatalf("expected native %s fragment, got %#v", fn, info)
 		}
+	}
+}
+
+func TestAnalyzeQuantileOverTimeMarksNativeLowerable(t *testing.T) {
+	callExpr := mustParseExpr(t, `quantile_over_time(0.95, up[5m])`)
+	call, ok := callExpr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected call expr, got %T", callExpr)
+	}
+	logical := &planpkg.LogicalQuantileOverTimePlan{Expr: call, Quantile: 0.95, Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[1]}}
+	info := Analyze(logical).InfoFor(logical)
+	if info == nil || !info.NativeLowerable {
+		t.Fatalf("expected quantile_over_time to be native-lowerable, got %#v", info)
+	}
+	if info.Fragment == nil || info.Fragment.RangeFunction == nil || info.Fragment.RangeFunction.Func != "quantile_over_time" {
+		t.Fatalf("expected native quantile_over_time fragment, got %#v", info)
+	}
+	if info.Fragment.RangeFunction.ParamNumber == nil || *info.Fragment.RangeFunction.ParamNumber != 0.95 {
+		t.Fatalf("expected quantile parameter, got %#v", info.Fragment.RangeFunction)
+	}
+	if info.LabelLineage.MetricName != LabelLineageDropped {
+		t.Fatalf("expected quantile_over_time to drop metric name, got %#v", info.LabelLineage)
 	}
 }
 

@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage/schema"
+	"github.com/prometheus/prometheus/model/labels"
 )
 
 func renderBinaryJoinFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
@@ -52,45 +52,85 @@ func renderAggregationFragment(cfg storage.QueryConfig, fragment *native.NativeF
 	if fragment.Aggregation == nil || fragment.Aggregation.Source == nil {
 		return renderedFragment{}, fmt.Errorf("aggregation fragment is missing aggregation metadata")
 	}
-	if source, err := renderAggregationSource(fragment.Aggregation.Source, params); err == nil {
+	sourceFragment := fragment.Aggregation.Source
+	if native.IsSelectionNativeAggregation(fragment.Aggregation.Op) {
+		sourceFragment = native.CloneFragment(sourceFragment)
+		forceFragmentFullTags(sourceFragment)
+	}
+	if source, err := renderAggregationSource(sourceFragment, params); err == nil {
 		switch params.Mode {
 		case native.RenderModeInstant:
-			sql, queryParams, err := storage.BuildInstantAggregationQuerySQLWithBounds(cfg, source, params.EvaluationTimeMS, params.RequiredStartMS, params.RequiredEndMS, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber)
+			sql, queryParams, err := storage.BuildInstantAggregationQuerySQLWithBounds(cfg, source, params.EvaluationTimeMS, params.RequiredStartMS, params.RequiredEndMS, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber, fragment.Aggregation.ParamString)
 			if err != nil {
 				return renderedFragment{}, err
 			}
+			if fragment.Aggregation.EmitZeroOnEmpty {
+				return wrapZeroOnEmptyAggregationInstantSQL(trimRenderedQuerySQL(sql), queryParams, params), nil
+			}
 			return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 		case native.RenderModeRange:
-			sql, queryParams, err := storage.BuildRangeAggregationQuerySQLWithBounds(cfg, source, params.StartMS, params.EndMS, params.StepMS, params.RequiredStartMS, params.RequiredEndMS, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber)
+			sql, queryParams, err := storage.BuildRangeAggregationQuerySQLWithBounds(cfg, source, params.StartMS, params.EndMS, params.StepMS, params.RequiredStartMS, params.RequiredEndMS, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber, fragment.Aggregation.ParamString)
 			if err != nil {
 				return renderedFragment{}, err
+			}
+			if fragment.Aggregation.EmitZeroOnEmpty {
+				return wrapZeroOnEmptyAggregationRangeSQL(trimRenderedQuerySQL(sql), queryParams, params), nil
 			}
 			return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 		default:
 			return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
 		}
 	}
-	childSQL, childParams, err := renderFragmentSubquery(cfg, fragment.Aggregation.Source, params, "aggregation_child")
+	childSQL, childParams, err := renderFragmentSubquery(cfg, sourceFragment, params, "aggregation_child")
 	if err != nil {
 		return renderedFragment{}, err
 	}
 	source := storage.AggregationSource{ValueExpr: "{value}", TagsExpr: "{tags}"}
 	switch params.Mode {
 	case native.RenderModeInstant:
-		sql, queryParams, err := storage.BuildInstantAggregationOverSubquerySQL(source, childSQL, childParams, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber)
+		sql, queryParams, err := storage.BuildInstantAggregationOverSubquerySQL(source, childSQL, childParams, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber, fragment.Aggregation.ParamString)
 		if err != nil {
 			return renderedFragment{}, err
 		}
+		if fragment.Aggregation.EmitZeroOnEmpty {
+			return wrapZeroOnEmptyAggregationInstantSQL(trimRenderedQuerySQL(sql), queryParams, params), nil
+		}
 		return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 	case native.RenderModeRange:
-		sql, queryParams, err := storage.BuildRangeAggregationOverSubquerySQL(source, childSQL, childParams, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber)
+		sql, queryParams, err := storage.BuildRangeAggregationOverSubquerySQL(source, childSQL, childParams, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber, fragment.Aggregation.ParamString)
 		if err != nil {
 			return renderedFragment{}, err
+		}
+		if fragment.Aggregation.EmitZeroOnEmpty {
+			return wrapZeroOnEmptyAggregationRangeSQL(trimRenderedQuerySQL(sql), queryParams, params), nil
 		}
 		return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 	default:
 		return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
 	}
+}
+
+func wrapZeroOnEmptyAggregationInstantSQL(aggregationSQL string, queryParams map[string]string, params RenderParams) renderedFragment {
+	namespaced := map[string]string{}
+	mergeRenderedQueryParams(namespaced, queryParams)
+	namespaced["param_zero_fill_evaluation_ms"] = strconv.FormatInt(params.EvaluationTimeMS, 10)
+	sql := "SELECT tags, timestamp, value FROM (" + aggregationSQL + ") AS aggregated UNION ALL " +
+		"SELECT CAST([], 'Array(Tuple(String, String))') AS tags, fromUnixTimestamp64Milli({zero_fill_evaluation_ms:Int64}) AS timestamp, toFloat64(0) AS value WHERE NOT EXISTS (SELECT 1 FROM (" + aggregationSQL + ") AS aggregated_probe)"
+	return renderedFragment{RawSQL: sql, ExtraParams: namespaced}
+}
+
+func wrapZeroOnEmptyAggregationRangeSQL(aggregationSQL string, queryParams map[string]string, params RenderParams) renderedFragment {
+	namespaced := map[string]string{}
+	mergeRenderedQueryParams(namespaced, queryParams)
+	namespaced["param_start_ms"] = strconv.FormatInt(params.StartMS, 10)
+	namespaced["param_end_ms"] = strconv.FormatInt(params.EndMS, 10)
+	namespaced["param_step_ms"] = strconv.FormatInt(params.StepMS, 10)
+	presenceSQL := "SELECT point.1 AS timestamp, count() AS sample_count FROM (" + aggregationSQL + ") AS aggregated_presence ARRAY JOIN aggregated_presence.time_series AS point GROUP BY point.1"
+	sql := "SELECT tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series FROM (" +
+		"SELECT aggregated.tags AS tags, point.1 AS timestamp, point.2 AS value FROM (" + aggregationSQL + ") AS aggregated ARRAY JOIN aggregated.time_series AS point UNION ALL " +
+		"SELECT CAST([], 'Array(Tuple(String, String))') AS tags, grid.timestamp AS timestamp, toFloat64(0) AS value FROM (" + buildTimestampGridSQL() + ") AS grid LEFT JOIN (" + presenceSQL + ") AS present ON present.timestamp = grid.timestamp WHERE ifNull(present.sample_count, 0) = 0" +
+		") AS zero_filled_steps GROUP BY tags ORDER BY tags"
+	return renderedFragment{RawSQL: sql, ExtraParams: namespaced}
 }
 
 func renderInfoJoinFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
@@ -104,6 +144,7 @@ func renderInfoJoinFragment(cfg storage.QueryConfig, fragment *native.NativeFrag
 		return renderedFragment{}, err
 	}
 	selector := storage.SelectorSource{Kind: storage.SelectorKindInstantVector, MetricName: fragment.InfoJoin.InfoMetricName, Matchers: native.CloneMatchers(fragment.InfoJoin.SelectorMatchers), NeedTags: true, RequireFullTags: true, LookbackMS: native.DefaultInstantSelectorLookback.Milliseconds()}
+	infoNameMatchers := infoJoinNameMatchers(fragment.InfoJoin)
 	var infoSQL string
 	var infoParams map[string]string
 	switch params.Mode {
@@ -112,7 +153,7 @@ func renderInfoJoinFragment(cfg storage.QueryConfig, fragment *native.NativeFrag
 		if err != nil {
 			return renderedFragment{}, err
 		}
-		joinSQL, joinParams, err := storage.BuildInstantInfoJoinSQL(childSQL, childParams, trimRenderedQuerySQL(infoSQL), infoParams, storage.InfoJoinConfig{IdentifyingLabels: []string{"instance", "job"}, CopyLabelNames: append([]string(nil), fragment.InfoJoin.CopyLabelNames...), DropUnmatched: fragment.InfoJoin.DropUnmatched})
+		joinSQL, joinParams, err := storage.BuildInstantInfoJoinSQL(childSQL, childParams, trimRenderedQuerySQL(infoSQL), infoParams, storage.InfoJoinConfig{IdentifyingLabels: []string{"instance", "job"}, CopyLabelNames: append([]string(nil), fragment.InfoJoin.CopyLabelNames...), DropUnmatched: fragment.InfoJoin.DropUnmatched, InfoNameMatchers: infoNameMatchers})
 		if err != nil {
 			return renderedFragment{}, err
 		}
@@ -123,7 +164,7 @@ func renderInfoJoinFragment(cfg storage.QueryConfig, fragment *native.NativeFrag
 		if err != nil {
 			return renderedFragment{}, err
 		}
-		joinSQL, joinParams, err := storage.BuildRangeInfoJoinSQL(childSQL, childParams, trimRenderedQuerySQL(infoSQL), infoParams, storage.InfoJoinConfig{IdentifyingLabels: []string{"instance", "job"}, CopyLabelNames: append([]string(nil), fragment.InfoJoin.CopyLabelNames...), DropUnmatched: fragment.InfoJoin.DropUnmatched})
+		joinSQL, joinParams, err := storage.BuildRangeInfoJoinSQL(childSQL, childParams, trimRenderedQuerySQL(infoSQL), infoParams, storage.InfoJoinConfig{IdentifyingLabels: []string{"instance", "job"}, CopyLabelNames: append([]string(nil), fragment.InfoJoin.CopyLabelNames...), DropUnmatched: fragment.InfoJoin.DropUnmatched, InfoNameMatchers: infoNameMatchers})
 		if err != nil {
 			return renderedFragment{}, err
 		}
@@ -131,6 +172,23 @@ func renderInfoJoinFragment(cfg storage.QueryConfig, fragment *native.NativeFrag
 	default:
 		return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
 	}
+}
+
+func infoJoinNameMatchers(fragment *native.InfoJoinFragment) []*labels.Matcher {
+	if fragment == nil {
+		return nil
+	}
+	nameMatchers := make([]*labels.Matcher, 0)
+	for _, matcher := range fragment.SelectorMatchers {
+		if matcher == nil || matcher.Name != labels.MetricName {
+			continue
+		}
+		nameMatchers = append(nameMatchers, labels.MustNewMatcher(matcher.Type, matcher.Name, matcher.Value))
+	}
+	if len(nameMatchers) == 0 && fragment.InfoMetricName != "" {
+		nameMatchers = append(nameMatchers, labels.MustNewMatcher(labels.MatchEqual, labels.MetricName, fragment.InfoMetricName))
+	}
+	return nameMatchers
 }
 
 func renderValueTransformFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
@@ -301,14 +359,7 @@ func renderAbsentOverTimeWindowedSource(cfg storage.QueryConfig, child *native.N
 		return windowedSQL, namespacedParams, nil
 	}
 	if child.Kind == native.FragmentKindSubquery && child.Subquery != nil && child.Subquery.Child != nil {
-		subqueryStep := child.Subquery.Step
-		if subqueryStep <= 0 {
-			subqueryStep = time.Minute
-		}
-		expandedEndMS := params.EndMS - child.Subquery.Offset.Milliseconds()
-		expandedStartMS := params.StartMS - child.Subquery.Offset.Milliseconds() - child.Subquery.Range.Milliseconds()
-		childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(child.Subquery.Child, expandedStartMS, expandedEndMS)
-		rendered, err := RenderFragment(cfg, child.Subquery.Child, RenderParams{Mode: native.RenderModeRange, StartMS: expandedStartMS, EndMS: expandedEndMS, StepMS: subqueryStep.Milliseconds(), RequiredStartMS: childRequiredStartMS, RequiredEndMS: childRequiredEndMS, ResolveSourcePromQL: params.ResolveSourcePromQL})
+		rendered, err := RenderFragment(cfg, child, RenderParams{Mode: native.RenderModeRange, StartMS: params.StartMS, EndMS: params.EndMS, StepMS: params.StepMS, RequiredStartMS: params.RequiredStartMS, RequiredEndMS: params.RequiredEndMS, ResolveSourcePromQL: params.ResolveSourcePromQL})
 		if err != nil {
 			return "", nil, err
 		}

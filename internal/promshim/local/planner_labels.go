@@ -168,38 +168,11 @@ func (p *localSubqueryPlan) execute(ctx context.Context, Evaluator *Evaluator, p
 		}
 		return value, nil
 	}
-	if params.Mode != EvalModeInstant {
-		return nil, NewUnsupportedErrorf("local subquery execution in %s mode is not implemented yet for %q", params.Mode, p.Expr.String())
-	}
 
-	end := params.EvaluationTime
-	if p.Timestamp != nil {
-		end = time.UnixMilli(*p.Timestamp).UTC()
-	} else if resolved := resolveStartEndMillis(p.StartOrEnd, params); resolved != nil {
-		end = time.UnixMilli(*resolved).UTC()
+	start, end, step, err := p.executionWindow(params)
+	if err != nil {
+		return nil, WithInternalContext(err, "preparing local subquery window for %q", p.Expr.String())
 	}
-	if p.Offset != 0 {
-		end = end.Add(-p.Offset)
-	}
-	if p.Range <= 0 {
-		return nil, NewBadDataErrorf("subquery range must be greater than zero in %q", p.Expr.String())
-	}
-	step := p.Step
-	if step <= 0 {
-		step = defaultSubqueryStep(params)
-	}
-	if step <= 0 {
-		return nil, NewBadDataErrorf("subquery step must be greater than zero in %q", p.Expr.String())
-	}
-
-	stepMS := step.Milliseconds()
-	endMS := end.UnixMilli()
-	windowStartMS := endMS - p.Range.Milliseconds()
-	alignedStartMS := (windowStartMS / stepMS) * stepMS
-	if alignedStartMS <= windowStartMS {
-		alignedStartMS += stepMS
-	}
-	start := time.UnixMilli(alignedStartMS).UTC()
 	seriesByKey := map[string]*model.RangeSeries{}
 	seriesOrder := make([]string, 0)
 
@@ -232,6 +205,50 @@ func (p *localSubqueryPlan) execute(ctx context.Context, Evaluator *Evaluator, p
 		result = append(result, model.RangeSeries{Metric: model.CloneMetric(item.Metric), Values: model.CloneRangePoints(item.Values)})
 	}
 	return model.MatrixValue{Series: result}, nil
+}
+
+func (p *localSubqueryPlan) executionWindow(params EvalParams) (time.Time, time.Time, time.Duration, error) {
+	if p.Range <= 0 {
+		return time.Time{}, time.Time{}, 0, NewBadDataErrorf("subquery range must be greater than zero in %q", p.Expr.String())
+	}
+	step := p.Step
+	if step <= 0 {
+		step = defaultSubqueryStep(params)
+	}
+	if step <= 0 {
+		return time.Time{}, time.Time{}, 0, NewBadDataErrorf("subquery step must be greater than zero in %q", p.Expr.String())
+	}
+
+	end := params.EvaluationTime
+	if params.Mode == EvalModeRange {
+		end = params.End
+	}
+	if p.Timestamp != nil {
+		end = time.UnixMilli(*p.Timestamp).UTC()
+	} else if resolved := resolveStartEndMillis(p.StartOrEnd, params); resolved != nil {
+		end = time.UnixMilli(*resolved).UTC()
+	}
+	if p.Offset != 0 {
+		end = end.Add(-p.Offset)
+	}
+
+	windowStart := end.Add(-p.Range)
+	if params.Mode == EvalModeRange && p.Timestamp == nil && p.StartOrEnd == 0 {
+		windowStart = params.Start.Add(-p.Offset).Add(-p.Range)
+	}
+	startMS := alignLocalSubqueryStepStart(windowStart.UnixMilli(), step.Milliseconds())
+	return time.UnixMilli(startMS).UTC(), end, step, nil
+}
+
+func alignLocalSubqueryStepStart(windowStartMS, stepMS int64) int64 {
+	if stepMS <= 0 {
+		return windowStartMS
+	}
+	alignedStartMS := (windowStartMS / stepMS) * stepMS
+	if alignedStartMS <= windowStartMS {
+		alignedStartMS += stepMS
+	}
+	return alignedStartMS
 }
 
 func (p *localSubqueryPlan) explain() ExplainNode {

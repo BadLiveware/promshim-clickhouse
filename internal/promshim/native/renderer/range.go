@@ -15,32 +15,61 @@ func renderSubqueryFragment(cfg storage.QueryConfig, fragment *native.NativeFrag
 	if fragment.Subquery == nil || fragment.Subquery.Child == nil {
 		return renderedFragment{}, fmt.Errorf("subquery fragment is missing subquery metadata")
 	}
-	if params.Mode != native.RenderModeInstant {
-		return renderedFragment{}, fmt.Errorf("native subquery rendering in %s mode is not implemented yet", params.Mode)
+	startMS, endMS, stepMS, err := subqueryRenderEnvelope(fragment.Subquery, params)
+	if err != nil {
+		return renderedFragment{}, err
 	}
-	endMS := params.EvaluationTimeMS
-	if fragment.Subquery.Timestamp != nil {
-		endMS = *fragment.Subquery.Timestamp
-	}
-	if fragment.Subquery.Offset != 0 {
-		endMS -= fragment.Subquery.Offset.Milliseconds()
-	}
-	step := fragment.Subquery.Step
-	if step <= 0 {
-		step = time.Minute
-	}
-	stepMS := step.Milliseconds()
-	startMS := alignSubqueryStepStart(endMS-fragment.Subquery.Range.Milliseconds(), stepMS)
 	childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(fragment.Subquery.Child, startMS, endMS)
 	return renderFragment(cfg, fragment.Subquery.Child, RenderParams{
 		Mode:                native.RenderModeRange,
 		StartMS:             startMS,
 		EndMS:               endMS,
-		StepMS:              step.Milliseconds(),
+		StepMS:              stepMS,
 		RequiredStartMS:     childRequiredStartMS,
 		RequiredEndMS:       childRequiredEndMS,
 		ResolveSourcePromQL: params.ResolveSourcePromQL,
 	})
+}
+
+func subqueryRenderEnvelope(fragment *native.SubqueryFragment, params RenderParams) (int64, int64, int64, error) {
+	if fragment == nil {
+		return 0, 0, 0, fmt.Errorf("subquery fragment is missing subquery metadata")
+	}
+	if fragment.Range <= 0 {
+		return 0, 0, 0, fmt.Errorf("subquery range must be greater than zero")
+	}
+	step := fragment.Step
+	if step <= 0 {
+		step = time.Minute
+	}
+	stepMS := step.Milliseconds()
+	if stepMS <= 0 {
+		return 0, 0, 0, fmt.Errorf("subquery step must be greater than zero")
+	}
+
+	rangeMS := fragment.Range.Milliseconds()
+	offsetMS := fragment.Offset.Milliseconds()
+
+	switch params.Mode {
+	case native.RenderModeInstant:
+		endMS := params.EvaluationTimeMS
+		if fragment.Timestamp != nil {
+			endMS = *fragment.Timestamp
+		}
+		endMS -= offsetMS
+		startMS := alignSubqueryStepStart(endMS-rangeMS, stepMS)
+		return startMS, endMS, stepMS, nil
+	case native.RenderModeRange:
+		// Range-mode subquery rendering materializes the inner step-grid over the
+		// current outer query envelope. Fixed @ anchors are rejected earlier by the
+		// planner's range-mode temporal-anchor guard, so the expanding envelope here
+		// intentionally follows the outer range bounds.
+		endMS := params.EndMS - offsetMS
+		startMS := alignSubqueryStepStart(params.StartMS-offsetMS-rangeMS, stepMS)
+		return startMS, endMS, stepMS, nil
+	default:
+		return 0, 0, 0, fmt.Errorf("native subquery rendering in %s mode is not implemented yet", params.Mode)
+	}
 }
 
 func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
@@ -81,21 +110,13 @@ func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *native.Nativ
 			return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childRendered.QueryParams}, nil
 		}
 		if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindSubquery && selectorFragment.Subquery != nil && selectorFragment.Subquery.Child != nil {
-			subqueryStep := selectorFragment.Subquery.Step
-			if subqueryStep <= 0 {
-				subqueryStep = time.Minute
-			}
-			subqueryStepMS := subqueryStep.Milliseconds()
-			expandedEndMS := params.EndMS - selectorFragment.Subquery.Offset.Milliseconds()
-			expandedStartMS := alignSubqueryStepStart(params.StartMS-selectorFragment.Subquery.Offset.Milliseconds()-selectorFragment.Subquery.Range.Milliseconds(), subqueryStepMS)
-			childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment.Subquery.Child, expandedStartMS, expandedEndMS)
-			childRendered, err := RenderFragment(cfg, selectorFragment.Subquery.Child, RenderParams{
+			childRendered, err := RenderFragment(cfg, selectorFragment, RenderParams{
 				Mode:                native.RenderModeRange,
-				StartMS:             expandedStartMS,
-				EndMS:               expandedEndMS,
-				StepMS:              subqueryStepMS,
-				RequiredStartMS:     childRequiredStartMS,
-				RequiredEndMS:       childRequiredEndMS,
+				StartMS:             params.StartMS,
+				EndMS:               params.EndMS,
+				StepMS:              params.StepMS,
+				RequiredStartMS:     params.RequiredStartMS,
+				RequiredEndMS:       params.RequiredEndMS,
 				ResolveSourcePromQL: params.ResolveSourcePromQL,
 			})
 			if err != nil {
@@ -230,6 +251,8 @@ func rangeFunctionValueExpr(fn, seriesExpr string, paramNumber *float64, paramNu
 	switch fn {
 	case "last_over_time":
 		return renderSQLExprNoParams(sqlb.TupleElem{X: sqlb.Call{Name: "arrayElement", Args: []sqlb.Expr{series, seriesLength}}, K: 2})
+	case "first_over_time":
+		return renderSQLExprNoParams(sqlb.TupleElem{X: sqlb.Call{Name: "arrayElement", Args: []sqlb.Expr{series, sqlb.RawLit{V: "1"}}}, K: 2})
 	case "sum_over_time":
 		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{hasNaN, sqlb.RawLit{V: "nan"}, sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{finiteValues}}}})
 	case "avg_over_time":
@@ -246,10 +269,38 @@ func rangeFunctionValueExpr(fn, seriesExpr string, paramNumber *float64, paramNu
 		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{sqlb.RawLit{V: renderSQLExprNoParams(hasNaN) + " OR " + renderSQLExprNoParams(seriesLength) + " = 0"}, sqlb.RawLit{V: "nan"}, sqlb.Call{Name: "arrayReduce", Args: []sqlb.Expr{sqlb.RawLit{V: "'varPop'"}, valuesExpr}}}})
 	case "present_over_time":
 		return renderSQLExprNoParams(sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{sqlb.RawLit{V: "1"}}})
+	case "ts_of_first_over_time":
+		return "toFloat64(toUnixTimestamp64Milli(arrayElement(" + renderSQLExprNoParams(timestampsExpr) + ", 1))) / 1000.0"
+	case "ts_of_last_over_time":
+		return "toFloat64(toUnixTimestamp64Milli(arrayElement(" + renderSQLExprNoParams(timestampsExpr) + ", " + renderSQLExprNoParams(seriesLength) + "))) / 1000.0"
+	case "ts_of_max_over_time", "ts_of_min_over_time":
+		valuesSQL := renderSQLExprNoParams(valuesExpr)
+		timestampSecondsSQL := "arrayMap(ts -> toFloat64(toUnixTimestamp64Milli(ts)) / 1000.0, " + renderSQLExprNoParams(timestampsExpr) + ")"
+		compare := "v >= tupleElement(acc, 1)"
+		if fn == "ts_of_min_over_time" {
+			compare = "v <= tupleElement(acc, 1)"
+		}
+		foldExpr := "arrayFold((acc, ts, v) -> if((" + compare + ") OR isNaN(tupleElement(acc, 1)), (v, ts), acc), " + timestampSecondsSQL + ", " + valuesSQL + ", (nan, toFloat64(0)))"
+		return "tupleElement(" + foldExpr + ", 2)"
 	case "mad_over_time":
 		medianExpr := sqlb.Call{Name: "arrayReduce", Args: []sqlb.Expr{sqlb.RawLit{V: "'quantileExact(0.5)'"}, valuesExpr}}
 		deviationsExpr := sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "x -> abs(x - " + renderSQLExprNoParams(medianExpr) + ")"}, valuesExpr}}
 		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{sqlb.Binary{Op: "=", L: seriesLength, R: sqlb.RawLit{V: "0"}}, sqlb.RawLit{V: "nan"}, sqlb.Call{Name: "arrayReduce", Args: []sqlb.Expr{sqlb.RawLit{V: "'quantileExact(0.5)'"}, deviationsExpr}}}})
+	case "quantile_over_time":
+		if paramNumber == nil {
+			return "nan"
+		}
+		valuesSQL := renderSQLExprNoParams(valuesExpr)
+		sortedExpr := "arrayConcat(arrayFilter(v -> isNaN(v), " + valuesSQL + "), arraySort(arrayFilter(v -> NOT isNaN(v), " + valuesSQL + ")))"
+		lengthExpr := "length(" + sortedExpr + ")"
+		qLit := storage.NativeFloatLiteral(*paramNumber)
+		rankExpr := "(" + qLit + ") * (toFloat64(" + lengthExpr + ") - 1)"
+		lowerIndexExpr := "greatest(1, toInt64(floor(" + rankExpr + ")) + 1)"
+		upperIndexExpr := "least(toInt64(" + lengthExpr + "), (" + lowerIndexExpr + ") + 1)"
+		weightExpr := "(" + rankExpr + ") - floor(" + rankExpr + ")"
+		lowerValueExpr := "toFloat64(arrayElement(" + sortedExpr + ", " + lowerIndexExpr + "))"
+		upperValueExpr := "toFloat64(arrayElement(" + sortedExpr + ", " + upperIndexExpr + "))"
+		return "multiIf(" + lengthExpr + " = 0, nan, isNaN(" + qLit + "), nan, (" + qLit + ") < 0, -inf, (" + qLit + ") > 1, inf, (" + lowerValueExpr + ") * (1 - (" + weightExpr + ")) + (" + upperValueExpr + ") * (" + weightExpr + "))"
 	case "increase":
 		factor := extrapolationFactorSQL(timestampsExpr, seriesLength, interceptTimeMSExpr, rangeMS)
 		resultExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(counterDeltaExpr) + ") * (" + factor + ")"}

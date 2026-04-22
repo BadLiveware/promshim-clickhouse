@@ -55,7 +55,9 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		return info
 	case *planpkg.LogicalScalarLiteralPlan:
 		info.NodeType = "scalar"
-		info.NativeReason = "scalar literal can participate as a constant in native source expressions but is not a standalone native fragment yet"
+		info.NativeLowerable = true
+		info.NativeReason = "scalar literal can lower to a native synthetic scalar series"
+		info.Fragment = &NativeFragment{Kind: FragmentKindSyntheticSeries, OutputKind: OutputKindScalar, DropsMetric: true, Synthetic: &SyntheticSeriesFragment{Func: "literal", Value: cloneFloat64Pointer(&n.Value)}}
 		return info
 	case *planpkg.LogicalUnaryPlan:
 		child := a.walk(n.Child)
@@ -70,15 +72,21 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 					info.LabelLineage = withMetricNameState(info.LabelLineage, LabelLineageDropped)
 				}
 				info.NativeLowerable = true
-				info.NativeReason = "unary transform can be applied inside a native SQL source expression"
-				info.Fragment = &NativeFragment{
-					Kind:         FragmentKindUnarySourceExpr,
-					OutputKind:   child.Fragment.OutputKind,
-					SourcePromQL: child.Fragment.SourcePromQL,
-					Selector:     cloneSelectorSource(child.Fragment.Selector),
-					ValueExpr:    valueExpr,
-					TagsExpr:     tagsExprForMetricDrop(dropsMetric),
-					DropsMetric:  dropsMetric,
+				if child.Fragment.Selector != nil || child.Fragment.SourcePromQL != nil {
+					info.NativeReason = "unary transform can be applied inside a native SQL source expression"
+					info.Fragment = &NativeFragment{
+						Kind:         FragmentKindUnarySourceExpr,
+						OutputKind:   child.Fragment.OutputKind,
+						SourcePromQL: child.Fragment.SourcePromQL,
+						Selector:     cloneSelectorSource(child.Fragment.Selector),
+						ValueExpr:    valueExpr,
+						TagsExpr:     tagsExprForMetricDrop(dropsMetric),
+						DropsMetric:  dropsMetric,
+					}
+				} else if frag, lineage, ok := applyUnaryValueTransform(n.Op, child.Fragment, child.LabelLineage); ok {
+					info.NativeReason = "unary transform lowers via a native value-transform wrapper"
+					info.LabelLineage = lineage
+					info.Fragment = frag
 				}
 				return info
 			}
@@ -100,16 +108,22 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 			valueExpr, dropsMetric, ok := applyBinarySourceTransform(n.Op, rhs.Fragment.ValueExpr, lhsScalar.Value, true)
 			if ok {
 				info.NativeLowerable = true
-				info.NativeReason = "scalar-vector arithmetic can be applied inside a native SQL source expression"
 				info.LabelLineage = withMetricNameState(passthroughLabelLineage(rhs.LabelLineage), boolState(dropsMetric, LabelLineageDropped, rhs.LabelLineage.MetricName))
-				info.Fragment = &NativeFragment{
-					Kind:         FragmentKindBinaryScalarSourceExpr,
-					OutputKind:   rhs.Fragment.OutputKind,
-					SourcePromQL: rhs.Fragment.SourcePromQL,
-					Selector:     cloneSelectorSource(rhs.Fragment.Selector),
-					ValueExpr:    valueExpr,
-					TagsExpr:     tagsExprForMetricDrop(dropsMetric),
-					DropsMetric:  dropsMetric,
+				if rhs.Fragment.Selector != nil || rhs.Fragment.SourcePromQL != nil {
+					info.NativeReason = "scalar-vector arithmetic can be applied inside a native SQL source expression"
+					info.Fragment = &NativeFragment{
+						Kind:         FragmentKindBinaryScalarSourceExpr,
+						OutputKind:   rhs.Fragment.OutputKind,
+						SourcePromQL: rhs.Fragment.SourcePromQL,
+						Selector:     cloneSelectorSource(rhs.Fragment.Selector),
+						ValueExpr:    valueExpr,
+						TagsExpr:     tagsExprForMetricDrop(dropsMetric),
+						DropsMetric:  dropsMetric,
+					}
+				} else if frag, lineage, ok := applyScalarValueTransform(n.Op, rhs.Fragment, rhs.LabelLineage, lhsScalar.Value, true); ok {
+					info.NativeReason = "scalar-vector arithmetic lowers via a native value-transform wrapper"
+					info.LabelLineage = lineage
+					info.Fragment = frag
 				}
 				return info
 			}
@@ -124,16 +138,22 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 			valueExpr, dropsMetric, ok := applyBinarySourceTransform(n.Op, lhs.Fragment.ValueExpr, rhsScalar.Value, false)
 			if ok {
 				info.NativeLowerable = true
-				info.NativeReason = "vector-scalar arithmetic can be applied inside a native SQL source expression"
 				info.LabelLineage = withMetricNameState(passthroughLabelLineage(lhs.LabelLineage), boolState(dropsMetric, LabelLineageDropped, lhs.LabelLineage.MetricName))
-				info.Fragment = &NativeFragment{
-					Kind:         FragmentKindBinaryScalarSourceExpr,
-					OutputKind:   lhs.Fragment.OutputKind,
-					SourcePromQL: lhs.Fragment.SourcePromQL,
-					Selector:     cloneSelectorSource(lhs.Fragment.Selector),
-					ValueExpr:    valueExpr,
-					TagsExpr:     tagsExprForMetricDrop(dropsMetric),
-					DropsMetric:  dropsMetric,
+				if lhs.Fragment.Selector != nil || lhs.Fragment.SourcePromQL != nil {
+					info.NativeReason = "vector-scalar arithmetic can be applied inside a native SQL source expression"
+					info.Fragment = &NativeFragment{
+						Kind:         FragmentKindBinaryScalarSourceExpr,
+						OutputKind:   lhs.Fragment.OutputKind,
+						SourcePromQL: lhs.Fragment.SourcePromQL,
+						Selector:     cloneSelectorSource(lhs.Fragment.Selector),
+						ValueExpr:    valueExpr,
+						TagsExpr:     tagsExprForMetricDrop(dropsMetric),
+						DropsMetric:  dropsMetric,
+					}
+				} else if frag, lineage, ok := applyScalarValueTransform(n.Op, lhs.Fragment, lhs.LabelLineage, rhsScalar.Value, false); ok {
+					info.NativeReason = "vector-scalar arithmetic lowers via a native value-transform wrapper"
+					info.LabelLineage = lineage
+					info.Fragment = frag
 				}
 				return info
 			}
@@ -194,29 +214,51 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		child := a.walk(n.Child)
 		info.NodeType = "aggregation"
 		info.Children = []*LoweringInfo{child}
-		info.LabelLineage = aggregationLabelLineage(child.LabelLineage, n.Grouping, n.Without)
+		if IsSelectionNativeAggregation(n.Op) {
+			info.LabelLineage = passthroughLabelLineage(child.LabelLineage)
+		} else if n.Op == parser.COUNT_VALUES {
+			info.LabelLineage = countValuesLabelLineage(child.LabelLineage, n.Grouping, n.Without, n.ParamString)
+		} else {
+			info.LabelLineage = aggregationLabelLineage(child.LabelLineage, n.Grouping, n.Without)
+		}
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
 
 		reason := "pushing aggregation into native ClickHouse SQL over a lowerable child avoids materializing the full child result in Go"
+		if IsSelectionNativeAggregation(n.Op) {
+			reason = "pushing selection aggregation into native ClickHouse SQL over a lowerable child preserves the selected series without local materialization"
+		} else if n.Op == parser.COUNT_VALUES {
+			reason = "count_values can lower to native SQL by synthesizing the destination label from sample values before grouped counting"
+		}
+		sourceFragment := child.Fragment
+		emitZeroOnEmpty := false
+		if zeroFillSource, ok := zeroFillAggregationSource(n.Op, n.Grouping, n.Without, n.Child, a); ok {
+			sourceFragment = zeroFillSource
+			emitZeroOnEmpty = true
+			reason = "sum(... or vector(0)) can lower by aggregating the native child and emitting zero when the aggregate would otherwise be empty"
+		} else if sourceFragment == nil || child.OutputKind != OutputKindInstantVector {
+			sourceFragment = nil
+		}
 		eligible := true
 		if !isSupportedNativeAggregation(n.Op) {
 			eligible = false
 			reason = "aggregation operator is not supported by native SQL pushdown"
-		} else if child.Fragment == nil || child.OutputKind != OutputKindInstantVector {
+		} else if sourceFragment == nil {
 			eligible = false
 			reason = "aggregation child is not pushdown-safe; native pushdown currently requires a native-lowerable instant-vector child"
 		}
-		info.Aggregation = &AggregationSupport{Eligible: eligible, Reason: reason, Source: child.Fragment}
+		info.Aggregation = &AggregationSupport{Eligible: eligible, Reason: reason, Source: sourceFragment}
 		if eligible {
 			info.Fragment = &NativeFragment{
 				Kind:       FragmentKindAggregation,
 				OutputKind: outputKind,
 				Aggregation: &AggregationFragment{
-					Op:          n.Op,
-					Grouping:    append([]string(nil), n.Grouping...),
-					Without:     n.Without,
-					ParamNumber: cloneFloat64Pointer(n.ParamNumber),
-					Source:      child.Fragment,
+					Op:              n.Op,
+					Grouping:        append([]string(nil), n.Grouping...),
+					Without:         n.Without,
+					ParamNumber:     cloneFloat64Pointer(n.ParamNumber),
+					ParamString:     n.ParamString,
+					Source:          sourceFragment,
+					EmitZeroOnEmpty: emitZeroOnEmpty,
 				},
 			}
 		}
@@ -287,7 +329,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.LabelLineage.MetricName = LabelLineageDropped
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
-		if (n.Func == "histogram_count" || n.Func == "histogram_sum" || n.Func == "histogram_avg") && child.Fragment != nil && child.OutputKind == OutputKindInstantVector {
+		if (n.Func == "histogram_count" || n.Func == "histogram_sum" || n.Func == "histogram_avg" || n.Func == "histogram_stddev" || n.Func == "histogram_stdvar") && child.Fragment != nil && child.OutputKind == OutputKindInstantVector {
 			info.NativeLowerable = true
 			info.NativeReason = fmt.Sprintf("%s can lower to native SQL over shared classic histogram materialization", n.Func)
 			info.Fragment = &NativeFragment{
@@ -299,6 +341,44 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 			return info
 		}
 		info.NativeReason = fmt.Sprintf("%s currently stays on the local execution path", n.Func)
+		return info
+	case *planpkg.LogicalHistogramQuantilesPlan:
+		child := a.walk(n.Child)
+		info.NodeType = "histogram_quantiles"
+		children := make([]*LoweringInfo, 0, 1+len(n.ParamChildren))
+		children = append(children, child)
+		info.LabelLineage = mutateDestinationLabel(syntheticOutputLineage(map[string]string{}), n.Label, LabelLineageSynthetic)
+		if child != nil {
+			for label, state := range child.LabelLineage.Known {
+				if label == "__name__" || label == "le" {
+					continue
+				}
+				info.LabelLineage.Known[label] = state
+			}
+			info.LabelLineage.Wildcard = child.LabelLineage.Wildcard
+		}
+		info.LabelLineage.MetricName = LabelLineageDropped
+		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+		quantileFragments := make([]*NativeFragment, 0, len(n.ParamChildren))
+		lowerable := child != nil && child.Fragment != nil && child.OutputKind == OutputKindInstantVector
+		for _, paramChild := range n.ParamChildren {
+			paramInfo := a.walk(paramChild)
+			children = append(children, paramInfo)
+			info.TimeRequirements = combineTimeRequirements(info.TimeRequirements, paramInfo.TimeRequirements)
+			if paramInfo == nil || paramInfo.Fragment == nil || paramInfo.OutputKind != OutputKindScalar {
+				lowerable = false
+				continue
+			}
+			quantileFragments = append(quantileFragments, paramInfo.Fragment)
+		}
+		info.Children = children
+		if lowerable {
+			info.NativeLowerable = true
+			info.NativeReason = "histogram_quantiles can lower to native SQL over shared classic histogram materialization plus scalar quantile argument bindings"
+			info.Fragment = &NativeFragment{Kind: FragmentKindHistogramFunction, OutputKind: OutputKindInstantVector, DropsMetric: true, HistogramFunction: &HistogramFunctionFragment{Func: "histogram_quantiles", Label: n.Label, Quantiles: quantileFragments, Child: child.Fragment}}
+			return info
+		}
+		info.NativeReason = "histogram_quantiles currently requires a lowerable instant-vector histogram child and lowerable scalar quantile arguments to run fully in native SQL"
 		return info
 	case *planpkg.LogicalRangeFunctionPlan:
 		child := a.walk(n.Child)
@@ -377,9 +457,17 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		child := a.walk(n.Child)
 		info.NodeType = "vector"
 		info.Children = []*LoweringInfo{child}
-		info.LabelLineage = passthroughLabelLineage(child.LabelLineage)
+		info.LabelLineage = syntheticOutputLineage(map[string]string{})
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
-		info.NativeReason = "vector() currently stays on the local execution path"
+		if child.Fragment != nil && child.OutputKind == OutputKindScalar {
+			fragment := CloneFragment(child.Fragment)
+			fragment.OutputKind = OutputKindInstantVector
+			info.NativeLowerable = true
+			info.NativeReason = "vector() can lower by lifting a native scalar child into a single-series instant vector"
+			info.Fragment = fragment
+			return info
+		}
+		info.NativeReason = "vector() currently requires a lowerable scalar child to run fully in native SQL"
 		return info
 	case *planpkg.LogicalSortPlan:
 		child := a.walk(n.Child)
@@ -387,7 +475,13 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		info.Children = []*LoweringInfo{child}
 		info.LabelLineage = passthroughLabelLineage(child.LabelLineage)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
-		info.NativeReason = fmt.Sprintf("%s currently stays on the local execution path", n.Func)
+		if child.Fragment != nil && child.OutputKind == OutputKindInstantVector {
+			info.NativeLowerable = true
+			info.NativeReason = fmt.Sprintf("%s can lower to native SQL by ordering the instant-vector child while preserving range-mode passthrough semantics", n.Func)
+			info.Fragment = &NativeFragment{Kind: FragmentKindSortTransform, OutputKind: child.Fragment.OutputKind, SortTransform: &SortTransformFragment{Func: n.Func, Labels: append([]string(nil), n.Labels...), Child: child.Fragment}}
+			return info
+		}
+		info.NativeReason = fmt.Sprintf("%s currently requires a lowerable instant-vector child to run fully in native SQL", n.Func)
 		return info
 	case *planpkg.LogicalScalarConvertPlan:
 		child := a.walk(n.Child)
@@ -412,22 +506,41 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 			info.LabelLineage = mutateDestinationLabel(info.LabelLineage, label, LabelLineageSynthetic)
 		}
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
-		if metricName, ok := nativeInfoMetricName(n.SelectorMatchers); ok && child.Fragment != nil && child.OutputKind == OutputKindInstantVector {
+		if child.Fragment != nil && child.OutputKind == OutputKindInstantVector {
+			metricName, selectorMatchers := nativeInfoSelector(n.SelectorMatchers)
 			info.NativeLowerable = true
-			info.NativeReason = "info() can lower to native SQL for the single-info-metric join subset"
-			info.Fragment = &NativeFragment{Kind: FragmentKindInfoJoin, OutputKind: OutputKindInstantVector, InfoJoin: &InfoJoinFragment{Child: child.Fragment, InfoMetricName: metricName, SelectorMatchers: infoJoinDataLabelMatchers(n.SelectorMatchers), CopyLabelNames: infoJoinCopyLabelNames(n.SelectorMatchers), DropUnmatched: infoJoinDropUnmatched(n.SelectorMatchers)}}
+			info.NativeReason = "info() can lower to native SQL using native selector matching plus merged info-series label joins"
+			info.Fragment = &NativeFragment{Kind: FragmentKindInfoJoin, OutputKind: OutputKindInstantVector, InfoJoin: &InfoJoinFragment{Child: child.Fragment, InfoMetricName: metricName, SelectorMatchers: selectorMatchers, CopyLabelNames: infoJoinCopyLabelNames(n.SelectorMatchers), DropUnmatched: infoJoinDropUnmatched(n.SelectorMatchers)}}
 			return info
 		}
-		info.NativeReason = "info() currently stays on the local execution path"
+		info.NativeReason = "info() currently requires a lowerable instant-vector child to run fully in native SQL"
 		return info
 	case *planpkg.LogicalPointwiseFunctionPlan:
 		info.NodeType = n.Func
 		var child *LoweringInfo
+		children := make([]*LoweringInfo, 0, 1+len(n.ParamChildren))
 		if n.Child != nil {
 			child = a.walk(n.Child)
-			info.Children = []*LoweringInfo{child}
+			children = append(children, child)
 			info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageDropped)
 			info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+			for _, paramChild := range n.ParamChildren {
+				if paramChild == nil {
+					continue
+				}
+				paramInfo := a.walk(paramChild)
+				children = append(children, paramInfo)
+				info.TimeRequirements = combineTimeRequirements(info.TimeRequirements, paramInfo.TimeRequirements)
+			}
+			info.Children = children
+			if isClampPointwiseFunction(n.Func) {
+				if frag, ok := buildNativeClampFragment(n.Func, child, children[1:]); ok {
+					info.NativeLowerable = true
+					info.NativeReason = fmt.Sprintf("%s can lower to native SQL by joining scalar bound fragments onto the vector child", n.Func)
+					info.Fragment = frag
+					return info
+				}
+			}
 			if template, ok := NativePointwiseSourceTemplate(n.Func, n.ParamNumbers); ok && child.Fragment != nil && isSupportedAggregationSourceFragment(child.Fragment) {
 				info.NativeLowerable = true
 				info.NativeReason = fmt.Sprintf("%s can lower to a native SQL source expression", n.Func)
@@ -462,8 +575,19 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		child := a.walk(n.Child)
 		info.NodeType = "round"
 		info.Children = []*LoweringInfo{child}
-		info.LabelLineage = passthroughLabelLineage(child.LabelLineage)
+		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageDropped)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+		toNearest := 1.0
+		if n.Decimals != nil {
+			toNearest = *n.Decimals
+		}
+		if frag, lineage, ok := applyRoundValueTransform(child.Fragment, child.LabelLineage, toNearest); ok {
+			info.NativeLowerable = true
+			info.NativeReason = "round() can lower via a native value-transform wrapper over a native instant-vector child"
+			info.LabelLineage = lineage
+			info.Fragment = frag
+			return info
+		}
 		info.NativeReason = "round() currently stays on the local execution path"
 		return info
 	case *planpkg.LogicalRatePlan:
@@ -580,9 +704,24 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		child := a.walk(n.Child)
 		info.NodeType = "quantile_over_time"
 		info.Children = []*LoweringInfo{child}
-		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageUnknown)
+		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageDropped)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
-		info.NativeReason = "quantile_over_time intentionally stays on the local execution path; see keep-local note in .pi/native-sql-lowering-plan/13-keep-local-quantile-over-time.md"
+		if child.Fragment != nil && child.OutputKind == OutputKindRangeMatrix && isSupportedNativeRangeChildFragment(child.Fragment) {
+			info.NativeLowerable = true
+			info.NativeReason = "quantile_over_time can lower to native SQL using the shared windowed-arrays source and Prometheus-compatible quantile interpolation"
+			info.Fragment = &NativeFragment{
+				Kind:        FragmentKindRangeFunction,
+				OutputKind:  OutputKindInstantVector,
+				DropsMetric: true,
+				RangeFunction: &RangeFunctionFragment{
+					Func:        "quantile_over_time",
+					ParamNumber: cloneFloat64Pointer(&n.Quantile),
+					Child:       child.Fragment,
+				},
+			}
+			return info
+		}
+		info.NativeReason = "quantile_over_time currently requires a lowerable matrix child to run fully in native SQL"
 		return info
 	case *planpkg.LogicalAbsentPlan:
 		child := a.walk(n.Child)
@@ -661,7 +800,13 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		info.Children = []*LoweringInfo{child}
 		info.LabelLineage = mutateDestinationLabel(child.LabelLineage, n.Config.Dst, LabelLineageMutated)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
-		info.NativeReason = "label_replace currently stays on the local execution path"
+		if child.Fragment != nil && child.OutputKind == OutputKindInstantVector {
+			info.NativeLowerable = true
+			info.NativeReason = "label_replace can lower to native SQL by mutating child labelsets with RE2-compatible capture replacement while preserving sample values"
+			info.Fragment = &NativeFragment{Kind: FragmentKindLabelTransform, OutputKind: child.Fragment.OutputKind, SourcePromQL: child.Fragment.SourcePromQL, LabelTransform: &LabelTransformFragment{Func: "label_replace", Dst: n.Config.Dst, Repl: n.Config.Repl, Regex: n.Config.Regex.String(), RegexSubexpNames: append([]string(nil), n.Config.Regex.SubexpNames()...), Src: n.Config.Src, Child: child.Fragment}}
+			return info
+		}
+		info.NativeReason = "label_replace currently requires a lowerable instant-vector child to run fully in native SQL"
 		return info
 	case *planpkg.LogicalLabelJoinPlan:
 		child := a.walk(n.Child)
@@ -669,7 +814,13 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		info.Children = []*LoweringInfo{child}
 		info.LabelLineage = mutateDestinationLabel(child.LabelLineage, n.Config.Dst, LabelLineageSynthetic)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
-		info.NativeReason = "label_join currently stays on the local execution path"
+		if child.Fragment != nil && child.OutputKind == OutputKindInstantVector {
+			info.NativeLowerable = true
+			info.NativeReason = "label_join can lower to native SQL by concatenating source label values on the child labelset while preserving sample values"
+			info.Fragment = &NativeFragment{Kind: FragmentKindLabelTransform, OutputKind: child.Fragment.OutputKind, SourcePromQL: child.Fragment.SourcePromQL, LabelTransform: &LabelTransformFragment{Func: "label_join", Dst: n.Config.Dst, Separator: n.Config.Separator, SrcLabels: append([]string(nil), n.Config.SrcLabels...), Child: child.Fragment}}
+			return info
+		}
+		info.NativeReason = "label_join currently requires a lowerable instant-vector child to run fully in native SQL"
 		return info
 	default:
 		info.NodeType = fmt.Sprintf("%T", node)
@@ -677,6 +828,78 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		info.NativeReason = fmt.Sprintf("no native analysis rule is registered for %T", node)
 		return info
 	}
+}
+
+func isClampPointwiseFunction(name string) bool {
+	switch name {
+	case "clamp", "clamp_min", "clamp_max":
+		return true
+	default:
+		return false
+	}
+}
+
+func buildNativeClampFragment(name string, child *LoweringInfo, params []*LoweringInfo) (*NativeFragment, bool) {
+	if child == nil || child.Fragment == nil || child.OutputKind != OutputKindInstantVector {
+		return nil, false
+	}
+	var minFragment, maxFragment *NativeFragment
+	switch name {
+	case "clamp":
+		if len(params) != 2 || params[0] == nil || params[1] == nil || params[0].Fragment == nil || params[1].Fragment == nil || params[0].OutputKind != OutputKindScalar || params[1].OutputKind != OutputKindScalar {
+			return nil, false
+		}
+		minFragment = params[0].Fragment
+		maxFragment = params[1].Fragment
+	case "clamp_min":
+		if len(params) != 1 || params[0] == nil || params[0].Fragment == nil || params[0].OutputKind != OutputKindScalar {
+			return nil, false
+		}
+		minFragment = params[0].Fragment
+	case "clamp_max":
+		if len(params) != 1 || params[0] == nil || params[0].Fragment == nil || params[0].OutputKind != OutputKindScalar {
+			return nil, false
+		}
+		maxFragment = params[0].Fragment
+	default:
+		return nil, false
+	}
+	return &NativeFragment{Kind: FragmentKindClampTransform, OutputKind: child.Fragment.OutputKind, DropsMetric: true, ClampTransform: &ClampTransformFragment{Func: name, Child: child.Fragment, Min: minFragment, Max: maxFragment}}, true
+}
+
+func isVectorZeroLogicalPlan(node planpkg.LogicalPlan) bool {
+	vector, ok := node.(*planpkg.LogicalVectorPlan)
+	if !ok || vector == nil {
+		return false
+	}
+	scalar, ok := vector.Child.(*planpkg.LogicalScalarLiteralPlan)
+	if !ok || scalar == nil {
+		return false
+	}
+	return scalar.Value == 0
+}
+
+func zeroFillAggregationSource(op parser.ItemType, grouping []string, without bool, child planpkg.LogicalPlan, analysis *Analysis) (*NativeFragment, bool) {
+	if op != parser.SUM || without || len(grouping) != 0 {
+		return nil, false
+	}
+	binary, ok := child.(*planpkg.LogicalBinaryPlan)
+	if !ok || binary == nil || binary.Op != parser.LOR || binary.ReturnBool {
+		return nil, false
+	}
+	switch {
+	case isVectorZeroLogicalPlan(binary.LHS):
+		info := analysis.InfoFor(binary.RHS)
+		if info != nil && info.Fragment != nil && info.OutputKind == OutputKindInstantVector {
+			return info.Fragment, true
+		}
+	case isVectorZeroLogicalPlan(binary.RHS):
+		info := analysis.InfoFor(binary.LHS)
+		if info != nil && info.Fragment != nil && info.OutputKind == OutputKindInstantVector {
+			return info.Fragment, true
+		}
+	}
+	return nil, false
 }
 
 func describeLogicalPlan(node planpkg.LogicalPlan) (string, OutputKind) {
@@ -701,7 +924,6 @@ func boolState(condition bool, ifTrue, ifFalse LabelLineageState) LabelLineageSt
 	}
 	return ifFalse
 }
-
 
 func sortedKeys(values map[string]LabelLineageState) []string {
 	keys := make([]string, 0, len(values))

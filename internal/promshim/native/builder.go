@@ -54,15 +54,17 @@ func CloneFragment(fragment *NativeFragment) *NativeFragment {
 	}
 	if fragment.Aggregation != nil {
 		cloned.Aggregation = &AggregationFragment{
-			Op:          fragment.Aggregation.Op,
-			Grouping:    append([]string(nil), fragment.Aggregation.Grouping...),
-			Without:     fragment.Aggregation.Without,
-			ParamNumber: cloneFloat64Pointer(fragment.Aggregation.ParamNumber),
-			Source:      CloneFragment(fragment.Aggregation.Source),
+			Op:              fragment.Aggregation.Op,
+			Grouping:        append([]string(nil), fragment.Aggregation.Grouping...),
+			Without:         fragment.Aggregation.Without,
+			ParamNumber:     cloneFloat64Pointer(fragment.Aggregation.ParamNumber),
+			ParamString:     fragment.Aggregation.ParamString,
+			Source:          CloneFragment(fragment.Aggregation.Source),
+			EmitZeroOnEmpty: fragment.Aggregation.EmitZeroOnEmpty,
 		}
 	}
 	if fragment.Synthetic != nil {
-		cloned.Synthetic = &SyntheticSeriesFragment{Func: fragment.Synthetic.Func}
+		cloned.Synthetic = &SyntheticSeriesFragment{Func: fragment.Synthetic.Func, Value: cloneFloat64Pointer(fragment.Synthetic.Value)}
 	}
 	if fragment.ScalarConvert != nil {
 		cloned.ScalarConvert = &ScalarConvertFragment{Child: CloneFragment(fragment.ScalarConvert.Child)}
@@ -77,7 +79,20 @@ func CloneFragment(fragment *NativeFragment) *NativeFragment {
 		cloned.HistogramProjection = &HistogramProjectionFragment{Func: fragment.HistogramProjection.Func, Child: CloneFragment(fragment.HistogramProjection.Child)}
 	}
 	if fragment.HistogramFunction != nil {
-		cloned.HistogramFunction = &HistogramFunctionFragment{Func: fragment.HistogramFunction.Func, Quantile: cloneFloat64Pointer(fragment.HistogramFunction.Quantile), Lower: cloneFloat64Pointer(fragment.HistogramFunction.Lower), Upper: cloneFloat64Pointer(fragment.HistogramFunction.Upper), Child: CloneFragment(fragment.HistogramFunction.Child)}
+		quantiles := make([]*NativeFragment, 0, len(fragment.HistogramFunction.Quantiles))
+		for _, quantile := range fragment.HistogramFunction.Quantiles {
+			quantiles = append(quantiles, CloneFragment(quantile))
+		}
+		cloned.HistogramFunction = &HistogramFunctionFragment{Func: fragment.HistogramFunction.Func, Label: fragment.HistogramFunction.Label, Quantile: cloneFloat64Pointer(fragment.HistogramFunction.Quantile), Quantiles: quantiles, Lower: cloneFloat64Pointer(fragment.HistogramFunction.Lower), Upper: cloneFloat64Pointer(fragment.HistogramFunction.Upper), Child: CloneFragment(fragment.HistogramFunction.Child)}
+	}
+	if fragment.SortTransform != nil {
+		cloned.SortTransform = &SortTransformFragment{Func: fragment.SortTransform.Func, Labels: append([]string(nil), fragment.SortTransform.Labels...), Child: CloneFragment(fragment.SortTransform.Child)}
+	}
+	if fragment.LabelTransform != nil {
+		cloned.LabelTransform = &LabelTransformFragment{Func: fragment.LabelTransform.Func, Dst: fragment.LabelTransform.Dst, Repl: fragment.LabelTransform.Repl, Regex: fragment.LabelTransform.Regex, RegexSubexpNames: append([]string(nil), fragment.LabelTransform.RegexSubexpNames...), Src: fragment.LabelTransform.Src, Separator: fragment.LabelTransform.Separator, SrcLabels: append([]string(nil), fragment.LabelTransform.SrcLabels...), Child: CloneFragment(fragment.LabelTransform.Child)}
+	}
+	if fragment.ClampTransform != nil {
+		cloned.ClampTransform = &ClampTransformFragment{Func: fragment.ClampTransform.Func, Child: CloneFragment(fragment.ClampTransform.Child), Min: CloneFragment(fragment.ClampTransform.Min), Max: CloneFragment(fragment.ClampTransform.Max)}
 	}
 	if fragment.ValueTransform != nil {
 		cloned.ValueTransform = &ValueTransformFragment{

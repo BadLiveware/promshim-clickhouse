@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	promlabels "github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -140,6 +141,32 @@ func AggregateRuntimeValue(op parser.ItemType, value model.RuntimeValue, opts Ag
 			return model.VectorValue{Samples: AggregateTopBottomInstantSamples(op, typed.Samples, opts.Grouping, opts.Without, k)}, nil
 		case model.MatrixValue:
 			return model.MatrixValue{Series: AggregateTopBottomRangeSeries(op, typed.Series, opts.Grouping, opts.Without, k)}, nil
+		default:
+			return nil, executionf("aggregation requires vector or matrix input, got %T", value)
+		}
+	case parser.LIMITK:
+		k, err := aggregationKValue(op, opts.ParamNumber)
+		if err != nil {
+			return nil, err
+		}
+		switch typed := value.(type) {
+		case model.VectorValue:
+			return model.VectorValue{Samples: AggregateLimitKInstantSamples(typed.Samples, opts.Grouping, opts.Without, k)}, nil
+		case model.MatrixValue:
+			return model.MatrixValue{Series: AggregateLimitKRangeSeries(typed.Series, opts.Grouping, opts.Without, k)}, nil
+		default:
+			return nil, executionf("aggregation requires vector or matrix input, got %T", value)
+		}
+	case parser.LIMIT_RATIO:
+		ratio, err := aggregationRatioValue(opts.ParamNumber)
+		if err != nil {
+			return nil, err
+		}
+		switch typed := value.(type) {
+		case model.VectorValue:
+			return model.VectorValue{Samples: AggregateLimitRatioInstantSamples(typed.Samples, opts.Grouping, opts.Without, ratio)}, nil
+		case model.MatrixValue:
+			return model.MatrixValue{Series: AggregateLimitRatioRangeSeries(typed.Series, opts.Grouping, opts.Without, ratio)}, nil
 		default:
 			return nil, executionf("aggregation requires vector or matrix input, got %T", value)
 		}
@@ -293,6 +320,112 @@ func AggregateTopBottomRangeSeries(op parser.ItemType, series []model.RangeSerie
 	return result
 }
 
+func AggregateLimitKInstantSamples(samples []model.InstantSample, grouping []string, without bool, k int) []model.InstantSample {
+	if k < 1 || len(samples) == 0 {
+		return nil
+	}
+	buckets := make(map[string][]model.InstantSample, len(samples))
+	for _, sample := range samples {
+		key := model.LabelsKey(model.AggregationMetric(sample.Metric, grouping, without))
+		buckets[key] = append(buckets[key], sample)
+	}
+	keys := sortedMapKeys(buckets)
+	result := make([]model.InstantSample, 0, len(samples))
+	for _, key := range keys {
+		bucket := append([]model.InstantSample(nil), buckets[key]...)
+		sort.SliceStable(bucket, func(i, j int) bool { return model.LabelsKey(bucket[i].Metric) < model.LabelsKey(bucket[j].Metric) })
+		limit := min(k, len(bucket))
+		for _, sample := range bucket[:limit] {
+			result = append(result, model.InstantSample{Metric: model.CloneMetric(sample.Metric), Timestamp: sample.Timestamp, Value: sample.Value})
+		}
+	}
+	return result
+}
+
+func AggregateLimitKRangeSeries(series []model.RangeSeries, grouping []string, without bool, k int) []model.RangeSeries {
+	if k < 1 || len(series) == 0 {
+		return nil
+	}
+	samplesByTimestamp, timestamps := rangeSeriesSamplesByTimestamp(series)
+	grouped := make(map[string]model.RangeSeries, len(series))
+	for _, timestamp := range timestamps {
+		selected := AggregateLimitKInstantSamples(samplesByTimestamp[timestamp], grouping, without, k)
+		for _, sample := range selected {
+			key := model.LabelsKey(sample.Metric)
+			item := grouped[key]
+			if item.Metric == nil {
+				item.Metric = model.CloneMetric(sample.Metric)
+			}
+			item.Values = append(item.Values, model.RangePoint{Timestamp: sample.Timestamp, Value: sample.Value})
+			grouped[key] = item
+		}
+	}
+	keys := sortedMapKeys(grouped)
+	result := make([]model.RangeSeries, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, grouped[key])
+	}
+	return result
+}
+
+func AggregateLimitRatioInstantSamples(samples []model.InstantSample, grouping []string, without bool, ratio float64) []model.InstantSample {
+	if ratio == 0 || len(samples) == 0 {
+		return nil
+	}
+	buckets := make(map[string][]model.InstantSample, len(samples))
+	for _, sample := range samples {
+		key := model.LabelsKey(model.AggregationMetric(sample.Metric, grouping, without))
+		buckets[key] = append(buckets[key], sample)
+	}
+	keys := sortedMapKeys(buckets)
+	result := make([]model.InstantSample, 0, len(samples))
+	for _, key := range keys {
+		for _, sample := range buckets[key] {
+			if limitRatioIncludesSample(sample.Metric, ratio) {
+				result = append(result, model.InstantSample{Metric: model.CloneMetric(sample.Metric), Timestamp: sample.Timestamp, Value: sample.Value})
+			}
+		}
+	}
+	return result
+}
+
+func AggregateLimitRatioRangeSeries(series []model.RangeSeries, grouping []string, without bool, ratio float64) []model.RangeSeries {
+	if ratio == 0 || len(series) == 0 {
+		return nil
+	}
+	samplesByTimestamp, timestamps := rangeSeriesSamplesByTimestamp(series)
+	grouped := make(map[string]model.RangeSeries, len(series))
+	for _, timestamp := range timestamps {
+		selected := AggregateLimitRatioInstantSamples(samplesByTimestamp[timestamp], grouping, without, ratio)
+		for _, sample := range selected {
+			key := model.LabelsKey(sample.Metric)
+			item := grouped[key]
+			if item.Metric == nil {
+				item.Metric = model.CloneMetric(sample.Metric)
+			}
+			item.Values = append(item.Values, model.RangePoint{Timestamp: sample.Timestamp, Value: sample.Value})
+			grouped[key] = item
+		}
+	}
+	keys := sortedMapKeys(grouped)
+	result := make([]model.RangeSeries, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, grouped[key])
+	}
+	return result
+}
+
+func limitRatioIncludesSample(metric map[string]string, ratio float64) bool {
+	if ratio >= 1 || ratio <= -1 {
+		return true
+	}
+	hash := promlabels.FromMap(metric).Hash()
+	if ratio > 0 {
+		return hash < uint64(ratio*float64(^uint64(0)))
+	}
+	return hash >= uint64((1+ratio)*float64(^uint64(0)))
+}
+
 func AggregateCountValuesInstantSamples(samples []model.InstantSample, grouping []string, without bool, evaluationTime time.Time, valueLabel string) []model.InstantSample {
 	timestamp := float64(evaluationTime.UnixNano()) / float64(time.Second)
 	effectiveGrouping := countValuesGrouping(grouping, without, valueLabel)
@@ -347,7 +480,27 @@ func aggregationKValue(op parser.ItemType, value *float64) (int, error) {
 	if value == nil {
 		return 0, badDataf("aggregation operator %q requires a scalar parameter", op.String())
 	}
+	if math.IsNaN(*value) {
+		return 0, badDataf("parameter value is NaN")
+	}
 	return int(*value), nil
+}
+
+func aggregationRatioValue(value *float64) (float64, error) {
+	if value == nil {
+		return 0, badDataf("aggregation operator %q requires a scalar parameter", "limit_ratio")
+	}
+	if math.IsNaN(*value) {
+		return 0, badDataf("ratio value is NaN")
+	}
+	ratio := *value
+	if ratio < -1 {
+		ratio = -1
+	}
+	if ratio > 1 {
+		ratio = 1
+	}
+	return ratio, nil
 }
 
 func countValuesLabel(value string) (string, error) {

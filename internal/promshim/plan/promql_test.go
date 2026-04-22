@@ -231,6 +231,28 @@ func TestAnalyzeExpressionSupportsCountValuesAggregator(t *testing.T) {
 	}
 }
 
+func TestAnalyzeExpressionSupportsLimitKAggregator(t *testing.T) {
+	expr, err := ParseExpression("limitk(2, up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := AnalyzeExpression(expr)
+	if !result.Supported {
+		t.Fatalf("expected supported limitk aggregation, got %#v", result)
+	}
+}
+
+func TestAnalyzeExpressionSupportsLimitRatioAggregator(t *testing.T) {
+	expr, err := ParseExpression("limit_ratio(0.5, up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := AnalyzeExpression(expr)
+	if !result.Supported {
+		t.Fatalf("expected supported limit_ratio aggregation, got %#v", result)
+	}
+}
+
 func TestAnalyzeExpressionRejectsDynamicTopKParameter(t *testing.T) {
 	expr, err := ParseExpression("topk(1 + 2, up)")
 	if err != nil {
@@ -264,6 +286,8 @@ func TestAnalyzeExpressionSupportsHistogramProjectionFunctions(t *testing.T) {
 		"histogram_count(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))",
 		"histogram_sum(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))",
 		"histogram_avg(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))",
+		"histogram_stddev(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))",
+		"histogram_stdvar(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))",
 	}
 	for _, query := range queries {
 		expr, err := ParseExpression(query)
@@ -274,6 +298,20 @@ func TestAnalyzeExpressionSupportsHistogramProjectionFunctions(t *testing.T) {
 		if !result.Supported {
 			t.Fatalf("expected supported histogram projection function %q, got %#v", query, result)
 		}
+	}
+}
+
+func TestAnalyzeExpressionSupportsHistogramQuantiles(t *testing.T) {
+	expr, err := ParseExpression("histogram_quantiles(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])), \"quantile\", 0.5, scalar(sum(up)))")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := AnalyzeExpression(expr)
+	if !result.Supported {
+		t.Fatalf("expected supported histogram_quantiles expression, got %#v", result)
+	}
+	if result.Difficulty != DifficultyHard {
+		t.Fatalf("expected hard difficulty for histogram_quantiles, got %s", result.Difficulty)
 	}
 }
 
@@ -331,17 +369,14 @@ func TestAnalyzeExpressionSupportsTier1Transforms(t *testing.T) {
 	}
 }
 
-func TestAnalyzeExpressionRejectsNonLiteralClampBounds(t *testing.T) {
-	expr, err := ParseExpression("clamp(up, 1 + 1, 3)")
+func TestAnalyzeExpressionSupportsScalarClampBounds(t *testing.T) {
+	expr, err := ParseExpression("clamp(up, scalar(sum(up)), time())")
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := AnalyzeExpression(expr)
-	if result.Supported {
-		t.Fatalf("expected unsupported clamp bounds, got %#v", result)
-	}
-	if !strings.Contains(result.Reason, "literal scalar bound") {
-		t.Fatalf("expected literal scalar bound reason, got %#v", result)
+	if !result.Supported {
+		t.Fatalf("expected supported clamp bounds, got %#v", result)
 	}
 }
 

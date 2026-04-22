@@ -27,7 +27,7 @@ func TestQueryExplainReturnsDelegatedWholeQueryPlanWhenClassifierAllowsIt(t *tes
 	var body struct {
 		Status string `json:"status"`
 		Data   struct {
-			Mode string      `json:"mode"`
+			Mode string            `json:"mode"`
 			Plan local.ExplainNode `json:"plan"`
 		} `json:"data"`
 	}
@@ -48,7 +48,7 @@ func TestQueryExplainReturnsDelegatedWholeQueryPlanWhenClassifierAllowsIt(t *tes
 	}
 }
 
-func TestQueryRangeExplainReturnsLocalFallbackReason(t *testing.T) {
+func TestQueryRangeExplainReturnsNativeAggregationForLabelMutation(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestQueryRangeExplainReturnsLocalFallbackReason(t *testing.T) {
 	var body struct {
 		Status string `json:"status"`
 		Data   struct {
-			Mode string      `json:"mode"`
+			Mode string            `json:"mode"`
 			Plan local.ExplainNode `json:"plan"`
 		} `json:"data"`
 	}
@@ -76,11 +76,40 @@ func TestQueryRangeExplainReturnsLocalFallbackReason(t *testing.T) {
 	if body.Data.Mode != "range" {
 		t.Fatalf("expected range mode, got %#v", body.Data)
 	}
-	if body.Data.Plan.Strategy != "local" {
-		t.Fatalf("expected local plan, got %#v", body.Data.Plan)
+	if body.Data.Plan.Strategy != "native_sql" || body.Data.Plan.Kind != "aggregation" {
+		t.Fatalf("expected native aggregation plan, got %#v", body.Data.Plan)
 	}
-	if body.Data.Plan.Reason == "" {
-		t.Fatalf("expected fallback reason, got %#v", body.Data.Plan)
+	if len(body.Data.Plan.Children) != 1 || body.Data.Plan.Children[0].Strategy != "native_sql_expression" {
+		t.Fatalf("expected native label-mutation child explain, got %#v", body.Data.Plan)
+	}
+}
+
+func TestQueryRangeExplainBuildsClampPlan(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query=clamp_min(up,scalar(sum(up)))&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200 for clamp explain, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "success" {
+		t.Fatalf("expected success status, got %#v", body)
+	}
+	if body.Data.Plan.Kind != "clamp_min" || body.Data.Plan.Strategy != "native_sql" {
+		t.Fatalf("expected native clamp_min plan, got %#v", body.Data.Plan)
 	}
 }
 
@@ -108,8 +137,21 @@ func TestQueryRangeExplainBuildsVectorAndRoundPlans(t *testing.T) {
 	if body.Status != "success" {
 		t.Fatalf("expected success status, got %#v", body)
 	}
-	if body.Data.Plan.Kind != "vector" || body.Data.Plan.Strategy != "local" {
-		t.Fatalf("expected local vector plan, got %#v", body.Data.Plan)
+	if body.Data.Plan.Kind != "vector" || body.Data.Plan.Strategy != "native_sql" {
+		t.Fatalf("expected native vector plan, got %#v", body.Data.Plan)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query=sort_by_label(up,%22job%22)&start=0&end=300&step=30", nil)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200 for sort explain, got %d: %s", res.Code, res.Body.String())
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Plan.Kind != "sort_by_label" || body.Data.Plan.Strategy != "native_sql" {
+		t.Fatalf("expected native sort plan, got %#v", body.Data.Plan)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query=round(up)&start=0&end=300&step=30", nil)
@@ -121,8 +163,8 @@ func TestQueryRangeExplainBuildsVectorAndRoundPlans(t *testing.T) {
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Data.Plan.Kind != "round" || body.Data.Plan.Strategy != "local" {
-		t.Fatalf("expected local round plan, got %#v", body.Data.Plan)
+	if body.Data.Plan.Kind != "round" || body.Data.Plan.Strategy != "native_sql" {
+		t.Fatalf("expected native round plan, got %#v", body.Data.Plan)
 	}
 }
 
@@ -221,7 +263,7 @@ func TestQueryRangeExplainBuildsNativeCounterRangePlans(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, query := range []string{"rate(up%5B5m%5D)", "changes(up%5B5m%5D)", "deriv(up%5B5m%5D)"} {
+	for _, query := range []string{"rate(up%5B5m%5D)", "changes(up%5B5m%5D)", "deriv(up%5B5m%5D)", "quantile_over_time(0.95,up%5B5m%5D)", "first_over_time(up%5B5m%5D)", "ts_of_first_over_time(up%5B5m%5D)", "ts_of_last_over_time(up%5B5m%5D)", "ts_of_max_over_time(up%5B5m%5D)", "ts_of_min_over_time(up%5B5m%5D)"} {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=60", nil)
 		res := httptest.NewRecorder()
 		handler.ServeHTTP(res, req)
@@ -254,7 +296,7 @@ func TestQueryRangeExplainBuildsNativeRangePlansForSubquery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, query := range []string{"sum_over_time(sum(up)%5B5m%3A1m%5D)", "rate(sum(up)%5B5m%3A1m%5D)", "increase(sum(up)%5B5m%3A1m%5D)", "changes(sum(up)%5B5m%3A1m%5D)"} {
+	for _, query := range []string{"sum_over_time(sum(up)%5B5m%3A1m%5D)", "rate(sum(up)%5B5m%3A1m%5D)", "increase(sum(up)%5B5m%3A1m%5D)", "changes(sum(up)%5B5m%3A1m%5D)", "quantile_over_time(0.95,sum(up)%5B5m%3A1m%5D)", "first_over_time(sum(up)%5B5m%3A1m%5D)", "ts_of_first_over_time(sum(up)%5B5m%3A1m%5D)", "ts_of_last_over_time(sum(up)%5B5m%3A1m%5D)", "ts_of_max_over_time(sum(up)%5B5m%3A1m%5D)", "ts_of_min_over_time(sum(up)%5B5m%3A1m%5D)"} {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=60", nil)
 		res := httptest.NewRecorder()
 		handler.ServeHTTP(res, req)
@@ -460,6 +502,37 @@ func TestQueryExplainBuildsHistogramQuantileNativePlan(t *testing.T) {
 	}
 	if len(body.Data.Plan.Children) != 1 || body.Data.Plan.Children[0].Kind != "aggregation" {
 		t.Fatalf("expected aggregation child under histogram_quantile, got %#v", body.Data.Plan.Children)
+	}
+}
+
+func TestQueryExplainBuildsHistogramQuantilesPlan(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=histogram_quantiles(sum%20by%20(le,job)%20(rate(up%5B5m%5D)),%22quantile%22,0.5,scalar(sum(up)))", nil)
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "success" {
+		t.Fatalf("expected success response, got %#v", body)
+	}
+	if body.Data.Plan.Kind != "histogram_quantiles" || body.Data.Plan.Strategy != "native_sql" {
+		t.Fatalf("expected native histogram_quantiles plan, got %#v", body.Data.Plan)
 	}
 }
 
@@ -676,8 +749,8 @@ func TestQueryExplainModeReturnsPlanWithoutExplainFlag(t *testing.T) {
 	}
 
 	var body struct {
-		Status             string      `json:"status"`
-		NativeLoweringMode string      `json:"nativeLoweringMode"`
+		Status             string            `json:"status"`
+		NativeLoweringMode string            `json:"nativeLoweringMode"`
 		Plan               local.ExplainNode `json:"plan"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
@@ -742,8 +815,8 @@ func TestQueryShadowModeReturnsServedPlanAndShadowReport(t *testing.T) {
 	}
 
 	var body struct {
-		Status             string      `json:"status"`
-		NativeLoweringMode string      `json:"nativeLoweringMode"`
+		Status             string            `json:"status"`
+		NativeLoweringMode string            `json:"nativeLoweringMode"`
 		Plan               local.ExplainNode `json:"plan"`
 		Shadow             struct {
 			ServedStrategy   string `json:"servedStrategy"`
@@ -805,7 +878,7 @@ func TestQueryExplainHonorsNativeLoweringModeOff(t *testing.T) {
 	var body struct {
 		Status string `json:"status"`
 		Data   struct {
-			NativeLoweringMode string      `json:"nativeLoweringMode"`
+			NativeLoweringMode string            `json:"nativeLoweringMode"`
 			Plan               local.ExplainNode `json:"plan"`
 		} `json:"data"`
 	}
@@ -820,7 +893,7 @@ func TestQueryExplainHonorsNativeLoweringModeOff(t *testing.T) {
 	}
 }
 
-func TestQueryRangeExplainForceSupportedRejectsAnchoredAggregationRoot(t *testing.T) {
+func TestQueryRangeExplainForceSupportedAllowsAnchoredAggregationRoot(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
@@ -831,22 +904,24 @@ func TestQueryRangeExplainForceSupportedRejectsAnchoredAggregationRoot(t *testin
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 
-	if res.Code == http.StatusOK {
-		t.Fatalf("expected non-200 for anchored force_supported range request, got %d: %s", res.Code, res.Body.String())
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200 for anchored force_supported range request, got %d: %s", res.Code, res.Body.String())
 	}
 	var body struct {
-		Status    string `json:"status"`
-		ErrorType string `json:"errorType"`
-		Error     string `json:"error"`
+		Status string `json:"status"`
+		Data   struct {
+			NativeLoweringMode string            `json:"nativeLoweringMode"`
+			Plan               local.ExplainNode `json:"plan"`
+		} `json:"data"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.ErrorType != "unsupported" {
-		t.Fatalf("expected unsupported error type, got %#v", body)
+	if body.Data.NativeLoweringMode != string(local.NativeLoweringModeForceSupported) {
+		t.Fatalf("expected force_supported mode in explain response, got %#v", body.Data)
 	}
-	if !strings.Contains(body.Error, "force_supported") {
-		t.Fatalf("expected force_supported message, got %#v", body)
+	if body.Data.Plan.Strategy != "native_sql" {
+		t.Fatalf("expected native_sql plan for anchored range explain, got %#v", body.Data.Plan)
 	}
 }
 
@@ -962,7 +1037,35 @@ func TestQueryRangeExplainForceSupportedAcceptsAbsentOverTimeNativeRoot(t *testi
 	}
 }
 
-func TestQueryExplainForceSupportedRejectsNonNativeRoot(t *testing.T) {
+func TestQueryRangeExplainForceSupportedAcceptsRegexInfoNativeRoot(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	url := "/api/v1/query_range_explain?query=info(up,%20%7B__name__%3D~%22.%2B_info%22%7D)&start=0&end=300&step=30&native_lowering_mode=force_supported"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200 for force_supported regex info() range explain, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Plan.Strategy != "native_sql" || body.Data.Plan.Kind != "info" {
+		t.Fatalf("expected native info root under force_supported, got %#v", body.Data.Plan)
+	}
+}
+
+func TestQueryExplainForceSupportedAcceptsNativeLabelJoinRoot(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
@@ -973,22 +1076,20 @@ func TestQueryExplainForceSupportedRejectsNonNativeRoot(t *testing.T) {
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 
-	if res.Code == http.StatusOK {
-		t.Fatalf("expected non-200 for unsupported force_supported request, got %d: %s", res.Code, res.Body.String())
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200 for native label_join root, got %d: %s", res.Code, res.Body.String())
 	}
 	var body struct {
-		Status    string `json:"status"`
-		ErrorType string `json:"errorType"`
-		Error     string `json:"error"`
+		Status string `json:"status"`
+		Data   struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.ErrorType != "unsupported" {
-		t.Fatalf("expected unsupported error type, got %#v", body)
-	}
-	if !strings.Contains(body.Error, "force_supported") {
-		t.Fatalf("expected force_supported message, got %#v", body)
+	if body.Data.Plan.Strategy != "native_sql" || body.Data.Plan.Kind != "label_join" {
+		t.Fatalf("expected native label_join plan, got %#v", body.Data.Plan)
 	}
 }
 

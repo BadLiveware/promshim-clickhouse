@@ -164,9 +164,11 @@ func analyzeCallExpression(call *parser.Call, recurse func(parser.Expr) SupportR
 		return AnalyzeHistogramQuantileCall(call)
 	case "histogram_fraction":
 		return AnalyzeHistogramFractionCall(call)
-	case "histogram_count", "histogram_sum", "histogram_avg":
+	case "histogram_count", "histogram_sum", "histogram_avg", "histogram_stddev", "histogram_stdvar":
 		return AnalyzeHistogramProjectionCall(name, call)
-	case "last_over_time", "sum_over_time", "avg_over_time", "max_over_time", "min_over_time", "count_over_time", "stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time", "resets":
+	case "histogram_quantiles":
+		return AnalyzeHistogramQuantilesCall(call)
+	case "last_over_time", "first_over_time", "sum_over_time", "avg_over_time", "max_over_time", "min_over_time", "count_over_time", "stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time", "resets", "ts_of_first_over_time", "ts_of_last_over_time", "ts_of_max_over_time", "ts_of_min_over_time":
 		return AnalyzeRangeFunctionCall(name, call)
 	case "predict_linear":
 		return AnalyzePredictLinearCall(call)
@@ -229,7 +231,7 @@ func AnalyzeAggregateExpression(expr *parser.AggregateExpr) SupportResult {
 
 func analyzeAggregationParameter(expr *parser.AggregateExpr) SupportResult {
 	switch expr.Op {
-	case parser.TOPK, parser.BOTTOMK, parser.QUANTILE:
+	case parser.TOPK, parser.BOTTOMK, parser.QUANTILE, parser.LIMITK, parser.LIMIT_RATIO:
 		if expr.Param == nil {
 			return unsupported(DifficultyMedium, fmt.Sprintf("aggregation operator %q requires a scalar parameter", strings.ToLower(expr.Op.String())))
 		}
@@ -260,7 +262,7 @@ func analyzeAggregationParameter(expr *parser.AggregateExpr) SupportResult {
 func isSupportedLocalAggregation(op parser.ItemType) bool {
 	switch op {
 	case parser.SUM, parser.COUNT, parser.MIN, parser.MAX, parser.AVG, parser.TOPK, parser.BOTTOMK, parser.COUNT_VALUES,
-		parser.STDDEV, parser.STDVAR, parser.QUANTILE, parser.GROUP:
+		parser.STDDEV, parser.STDVAR, parser.QUANTILE, parser.GROUP, parser.LIMITK, parser.LIMIT_RATIO:
 		return true
 	default:
 		return false

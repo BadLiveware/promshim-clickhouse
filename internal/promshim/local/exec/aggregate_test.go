@@ -194,6 +194,40 @@ func TestAggregateRuntimeValueBottomKReturnsLowestSamples(t *testing.T) {
 	}
 }
 
+func TestAggregateRuntimeValueLimitKReturnsFirstSamplesPerGroup(t *testing.T) {
+	k := 2.0
+	value, err := AggregateRuntimeValue(parser.LIMITK, model.VectorValue{Samples: []model.InstantSample{
+		{Metric: map[string]string{"job": "api", "instance": "c"}, Timestamp: 42, Value: 1},
+		{Metric: map[string]string{"job": "api", "instance": "a"}, Timestamp: 42, Value: 3},
+		{Metric: map[string]string{"job": "api", "instance": "b"}, Timestamp: 42, Value: 2},
+	}}, AggregationOptions{Grouping: []string{"job"}, ParamNumber: &k, EvaluationTime: time.Unix(42, 0).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vector := value.(model.VectorValue)
+	if len(vector.Samples) != 2 {
+		t.Fatalf("expected two limitk samples, got %#v", vector.Samples)
+	}
+	if vector.Samples[0].Metric["instance"] != "a" || vector.Samples[1].Metric["instance"] != "b" {
+		t.Fatalf("expected lexicographically first samples, got %#v", vector.Samples)
+	}
+}
+
+func TestAggregateRuntimeValueLimitRatioFiltersByMetricHash(t *testing.T) {
+	ratio := 1.0
+	value, err := AggregateRuntimeValue(parser.LIMIT_RATIO, model.VectorValue{Samples: []model.InstantSample{
+		{Metric: map[string]string{"job": "api", "instance": "a"}, Timestamp: 42, Value: 1},
+		{Metric: map[string]string{"job": "api", "instance": "b"}, Timestamp: 42, Value: 2},
+	}}, AggregationOptions{ParamNumber: &ratio, EvaluationTime: time.Unix(42, 0).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vector := value.(model.VectorValue)
+	if len(vector.Samples) != 2 {
+		t.Fatalf("expected all samples for ratio 1, got %#v", vector.Samples)
+	}
+}
+
 func TestAggregateRuntimeValueCountValuesAddsValueLabelAndCountsOccurrences(t *testing.T) {
 	value, err := AggregateRuntimeValue(parser.COUNT_VALUES, model.VectorValue{Samples: []model.InstantSample{
 		{Metric: map[string]string{"job": "api", "instance": "a"}, Timestamp: 42, Value: 1},
@@ -267,5 +301,13 @@ func TestAggregateRuntimeValueRejectsMissingTopKParameter(t *testing.T) {
 	}
 	if execErr.Kind != ErrorKindBadData {
 		t.Fatalf("unexpected error kind: %v (%v)", execErr.Kind, err)
+	}
+}
+
+func TestAggregateRuntimeValueRejectsNaNLimitRatioParameter(t *testing.T) {
+	param := math.NaN()
+	_, err := AggregateRuntimeValue(parser.LIMIT_RATIO, model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "clickhouse"}, Value: 1}}}, AggregationOptions{ParamNumber: &param, EvaluationTime: time.Unix(42, 0).UTC()})
+	if err == nil {
+		t.Fatal("expected NaN ratio error")
 	}
 }

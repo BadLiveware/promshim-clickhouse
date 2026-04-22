@@ -66,16 +66,72 @@ func compareByValue(left, right model.InstantSample, descending bool) int {
 
 func compareByLabels(left, right model.InstantSample, labels []string, descending bool) int {
 	for _, label := range labels {
-		cmp := strings.Compare(left.Metric[label], right.Metric[label])
-		if cmp == 0 {
+		lv := left.Metric[label]
+		rv := right.Metric[label]
+		if lv == rv {
 			continue
 		}
+		cmp := naturalCompareStrings(lv, rv)
 		if descending {
 			return -cmp
 		}
 		return cmp
 	}
 	return compareSampleIdentity(left, right, descending)
+}
+
+func naturalCompareStrings(left, right string) int {
+	for len(left) > 0 && len(right) > 0 {
+		leftDigit := left[0] >= '0' && left[0] <= '9'
+		rightDigit := right[0] >= '0' && right[0] <= '9'
+		if leftDigit && rightDigit {
+			li, lj := 0, 0
+			for li < len(left) && left[li] == '0' {
+				li++
+			}
+			for lj < len(right) && right[lj] == '0' {
+				lj++
+			}
+			le, re := li, lj
+			for le < len(left) && left[le] >= '0' && left[le] <= '9' {
+				le++
+			}
+			for re < len(right) && right[re] >= '0' && right[re] <= '9' {
+				re++
+			}
+			leftDigits := left[li:le]
+			rightDigits := right[lj:re]
+			switch {
+			case len(leftDigits) < len(rightDigits):
+				return -1
+			case len(leftDigits) > len(rightDigits):
+				return 1
+			case leftDigits < rightDigits:
+				return -1
+			case leftDigits > rightDigits:
+				return 1
+			}
+			left = left[le:]
+			right = right[re:]
+			continue
+		}
+		if left[0] < right[0] {
+			return -1
+		}
+		if left[0] > right[0] {
+			return 1
+		}
+		left = left[1:]
+		right = right[1:]
+	}
+	switch {
+	case len(left) < len(right):
+		return -1
+	case len(left) > len(right):
+		return 1
+	default:
+		return 0
+	}
 }
 
 func compareSampleIdentity(left, right model.InstantSample, descending bool) int {

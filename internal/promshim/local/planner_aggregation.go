@@ -118,7 +118,7 @@ func (p *localSortPlan) execute(ctx context.Context, Evaluator *Evaluator, param
 		}
 		return vector, nil
 	case EvalModeRange:
-		return executeRangeVectorPlan(ctx, Evaluator, params, p.Func, p.execute)
+		return p.Child.execute(ctx, Evaluator, params)
 	default:
 		return nil, NewExecutionErrorf("unknown evaluation mode %q", params.Mode)
 	}
@@ -129,10 +129,11 @@ func (p *localSortPlan) explain() ExplainNode {
 }
 
 type localPointwiseFunctionPlan struct {
-	Expr         string
-	Func         string
-	ParamNumbers []*float64
-	Child        Plan
+	Expr          string
+	Func          string
+	ParamNumbers  []*float64
+	ParamChildren []Plan
+	Child         Plan
 }
 
 func (p *localPointwiseFunctionPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
@@ -146,7 +147,11 @@ func (p *localPointwiseFunctionPlan) execute(ctx context.Context, Evaluator *Eva
 				return nil, WithInternalContext(err, "evaluating %s child in instant mode", p.Func)
 			}
 		}
-		vector, err := exec.ApplyPointwiseFunction(p.Func, childValue, exec.EvalParams{Mode: toExecEvalMode(params.Mode), EvaluationTime: params.EvaluationTime, Start: params.Start, End: params.End, Step: params.Step}, p.ParamNumbers)
+		paramNumbers, err := evalScalarParamNumbers(ctx, Evaluator, params, p.Func, p.ParamNumbers, p.ParamChildren)
+		if err != nil {
+			return nil, err
+		}
+		vector, err := exec.ApplyPointwiseFunction(p.Func, childValue, exec.EvalParams{Mode: toExecEvalMode(params.Mode), EvaluationTime: params.EvaluationTime, Start: params.Start, End: params.End, Step: params.Step}, paramNumbers)
 		if err != nil {
 			return nil, WithInternalContext(FromExecError(err), "applying %s", p.Func)
 		}
@@ -158,10 +163,43 @@ func (p *localPointwiseFunctionPlan) execute(ctx context.Context, Evaluator *Eva
 	}
 }
 
+func evalScalarParamNumbers(ctx context.Context, evaluator *Evaluator, params EvalParams, funcName string, literals []*float64, children []Plan) ([]*float64, error) {
+	if len(children) == 0 {
+		return append([]*float64(nil), literals...), nil
+	}
+	out := make([]*float64, len(children))
+	for i, child := range children {
+		if child == nil {
+			if i < len(literals) && literals[i] != nil {
+				value := *literals[i]
+				out[i] = &value
+			}
+			continue
+		}
+		value, err := child.execute(ctx, evaluator, params)
+		if err != nil {
+			return nil, WithInternalContext(err, "evaluating %s scalar parameter %d", funcName, i+1)
+		}
+		scalar, ok := value.(model.ScalarValue)
+		if !ok {
+			return nil, NewExecutionErrorf("%s scalar parameter %d returned %T", funcName, i+1, value)
+		}
+		scalarValue := scalar.Value
+		out[i] = &scalarValue
+	}
+	return out, nil
+}
+
 func (p *localPointwiseFunctionPlan) explain() ExplainNode {
 	children := []ExplainNode{}
 	if p.Child != nil {
 		children = append(children, p.Child.explain())
+	}
+	for _, child := range p.ParamChildren {
+		if child == nil {
+			continue
+		}
+		children = append(children, child.explain())
 	}
 	return ExplainNode{Kind: p.Func, Strategy: "local", Expr: p.Expr, Children: children}
 }

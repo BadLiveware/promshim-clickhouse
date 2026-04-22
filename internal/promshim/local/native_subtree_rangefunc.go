@@ -10,7 +10,13 @@ import (
 )
 
 func rejectRangeModeFixedTemporalAnchor(ctx PlanContext, fragment *nativeplan.NativeFragment) bool {
-	return ctx.Mode == EvalModeRange && nativeplan.HasFixedTemporalAnchor(fragment)
+	// Range-mode native rendering now handles fixed @ anchors by evaluating the
+	// fragment once at the resolved anchor and shaping the result onto the outer
+	// range response grid when needed, so anchored trees no longer need planner-
+	// level rejection here.
+	_ = ctx
+	_ = fragment
+	return false
 }
 
 func maybeBuildNativeRangeFunctionPlan(node *logicalRangeFunctionPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
@@ -95,6 +101,20 @@ func maybeBuildNativeDerivPlan(node *logicalDerivPlan, ctx PlanContext, analysis
 		return maybeBuildNativeRangeLikePlanAllowRange(node, "deriv", node.ExprString(), ctx, analysis, true)
 	}
 	return maybeBuildNativeRangeLikePlan(node, "deriv", node.ExprString(), ctx, analysis)
+}
+
+func maybeBuildNativeQuantileOverTimePlan(node *logicalQuantileOverTimePlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+	if ctx.Mode == EvalModeRange {
+		info := analysis.InfoFor(node)
+		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
+			return nil, false, nil
+		}
+		if !nativeplan.IsSupportedNativeRangeModeForDirectSelector(info.Fragment) && !nativeplan.IsSupportedNativeRangeModeForWindowedArraysSubquery(info.Fragment) {
+			return nil, false, nil
+		}
+		return maybeBuildNativeRangeLikePlanAllowRange(node, "quantile_over_time", node.ExprString(), ctx, analysis, true)
+	}
+	return maybeBuildNativeRangeLikePlan(node, "quantile_over_time", node.ExprString(), ctx, analysis)
 }
 
 func maybeBuildNativeRangeLikePlan(node planpkg.LogicalPlan, kind, expr string, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {

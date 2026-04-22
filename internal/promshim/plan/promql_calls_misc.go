@@ -64,6 +64,32 @@ func AnalyzeHistogramQuantileCall(call *parser.Call) SupportResult {
 	return SupportResult{Supported: true, Difficulty: DifficultyHard}
 }
 
+func AnalyzeHistogramQuantilesCall(call *parser.Call) SupportResult {
+	if len(call.Args) < 3 {
+		return unsupported(DifficultyHard, "histogram_quantiles requires at least three arguments")
+	}
+	if call.Args[0].Type() != parser.ValueTypeVector {
+		return unsupported(DifficultyHard, "histogram_quantiles requires a vector histogram argument")
+	}
+	if call.Args[1].Type() != parser.ValueTypeString {
+		return unsupported(DifficultyHard, "histogram_quantiles requires a string destination label argument")
+	}
+	child := AnalyzeExpression(call.Args[0])
+	if !child.Supported {
+		return child
+	}
+	for _, arg := range call.Args[2:] {
+		if arg.Type() != parser.ValueTypeScalar {
+			return unsupported(DifficultyHard, "histogram_quantiles requires scalar quantile arguments")
+		}
+		result := AnalyzeExpression(arg)
+		if !result.Supported {
+			return result
+		}
+	}
+	return SupportResult{Supported: true, Difficulty: DifficultyHard}
+}
+
 func AnalyzeHistogramProjectionCall(name string, call *parser.Call) SupportResult {
 	if len(call.Args) != 1 {
 		return unsupported(DifficultyHard, fmt.Sprintf("%s requires one argument", name))
@@ -195,8 +221,9 @@ func AnalyzeClampCall(name string, call *parser.Call) SupportResult {
 		if arg.Type() != parser.ValueTypeScalar {
 			return unsupported(DifficultyHard, fmt.Sprintf("%s requires scalar bound arguments", name))
 		}
-		if _, ok := unwrapTransparentExpr(arg).(*parser.NumberLiteral); !ok {
-			return unsupported(DifficultyHard, fmt.Sprintf("%s currently requires literal scalar bound arguments", name))
+		child := AnalyzeExpression(arg)
+		if !child.Supported {
+			return child
 		}
 	}
 	return SupportResult{Supported: true, Difficulty: DifficultyHard}

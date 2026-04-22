@@ -25,6 +25,9 @@ func BuildRangeBinaryVectorJoinSQL(lhsSQL string, lhsParams map[string]string, r
 }
 
 func buildBinaryVectorJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL string, rhsParams map[string]string, cfg BinaryJoinConfig, rangeMode bool) (string, map[string]string, error) {
+	if isStorageSetOperator(cfg.Op) {
+		return buildSetVectorJoinSQL(lhsSQL, lhsParams, rhsSQL, rhsParams, cfg, rangeMode)
+	}
 	valueExpr, valueFilter, err := buildBinaryValueExpr(cfg.Op, cfg.ReturnBool, sqlb.Ident("lhs.value"), sqlb.Ident("rhs.value"))
 	if err != nil {
 		return "", nil, err
@@ -102,6 +105,65 @@ func buildBinaryVectorJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL
 		return "", nil, err
 	}
 	return sql + schema.QuerySuffix, params, nil
+}
+
+func isStorageSetOperator(op parser.ItemType) bool {
+	switch op {
+	case parser.LAND, parser.LOR, parser.LUNLESS:
+		return true
+	default:
+		return false
+	}
+}
+
+func buildSetVectorJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL string, rhsParams map[string]string, cfg BinaryJoinConfig, rangeMode bool) (string, map[string]string, error) {
+	joinOn := "lhs.join_group = rhs.join_group"
+	groupCols := "join_group"
+	presenceCols := "join_group"
+	lhsTs := "lhs.timestamp"
+	rhsTs := "rhs.timestamp"
+	if rangeMode {
+		joinOn += " AND lhs.timestamp = rhs.timestamp"
+		groupCols += ", timestamp"
+		presenceCols += ", timestamp"
+	}
+	lhsPrepared, err := buildPreparedJoinSideSelect("lhs", buildJoinSource(lhsSQL, rangeMode), buildJoinGroupExpr(sqlb.Ident("tags"), cfg.VectorMatching), rangeMode, false)
+	if err != nil {
+		return "", nil, err
+	}
+	rhsPrepared, err := buildPreparedJoinSideSelect("rhs", buildJoinSource(rhsSQL, rangeMode), buildJoinGroupExpr(sqlb.Ident("tags"), cfg.VectorMatching), rangeMode, false)
+	if err != nil {
+		return "", nil, err
+	}
+	lhsPreparedSQL, _, err := lhsPrepared.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	rhsPreparedSQL, _, err := rhsPrepared.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	lhsPresenceSQL := "SELECT " + presenceCols + " FROM (" + lhsPreparedSQL + ") AS lhs GROUP BY " + groupCols
+	rhsPresenceSQL := "SELECT " + presenceCols + " FROM (" + rhsPreparedSQL + ") AS rhs GROUP BY " + groupCols
+	var combinedRowsSQL string
+	switch cfg.Op {
+	case parser.LAND:
+		combinedRowsSQL = "SELECT lhs.original_group AS result_tags, " + lhsTs + " AS timestamp, lhs.value AS value FROM (" + lhsPreparedSQL + ") AS lhs INNER JOIN (" + rhsPresenceSQL + ") AS rhs ON " + joinOn
+	case parser.LUNLESS:
+		combinedRowsSQL = "SELECT lhs.original_group AS result_tags, " + lhsTs + " AS timestamp, lhs.value AS value FROM (" + lhsPreparedSQL + ") AS lhs LEFT JOIN (" + rhsPresenceSQL + ") AS rhs ON " + joinOn + " WHERE rhs.join_group IS NULL"
+	case parser.LOR:
+		combinedRowsSQL = "SELECT lhs.original_group AS result_tags, " + lhsTs + " AS timestamp, lhs.value AS value FROM (" + lhsPreparedSQL + ") AS lhs UNION ALL " +
+			"SELECT rhs.original_group AS result_tags, " + rhsTs + " AS timestamp, rhs.value AS value FROM (" + rhsPreparedSQL + ") AS rhs LEFT JOIN (" + lhsPresenceSQL + ") AS lhs ON " + joinOn + " WHERE lhs.join_group IS NULL"
+	default:
+		return "", nil, fmt.Errorf("native vector join SQL for operator %q is not implemented yet", cfg.Op.String())
+	}
+	params := mergeParamMaps(lhsParams, rhsParams)
+	if rangeMode {
+		sql := "SELECT result_tags AS tags, " + renderStorageExprNoParams(schema.SortedTimeSeriesGroupArrayExpr()) + " AS time_series FROM (" + combinedRowsSQL + ") AS joined_rows GROUP BY result_tags ORDER BY result_tags" + schema.QuerySuffix
+		return sql, params, nil
+	}
+	sql := "SELECT result_tags AS tags, timestamp AS timestamp, value AS value FROM (" + combinedRowsSQL + ") AS joined_rows ORDER BY result_tags" + schema.QuerySuffix
+	return sql, params, nil
 }
 
 func buildPreparedJoinSideSelect(side string, source sqlb.Source, joinGroupExpr sqlb.Expr, withTimestamp bool, checkDuplicates bool) (*sqlb.Select, error) {

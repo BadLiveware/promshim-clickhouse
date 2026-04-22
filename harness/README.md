@@ -2,6 +2,8 @@
 
 This harness starts a disposable Prometheus + ClickHouse + promshim stack, generates a deterministic metric dataset from a seed, remote-writes the exact same samples to both backends, and compares Prometheus query results against `promshim -> ClickHouse`.
 
+A full `scripts/run-harness.sh` run (all suites) completes in ~25 seconds on a warm docker cache (~90s cold, dominated by image builds). It runs in the foreground and does not need a minutes-long timeout.
+
 ## Components
 
 - `prometheus`

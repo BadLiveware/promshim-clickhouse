@@ -2,6 +2,8 @@
 
 Runs the upstream Prometheus PromQL compliance suite against promshim and reference Prometheus, both backed by the same scraped fixture.
 
+A full two-pass run (prefer + native-only) finishes in ~15 seconds on a warm docker cache. Runs in the foreground; no minutes-long timeout needed.
+
 ## Layout
 
 - `docker-compose.yml` — ClickHouse 26.3, Prometheus 3.5.2 (LTS, reference), promshim.

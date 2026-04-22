@@ -6,7 +6,9 @@ usage() {
 Usage: ./scripts/run-compliance.sh [options]
 
 Run the PromQL compliance suite against reference Prometheus and promshim
-in one command.
+in one command. Full two-pass run completes in ~15s on a warm docker cache;
+~60s cold including image builds. Runs in the foreground — do NOT add a
+minutes-long timeout wrapper.
 
 Default flow:
   1) docker compose build promshim         (in harness/compliance)

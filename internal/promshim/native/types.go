@@ -31,24 +31,30 @@ const (
 	FragmentKindScalarConvert          FragmentKind = "scalar_convert"
 	FragmentKindInfoJoin               FragmentKind = "info_join"
 	FragmentKindAbsent                 FragmentKind = "absent"
+	FragmentKindHistogramProjection    FragmentKind = "histogram_projection"
+	FragmentKindHistogramFunction      FragmentKind = "histogram_function"
+	FragmentKindValueTransform         FragmentKind = "value_transform"
 )
 
 type NativeFragment struct {
-	Kind          FragmentKind
-	OutputKind    OutputKind
-	SourcePromQL  parser.Expr
-	Selector      *SelectorSource
-	ValueExpr     string
-	TagsExpr      string
-	DropsMetric   bool
-	BinaryJoin    *BinaryJoinFragment
-	RangeFunction *RangeFunctionFragment
-	Subquery      *SubqueryFragment
-	Aggregation   *AggregationFragment
-	Synthetic     *SyntheticSeriesFragment
-	ScalarConvert *ScalarConvertFragment
-	InfoJoin      *InfoJoinFragment
-	Absent        *AbsentFragment
+	Kind                FragmentKind
+	OutputKind          OutputKind
+	SourcePromQL        parser.Expr
+	Selector            *SelectorSource
+	ValueExpr           string
+	TagsExpr            string
+	DropsMetric         bool
+	BinaryJoin          *BinaryJoinFragment
+	RangeFunction       *RangeFunctionFragment
+	Subquery            *SubqueryFragment
+	Aggregation         *AggregationFragment
+	Synthetic           *SyntheticSeriesFragment
+	ScalarConvert       *ScalarConvertFragment
+	InfoJoin            *InfoJoinFragment
+	Absent              *AbsentFragment
+	HistogramProjection *HistogramProjectionFragment
+	HistogramFunction   *HistogramFunctionFragment
+	ValueTransform      *ValueTransformFragment
 }
 
 const (
@@ -110,6 +116,26 @@ type AbsentFragment struct {
 	Func         string
 	OutputMetric map[string]string
 	Child        *NativeFragment
+}
+
+type HistogramProjectionFragment struct {
+	Func  string
+	Child *NativeFragment
+}
+
+type HistogramFunctionFragment struct {
+	Func     string
+	Quantile *float64
+	Lower    *float64
+	Upper    *float64
+	Child    *NativeFragment
+}
+
+type ValueTransformFragment struct {
+	Child       *NativeFragment
+	ValueExpr   string
+	FilterExpr  string
+	DropsMetric bool
 }
 
 type AggregationSupport struct {
@@ -235,6 +261,15 @@ func HasFixedTemporalAnchor(fragment *NativeFragment) bool {
 		return true
 	}
 	if fragment.Absent != nil && HasFixedTemporalAnchor(fragment.Absent.Child) {
+		return true
+	}
+	if fragment.HistogramProjection != nil && HasFixedTemporalAnchor(fragment.HistogramProjection.Child) {
+		return true
+	}
+	if fragment.HistogramFunction != nil && HasFixedTemporalAnchor(fragment.HistogramFunction.Child) {
+		return true
+	}
+	if fragment.ValueTransform != nil && HasFixedTemporalAnchor(fragment.ValueTransform.Child) {
 		return true
 	}
 	return false

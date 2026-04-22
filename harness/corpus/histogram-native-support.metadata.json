@@ -1,0 +1,9 @@
+{
+  "recommendedCommand": "./scripts/run-harness.sh --corpus histogram-native-support.json --subjects shim --native-only --dataset-variants baseline,histogram_burst",
+  "purpose": "Focused native-only Prometheus-parity validation corpus for classic histogram quantile support over grouped/rate-fed bucket inputs.",
+  "notes": [
+    "Exercises histogram_quantile on canonical grouped/rate-fed classic histogram bucket inputs.",
+    "Uses baseline and histogram_burst dataset variants to catch bucket-shape regressions.",
+    "Other classic-histogram helper functions added in native SQL are currently covered by unit/native-renderer tests; Prometheus result parity over those classic bucket-only shapes is not yet used as a harness gate here."
+  ]
+}

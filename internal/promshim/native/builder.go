@@ -73,6 +73,20 @@ func cloneFragment(fragment *NativeFragment) *NativeFragment {
 	if fragment.Absent != nil {
 		cloned.Absent = &AbsentFragment{Func: fragment.Absent.Func, OutputMetric: cloneStringMap(fragment.Absent.OutputMetric), Child: cloneFragment(fragment.Absent.Child)}
 	}
+	if fragment.HistogramProjection != nil {
+		cloned.HistogramProjection = &HistogramProjectionFragment{Func: fragment.HistogramProjection.Func, Child: cloneFragment(fragment.HistogramProjection.Child)}
+	}
+	if fragment.HistogramFunction != nil {
+		cloned.HistogramFunction = &HistogramFunctionFragment{Func: fragment.HistogramFunction.Func, Quantile: cloneFloat64Pointer(fragment.HistogramFunction.Quantile), Lower: cloneFloat64Pointer(fragment.HistogramFunction.Lower), Upper: cloneFloat64Pointer(fragment.HistogramFunction.Upper), Child: cloneFragment(fragment.HistogramFunction.Child)}
+	}
+	if fragment.ValueTransform != nil {
+		cloned.ValueTransform = &ValueTransformFragment{
+			Child:       cloneFragment(fragment.ValueTransform.Child),
+			ValueExpr:   fragment.ValueTransform.ValueExpr,
+			FilterExpr:  fragment.ValueTransform.FilterExpr,
+			DropsMetric: fragment.ValueTransform.DropsMetric,
+		}
+	}
 	return cloned
 }
 

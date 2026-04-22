@@ -1025,6 +1025,11 @@ func TestBuildExecPlanLowersLogicalTopKPlan(t *testing.T) {
 }
 
 func TestBuildExecPlanLowersLogicalHistogramQuantilePlan(t *testing.T) {
+	rateExpr := mustParseExpr(t, "rate(http_request_duration_seconds_bucket[5m])")
+	rateCall, ok := rateExpr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected rate call expr, got %T", rateExpr)
+	}
 	logical := &logicalHistogramQuantilePlan{
 		Expr:     mustParseExpr(t, "histogram_quantile(0.9, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))"),
 		Quantile: 0.9,
@@ -1032,7 +1037,7 @@ func TestBuildExecPlanLowersLogicalHistogramQuantilePlan(t *testing.T) {
 			Expr:     mustParseExpr(t, "sum by (le, job) (rate(http_request_duration_seconds_bucket[5m]))"),
 			Op:       parser.SUM,
 			Grouping: []string{"le", "job"},
-			Child:    &logicalLeafExprPlan{Expr: mustParseExpr(t, "rate(http_request_duration_seconds_bucket[5m])")},
+			Child:    &logicalRatePlan{Expr: rateCall, Func: "rate", Child: &logicalLeafExprPlan{Expr: rateCall.Args[0]}},
 		},
 	}
 
@@ -1040,15 +1045,15 @@ func TestBuildExecPlanLowersLogicalHistogramQuantilePlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected execution histogram_quantile plan, got error: %v", err)
 	}
-	histogramPlan, ok := execPlan.(*localHistogramQuantilePlan)
+	nativePlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localHistogramQuantilePlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if histogramPlan.Quantile != 0.9 {
-		t.Fatalf("expected quantile 0.9, got %#v", histogramPlan.Quantile)
+	if nativePlan.Kind != "histogram_quantile" {
+		t.Fatalf("expected histogram_quantile native plan, got %#v", nativePlan)
 	}
-	if _, ok := histogramPlan.Child.(*localAggregationPlan); !ok {
-		t.Fatalf("expected local aggregation child, got %T", histogramPlan.Child)
+	if len(nativePlan.Children) != 1 || nativePlan.Children[0].Kind != "aggregation" {
+		t.Fatalf("expected aggregation child under histogram_quantile native plan, got %#v", nativePlan.Children)
 	}
 }
 
@@ -1084,34 +1089,72 @@ func TestBuildExecPlanLowersLogicalVectorMatchingBinaryPlan(t *testing.T) {
 }
 
 func TestBuildExecPlanLowersLogicalHistogramProjectionPlan(t *testing.T) {
-	logical := &logicalHistogramProjectionPlan{
-		Expr: mustParseExpr(t, "histogram_count(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))"),
-		Func: "histogram_count",
-		Child: &logicalAggregationPlan{
-			Expr:     mustParseExpr(t, "sum by (le, job) (rate(http_request_duration_seconds_bucket[5m]))"),
-			Op:       parser.SUM,
-			Grouping: []string{"le", "job"},
-			Child:    &logicalLeafExprPlan{Expr: mustParseExpr(t, "rate(http_request_duration_seconds_bucket[5m])")},
-		},
-	}
+	for _, fn := range []string{"histogram_count", "histogram_sum", "histogram_avg"} {
+		t.Run(fn, func(t *testing.T) {
+			rateExpr := mustParseExpr(t, "rate(http_request_duration_seconds_bucket[5m])")
+			rateCall, ok := rateExpr.(*parser.Call)
+			if !ok {
+				t.Fatalf("expected rate call expr, got %T", rateExpr)
+			}
+			logical := &logicalHistogramProjectionPlan{
+				Expr: mustParseExpr(t, fn+"(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))"),
+				Func: fn,
+				Child: &logicalAggregationPlan{
+					Expr:     mustParseExpr(t, "sum by (le, job) (rate(http_request_duration_seconds_bucket[5m]))"),
+					Op:       parser.SUM,
+					Grouping: []string{"le", "job"},
+					Child:    &logicalRatePlan{Expr: rateCall, Func: "rate", Child: &logicalLeafExprPlan{Expr: rateCall.Args[0]}},
+				},
+			}
 
-	execPlan, err := buildExecPlan(logical)
-	if err != nil {
-		t.Fatalf("expected execution histogram projection plan, got error: %v", err)
+			execPlan, err := buildExecPlan(logical)
+			if err != nil {
+				t.Fatalf("expected execution histogram projection plan, got error: %v", err)
+			}
+			nativePlan, ok := execPlan.(*nativeSubtreePlan)
+			if !ok {
+				t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
+			}
+			if nativePlan.Kind != fn {
+				t.Fatalf("expected %s native plan, got %#v", fn, nativePlan)
+			}
+			if len(nativePlan.Children) != 1 || nativePlan.Children[0].Kind != "aggregation" {
+				t.Fatalf("expected aggregation child under %s native plan, got %#v", fn, nativePlan.Children)
+			}
+		})
 	}
-	histogramPlan, ok := execPlan.(*localHistogramProjectionPlan)
-	if !ok {
-		t.Fatalf("expected localHistogramProjectionPlan, got %T", execPlan)
-	}
-	if histogramPlan.Func != "histogram_count" {
-		t.Fatalf("expected histogram_count function, got %#v", histogramPlan.Func)
-	}
-	if _, ok := histogramPlan.Child.(*localAggregationPlan); !ok {
-		t.Fatalf("expected local aggregation child, got %T", histogramPlan.Child)
+}
+
+func TestBuildExecPlanLowersDirectLogicalHistogramProjectionPlanToNative(t *testing.T) {
+	for _, fn := range []string{"histogram_count", "histogram_sum", "histogram_avg"} {
+		t.Run(fn, func(t *testing.T) {
+			logical := &logicalHistogramProjectionPlan{
+				Expr:  mustParseExpr(t, fn+`(http_request_duration_seconds_bucket{job="api"})`),
+				Func:  fn,
+				Child: &logicalLeafExprPlan{Expr: mustParseExpr(t, `http_request_duration_seconds_bucket{job="api"}`)},
+			}
+
+			execPlan, err := buildExecPlan(logical)
+			if err != nil {
+				t.Fatalf("expected native direct histogram projection plan, got error: %v", err)
+			}
+			nativePlan, ok := execPlan.(*nativeSubtreePlan)
+			if !ok {
+				t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
+			}
+			if nativePlan.Kind != fn {
+				t.Fatalf("expected %s native plan, got %#v", fn, nativePlan)
+			}
+		})
 	}
 }
 
 func TestBuildExecPlanLowersLogicalHistogramFractionPlan(t *testing.T) {
+	rateExpr := mustParseExpr(t, "rate(http_request_duration_seconds_bucket[5m])")
+	rateCall, ok := rateExpr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected rate call expr, got %T", rateExpr)
+	}
 	logical := &logicalHistogramFractionPlan{
 		Expr:  mustParseExpr(t, "histogram_fraction(0, 1, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))"),
 		Lower: 0,
@@ -1120,7 +1163,7 @@ func TestBuildExecPlanLowersLogicalHistogramFractionPlan(t *testing.T) {
 			Expr:     mustParseExpr(t, "sum by (le, job) (rate(http_request_duration_seconds_bucket[5m]))"),
 			Op:       parser.SUM,
 			Grouping: []string{"le", "job"},
-			Child:    &logicalLeafExprPlan{Expr: mustParseExpr(t, "rate(http_request_duration_seconds_bucket[5m])")},
+			Child:    &logicalRatePlan{Expr: rateCall, Func: "rate", Child: &logicalLeafExprPlan{Expr: rateCall.Args[0]}},
 		},
 	}
 
@@ -1128,15 +1171,15 @@ func TestBuildExecPlanLowersLogicalHistogramFractionPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected execution histogram fraction plan, got error: %v", err)
 	}
-	histogramPlan, ok := execPlan.(*localHistogramFractionPlan)
+	nativePlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localHistogramFractionPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if histogramPlan.Lower != 0 || histogramPlan.Upper != 1 {
-		t.Fatalf("expected bounds [0,1], got [%v,%v]", histogramPlan.Lower, histogramPlan.Upper)
+	if nativePlan.Kind != "histogram_fraction" {
+		t.Fatalf("expected histogram_fraction native plan, got %#v", nativePlan)
 	}
-	if _, ok := histogramPlan.Child.(*localAggregationPlan); !ok {
-		t.Fatalf("expected local aggregation child, got %T", histogramPlan.Child)
+	if len(nativePlan.Children) != 1 || nativePlan.Children[0].Kind != "aggregation" {
+		t.Fatalf("expected aggregation child under histogram_fraction native plan, got %#v", nativePlan.Children)
 	}
 }
 

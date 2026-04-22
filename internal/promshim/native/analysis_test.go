@@ -188,6 +188,62 @@ func TestAnalyzeScalarBuiltinMarksNativeLowerable(t *testing.T) {
 	}
 }
 
+func TestAnalyzeHistogramProjectionMarksNativeLowerable(t *testing.T) {
+	for _, fn := range []string{"histogram_count", "histogram_sum", "histogram_avg"} {
+		t.Run(fn, func(t *testing.T) {
+			callExpr := mustParseExpr(t, fn+`(http_request_duration_seconds_bucket{job="api"})`)
+			call, ok := callExpr.(*parser.Call)
+			if !ok {
+				t.Fatalf("expected call expr, got %T", callExpr)
+			}
+			logical := &planpkg.LogicalHistogramProjectionPlan{Expr: call, Func: fn, Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+			info := Analyze(logical).InfoFor(logical)
+			if info == nil || !info.NativeLowerable {
+				t.Fatalf("expected %s to be native-lowerable, got %#v", fn, info)
+			}
+			if info.Fragment == nil || info.Fragment.Kind != FragmentKindHistogramProjection || info.Fragment.HistogramProjection == nil || info.Fragment.HistogramProjection.Func != fn {
+				t.Fatalf("expected histogram projection fragment for %s, got %#v", fn, info)
+			}
+		})
+	}
+}
+
+func TestAnalyzeHistogramQuantileMarksNativeLowerable(t *testing.T) {
+	callExpr := mustParseExpr(t, `histogram_quantile(0.9, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))`)
+	call, ok := callExpr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected call expr, got %T", callExpr)
+	}
+	agg := call.Args[1].(*parser.AggregateExpr)
+	rateCall := agg.Expr.(*parser.Call)
+	logical := &planpkg.LogicalHistogramQuantilePlan{Expr: call, Quantile: 0.9, Child: &planpkg.LogicalAggregationPlan{Expr: agg, Op: agg.Op, Grouping: append([]string(nil), agg.Grouping...), Without: agg.Without, Child: &planpkg.LogicalRatePlan{Expr: rateCall, Func: "rate", Child: &planpkg.LogicalLeafExprPlan{Expr: rateCall.Args[0]}}}}
+	info := Analyze(logical).InfoFor(logical)
+	if info == nil || !info.NativeLowerable {
+		t.Fatalf("expected histogram_quantile to be native-lowerable, got %#v", info)
+	}
+	if info.Fragment == nil || info.Fragment.Kind != FragmentKindHistogramFunction || info.Fragment.HistogramFunction == nil || info.Fragment.HistogramFunction.Func != "histogram_quantile" {
+		t.Fatalf("expected histogram function fragment, got %#v", info)
+	}
+}
+
+func TestAnalyzeHistogramFractionMarksNativeLowerable(t *testing.T) {
+	callExpr := mustParseExpr(t, `histogram_fraction(0, 1, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))`)
+	call, ok := callExpr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected call expr, got %T", callExpr)
+	}
+	agg := call.Args[2].(*parser.AggregateExpr)
+	rateCall := agg.Expr.(*parser.Call)
+	logical := &planpkg.LogicalHistogramFractionPlan{Expr: call, Lower: 0, Upper: 1, Child: &planpkg.LogicalAggregationPlan{Expr: agg, Op: agg.Op, Grouping: append([]string(nil), agg.Grouping...), Without: agg.Without, Child: &planpkg.LogicalRatePlan{Expr: rateCall, Func: "rate", Child: &planpkg.LogicalLeafExprPlan{Expr: rateCall.Args[0]}}}}
+	info := Analyze(logical).InfoFor(logical)
+	if info == nil || !info.NativeLowerable {
+		t.Fatalf("expected histogram_fraction to be native-lowerable, got %#v", info)
+	}
+	if info.Fragment == nil || info.Fragment.Kind != FragmentKindHistogramFunction || info.Fragment.HistogramFunction == nil || info.Fragment.HistogramFunction.Func != "histogram_fraction" {
+		t.Fatalf("expected histogram function fragment for histogram_fraction, got %#v", info)
+	}
+}
+
 func TestAnalyzeAbsentMarksNativeLowerable(t *testing.T) {
 	callExpr := mustParseExpr(t, `absent(up{job="api"})`)
 	call, ok := callExpr.(*parser.Call)

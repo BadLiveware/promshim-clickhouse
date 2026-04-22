@@ -27,6 +27,7 @@ type nativeSubtreePlan struct {
 	Children           []ExplainNode
 	Fragment           *nativeplan.NativeFragment
 	OptimizationReport *nativeplan.OptimizationReport
+	Info               *nativeplan.LoweringInfo
 }
 
 func (p *nativeSubtreePlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
@@ -38,14 +39,29 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, evaluator *evaluator, p
 	if p.OptimizationReport != nil {
 		report = p.OptimizationReport
 	}
+	requiredStartMS := report.RequiredInputStartMS
+	requiredEndMS := report.RequiredInputEndMS
+	if p.Info != nil {
+		execCtx := nativeplan.OptimizationContext{
+			Mode:             renderMode,
+			EvaluationTimeMS: params.EvaluationTime.UnixMilli(),
+			StartMS:          params.Start.UnixMilli(),
+			EndMS:            params.End.UnixMilli(),
+			StepMS:           params.Step.Milliseconds(),
+		}
+		if s, e, ok := nativeplan.RequiredInputBounds(p.Fragment, p.Info, execCtx); ok {
+			requiredStartMS = s
+			requiredEndMS = e
+		}
+	}
 	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: evaluator.opts.Database, Table: evaluator.opts.Table}, p.Fragment, nativeplan.RenderParams{
 		Mode:             renderMode,
 		EvaluationTimeMS: params.EvaluationTime.UnixMilli(),
 		StartMS:          params.Start.UnixMilli(),
 		EndMS:            params.End.UnixMilli(),
 		StepMS:           params.Step.Milliseconds(),
-		RequiredStartMS:  report.RequiredInputStartMS,
-		RequiredEndMS:    report.RequiredInputEndMS,
+		RequiredStartMS:  requiredStartMS,
+		RequiredEndMS:    requiredEndMS,
 		ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
 			return resolveDelegatedPromQL(expr, params)
 		},
@@ -273,6 +289,7 @@ func maybeBuildNativeRangeLikePlanAllowRange(node planpkg.LogicalPlan, kind, exp
 		Children:           children,
 		Fragment:           optimized.Fragment,
 		OptimizationReport: optimized.Report,
+		Info:               info,
 	}, true, nil
 }
 
@@ -301,7 +318,7 @@ func maybeBuildNativeLeafPlan(node *logicalLeafExprPlan, ctx planContext, analys
 	if err := nativeplan.ApplyRenderedSQLMetadata(optimized.Report, renderMode, rendered.SQL); err != nil {
 		return nil, false, err
 	}
-	return &nativeSubtreePlan{Kind: "leaf", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Fragment: optimized.Fragment, OptimizationReport: optimized.Report}, true, nil
+	return &nativeSubtreePlan{Kind: "leaf", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info}, true, nil
 }
 
 func maybeBuildNativeSourcePlan(node *logicalPointwiseFunctionPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
@@ -341,7 +358,7 @@ func maybeBuildNativeSourcePlan(node *logicalPointwiseFunctionPlan, ctx planCont
 		}
 		children = append(children, explainNativeAggregationSource(child))
 	}
-	return &nativeSubtreePlan{Kind: node.Func, Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report}, true, nil
+	return &nativeSubtreePlan{Kind: node.Func, Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info}, true, nil
 }
 
 func maybeBuildNativeInfoPlan(node *logicalInfoPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
@@ -376,7 +393,7 @@ func maybeBuildNativeInfoPlan(node *logicalInfoPlan, ctx planContext, analysis *
 		}
 		children = append(children, explainNativeAggregationSource(child))
 	}
-	return &nativeSubtreePlan{Kind: "info", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report}, true, nil
+	return &nativeSubtreePlan{Kind: "info", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info}, true, nil
 }
 
 func maybeBuildNativeScalarConvertPlan(node *logicalScalarConvertPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
@@ -411,7 +428,112 @@ func maybeBuildNativeScalarConvertPlan(node *logicalScalarConvertPlan, ctx planC
 		}
 		children = append(children, explainNativeAggregationSource(child))
 	}
-	return &nativeSubtreePlan{Kind: "scalar", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report}, true, nil
+	return &nativeSubtreePlan{Kind: "scalar", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info}, true, nil
+}
+
+func maybeBuildNativeHistogramFractionPlan(node *logicalHistogramFractionPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+	if ctx.Mode != evalModeInstant && ctx.Mode != evalModeRange {
+		return nil, false, nil
+	}
+	info := analysis.InfoFor(node)
+	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindHistogramFunction || info.Fragment.HistogramFunction == nil {
+		return nil, false, nil
+	}
+	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	if err != nil {
+		return nil, false, err
+	}
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+		return nil, false, nil
+	}
+	renderMode := renderModeForPlanContext(ctx)
+	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
+		return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+	}})
+	if err != nil {
+		return nil, false, err
+	}
+	if err := nativeplan.ApplyRenderedSQLMetadata(optimized.Report, renderMode, rendered.SQL); err != nil {
+		return nil, false, err
+	}
+	children := []ExplainNode{}
+	for _, child := range info.Children {
+		if child == nil {
+			continue
+		}
+		children = append(children, explainNativeAggregationSource(child))
+	}
+	return &nativeSubtreePlan{Kind: "histogram_fraction", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report}, true, nil
+}
+
+func maybeBuildNativeHistogramQuantilePlan(node *logicalHistogramQuantilePlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+	if ctx.Mode != evalModeInstant && ctx.Mode != evalModeRange {
+		return nil, false, nil
+	}
+	info := analysis.InfoFor(node)
+	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindHistogramFunction || info.Fragment.HistogramFunction == nil {
+		return nil, false, nil
+	}
+	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	if err != nil {
+		return nil, false, err
+	}
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+		return nil, false, nil
+	}
+	renderMode := renderModeForPlanContext(ctx)
+	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
+		return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+	}})
+	if err != nil {
+		return nil, false, err
+	}
+	if err := nativeplan.ApplyRenderedSQLMetadata(optimized.Report, renderMode, rendered.SQL); err != nil {
+		return nil, false, err
+	}
+	children := []ExplainNode{}
+	for _, child := range info.Children {
+		if child == nil {
+			continue
+		}
+		children = append(children, explainNativeAggregationSource(child))
+	}
+	return &nativeSubtreePlan{Kind: "histogram_quantile", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report}, true, nil
+}
+
+func maybeBuildNativeHistogramProjectionPlan(node *logicalHistogramProjectionPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+	if ctx.Mode != evalModeInstant && ctx.Mode != evalModeRange {
+		return nil, false, nil
+	}
+	info := analysis.InfoFor(node)
+	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindHistogramProjection || info.Fragment.HistogramProjection == nil {
+		return nil, false, nil
+	}
+	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	if err != nil {
+		return nil, false, err
+	}
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+		return nil, false, nil
+	}
+	renderMode := renderModeForPlanContext(ctx)
+	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
+		return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+	}})
+	if err != nil {
+		return nil, false, err
+	}
+	if err := nativeplan.ApplyRenderedSQLMetadata(optimized.Report, renderMode, rendered.SQL); err != nil {
+		return nil, false, err
+	}
+	children := []ExplainNode{}
+	for _, child := range info.Children {
+		if child == nil {
+			continue
+		}
+		children = append(children, explainNativeAggregationSource(child))
+	}
+	return &nativeSubtreePlan{Kind: node.Func, Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report}, true, nil
 }
 
 func maybeBuildNativeAbsentPlan(node *logicalAbsentPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
@@ -454,7 +576,7 @@ func maybeBuildNativeAbsentLikePlan(node planpkg.LogicalPlan, kind, expr string,
 		}
 		children = append(children, explainNativeAggregationSource(child))
 	}
-	return &nativeSubtreePlan{Kind: kind, Expr: expr, Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report}, true, nil
+	return &nativeSubtreePlan{Kind: kind, Expr: expr, Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info}, true, nil
 }
 
 func maybeBuildNativeScalarBuiltinPlan(node *logicalScalarBuiltinPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
@@ -482,7 +604,7 @@ func maybeBuildNativeScalarBuiltinPlan(node *logicalScalarBuiltinPlan, ctx planC
 	if err := nativeplan.ApplyRenderedSQLMetadata(optimized.Report, renderMode, rendered.SQL); err != nil {
 		return nil, false, err
 	}
-	return &nativeSubtreePlan{Kind: node.Func, Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Fragment: optimized.Fragment, OptimizationReport: optimized.Report}, true, nil
+	return &nativeSubtreePlan{Kind: node.Func, Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info}, true, nil
 }
 
 func maybeBuildNativeBinaryPlan(node *logicalBinaryPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
@@ -537,6 +659,7 @@ func maybeBuildNativeBinaryPlan(node *logicalBinaryPlan, ctx planContext, analys
 		Children:           children,
 		Fragment:           optimized.Fragment,
 		OptimizationReport: optimized.Report,
+		Info:               info,
 	}, true, nil
 }
 
@@ -592,6 +715,7 @@ func maybeBuildNativeAggregationPlan(node *logicalAggregationPlan, ctx planConte
 		Children:           children,
 		Fragment:           optimized.Fragment,
 		OptimizationReport: optimized.Report,
+		Info:               analysis.InfoFor(node),
 	}, true, nil
 }
 

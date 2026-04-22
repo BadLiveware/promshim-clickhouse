@@ -397,6 +397,70 @@ func TestQueryRejectsMalformedHistogramFractionAsBadData(t *testing.T) {
 	}
 }
 
+func TestQueryExplainBuildsHistogramProjectionNativePlan(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, fn := range []string{"histogram_count", "histogram_sum", "histogram_avg"} {
+		t.Run(fn, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query="+fn+"(http_request_duration_seconds_bucket%7Bjob%3D%22api%22%7D)", nil)
+			res := httptest.NewRecorder()
+			handler.ServeHTTP(res, req)
+
+			if res.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+			}
+			var body struct {
+				Status string `json:"status"`
+				Data   struct {
+					Plan ExplainNode `json:"plan"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body.Data.Plan.Kind != fn || body.Data.Plan.Strategy != "native_sql" {
+				t.Fatalf("expected native %s plan, got %#v", fn, body.Data.Plan)
+			}
+			if len(body.Data.Plan.Children) != 1 || body.Data.Plan.Children[0].Kind != "leaf" {
+				t.Fatalf("expected leaf child under %s, got %#v", fn, body.Data.Plan.Children)
+			}
+		})
+	}
+}
+
+func TestQueryExplainBuildsHistogramQuantileNativePlan(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=histogram_quantile(0.9,sum%20by%20(le,job)%20(rate(http_request_duration_seconds_bucket%5B5m%5D)))", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Plan ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Plan.Kind != "histogram_quantile" || body.Data.Plan.Strategy != "native_sql" {
+		t.Fatalf("expected native histogram_quantile plan, got %#v", body.Data.Plan)
+	}
+	if len(body.Data.Plan.Children) != 1 || body.Data.Plan.Children[0].Kind != "aggregation" {
+		t.Fatalf("expected aggregation child under histogram_quantile, got %#v", body.Data.Plan.Children)
+	}
+}
+
 func TestQueryExplainBuildsHistogramFractionPlan(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
@@ -423,14 +487,11 @@ func TestQueryExplainBuildsHistogramFractionPlan(t *testing.T) {
 	if body.Status != "success" {
 		t.Fatalf("expected success response, got %#v", body)
 	}
-	if body.Data.Plan.Kind != "histogram_fraction" || body.Data.Plan.Strategy != "local" {
-		t.Fatalf("expected local histogram_fraction plan, got %#v", body.Data.Plan)
+	if body.Data.Plan.Kind != "histogram_fraction" || body.Data.Plan.Strategy != "native_sql" {
+		t.Fatalf("expected native histogram_fraction plan, got %#v", body.Data.Plan)
 	}
-	if len(body.Data.Plan.Children) != 1 || body.Data.Plan.Children[0].Strategy != "local" {
-		t.Fatalf("expected local aggregation child under histogram_fraction, got %#v", body.Data.Plan.Children)
-	}
-	if len(body.Data.Plan.Children[0].Children) != 1 || body.Data.Plan.Children[0].Children[0].Strategy != "native_sql" {
-		t.Fatalf("expected native rate child under histogram_fraction aggregation, got %#v", body.Data.Plan.Children)
+	if len(body.Data.Plan.Children) != 1 || body.Data.Plan.Children[0].Kind != "aggregation" {
+		t.Fatalf("expected aggregation child under histogram_fraction, got %#v", body.Data.Plan.Children)
 	}
 }
 

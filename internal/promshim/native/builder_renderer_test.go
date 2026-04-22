@@ -11,6 +11,31 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
+// TestAlignSubqueryStepStartMatchesPromEngine mirrors the subquery step-grid
+// formula at prometheus/promql/engine.go:2394-2399 to guard against drift.
+func TestAlignSubqueryStepStartMatchesPromEngine(t *testing.T) {
+	cases := []struct {
+		name        string
+		windowStart int64
+		step        int64
+		want        int64
+	}{
+		{name: "epoch-aligned window start excludes left edge", windowStart: 1776807220000, step: 10000, want: 1776807230000},
+		{name: "non-aligned window start rounds up", windowStart: 1776807222000, step: 10000, want: 1776807230000},
+		{name: "negative epoch-aligned window start excludes left edge", windowStart: -360000, step: 60000, want: -300000},
+		{name: "non-aligned window with 1m step", windowStart: -350000, step: 60000, want: -300000},
+		{name: "zero step is a no-op", windowStart: 12345, step: 0, want: 12345},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if got := alignSubqueryStepStart(tc.windowStart, tc.step); got != tc.want {
+				t.Fatalf("alignSubqueryStepStart(%d, %d) = %d, want %d", tc.windowStart, tc.step, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBuildFragmentReturnsAggregationTree(t *testing.T) {
 	aggExpr := mustParseExpr(t, `sum by (job) (up * 100)`)
 	agg, ok := aggExpr.(*parser.AggregateExpr)
@@ -517,13 +542,16 @@ func TestRenderFragmentBuildsRangeSubqueryUsingInnerStepAndExpandedEnvelope(t *t
 	if got, want := rendered.QueryParams["param_step_ms"], "60000"; got != want {
 		t.Fatalf("expected inner subquery step %q, got %#v", want, rendered.QueryParams)
 	}
-	if got, want := rendered.QueryParams["param_start_ms"], "-360000"; got != want {
-		t.Fatalf("expected expanded subquery start %q, got %#v", want, rendered.QueryParams)
+	// Subquery step grid is epoch-anchored (mirrors Prom's engine.go:2394-2399):
+	// windowStart = 0 - 60000 - 300000 = -360000; first step-multiple strictly
+	// greater than that, anchored to epoch 0, is -300000.
+	if got, want := rendered.QueryParams["param_start_ms"], "-300000"; got != want {
+		t.Fatalf("expected epoch-aligned subquery start %q, got %#v", want, rendered.QueryParams)
 	}
 	if got, want := rendered.QueryParams["param_end_ms"], "240000"; got != want {
 		t.Fatalf("expected expanded subquery end %q, got %#v", want, rendered.QueryParams)
 	}
-	if got, want := rendered.QueryParams["param_required_start_ms"], "-660000"; got != want {
+	if got, want := rendered.QueryParams["param_required_start_ms"], "-600000"; got != want {
 		t.Fatalf("expected child required start %q, got %#v", want, rendered.QueryParams)
 	}
 	if got, want := rendered.QueryParams["param_required_end_ms"], "240000"; got != want {
@@ -784,6 +812,120 @@ func TestRenderFragmentBuildsScalarConvertSQL(t *testing.T) {
 	for _, check := range checks {
 		if !strings.Contains(sqlb.NormalizeSQL(rangeRendered.SQL), sqlb.NormalizeSQL(check)) {
 			t.Fatalf("expected scalar convert range SQL to contain %q, got %q", check, rangeRendered.SQL)
+		}
+	}
+}
+
+func TestRenderClassicHistogramGroupsQueryBuildsInstantMaterializationSQL(t *testing.T) {
+	rendered, err := renderClassicHistogramGroupsQuery(storage.QueryConfig{Database: "observability", Table: "prometheus"}, &NativeFragment{Kind: FragmentKindAggregation, OutputKind: OutputKindInstantVector, Aggregation: &AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindInstantVector, Selector: &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "http_request_duration_seconds_bucket", Lookback: defaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456}, "hist")
+	if err != nil {
+		t.Fatalf("expected classic histogram instant materialization SQL, got error: %v", err)
+	}
+	checks := []string{
+		"arrayFilter(tag -> tag.1 != 'le' AND tag.1 != '__name__'",
+		"tupleElement(arrayFirst(tag -> tag.1 = 'le', tags), 2) AS le_raw",
+		"multiIf(le_raw IN ['+Inf', 'Inf', '+inf', 'inf'], inf",
+		"sum(cumulative_count) AS cumulative_count",
+		"arraySort(item -> item.1, groupArray((upper_bound, cumulative_count))) AS buckets",
+	}
+	for _, check := range checks {
+		if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(check)) {
+			t.Fatalf("expected classic histogram instant SQL to contain %q, got %q", check, rendered.SQL)
+		}
+	}
+	if got := rendered.QueryParams["param_hist_instant_matcher_0_value"]; got != "http_request_duration_seconds_bucket" {
+		t.Fatalf("expected namespaced histogram selector param, got %#v", rendered.QueryParams)
+	}
+}
+
+func TestRenderClassicHistogramGroupsQueryBuildsRangeMaterializationSQL(t *testing.T) {
+	rendered, err := renderClassicHistogramGroupsQuery(storage.QueryConfig{Database: "observability", Table: "prometheus"}, &NativeFragment{Kind: FragmentKindAggregation, OutputKind: OutputKindInstantVector, Aggregation: &AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindInstantVector, Selector: &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "http_request_duration_seconds_bucket", Lookback: defaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000}, "hist")
+	if err != nil {
+		t.Fatalf("expected classic histogram range materialization SQL, got error: %v", err)
+	}
+	checks := []string{
+		"ARRAY JOIN histogram_series.time_series AS point",
+		"point.1 AS timestamp",
+		"ifNull(toFloat64(point.2), nan) AS cumulative_count",
+		"GROUP BY histogram_tags, timestamp, upper_bound",
+		"arraySort(item -> item.1, groupArray((upper_bound, cumulative_count))) AS buckets",
+	}
+	for _, check := range checks {
+		if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(check)) {
+			t.Fatalf("expected classic histogram range SQL to contain %q, got %q", check, rendered.SQL)
+		}
+	}
+	if got := rendered.QueryParams["param_hist_range_instant_matcher_0_value"]; got != "http_request_duration_seconds_bucket" {
+		t.Fatalf("expected namespaced histogram range selector param, got %#v", rendered.QueryParams)
+	}
+}
+
+func TestRenderFragmentBuildsHistogramProjectionSQL(t *testing.T) {
+	testCases := []struct {
+		name        string
+		wantInstant string
+	}{
+		{name: "histogram_count", wantInstant: "arrayMax(arrayFilter(v -> NOT isNaN(v)"},
+		{name: "histogram_sum", wantInstant: "arraySum(arrayMap((delta, midpoint) -> delta * midpoint"},
+		{name: "histogram_avg", wantInstant: ") / (if(length(buckets) < 2"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fragment := &NativeFragment{Kind: FragmentKindHistogramProjection, OutputKind: OutputKindInstantVector, HistogramProjection: &HistogramProjectionFragment{Func: tc.name, Child: &NativeFragment{Kind: FragmentKindAggregation, OutputKind: OutputKindInstantVector, Aggregation: &AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindInstantVector, Selector: &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "http_request_duration_seconds_bucket", Lookback: defaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}}}
+
+			instant, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456})
+			if err != nil {
+				t.Fatalf("expected histogram projection instant SQL, got error: %v", err)
+			}
+			instantChecks := []string{tc.wantInstant, "NOT isInfinite(tupleElement(arrayElement(buckets, length(buckets)), 1))", "AS value"}
+			for _, check := range instantChecks {
+				if !strings.Contains(sqlb.NormalizeSQL(instant.SQL), sqlb.NormalizeSQL(check)) {
+					t.Fatalf("expected histogram projection instant SQL to contain %q, got %q", check, instant.SQL)
+				}
+			}
+
+			rangeRendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000})
+			if err != nil {
+				t.Fatalf("expected histogram projection range SQL, got error: %v", err)
+			}
+			rangeChecks := []string{"arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series", "GROUP BY tags ORDER BY tags"}
+			for _, check := range rangeChecks {
+				if !strings.Contains(sqlb.NormalizeSQL(rangeRendered.SQL), sqlb.NormalizeSQL(check)) {
+					t.Fatalf("expected histogram projection range SQL to contain %q, got %q", check, rangeRendered.SQL)
+				}
+			}
+		})
+	}
+}
+
+func TestRenderFragmentBuildsHistogramQuantileSQL(t *testing.T) {
+	quantile := 0.9
+	fragment := &NativeFragment{Kind: FragmentKindHistogramFunction, OutputKind: OutputKindInstantVector, HistogramFunction: &HistogramFunctionFragment{Func: "histogram_quantile", Quantile: &quantile, Child: &NativeFragment{Kind: FragmentKindAggregation, OutputKind: OutputKindInstantVector, Aggregation: &AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &NativeFragment{Kind: FragmentKindRangeFunction, OutputKind: OutputKindInstantVector, RangeFunction: &RangeFunctionFragment{Func: "rate", Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindRangeMatrix, Selector: &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "http_request_duration_seconds_bucket", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}}}}}
+
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 300000, RequiredStartMS: 0, RequiredEndMS: 300000})
+	if err != nil {
+		t.Fatalf("expected histogram quantile SQL, got error: %v", err)
+	}
+	checks := []string{"arrayCumSum", "arrayFirstIndex", "tupleElement(arrayElement(buckets, length(buckets)), 1)", "histogram_bucket_materialization_boundary"}
+	for _, check := range checks[:3] {
+		if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(check)) {
+			t.Fatalf("expected histogram_quantile SQL to contain %q, got %q", check, rendered.SQL)
+		}
+	}
+}
+
+func TestRenderFragmentBuildsHistogramFractionSQL(t *testing.T) {
+	lower, upper := 0.0, 1.0
+	fragment := &NativeFragment{Kind: FragmentKindHistogramFunction, OutputKind: OutputKindInstantVector, HistogramFunction: &HistogramFunctionFragment{Func: "histogram_fraction", Lower: &lower, Upper: &upper, Child: &NativeFragment{Kind: FragmentKindAggregation, OutputKind: OutputKindInstantVector, Aggregation: &AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &NativeFragment{Kind: FragmentKindRangeFunction, OutputKind: OutputKindInstantVector, RangeFunction: &RangeFunctionFragment{Func: "rate", Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindRangeMatrix, Selector: &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "http_request_duration_seconds_bucket", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}}}}}
+
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 300000, RequiredStartMS: 0, RequiredEndMS: 300000})
+	if err != nil {
+		t.Fatalf("expected histogram fraction SQL, got error: %v", err)
+	}
+	checks := []string{"arrayCumSum", "arrayFirstIndex", "/ (arrayElement(arrayCumSum", "multiIf(length(buckets) < 2"}
+	for _, check := range checks {
+		if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(check)) {
+			t.Fatalf("expected histogram_fraction SQL to contain %q, got %q", check, rendered.SQL)
 		}
 	}
 }

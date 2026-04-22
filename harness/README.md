@@ -245,6 +245,16 @@ Run it with:
 ./scripts/run-harness.sh --corpus phase12-dataset-variants.json --subjects shim --dataset-variants baseline,resets_gaps,churn_stale,histogram_burst
 ```
 
+A focused histogram-native validation corpus also lives at:
+- `harness/corpus/histogram-native-support.json`
+- `harness/corpus/histogram-native-support.metadata.json`
+
+It currently gates the oracle-compatible classic histogram quantile shapes against Prometheus in native-only mode, including the `histogram_burst` dataset variant:
+
+```bash
+./scripts/run-harness.sh --corpus histogram-native-support.json --subjects shim --native-only --dataset-variants baseline,histogram_burst
+```
+
 The broader dashboard-promotion corpora now also carry auto-annotated dataset-variant hints derived from the shortlist metadata (`families` + `retargetingHint`):
 - `harness/corpus/draft-grafana-top-panel-shortlist.json`
 - `harness/corpus/draft-grafana-top-panel-shortlist.dataset-variants.json`

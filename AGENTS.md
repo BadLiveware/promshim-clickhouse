@@ -147,10 +147,16 @@ via `native_lowering_mode=...`:
     ClickHouse's native modulo uses `x - trunc(x/y)*y` instead of
     Go/Prom's `math.Mod`, producing sub-1e-6 drift on large operands;
     labels and timestamps must still match exactly.
+  - **Small deviances that significantly simplify or speed up the
+    native SQL path.** Allowed only by explicit user approval. The
+    agent must stop, describe the deviance (exact shape, expected
+    magnitude, which queries it affects), quantify the simplification
+    or speedup it unlocks, and explain why a compliant alternative is
+    infeasible. Do not preemptively add this kind of entry; always ask.
 
-  Anything that isn't one of these two — a shim bug, a missing feature,
-  a planner error — stays a visible failure. Don't expand the allowlist
-  to make the compliance run green.
+  Anything that isn't one of these three — a shim bug, a missing
+  feature, a planner error — stays a visible failure. Don't expand the
+  allowlist to make the compliance run green.
 - The harness runs fast — do not wrap these scripts in minutes-long
   timeouts.
 

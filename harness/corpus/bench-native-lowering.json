@@ -1,0 +1,166 @@
+[
+  {
+    "name": "plain_selector_instant",
+    "endpoint": "query",
+    "query": "demo_cpu_usage_seconds_total",
+    "timeOffsetSeconds": 0
+  },
+  {
+    "name": "selector_matcher_instant",
+    "endpoint": "query",
+    "query": "demo_cpu_usage_seconds_total{mode=\"idle\"}",
+    "timeOffsetSeconds": 0
+  },
+  {
+    "name": "selector_regex_instant",
+    "endpoint": "query",
+    "query": "demo_memory_usage_bytes{instance=~\"demo.promlabs.com:.*\"}",
+    "timeOffsetSeconds": 0
+  },
+  {
+    "name": "binop_scalar_instant",
+    "endpoint": "query",
+    "query": "demo_memory_usage_bytes * 1.5",
+    "timeOffsetSeconds": 0
+  },
+  {
+    "name": "sum_by_job_instant",
+    "endpoint": "query",
+    "query": "sum by (job) (demo_cpu_usage_seconds_total)",
+    "timeOffsetSeconds": 0
+  },
+  {
+    "name": "avg_by_instance_instant",
+    "endpoint": "query",
+    "query": "avg by (instance) (demo_memory_usage_bytes)",
+    "timeOffsetSeconds": 0
+  },
+  {
+    "name": "rate_instant",
+    "endpoint": "query",
+    "query": "rate(demo_cpu_usage_seconds_total[5m])",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  },
+  {
+    "name": "sum_rate_by_job_instant",
+    "endpoint": "query",
+    "query": "sum by (job) (rate(demo_cpu_usage_seconds_total[5m]))",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  },
+  {
+    "name": "increase_instant",
+    "endpoint": "query",
+    "query": "increase(demo_api_request_duration_seconds_count[5m])",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  },
+  {
+    "name": "vector_match_instant",
+    "endpoint": "query",
+    "query": "demo_memory_usage_bytes / on(instance, job, type) demo_memory_usage_bytes",
+    "timeOffsetSeconds": 0
+  },
+  {
+    "name": "vector_match_group_left_instant",
+    "endpoint": "query",
+    "query": "demo_memory_usage_bytes / on(instance, job) group_left demo_num_cpus",
+    "timeOffsetSeconds": 0
+  },
+  {
+    "name": "histogram_quantile_instant",
+    "endpoint": "query",
+    "query": "histogram_quantile(0.95, sum by (le) (rate(demo_api_request_duration_seconds_bucket[5m])))",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  },
+  {
+    "name": "topk_instant",
+    "endpoint": "query",
+    "query": "topk(3, demo_memory_usage_bytes)",
+    "timeOffsetSeconds": 0
+  },
+  {
+    "name": "count_values_instant",
+    "endpoint": "query",
+    "query": "count_values(\"mode\", demo_cpu_usage_seconds_total)",
+    "timeOffsetSeconds": 0
+  },
+  {
+    "name": "absent_instant",
+    "endpoint": "query",
+    "query": "absent(nonexistent_metric)",
+    "timeOffsetSeconds": 0
+  },
+  {
+    "name": "offset_instant",
+    "endpoint": "query",
+    "query": "demo_memory_usage_bytes offset 1m",
+    "timeOffsetSeconds": 0
+  },
+  {
+    "name": "subquery_rate_instant",
+    "endpoint": "query",
+    "query": "max_over_time(sum by (job) (rate(demo_cpu_usage_seconds_total[1m]))[5m:30s])",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  },
+  {
+    "name": "negated_unary_instant",
+    "endpoint": "query",
+    "query": "-demo_memory_usage_bytes",
+    "timeOffsetSeconds": 0
+  },
+  {
+    "name": "plain_selector_range",
+    "endpoint": "query_range",
+    "query": "demo_cpu_usage_seconds_total{mode=\"idle\"}",
+    "startOffsetSeconds": -600,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 30
+  },
+  {
+    "name": "sum_rate_by_job_range",
+    "endpoint": "query_range",
+    "query": "sum by (job) (rate(demo_cpu_usage_seconds_total[5m]))",
+    "startOffsetSeconds": -600,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 30,
+    "compareMode": "structural"
+  },
+  {
+    "name": "subquery_rate_range",
+    "endpoint": "query_range",
+    "query": "max_over_time(sum by (job) (rate(demo_cpu_usage_seconds_total[1m]))[5m:30s])",
+    "startOffsetSeconds": -600,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 30,
+    "compareMode": "structural"
+  },
+  {
+    "name": "histogram_quantile_range",
+    "endpoint": "query_range",
+    "query": "histogram_quantile(0.95, sum by (le) (rate(demo_api_request_duration_seconds_bucket[5m])))",
+    "startOffsetSeconds": -600,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 30,
+    "compareMode": "structural"
+  },
+  {
+    "name": "topk_range",
+    "endpoint": "query_range",
+    "query": "topk(3, demo_memory_usage_bytes)",
+    "startOffsetSeconds": -600,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 30
+  },
+  {
+    "name": "vector_match_range",
+    "endpoint": "query_range",
+    "query": "demo_memory_usage_bytes / on(instance, job) group_left demo_num_cpus",
+    "startOffsetSeconds": -600,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 30
+  }
+]

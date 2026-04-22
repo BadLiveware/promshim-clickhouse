@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
+
+	"ch-observability/internal/promshim/obs"
 )
 
 type APIError struct {
@@ -16,6 +19,12 @@ type Response struct {
 	StatusCode int
 	Body       any
 	Stream     func(http.ResponseWriter) error
+	// Strategy and FallbackReason surface the root plan strategy on the
+	// successful response as X-Promshim-Strategy / X-Promshim-Fallback-Reason
+	// headers. They are advisory — producers may leave them unset on endpoints
+	// where the concept does not apply (labels, series, label_values).
+	Strategy       string
+	FallbackReason string
 }
 
 type InstantQueryRequest struct {
@@ -92,17 +101,19 @@ func (h *Handler) handleReady(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
-	resp, apiErr := h.service.InstantQuery(r.Context(), InstantQueryRequest{
+	ctx, metrics := obs.WithCHMetrics(r.Context())
+	resp, apiErr := h.service.InstantQuery(ctx, InstantQueryRequest{
 		Query:              r.URL.Query().Get("query"),
 		Time:               r.URL.Query().Get("time"),
 		Explain:            wantsExplain(r),
 		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
 	})
-	writeServiceResult(w, resp, apiErr)
+	writeServiceResult(w, resp, apiErr, metrics)
 }
 
 func (h *Handler) handleQueryRange(w http.ResponseWriter, r *http.Request) {
-	resp, apiErr := h.service.RangeQuery(r.Context(), RangeQueryRequest{
+	ctx, metrics := obs.WithCHMetrics(r.Context())
+	resp, apiErr := h.service.RangeQuery(ctx, RangeQueryRequest{
 		Query:              r.URL.Query().Get("query"),
 		Start:              r.URL.Query().Get("start"),
 		End:                r.URL.Query().Get("end"),
@@ -110,21 +121,23 @@ func (h *Handler) handleQueryRange(w http.ResponseWriter, r *http.Request) {
 		Explain:            wantsExplain(r),
 		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
 	})
-	writeServiceResult(w, resp, apiErr)
+	writeServiceResult(w, resp, apiErr, metrics)
 }
 
 func (h *Handler) handleQueryExplain(w http.ResponseWriter, r *http.Request) {
-	resp, apiErr := h.service.ExplainInstant(r.Context(), InstantQueryRequest{
+	ctx, metrics := obs.WithCHMetrics(r.Context())
+	resp, apiErr := h.service.ExplainInstant(ctx, InstantQueryRequest{
 		Query:              r.URL.Query().Get("query"),
 		Time:               r.URL.Query().Get("time"),
 		Explain:            true,
 		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
 	})
-	writeServiceResult(w, resp, apiErr)
+	writeServiceResult(w, resp, apiErr, metrics)
 }
 
 func (h *Handler) handleQueryRangeExplain(w http.ResponseWriter, r *http.Request) {
-	resp, apiErr := h.service.ExplainRange(r.Context(), RangeQueryRequest{
+	ctx, metrics := obs.WithCHMetrics(r.Context())
+	resp, apiErr := h.service.ExplainRange(ctx, RangeQueryRequest{
 		Query:              r.URL.Query().Get("query"),
 		Start:              r.URL.Query().Get("start"),
 		End:                r.URL.Query().Get("end"),
@@ -132,20 +145,22 @@ func (h *Handler) handleQueryRangeExplain(w http.ResponseWriter, r *http.Request
 		Explain:            true,
 		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
 	})
-	writeServiceResult(w, resp, apiErr)
+	writeServiceResult(w, resp, apiErr, metrics)
 }
 
 func (h *Handler) handleLabels(w http.ResponseWriter, r *http.Request) {
-	resp, apiErr := h.service.Labels(r.Context(), MetadataRequest{
+	ctx, metrics := obs.WithCHMetrics(r.Context())
+	resp, apiErr := h.service.Labels(ctx, MetadataRequest{
 		Matchers: readMatchers(r),
 		Start:    r.URL.Query().Get("start"),
 		End:      r.URL.Query().Get("end"),
 	})
-	writeServiceResult(w, resp, apiErr)
+	writeServiceResult(w, resp, apiErr, metrics)
 }
 
 func (h *Handler) handleLabelValues(w http.ResponseWriter, r *http.Request) {
-	resp, apiErr := h.service.LabelValues(r.Context(), LabelValuesRequest{
+	ctx, metrics := obs.WithCHMetrics(r.Context())
+	resp, apiErr := h.service.LabelValues(ctx, LabelValuesRequest{
 		Name: r.PathValue("name"),
 		MetadataRequest: MetadataRequest{
 			Matchers: readMatchers(r),
@@ -153,19 +168,20 @@ func (h *Handler) handleLabelValues(w http.ResponseWriter, r *http.Request) {
 			End:      r.URL.Query().Get("end"),
 		},
 	})
-	writeServiceResult(w, resp, apiErr)
+	writeServiceResult(w, resp, apiErr, metrics)
 }
 
 func (h *Handler) handleSeries(w http.ResponseWriter, r *http.Request) {
-	resp, apiErr := h.service.Series(r.Context(), MetadataRequest{
+	ctx, metrics := obs.WithCHMetrics(r.Context())
+	resp, apiErr := h.service.Series(ctx, MetadataRequest{
 		Matchers: readMatchers(r),
 		Start:    r.URL.Query().Get("start"),
 		End:      r.URL.Query().Get("end"),
 	})
-	writeServiceResult(w, resp, apiErr)
+	writeServiceResult(w, resp, apiErr, metrics)
 }
 
-func writeServiceResult(w http.ResponseWriter, resp *Response, apiErr *APIError) {
+func writeServiceResult(w http.ResponseWriter, resp *Response, apiErr *APIError, metrics *obs.CHMetrics) {
 	if apiErr != nil {
 		writePromError(w, *apiErr)
 		return
@@ -174,6 +190,7 @@ func writeServiceResult(w http.ResponseWriter, resp *Response, apiErr *APIError)
 		writePromError(w, APIError{StatusCode: http.StatusInternalServerError, ErrorType: "execution", Error: "service returned no response"})
 		return
 	}
+	setPromshimHeaders(w, resp, metrics)
 	if resp.Stream != nil {
 		if err := resp.Stream(w); err != nil {
 			writePromError(w, APIError{StatusCode: http.StatusBadGateway, ErrorType: "execution", Error: err.Error()})
@@ -185,6 +202,19 @@ func writeServiceResult(w http.ResponseWriter, resp *Response, apiErr *APIError)
 		statusCode = http.StatusOK
 	}
 	writeJSON(w, statusCode, resp.Body)
+}
+
+func setPromshimHeaders(w http.ResponseWriter, resp *Response, metrics *obs.CHMetrics) {
+	if resp.Strategy != "" {
+		w.Header().Set("X-Promshim-Strategy", resp.Strategy)
+	}
+	if resp.FallbackReason != "" {
+		w.Header().Set("X-Promshim-Fallback-Reason", resp.FallbackReason)
+	}
+	if metrics != nil {
+		w.Header().Set("X-Promshim-CH-Roundtrips", strconv.FormatInt(metrics.Roundtrips(), 10))
+		w.Header().Set("X-Promshim-CH-Millis", strconv.FormatInt(metrics.Millis(), 10))
+	}
 }
 
 func readMatchers(r *http.Request) []string {

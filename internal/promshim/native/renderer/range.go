@@ -205,12 +205,119 @@ func buildInstantRangeFunctionSQL(sourceSQL, fn string, paramNumber *float64, pa
 	if fn == "predict_linear" {
 		timestampExpr = "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"
 	}
-	query := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: rangeFunctionTagsExpr(fn)}, Alias: "tags"}, {Expr: sqlb.RawLit{V: timestampExpr}, Alias: "timestamp"}, {Expr: sqlb.RawLit{V: rangeFunctionValueExpr(fn, "time_series", "", paramNumber, paramNumbers, "arrayMap(point -> tupleElement(point, 1), time_series)", strconv.FormatInt(evaluationTimeMS, 10), rangeMS)}, Alias: "value"}},
+	columns := []sqlb.ColExpr{
+		{Expr: sqlb.Ident("time_series"), Alias: "time_series"},
+		{Expr: sqlb.RawLit{V: rangeFunctionTagsExpr(fn)}, Alias: "tags"},
+		{Expr: sqlb.RawLit{V: timestampExpr}, Alias: "timestamp"},
+	}
+	if instantRangeFunctionNeedsTimestamps(fn) {
+		columns = append(columns, sqlb.ColExpr{Expr: sqlb.RawLit{V: "arrayMap(point -> tupleElement(point, 1), time_series)"}, Alias: "range_timestamps"})
+	}
+	if instantRangeFunctionNeedsDuration(fn) {
+		columns = append(columns, sqlb.ColExpr{Expr: sqlb.RawLit{V: "arrayElement(range_timestamps, length(time_series)) - arrayElement(range_timestamps, 1)"}, Alias: "range_duration_ms"})
+	}
+	if instantRangeFunctionNeedsValues(fn) {
+		columns = append(columns, sqlb.ColExpr{Expr: sqlb.RawLit{V: "arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), time_series)"}, Alias: "range_values"})
+	}
+	if instantRangeFunctionNeedsHasNaN(fn) {
+		columns = append(columns, sqlb.ColExpr{Expr: sqlb.RawLit{V: "arrayExists(v -> isNaN(v), range_values)"}, Alias: "range_has_nan"})
+	}
+	if instantRangeFunctionNeedsFiniteValues(fn) {
+		columns = append(columns, sqlb.ColExpr{Expr: sqlb.RawLit{V: "arrayFilter(v -> NOT isNaN(v), range_values)"}, Alias: "range_values_finite"})
+	}
+	if instantRangeFunctionNeedsPairwiseNeighbors(fn) {
+		columns = append(columns,
+			sqlb.ColExpr{Expr: sqlb.RawLit{V: "arrayPopBack(range_values)"}, Alias: "range_values_prev"},
+			sqlb.ColExpr{Expr: sqlb.RawLit{V: "arrayPopFront(range_values)"}, Alias: "range_values_cur"},
+		)
+	}
+	if instantRangeFunctionNeedsCounterDelta(fn) {
+		columns = append(columns, sqlb.ColExpr{Expr: sqlb.RawLit{V: "arraySum(arrayMap((p, c) -> if(c < p, c, c - p), range_values_prev, range_values_cur))"}, Alias: "range_counter_delta_sum"})
+	}
+	if instantRangeFunctionNeedsChangesCount(fn) {
+		columns = append(columns, sqlb.ColExpr{Expr: sqlb.RawLit{V: "toFloat64(arraySum(arrayMap((p, c) -> if(c != p, 1, 0), range_values_prev, range_values_cur)))"}, Alias: "range_changes_count"})
+	}
+	bound := &sqlb.Select{
+		Columns: columns,
 		From:    rawRenderedSubquerySource(sourceSQL),
 		Where:   sqlb.RawLit{V: "length(time_series) > " + strconv.Itoa(minimumSeriesLengthForRangeFunction(fn))},
 	}
+	valuesSource := ""
+	if instantRangeFunctionNeedsValues(fn) {
+		valuesSource = "range_values"
+	}
+	timestampsSource := "arrayMap(point -> tupleElement(point, 1), time_series)"
+	if instantRangeFunctionNeedsTimestamps(fn) {
+		timestampsSource = "range_timestamps"
+	}
+	valueExpr := rangeFunctionValueExpr(fn, "time_series", valuesSource, paramNumber, paramNumbers, timestampsSource, strconv.FormatInt(evaluationTimeMS, 10), rangeMS)
+	query := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.RawLit{V: valueExpr}, Alias: "value"}},
+		From:    sqlb.SubSelect{S: bound},
+	}
 	return buildNativeWrapperSQL(query)
+}
+
+func instantRangeFunctionNeedsValues(fn string) bool {
+	switch fn {
+	case "first_over_time", "last_over_time", "count_over_time", "present_over_time", "ts_of_first_over_time", "ts_of_last_over_time":
+		return false
+	default:
+		return true
+	}
+}
+
+func instantRangeFunctionNeedsTimestamps(fn string) bool {
+	switch fn {
+	case "rate", "irate", "increase", "delta", "deriv", "predict_linear", "ts_of_first_over_time", "ts_of_last_over_time", "ts_of_max_over_time", "ts_of_min_over_time":
+		return true
+	default:
+		return false
+	}
+}
+
+func instantRangeFunctionNeedsDuration(fn string) bool {
+	return fn == "rate"
+}
+
+func instantRangeFunctionNeedsHasNaN(fn string) bool {
+	switch fn {
+	case "sum_over_time", "avg_over_time", "min_over_time", "max_over_time", "stddev_over_time", "stdvar_over_time", "rate", "irate", "increase", "changes", "deriv":
+		return true
+	default:
+		return false
+	}
+}
+
+func instantRangeFunctionNeedsFiniteValues(fn string) bool {
+	switch fn {
+	case "sum_over_time", "avg_over_time", "min_over_time", "max_over_time", "resets":
+		return true
+	default:
+		return false
+	}
+}
+
+func instantRangeFunctionNeedsPairwiseNeighbors(fn string) bool {
+	switch fn {
+	case "rate", "increase", "changes":
+		return true
+	default:
+		return false
+	}
+}
+
+func instantRangeFunctionNeedsCounterDelta(fn string) bool {
+	switch fn {
+	case "rate", "increase":
+		return true
+	default:
+		return false
+	}
+}
+
+func instantRangeFunctionNeedsChangesCount(fn string) bool {
+	return fn == "changes"
 }
 
 func rangeFunctionTagsExpr(fn string) string {
@@ -265,9 +372,13 @@ func rangeFunctionValueExpr(fn, seriesExpr, valuesSourceExpr string, paramNumber
 		valuesExpr = sqlb.RawLit{V: valuesSourceExpr}
 	}
 	timestampsExpr := sqlb.RawLit{V: timestampsSourceExpr}
-	hasNaN := sqlb.Call{Name: "arrayExists", Args: []sqlb.Expr{sqlb.Lambda{Params: []sqlb.Ident{"v"}, Body: sqlb.Call{Name: "isNaN", Args: []sqlb.Expr{sqlb.Ident("v")}}}, valuesExpr}}
-	finiteValues := sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.Lambda{Params: []sqlb.Ident{"v"}, Body: sqlb.RawLit{V: "NOT isNaN(v)"}}, valuesExpr}}
-	seriesLength := sqlb.Call{Name: "length", Args: []sqlb.Expr{series}}
+	hasNaN := sqlb.Expr(sqlb.Call{Name: "arrayExists", Args: []sqlb.Expr{sqlb.Lambda{Params: []sqlb.Ident{"v"}, Body: sqlb.Call{Name: "isNaN", Args: []sqlb.Expr{sqlb.Ident("v")}}}, valuesExpr}})
+	finiteValues := sqlb.Expr(sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.Lambda{Params: []sqlb.Ident{"v"}, Body: sqlb.RawLit{V: "NOT isNaN(v)"}}, valuesExpr}})
+	seriesLength := sqlb.Expr(sqlb.Call{Name: "length", Args: []sqlb.Expr{series}})
+	if valuesSourceExpr == "range_values" {
+		hasNaN = sqlb.Ident("range_has_nan")
+		finiteValues = sqlb.Ident("range_values_finite")
+	}
 	lenMinusOne := sqlb.RawLit{V: renderSQLExprNoParams(seriesLength) + " - 1"}
 
 	arrayElementAtLength := func(expr sqlb.Expr) sqlb.Expr {
@@ -285,6 +396,12 @@ func rangeFunctionValueExpr(fn, seriesExpr, valuesSourceExpr string, paramNumber
 		curValues = sqlb.Ident("window_values_cur")
 		counterDeltaExpr = sqlb.Ident("counter_delta_sum")
 		changesExpr = sqlb.Ident("changes_count")
+	}
+	if valuesSourceExpr == "range_values" {
+		prevValues = sqlb.Ident("range_values_prev")
+		curValues = sqlb.Ident("range_values_cur")
+		counterDeltaExpr = sqlb.Ident("range_counter_delta_sum")
+		changesExpr = sqlb.Ident("range_changes_count")
 	}
 	lenFiniteIsZero := sqlb.Binary{Op: "=", L: sqlb.Call{Name: "length", Args: []sqlb.Expr{finiteValues}}, R: sqlb.RawLit{V: "0"}}
 	interpolatedQuantileExpr := func(q float64, valuesSQL string) string {
@@ -357,6 +474,9 @@ func rangeFunctionValueExpr(fn, seriesExpr, valuesSourceExpr string, paramNumber
 		durationExpr := sqlb.Expr(sqlb.RawLit{V: renderSQLExprNoParams(arrayElementAtLength(timestampsExpr)) + " - arrayElement(" + renderSQLExprNoParams(timestampsExpr) + ", 1)"})
 		if valuesSourceExpr == "window_values" {
 			durationExpr = sqlb.Ident("window_duration_ms")
+		}
+		if valuesSourceExpr == "range_values" {
+			durationExpr = sqlb.Ident("range_duration_ms")
 		}
 		condition := sqlb.RawLit{V: renderSQLExprNoParams(hasNaN) + " OR (" + renderSQLExprNoParams(durationExpr) + ") <= 0"}
 		resultExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(counterDeltaExpr) + ") / (" + renderSQLExprNoParams(durationExpr) + ")"}

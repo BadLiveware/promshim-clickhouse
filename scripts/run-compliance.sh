@@ -12,9 +12,14 @@ Default flow:
   1) docker compose build promshim         (in harness/compliance)
   2) docker compose up -d                  (clickhouse + prometheus + promshim)
   3) wait for Prometheus + promshim to answer
-  4) harness/compliance/scripts/run-compliance.sh   (tester -> artifacts/)
-  5) harness/compliance/scripts/classify-failures.sh  (latest report)
-  6) docker compose down                   (volumes preserved)
+  4) pass #1 (prefer mode, gated by allowlist)
+     - harness/compliance/scripts/run-compliance.sh --mode prefer --suffix prefer
+     - harness/compliance/scripts/classify-failures.sh (latest report)
+  5) recreate promshim with NATIVE-ONLY override (force_supported)
+  6) pass #2 (native mode, informational gap report)
+     - harness/compliance/scripts/run-compliance.sh --mode native --suffix native
+     - harness/compliance/scripts/native-gap-report.sh (latest native report)
+  7) docker compose down                   (volumes preserved)
 
 The ClickHouse schema and Prometheus TSDB fixture are persisted in docker
 volumes, so repeat runs reuse the frozen fixture window configured in
@@ -24,6 +29,10 @@ Options:
   --no-build         Skip the promshim image build.
   --keep-up          Leave the stack running after the tester finishes.
   --skip-classify    Skip the classify-failures.sh summary step.
+  --skip-native      Skip pass #2 (native-only). Useful when iterating on
+                     allowlist/prefer-mode behavior.
+  --skip-prefer      Skip pass #1 (prefer). Useful when only native
+                     coverage matters.
   --ready-timeout N  Seconds to wait for endpoints to answer (default: 60).
   -h, --help         Show this help text.
 EOF
@@ -51,6 +60,8 @@ COMPLIANCE_DIR="${REPO_ROOT}/harness/compliance"
 BUILD_IMAGES=1
 KEEP_UP=0
 SKIP_CLASSIFY=0
+SKIP_NATIVE=0
+SKIP_PREFER=0
 READY_TIMEOUT=60
 
 while [[ $# -gt 0 ]]; do
@@ -58,11 +69,17 @@ while [[ $# -gt 0 ]]; do
     --no-build)        BUILD_IMAGES=0; shift ;;
     --keep-up)         KEEP_UP=1; shift ;;
     --skip-classify)   SKIP_CLASSIFY=1; shift ;;
+    --skip-native)     SKIP_NATIVE=1; shift ;;
+    --skip-prefer)     SKIP_PREFER=1; shift ;;
     --ready-timeout)   READY_TIMEOUT="$2"; shift 2 ;;
     -h|--help)         usage; exit 0 ;;
     *)                 fatal "Unknown argument: $1" ;;
   esac
 done
+
+if (( SKIP_NATIVE == 1 )) && (( SKIP_PREFER == 1 )); then
+  fatal "--skip-native and --skip-prefer together would run neither pass"
+fi
 
 if ! [[ "$READY_TIMEOUT" =~ ^[0-9]+$ ]] || [[ "$READY_TIMEOUT" -lt 1 ]]; then
   fatal "--ready-timeout must be a positive integer"
@@ -130,14 +147,55 @@ if (( smoke_ok == 0 )); then
   fatal "promshim did not successfully serve a query within ${READY_TIMEOUT}s"
 fi
 
-log "Running compliance tester."
-./scripts/run-compliance.sh
+OVERALL_EXIT=0
 
-if (( SKIP_CLASSIFY == 0 )); then
-  log "Classifying failures from latest report."
-  ./scripts/classify-failures.sh
+if (( SKIP_PREFER == 0 )); then
+  log "Pass #1: prefer mode (allowlist-gated)."
+  if ! ./scripts/run-compliance.sh --mode prefer --suffix prefer; then
+    OVERALL_EXIT=1
+  fi
+
+  if (( SKIP_CLASSIFY == 0 )); then
+    log "Classifying failures from latest prefer-mode report."
+    latest_prefer=$(ls -t artifacts/compliance-report-prefer-*.json 2>/dev/null | head -1 || true)
+    if [[ -n "$latest_prefer" ]]; then
+      ./scripts/classify-failures.sh "$latest_prefer" || true
+    fi
+  else
+    log "Skipping classify step (--skip-classify)."
+  fi
 else
-  log "Skipping classify step (--skip-classify)."
+  log "Skipping prefer-mode pass (--skip-prefer)."
+fi
+
+if (( SKIP_NATIVE == 0 )); then
+  log "Recreating promshim with native-only lowering (force_supported)."
+  docker compose -f docker-compose.yml -f docker-compose.native-only.yml up -d promshim >/dev/null
+
+  wait_for_http "promshim (native-only)" "http://localhost:29091/-/ready"
+  log "Probing native-only promshim -> ClickHouse integration."
+  smoke_deadline=$(( $(date +%s) + READY_TIMEOUT ))
+  while (( $(date +%s) < smoke_deadline )); do
+    if curl -fsS "http://localhost:29091/api/v1/query?query=up" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+
+  log "Pass #2: native-only mode (informational gap report, no allowlist)."
+  # Native pass intentionally does NOT fail the overall exit code — gaps
+  # are tracked openly in the gap report, not as allowlistable failures.
+  ./scripts/run-compliance.sh --mode native --suffix native || true
+
+  log "Native-mode gap report:"
+  ./scripts/native-gap-report.sh || true
+else
+  log "Skipping native-only pass (--skip-native)."
+fi
+
+if (( OVERALL_EXIT != 0 )); then
+  log "Compliance run completed with prefer-mode regressions."
+  exit "$OVERALL_EXIT"
 fi
 
 log "Compliance run completed."

@@ -10,16 +10,6 @@
   ],
   "entries": [
     {
-      "id": "promshim-utf8-label-names-label-replace",
-      "query": "label_replace(demo_num_cpus, \"~invalid\", \"\", \"src\", \"(.*)\")",
-      "reason": "Prom 3.x added UTF-8 label-name support, so '~invalid' is now a valid destination label and the query succeeds. promshim still validates against the pre-3.x label-name regex (bad_data: invalid destination label name). Matches a class of queries that should only pass once promshim implements UTF-8 label handling. See harness/compliance/scripts/patch-queries-for-prom3.py for why this entry is no longer should_fail upstream."
-    },
-    {
-      "id": "promshim-utf8-label-names-label-join",
-      "query": "label_join(demo_num_cpus, \"~invalid\", \"-\", \"instance\")",
-      "reason": "Same UTF-8 label-name gap as promshim-utf8-label-names-label-replace, but via label_join's destination label argument."
-    },
-    {
       "id": "topk-tie-break-ordering",
       "query": "topk without(instance) (2, demo_memory_usage_bytes)",
       "must_match": {

@@ -127,7 +127,7 @@ func applyUnarySourceTransform(op parser.ItemType, valueExpr string, childDropsM
 }
 
 func applyUnaryValueTransform(op parser.ItemType, childFragment *NativeFragment, childLineage LabelLineage) (*NativeFragment, LabelLineage, bool) {
-	if childFragment == nil || childFragment.OutputKind != OutputKindInstantVector {
+	if childFragment == nil || (childFragment.OutputKind != OutputKindInstantVector && childFragment.OutputKind != OutputKindScalar) {
 		return nil, LabelLineage{}, false
 	}
 	valueExpr, dropsMetric, ok := applyUnarySourceTransform(op, "{value}", childFragment.DropsMetric)
@@ -140,7 +140,7 @@ func applyUnaryValueTransform(op parser.ItemType, childFragment *NativeFragment,
 	}
 	return &NativeFragment{
 		Kind:        FragmentKindValueTransform,
-		OutputKind:  OutputKindInstantVector,
+		OutputKind:  childFragment.OutputKind,
 		DropsMetric: dropsMetric,
 		ValueTransform: &ValueTransformFragment{
 			Child:       childFragment,
@@ -177,9 +177,9 @@ func applyBinarySourceTransform(op parser.ItemType, valueExpr string, scalar flo
 		return valueExpr + " / " + scalarExpr, true, true
 	case parser.MOD:
 		if scalarOnLeft {
-			return "modulo(" + scalarExpr + ", " + valueExpr + ")", true, true
+			return promQLModuloExpr(scalarExpr, valueExpr), true, true
 		}
-		return "modulo(" + valueExpr + ", " + scalarExpr + ")", true, true
+		return promQLModuloExpr(valueExpr, scalarExpr), true, true
 	case parser.POW:
 		if scalarOnLeft {
 			return "pow(" + scalarExpr + ", " + valueExpr + ")", true, true
@@ -213,22 +213,53 @@ func applyRoundValueTransform(childFragment *NativeFragment, childLineage LabelL
 }
 
 func applyScalarValueTransform(op parser.ItemType, vectorFragment *NativeFragment, vectorLineage LabelLineage, scalar float64, scalarOnLeft bool) (*NativeFragment, LabelLineage, bool) {
-	if vectorFragment == nil || vectorFragment.OutputKind != OutputKindInstantVector {
+	if vectorFragment == nil || (vectorFragment.OutputKind != OutputKindInstantVector && vectorFragment.OutputKind != OutputKindScalar) {
 		return nil, LabelLineage{}, false
 	}
 	valueExpr, dropsMetric, ok := buildBinaryTemplateForScalarExpr(op, storage.NativeFloatLiteral(scalar), "{value}", scalarOnLeft)
 	if !ok {
 		return nil, LabelLineage{}, false
 	}
+	var runtimeTransform *RuntimeValueTransform
+	if op == parser.MOD {
+		runtimeScalar := scalar
+		runtimeTransform = &RuntimeValueTransform{Op: RuntimeValueTransformPromQLModulo, Scalar: &runtimeScalar, ScalarOnLeft: scalarOnLeft}
+		valueExpr = "{value}"
+	}
 	lineage := withMetricNameState(passthroughLabelLineage(vectorLineage), boolState(dropsMetric, LabelLineageDropped, vectorLineage.MetricName))
 	return &NativeFragment{
 		Kind:        FragmentKindValueTransform,
-		OutputKind:  OutputKindInstantVector,
+		OutputKind:  vectorFragment.OutputKind,
 		DropsMetric: dropsMetric,
 		ValueTransform: &ValueTransformFragment{
+			Child:            vectorFragment,
+			ValueExpr:        valueExpr,
+			DropsMetric:      dropsMetric,
+			RuntimeTransform: runtimeTransform,
+		},
+	}, lineage, true
+}
+
+func applyComparisonBoolTransform(op parser.ItemType, returnBool bool, vectorFragment *NativeFragment, vectorLineage LabelLineage, scalar float64, scalarOnLeft bool) (*NativeFragment, LabelLineage, bool) {
+	if vectorFragment == nil || !returnBool || (vectorFragment.OutputKind != OutputKindInstantVector && vectorFragment.OutputKind != OutputKindScalar) || !isComparisonBinaryOperator(op) {
+		return nil, LabelLineage{}, false
+	}
+	filter, ok := comparisonFilterTemplate(op, scalar, scalarOnLeft)
+	if !ok {
+		return nil, LabelLineage{}, false
+	}
+	lineage := unknownLineage()
+	if vectorFragment.OutputKind == OutputKindInstantVector {
+		lineage = withMetricNameState(passthroughLabelLineage(vectorLineage), LabelLineageDropped)
+	}
+	return &NativeFragment{
+		Kind:        FragmentKindValueTransform,
+		OutputKind:  vectorFragment.OutputKind,
+		DropsMetric: true,
+		ValueTransform: &ValueTransformFragment{
 			Child:       vectorFragment,
-			ValueExpr:   valueExpr,
-			DropsMetric: dropsMetric,
+			ValueExpr:   "if(" + filter + ", 1.0, 0.0)",
+			DropsMetric: true,
 		},
 	}, lineage, true
 }
@@ -263,11 +294,15 @@ func applyComparisonFilterTransform(op parser.ItemType, returnBool bool, vectorF
 }
 
 func comparisonFilterTemplate(op parser.ItemType, scalar float64, scalarOnLeft bool) (string, bool) {
+	return comparisonFilterExprTemplate(op, storage.NativeFloatLiteral(scalar), scalarOnLeft)
+}
+
+func comparisonFilterExprTemplate(op parser.ItemType, scalarExpr string, scalarOnLeft bool) (string, bool) {
 	opSym, ok := comparisonOperatorSymbol(op)
 	if !ok {
 		return "", false
 	}
-	scalarExpr := storage.NativeFloatLiteral(scalar)
+	scalarExpr = wrapValueExpr(scalarExpr)
 	if scalarOnLeft {
 		return scalarExpr + " " + opSym + " ({value})", true
 	}
@@ -293,6 +328,73 @@ func comparisonOperatorSymbol(op parser.ItemType) (string, bool) {
 	}
 }
 
+func promQLModuloExpr(left, right string) string {
+	left = wrapValueExpr(left)
+	right = wrapValueExpr(right)
+	absRight := "abs(" + right + ")"
+	positiveMod := "positiveModulo(" + left + ", " + absRight + ")"
+	negativeMod := "-positiveModulo(-(" + left + "), " + absRight + ")"
+	return "if(isNaN(" + left + ") OR isNaN(" + right + ") OR " + right + " = 0 OR isInfinite(" + left + "), nan, if(isInfinite(" + right + "), " + left + ", if(" + left + " < 0, " + negativeMod + ", " + positiveMod + ")))"
+}
+
+func applyScalarExprChildTransform(op parser.ItemType, returnBool bool, scalarExpr string, childFragment *NativeFragment, childLineage LabelLineage, scalarOnLeft bool) (*NativeFragment, LabelLineage, bool) {
+	if childFragment == nil || (childFragment.OutputKind != OutputKindInstantVector && childFragment.OutputKind != OutputKindScalar) {
+		return nil, LabelLineage{}, false
+	}
+	if isComparisonBinaryOperator(op) {
+		filter, ok := comparisonFilterExprTemplate(op, scalarExpr, scalarOnLeft)
+		if !ok {
+			return nil, LabelLineage{}, false
+		}
+		if returnBool {
+			lineage := unknownLineage()
+			if childFragment.OutputKind == OutputKindInstantVector {
+				lineage = withMetricNameState(passthroughLabelLineage(childLineage), LabelLineageDropped)
+			}
+			return &NativeFragment{
+				Kind:        FragmentKindValueTransform,
+				OutputKind:  childFragment.OutputKind,
+				DropsMetric: true,
+				ValueTransform: &ValueTransformFragment{
+					Child:       childFragment,
+					ValueExpr:   "if(" + filter + ", 1.0, 0.0)",
+					DropsMetric: true,
+				},
+			}, lineage, true
+		}
+		if childFragment.OutputKind != OutputKindInstantVector {
+			return nil, LabelLineage{}, false
+		}
+		return &NativeFragment{
+			Kind:       FragmentKindValueTransform,
+			OutputKind: OutputKindInstantVector,
+			ValueTransform: &ValueTransformFragment{
+				Child:      childFragment,
+				ValueExpr:  "{value}",
+				FilterExpr: filter,
+			},
+		}, passthroughLabelLineage(childLineage), true
+	}
+	template, dropsMetric, ok := buildBinaryTemplateForScalarExpr(op, scalarExpr, "{value}", scalarOnLeft)
+	if !ok {
+		return nil, LabelLineage{}, false
+	}
+	lineage := unknownLineage()
+	if childFragment.OutputKind == OutputKindInstantVector {
+		lineage = withMetricNameState(passthroughLabelLineage(childLineage), boolState(dropsMetric, LabelLineageDropped, childLineage.MetricName))
+	}
+	return &NativeFragment{
+		Kind:        FragmentKindValueTransform,
+		OutputKind:  childFragment.OutputKind,
+		DropsMetric: dropsMetric,
+		ValueTransform: &ValueTransformFragment{
+			Child:       childFragment,
+			ValueExpr:   template,
+			DropsMetric: dropsMetric,
+		},
+	}, lineage, true
+}
+
 func buildBinaryTemplateForScalarExpr(op parser.ItemType, scalarExpr, valueExpr string, scalarOnLeft bool) (string, bool, bool) {
 	left := "(" + scalarExpr + ")"
 	right := "(" + valueExpr + ")"
@@ -310,7 +412,7 @@ func buildBinaryTemplateForScalarExpr(op parser.ItemType, scalarExpr, valueExpr 
 	case parser.DIV:
 		return left + " / " + right, true, true
 	case parser.MOD:
-		return "modulo(" + left + ", " + right + ")", true, true
+		return promQLModuloExpr(left, right), true, true
 	case parser.POW:
 		return "pow(" + left + ", " + right + ")", true, true
 	default:

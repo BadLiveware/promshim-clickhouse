@@ -27,29 +27,15 @@ func syntheticScalarValueTemplate(name string) (string, bool) {
 	}
 }
 
-func applySyntheticScalarVectorTransform(op parser.ItemType, syntheticFunc string, vectorFragment *NativeFragment, vectorLineage LabelLineage, scalarOnLeft bool) (*NativeFragment, LabelLineage, bool) {
-	if vectorFragment == nil {
+func applySyntheticScalarChildTransform(op parser.ItemType, returnBool bool, syntheticFunc string, childFragment *NativeFragment, childLineage LabelLineage, scalarOnLeft bool) (*NativeFragment, LabelLineage, bool) {
+	if childFragment == nil {
 		return nil, LabelLineage{}, false
 	}
 	scalarExpr, ok := syntheticScalarValueTemplate(syntheticFunc)
 	if !ok {
 		return nil, LabelLineage{}, false
 	}
-	template, dropsMetric, ok := buildBinaryTemplateForScalarExpr(op, scalarExpr, "{value}", scalarOnLeft)
-	if !ok {
-		return nil, LabelLineage{}, false
-	}
-	lineage := withMetricNameState(passthroughLabelLineage(vectorLineage), boolState(dropsMetric, LabelLineageDropped, vectorLineage.MetricName))
-	return &NativeFragment{
-		Kind:       FragmentKindValueTransform,
-		OutputKind: OutputKindInstantVector,
-		ValueTransform: &ValueTransformFragment{
-			Child:       vectorFragment,
-			ValueExpr:   template,
-			DropsMetric: dropsMetric,
-		},
-		DropsMetric: dropsMetric,
-	}, lineage, true
+	return applyScalarExprChildTransform(op, returnBool, scalarExpr, childFragment, childLineage, scalarOnLeft)
 }
 
 func tagsExprForMetricDrop(dropMetric bool) string {

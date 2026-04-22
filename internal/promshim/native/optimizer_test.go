@@ -3,6 +3,7 @@ package native
 import (
 	"strings"
 	"testing"
+	"time"
 
 	planpkg "ch-observability/internal/promshim/plan"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -39,6 +40,29 @@ func TestBuildOptimizedFragmentRecordsMandatoryPassOutputs(t *testing.T) {
 	}
 	if optimized.Report.RequiredInputStartMS != -90000 || optimized.Report.RequiredInputEndMS != 210000 {
 		t.Fatalf("expected evaluation-range propagation to compute [-90000,210000], got start=%d end=%d", optimized.Report.RequiredInputStartMS, optimized.Report.RequiredInputEndMS)
+	}
+}
+
+func TestBuildOptimizedFragmentUsesSignedNegativeSelectorOffsetBounds(t *testing.T) {
+	expr := mustParseExpr(t, `up offset -1m`)
+	logical := &planpkg.LogicalLeafExprPlan{Expr: expr}
+
+	optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeInstant, EvaluationTimeMS: 300000})
+	if err != nil {
+		t.Fatalf("expected optimized fragment, got error: %v", err)
+	}
+	selector := BaseSelectorSource(optimized.Fragment)
+	if selector == nil {
+		t.Fatal("expected base selector source")
+	}
+	if got, want := selector.Offset, -1*time.Minute; got != want {
+		t.Fatalf("expected signed selector offset %s, got %s", want, got)
+	}
+	if got, want := optimized.Report.RequiredInputStartMS, int64(60000); got != want {
+		t.Fatalf("expected required input start %d, got %d", want, got)
+	}
+	if got, want := optimized.Report.RequiredInputEndMS, int64(360000); got != want {
+		t.Fatalf("expected required input end %d, got %d", want, got)
 	}
 }
 

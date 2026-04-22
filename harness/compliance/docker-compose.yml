@@ -30,14 +30,14 @@ services:
     restart: "no"
 
   prometheus:
-    image: prom/prometheus:v2.53.0
+    image: prom/prometheus:v3.5.2
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --web.enable-remote-write-receiver
       - --web.enable-admin-api
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=10y
-      - --enable-feature=promql-binop-fill-modifiers
+      - --enable-feature=promql-binop-fill-modifiers,promql-experimental-functions
     ports:
       - "29090:9090"
     volumes:

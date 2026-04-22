@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"strings"
 
 	"ch-observability/internal/promshim/native/sqlb"
 	"ch-observability/internal/promshim/storage/schema"
@@ -28,7 +29,7 @@ func BuildRangeAggregationOverRowsSubquerySQL(sourceSQL string, params map[strin
 			{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
 			{Expr: aggExpr, Alias: "value"},
 		},
-		From:    sqlb.RawSource{SQL: rawSubquerySQL(sourceSQL)},
+		From:    sqlb.RawSource{SQL: rawSubquerySQL(trimNestedRowSourceSQL(sourceSQL))},
 		GroupBy: []sqlb.Expr{sqlb.Ident("grouping_tags"), sqlb.Ident("timestamp")},
 	}
 	outer := &sqlb.Select{
@@ -46,4 +47,15 @@ func BuildRangeAggregationOverRowsSubquerySQL(sourceSQL string, params map[strin
 		clonedParams[key] = value
 	}
 	return sql + schema.QuerySuffix, clonedParams, nil
+}
+
+func trimNestedRowSourceSQL(sql string) string {
+	sql = strings.TrimSpace(sql)
+	if idx := strings.LastIndex(sql, schema.SettingsLine); idx >= 0 {
+		sql = strings.TrimSpace(sql[:idx])
+	}
+	if idx := strings.LastIndex(sql, schema.FormatLine); idx >= 0 {
+		sql = strings.TrimSpace(sql[:idx])
+	}
+	return sql
 }

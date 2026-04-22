@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"ch-observability/internal/promshim/native/sqlb"
+	"ch-observability/internal/promshim/storage/schema"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -26,5 +27,8 @@ func TestBuildRangeAggregationOverRowsSubquerySQLAvoidsTimeSeriesFlattening(t *t
 	}
 	if strings.Contains(sql, "ARRAY JOIN time_series AS point") {
 		t.Fatalf("expected row-oriented range aggregation to avoid ARRAY JOIN time_series, got %q", sql)
+	}
+	if got := strings.Count(sql, schema.FormatLine); got != 1 {
+		t.Fatalf("expected exactly one trailing FORMAT clause after trimming nested row source SQL, got count=%d sql=%q", got, sql)
 	}
 }

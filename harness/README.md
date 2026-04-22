@@ -26,14 +26,26 @@ From the repo root:
 ./scripts/run-harness.sh
 ```
 
+With no arguments this runs every suite we care about:
+
+1. **differential** — `harness/corpus/queries.json` across all configured subjects.
+2. **dashboard** — `harness/corpus/common-dashboard-subset.json` with `--subjects shim`.
+3. **compliance** — the upstream PromQL compliance tester (delegates to `./scripts/run-compliance.sh`, which brings up the separate compliance stack with its frozen fixture).
+
+Suites 1 and 2 share a single main-harness stack and a single seed run. Suite 3 runs against the independent `harness/compliance/` stack. Each suite prints its own summary; the runner exits 0 as long as the tooling itself completes.
+
 Useful options:
 
-- `--subjects <list>` to restrict compare subjects globally, e.g. `shim` or `shim,promclick`
-- `--dataset-variants <list>` to seed multiple dataset shapes in one run, e.g. `baseline,resets_gaps`
-- `--native-only` to force `native_lowering_mode=force_supported` for every query row that does not already set an explicit mode
-- `--no-build` to skip rebuilding images
-- `--keep-up` to keep the stack running for inspection/debugging
-- `--init-retries <n>` to tune ClickHouse init retries
+- `--suite <name>` to run a single suite only: `differential`, `dashboard`, `compliance`, or `all` (default).
+- `--subjects <list>` to restrict compare subjects, e.g. `shim` or `shim,promclick`.
+- `--dataset-variants <list>` to seed multiple dataset shapes in one run, e.g. `baseline,resets_gaps`.
+- `--native-only` to force `native_lowering_mode=force_supported` for every query row that does not already set an explicit mode.
+- `--no-build` to skip rebuilding images.
+- `--keep-up` to keep stacks running for inspection/debugging.
+- `--init-retries <n>` to tune ClickHouse init retries.
+- `--ready-timeout <n>` to tune the compliance stack readiness wait.
+
+Passing `--theme`, `--all-themes`, or `--corpus` implies `--suite differential`.
 
 ### Manual workflow
 

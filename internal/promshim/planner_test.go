@@ -233,45 +233,64 @@ func TestBuildPlanCreatesHistogramQuantilePlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected histogram_quantile plan, got error: %v", err)
 	}
-	histogramPlan, ok := execPlan.(*localHistogramQuantilePlan)
+	nativePlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localHistogramQuantilePlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if histogramPlan.Quantile != 0.9 {
-		t.Fatalf("expected quantile 0.9, got %#v", histogramPlan.Quantile)
+	if nativePlan.Kind != "histogram_quantile" {
+		t.Fatalf("expected histogram_quantile native plan, got %#v", nativePlan)
 	}
-	agg, ok := histogramPlan.Child.(*localAggregationPlan)
-	if !ok {
-		t.Fatalf("expected local aggregation child, got %T", histogramPlan.Child)
-	}
-	if _, ok := agg.Child.(*nativeSubtreePlan); !ok {
-		t.Fatalf("expected native child under local histogram_quantile aggregation, got %T", agg.Child)
+	if len(nativePlan.Children) != 1 || nativePlan.Children[0].Kind != "aggregation" {
+		t.Fatalf("expected aggregation child under histogram_quantile native plan, got %#v", nativePlan.Children)
 	}
 }
 
 func TestBuildPlanCreatesHistogramProjectionPlan(t *testing.T) {
-	expr, err := plan.ParseExpression("histogram_count(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
-	if err != nil {
-		t.Fatal(err)
-	}
+	for _, fn := range []string{"histogram_count", "histogram_sum", "histogram_avg"} {
+		t.Run(fn, func(t *testing.T) {
+			expr, err := plan.ParseExpression(fn + "(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	execPlan, err := buildPlan(expr)
-	if err != nil {
-		t.Fatalf("expected histogram projection plan, got error: %v", err)
+			execPlan, err := buildPlan(expr)
+			if err != nil {
+				t.Fatalf("expected histogram projection plan, got error: %v", err)
+			}
+			nativePlan, ok := execPlan.(*nativeSubtreePlan)
+			if !ok {
+				t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
+			}
+			if nativePlan.Kind != fn {
+				t.Fatalf("expected %s native plan, got %#v", fn, nativePlan)
+			}
+			if len(nativePlan.Children) != 1 || nativePlan.Children[0].Kind != "aggregation" {
+				t.Fatalf("expected aggregation child under %s native plan, got %#v", fn, nativePlan.Children)
+			}
+		})
 	}
-	histogramPlan, ok := execPlan.(*localHistogramProjectionPlan)
-	if !ok {
-		t.Fatalf("expected localHistogramProjectionPlan, got %T", execPlan)
-	}
-	if histogramPlan.Func != "histogram_count" {
-		t.Fatalf("expected histogram_count function, got %#v", histogramPlan.Func)
-	}
-	agg, ok := histogramPlan.Child.(*localAggregationPlan)
-	if !ok {
-		t.Fatalf("expected local aggregation child, got %T", histogramPlan.Child)
-	}
-	if _, ok := agg.Child.(*nativeSubtreePlan); !ok {
-		t.Fatalf("expected native child under local histogram_count aggregation, got %T", agg.Child)
+}
+
+func TestBuildPlanCreatesDirectHistogramProjectionNativePlan(t *testing.T) {
+	for _, fn := range []string{"histogram_count", "histogram_sum", "histogram_avg"} {
+		t.Run(fn, func(t *testing.T) {
+			expr, err := plan.ParseExpression(fn + `(http_request_duration_seconds_bucket{job="api"})`)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			execPlan, err := buildPlan(expr)
+			if err != nil {
+				t.Fatalf("expected direct histogram projection native plan, got error: %v", err)
+			}
+			nativePlan, ok := execPlan.(*nativeSubtreePlan)
+			if !ok {
+				t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
+			}
+			if nativePlan.Kind != fn {
+				t.Fatalf("expected %s native plan, got %#v", fn, nativePlan)
+			}
+		})
 	}
 }
 
@@ -285,19 +304,15 @@ func TestBuildPlanCreatesHistogramFractionPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected histogram_fraction plan, got error: %v", err)
 	}
-	histogramPlan, ok := execPlan.(*localHistogramFractionPlan)
+	nativePlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localHistogramFractionPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if histogramPlan.Lower != 0 || histogramPlan.Upper != 1 {
-		t.Fatalf("expected bounds [0,1], got [%v,%v]", histogramPlan.Lower, histogramPlan.Upper)
+	if nativePlan.Kind != "histogram_fraction" {
+		t.Fatalf("expected histogram_fraction native plan, got %#v", nativePlan)
 	}
-	agg, ok := histogramPlan.Child.(*localAggregationPlan)
-	if !ok {
-		t.Fatalf("expected local aggregation child, got %T", histogramPlan.Child)
-	}
-	if _, ok := agg.Child.(*nativeSubtreePlan); !ok {
-		t.Fatalf("expected native child under local histogram_fraction aggregation, got %T", agg.Child)
+	if len(nativePlan.Children) != 1 || nativePlan.Children[0].Kind != "aggregation" {
+		t.Fatalf("expected aggregation child under histogram_fraction native plan, got %#v", nativePlan.Children)
 	}
 }
 
@@ -670,12 +685,19 @@ func TestBuildPlanCreatesNestedSubqueryRangeFunctionPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nested subquery/range-function plan, got error: %v", err)
 	}
-	outer, ok := execPlan.(*localRangeFunctionPlan)
+	native, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected outer localRangeFunctionPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan (subquery child accepts range-function fragments), got %T", execPlan)
 	}
-	if _, ok := outer.Child.(*localSubqueryPlan); !ok {
-		t.Fatalf("expected outer child localSubqueryPlan, got %T", outer.Child)
+	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindRangeFunction {
+		t.Fatalf("expected outer range-function fragment, got %#v", native.Fragment)
+	}
+	outerSubquery := native.Fragment.RangeFunction.Child
+	if outerSubquery == nil || outerSubquery.Kind != nativeplan.FragmentKindSubquery || outerSubquery.Subquery == nil {
+		t.Fatalf("expected outer subquery fragment, got %#v", outerSubquery)
+	}
+	if outerSubquery.Subquery.Child == nil || outerSubquery.Subquery.Child.Kind != nativeplan.FragmentKindRangeFunction {
+		t.Fatalf("expected subquery child to be range-function fragment, got %#v", outerSubquery.Subquery.Child)
 	}
 }
 
@@ -1830,14 +1852,14 @@ func TestLocalSubqueryPlanExecutesChildAcrossInstantWindow(t *testing.T) {
 	if len(matrix.Series) != 1 {
 		t.Fatalf("expected one output series, got %#v", matrix.Series)
 	}
-	if len(matrix.Series[0].Values) != 3 {
-		t.Fatalf("expected three subquery points, got %#v", matrix.Series[0].Values)
+	if len(matrix.Series[0].Values) != 2 {
+		t.Fatalf("expected two subquery points, got %#v", matrix.Series[0].Values)
 	}
-	if matrix.Series[0].Values[0].Timestamp != 60 || matrix.Series[0].Values[1].Timestamp != 120 || matrix.Series[0].Values[2].Timestamp != 180 {
+	if matrix.Series[0].Values[0].Timestamp != 120 || matrix.Series[0].Values[1].Timestamp != 180 {
 		t.Fatalf("unexpected subquery timestamps: %#v", matrix.Series[0].Values)
 	}
-	if len(calls) != 3 {
-		t.Fatalf("expected three child evaluations, got %d", len(calls))
+	if len(calls) != 2 {
+		t.Fatalf("expected two child evaluations, got %d", len(calls))
 	}
 }
 
@@ -2244,10 +2266,10 @@ func TestLocalSubqueryPlanUsesLocalPathForDelegatedMatrixRootInInstantMode(t *te
 	if !ok {
 		t.Fatalf("expected matrix result, got %T", value)
 	}
-	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 2 {
 		t.Fatalf("expected local matrix-root points, got %#v", matrix.Series)
 	}
-	if calls != 3 {
+	if calls != 2 {
 		t.Fatalf("expected local child to be called per subquery step, got %d", calls)
 	}
 }
@@ -2271,10 +2293,10 @@ func TestLocalSubqueryPlanAppliesTimestampAndOffset(t *testing.T) {
 		t.Fatalf("expected successful timestamp+offset subquery execution, got error: %v", err)
 	}
 	matrix := value.(model.MatrixValue)
-	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
-		t.Fatalf("expected one series with three points, got %#v", matrix.Series)
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 2 {
+		t.Fatalf("expected one series with two points, got %#v", matrix.Series)
 	}
-	expected := []int64{120, 180, 240}
+	expected := []int64{180, 240}
 	if len(calls) != len(expected) {
 		t.Fatalf("expected %d child evaluations, got %d", len(expected), len(calls))
 	}
@@ -2300,10 +2322,10 @@ func TestLocalSubqueryPlanDefaultsMissingStepToOneMinute(t *testing.T) {
 		t.Fatalf("expected successful default-step subquery execution, got error: %v", err)
 	}
 	matrix := value.(model.MatrixValue)
-	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
-		t.Fatalf("expected one series with three points, got %#v", matrix.Series)
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 2 {
+		t.Fatalf("expected one series with two points, got %#v", matrix.Series)
 	}
-	want := []int64{60, 120, 180}
+	want := []int64{120, 180}
 	if len(calls) != len(want) {
 		t.Fatalf("expected %d child evaluations, got %d", len(want), len(calls))
 	}

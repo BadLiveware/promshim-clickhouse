@@ -564,3 +564,6 @@ This plan is done only when:
 - native-only acceptance is green
 - all current intentional keep-local exceptions have been retired
 - Path 2 can be described as a full PromQL-compliant native SQL path without qualification
+
+## PS
+- Dont name things in the codebase phase 2 or similar

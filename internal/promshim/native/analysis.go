@@ -114,6 +114,13 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 				}
 				return info
 			}
+			if frag, lineage, ok := applyComparisonFilterTransform(n.Op, n.ReturnBool, rhs.Fragment, rhs.LabelLineage, lhsScalar.Value, true); ok {
+				info.NativeLowerable = true
+				info.NativeReason = "scalar-vector comparison filters via a native value-transform wrapper"
+				info.LabelLineage = lineage
+				info.Fragment = frag
+				return info
+			}
 		case rhsIsScalar && lhs.Fragment != nil:
 			valueExpr, dropsMetric, ok := applyBinarySourceTransform(n.Op, lhs.Fragment.ValueExpr, rhsScalar.Value, false)
 			if ok {
@@ -129,6 +136,29 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 					TagsExpr:     tagsExprForMetricDrop(dropsMetric),
 					DropsMetric:  dropsMetric,
 				}
+				return info
+			}
+			if frag, lineage, ok := applyComparisonFilterTransform(n.Op, n.ReturnBool, lhs.Fragment, lhs.LabelLineage, rhsScalar.Value, false); ok {
+				info.NativeLowerable = true
+				info.NativeReason = "vector-scalar comparison filters via a native value-transform wrapper"
+				info.LabelLineage = lineage
+				info.Fragment = frag
+				return info
+			}
+		case isSyntheticScalarFragment(lhs.Fragment) && rhs.Fragment != nil && rhs.OutputKind == OutputKindInstantVector:
+			if frag, lineage, ok := applySyntheticScalarVectorTransform(n.Op, lhs.Fragment.Synthetic.Func, rhs.Fragment, rhs.LabelLineage, true); ok {
+				info.NativeLowerable = true
+				info.NativeReason = "synthetic-scalar/vector arithmetic lowers via a native value-transform wrapper"
+				info.LabelLineage = lineage
+				info.Fragment = frag
+				return info
+			}
+		case isSyntheticScalarFragment(rhs.Fragment) && lhs.Fragment != nil && lhs.OutputKind == OutputKindInstantVector:
+			if frag, lineage, ok := applySyntheticScalarVectorTransform(n.Op, rhs.Fragment.Synthetic.Func, lhs.Fragment, lhs.LabelLineage, false); ok {
+				info.NativeLowerable = true
+				info.NativeReason = "vector/synthetic-scalar arithmetic lowers via a native value-transform wrapper"
+				info.LabelLineage = lineage
+				info.Fragment = frag
 				return info
 			}
 		case lhs.Fragment != nil && rhs.Fragment != nil && lhs.OutputKind == OutputKindInstantVector && rhs.OutputKind == OutputKindInstantVector:
@@ -168,14 +198,14 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		info.LabelLineage = aggregationLabelLineage(child.LabelLineage, n.Grouping, n.Without)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
 
-		reason := "pushing aggregation into native ClickHouse SQL over a lowerable child source avoids materializing the full child result in Go"
+		reason := "pushing aggregation into native ClickHouse SQL over a lowerable child avoids materializing the full child result in Go"
 		eligible := true
 		if !isSupportedNativeAggregation(n.Op) {
 			eligible = false
 			reason = "aggregation operator is not supported by native SQL pushdown"
-		} else if child.Fragment == nil || !isSupportedAggregationSourceFragment(child.Fragment) {
+		} else if child.Fragment == nil || child.OutputKind != OutputKindInstantVector {
 			eligible = false
-			reason = "aggregation child is not pushdown-safe; native pushdown currently requires one selector source with unary/scalar transforms or an already-supported aggregation source"
+			reason = "aggregation child is not pushdown-safe; native pushdown currently requires a native-lowerable instant-vector child"
 		}
 		info.Aggregation = &AggregationSupport{Eligible: eligible, Reason: reason, Source: child.Fragment}
 		if eligible {
@@ -198,24 +228,77 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		child := a.walk(n.Child)
 		info.NodeType = "histogram_quantile"
 		info.Children = []*LoweringInfo{child}
-		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageUnknown)
+		info.LabelLineage = syntheticOutputLineage(map[string]string{})
+		if child != nil {
+			for label, state := range child.LabelLineage.Known {
+				if label == "__name__" || label == "le" {
+					continue
+				}
+				info.LabelLineage.Known[label] = state
+			}
+			info.LabelLineage.Wildcard = child.LabelLineage.Wildcard
+		}
+		info.LabelLineage.MetricName = LabelLineageDropped
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+		if child.Fragment != nil && child.OutputKind == OutputKindInstantVector {
+			info.NativeLowerable = true
+			info.NativeReason = "histogram_quantile can lower to native SQL over shared classic histogram materialization"
+			info.Fragment = &NativeFragment{Kind: FragmentKindHistogramFunction, OutputKind: OutputKindInstantVector, DropsMetric: true, HistogramFunction: &HistogramFunctionFragment{Func: "histogram_quantile", Quantile: cloneFloat64Pointer(&n.Quantile), Child: child.Fragment}}
+			return info
+		}
 		info.NativeReason = "histogram_quantile currently stays on the local execution path"
 		return info
 	case *planpkg.LogicalHistogramFractionPlan:
 		child := a.walk(n.Child)
 		info.NodeType = "histogram_fraction"
 		info.Children = []*LoweringInfo{child}
-		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageUnknown)
+		info.LabelLineage = syntheticOutputLineage(map[string]string{})
+		if child != nil {
+			for label, state := range child.LabelLineage.Known {
+				if label == "__name__" || label == "le" {
+					continue
+				}
+				info.LabelLineage.Known[label] = state
+			}
+			info.LabelLineage.Wildcard = child.LabelLineage.Wildcard
+		}
+		info.LabelLineage.MetricName = LabelLineageDropped
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+		if child.Fragment != nil && child.OutputKind == OutputKindInstantVector {
+			info.NativeLowerable = true
+			info.NativeReason = "histogram_fraction can lower to native SQL over shared classic histogram materialization"
+			info.Fragment = &NativeFragment{Kind: FragmentKindHistogramFunction, OutputKind: OutputKindInstantVector, DropsMetric: true, HistogramFunction: &HistogramFunctionFragment{Func: "histogram_fraction", Lower: cloneFloat64Pointer(&n.Lower), Upper: cloneFloat64Pointer(&n.Upper), Child: child.Fragment}}
+			return info
+		}
 		info.NativeReason = "histogram_fraction currently stays on the local execution path"
 		return info
 	case *planpkg.LogicalHistogramProjectionPlan:
 		child := a.walk(n.Child)
 		info.NodeType = n.Func
 		info.Children = []*LoweringInfo{child}
-		info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageUnknown)
+		info.LabelLineage = syntheticOutputLineage(map[string]string{})
+		if child != nil {
+			for label, state := range child.LabelLineage.Known {
+				if label == "__name__" || label == "le" {
+					continue
+				}
+				info.LabelLineage.Known[label] = state
+			}
+			info.LabelLineage.Wildcard = child.LabelLineage.Wildcard
+		}
+		info.LabelLineage.MetricName = LabelLineageDropped
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+		if (n.Func == "histogram_count" || n.Func == "histogram_sum" || n.Func == "histogram_avg") && child.Fragment != nil && child.OutputKind == OutputKindInstantVector {
+			info.NativeLowerable = true
+			info.NativeReason = fmt.Sprintf("%s can lower to native SQL over shared classic histogram materialization", n.Func)
+			info.Fragment = &NativeFragment{
+				Kind:                FragmentKindHistogramProjection,
+				OutputKind:          OutputKindInstantVector,
+				DropsMetric:         true,
+				HistogramProjection: &HistogramProjectionFragment{Func: n.Func, Child: child.Fragment},
+			}
+			return info
+		}
 		info.NativeReason = fmt.Sprintf("%s currently stays on the local execution path", n.Func)
 		return info
 	case *planpkg.LogicalRangeFunctionPlan:
@@ -882,7 +965,7 @@ func isSupportedNativeSubqueryChildFragment(fragment *NativeFragment) bool {
 		return false
 	}
 	switch fragment.Kind {
-	case FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindAggregation, FragmentKindBinaryVectorJoin:
+	case FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindAggregation, FragmentKindBinaryVectorJoin, FragmentKindRangeFunction, FragmentKindValueTransform:
 		return true
 	default:
 		return false
@@ -1042,6 +1125,137 @@ func applyBinarySourceTransform(op parser.ItemType, valueExpr string, scalar flo
 			return "pow(" + scalarExpr + ", " + valueExpr + ")", true, true
 		}
 		return "pow(" + valueExpr + ", " + scalarExpr + ")", true, true
+	default:
+		return "", false, false
+	}
+}
+
+func isSyntheticScalarFragment(fragment *NativeFragment) bool {
+	if fragment == nil || fragment.Synthetic == nil {
+		return false
+	}
+	if fragment.Kind != FragmentKindSyntheticSeries {
+		return false
+	}
+	return fragment.OutputKind == OutputKindScalar && isSupportedNativeSyntheticScalarBuiltin(fragment.Synthetic.Func)
+}
+
+func syntheticScalarValueTemplate(name string) (string, bool) {
+	switch name {
+	case "time":
+		return "toFloat64(toUnixTimestamp64Milli({timestamp})) / 1000.0", true
+	case "pi":
+		return "toFloat64(3.141592653589793)", true
+	default:
+		return "", false
+	}
+}
+
+func applySyntheticScalarVectorTransform(op parser.ItemType, syntheticFunc string, vectorFragment *NativeFragment, vectorLineage LabelLineage, scalarOnLeft bool) (*NativeFragment, LabelLineage, bool) {
+	if vectorFragment == nil {
+		return nil, LabelLineage{}, false
+	}
+	scalarExpr, ok := syntheticScalarValueTemplate(syntheticFunc)
+	if !ok {
+		return nil, LabelLineage{}, false
+	}
+	template, dropsMetric, ok := buildBinaryTemplateForScalarExpr(op, scalarExpr, "{value}", scalarOnLeft)
+	if !ok {
+		return nil, LabelLineage{}, false
+	}
+	lineage := withMetricNameState(passthroughLabelLineage(vectorLineage), boolState(dropsMetric, LabelLineageDropped, vectorLineage.MetricName))
+	return &NativeFragment{
+		Kind:       FragmentKindValueTransform,
+		OutputKind: OutputKindInstantVector,
+		ValueTransform: &ValueTransformFragment{
+			Child:       vectorFragment,
+			ValueExpr:   template,
+			DropsMetric: dropsMetric,
+		},
+		DropsMetric: dropsMetric,
+	}, lineage, true
+}
+
+func applyComparisonFilterTransform(op parser.ItemType, returnBool bool, vectorFragment *NativeFragment, vectorLineage LabelLineage, scalar float64, scalarOnLeft bool) (*NativeFragment, LabelLineage, bool) {
+	if vectorFragment == nil {
+		return nil, LabelLineage{}, false
+	}
+	if !isComparisonBinaryOperator(op) {
+		return nil, LabelLineage{}, false
+	}
+	if returnBool {
+		return nil, LabelLineage{}, false
+	}
+	if vectorFragment.OutputKind != OutputKindInstantVector {
+		return nil, LabelLineage{}, false
+	}
+	filter, ok := comparisonFilterTemplate(op, scalar, scalarOnLeft)
+	if !ok {
+		return nil, LabelLineage{}, false
+	}
+	lineage := passthroughLabelLineage(vectorLineage)
+	return &NativeFragment{
+		Kind:       FragmentKindValueTransform,
+		OutputKind: OutputKindInstantVector,
+		ValueTransform: &ValueTransformFragment{
+			Child:      vectorFragment,
+			ValueExpr:  "{value}",
+			FilterExpr: filter,
+		},
+	}, lineage, true
+}
+
+func comparisonFilterTemplate(op parser.ItemType, scalar float64, scalarOnLeft bool) (string, bool) {
+	opSym, ok := comparisonOperatorSymbol(op)
+	if !ok {
+		return "", false
+	}
+	scalarExpr := storage.NativeFloatLiteral(scalar)
+	if scalarOnLeft {
+		return scalarExpr + " " + opSym + " ({value})", true
+	}
+	return "({value}) " + opSym + " " + scalarExpr, true
+}
+
+func comparisonOperatorSymbol(op parser.ItemType) (string, bool) {
+	switch op {
+	case parser.EQLC:
+		return "=", true
+	case parser.NEQ:
+		return "!=", true
+	case parser.GTR:
+		return ">", true
+	case parser.LSS:
+		return "<", true
+	case parser.GTE:
+		return ">=", true
+	case parser.LTE:
+		return "<=", true
+	default:
+		return "", false
+	}
+}
+
+func buildBinaryTemplateForScalarExpr(op parser.ItemType, scalarExpr, valueExpr string, scalarOnLeft bool) (string, bool, bool) {
+	left := scalarExpr
+	right := "(" + valueExpr + ")"
+	if !scalarOnLeft {
+		left = "(" + valueExpr + ")"
+		right = scalarExpr
+	}
+	switch op {
+	case parser.ADD:
+		return left + " + " + right, true, true
+	case parser.SUB:
+		return left + " - " + right, true, true
+	case parser.MUL:
+		return left + " * " + right, true, true
+	case parser.DIV:
+		return left + " / " + right, true, true
+	case parser.MOD:
+		return "modulo(" + left + ", " + right + ")", true, true
+	case parser.POW:
+		return "pow(" + left + ", " + right + ")", true, true
 	default:
 		return "", false, false
 	}

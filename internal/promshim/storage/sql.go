@@ -84,15 +84,19 @@ func BuildInstantAggregationQuerySQL(cfg QueryConfig, source AggregationSource, 
 }
 
 func BuildInstantAggregationQuerySQLWithBounds(cfg QueryConfig, source AggregationSource, evaluationTimeMS, requiredStartMS, requiredEndMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
+	sourceSQL, params, err := buildInstantSourceQuerySQL(cfg, source, evaluationTimeMS, requiredStartMS, requiredEndMS)
+	if err != nil {
+		return "", nil, err
+	}
+	return BuildInstantAggregationOverSubquerySQL(source, sourceSQL, params, op, grouping, without, paramNumber)
+}
+
+func BuildInstantAggregationOverSubquerySQL(source AggregationSource, sourceSQL string, params map[string]string, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
 	aggExpr, err := buildAggregationValueExpr(op, sqlb.Ident("value"), paramNumber)
 	if err != nil {
 		return "", nil, err
 	}
 	tagsExpr := buildAggregationTagsExpr(sqlb.Ident("tags"), grouping, without)
-	sourceSQL, params, err := buildInstantSourceQuerySQL(cfg, source, evaluationTimeMS, requiredStartMS, requiredEndMS)
-	if err != nil {
-		return "", nil, err
-	}
 	sourceSubquery, err := renderAggregationInstantSourceSubquery(source, sourceSQL)
 	if err != nil {
 		return "", nil, err
@@ -111,7 +115,11 @@ func BuildInstantAggregationQuerySQLWithBounds(cfg QueryConfig, source Aggregati
 	if err != nil {
 		return "", nil, err
 	}
-	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", params, nil
+	clonedParams := map[string]string{}
+	for key, value := range params {
+		clonedParams[key] = value
+	}
+	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", clonedParams, nil
 }
 
 func BuildRangeAggregationQuerySQL(cfg QueryConfig, source AggregationSource, startMS, endMS, stepMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
@@ -119,15 +127,19 @@ func BuildRangeAggregationQuerySQL(cfg QueryConfig, source AggregationSource, st
 }
 
 func BuildRangeAggregationQuerySQLWithBounds(cfg QueryConfig, source AggregationSource, startMS, endMS, stepMS, requiredStartMS, requiredEndMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
+	sourceSQL, params, err := buildRangeSourceQuerySQL(cfg, source, requiredStartMS, requiredEndMS, startMS, endMS, stepMS)
+	if err != nil {
+		return "", nil, err
+	}
+	return BuildRangeAggregationOverSubquerySQL(source, sourceSQL, params, op, grouping, without, paramNumber)
+}
+
+func BuildRangeAggregationOverSubquerySQL(source AggregationSource, sourceSQL string, params map[string]string, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
 	aggExpr, err := buildAggregationValueExpr(op, sqlb.RawLit{V: "point.2"}, paramNumber)
 	if err != nil {
 		return "", nil, err
 	}
 	tagsExpr := buildAggregationTagsExpr(sqlb.Ident("tags"), grouping, without)
-	sourceSQL, params, err := buildRangeSourceQuerySQL(cfg, source, requiredStartMS, requiredEndMS, startMS, endMS, stepMS)
-	if err != nil {
-		return "", nil, err
-	}
 	sourceSubquery, err := renderAggregationRangeSourceSubquery(source, sourceSQL)
 	if err != nil {
 		return "", nil, err
@@ -151,7 +163,11 @@ func BuildRangeAggregationQuerySQLWithBounds(cfg QueryConfig, source Aggregation
 	if err != nil {
 		return "", nil, err
 	}
-	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", params, nil
+	clonedParams := map[string]string{}
+	for key, value := range params {
+		clonedParams[key] = value
+	}
+	return sql + "\nSETTINGS allow_experimental_time_series_table = 1\nFORMAT JSONEachRow\n", clonedParams, nil
 }
 
 func BuildLabelsQuery(cfg QueryConfig, request *http.Request) (string, map[string]string, error) {
@@ -291,6 +307,10 @@ func CompileSourceValueTemplate(template string, base, timestamp sqlb.Expr) (sql
 		return timestamp, nil
 	case "-({value})":
 		return sqlb.RawLit{V: "-(" + baseSQL + ")"}, nil
+	}
+	if strings.Contains(template, "{timestamp}") {
+		replaced := strings.NewReplacer("{value}", baseSQL, "{timestamp}", timestampSQL).Replace(template)
+		return sqlb.RawLit{V: replaced}, nil
 	}
 	if match := aggValueOnLeftBinaryPattern.FindStringSubmatch(template); match != nil {
 		return sqlb.RawLit{V: "(" + baseSQL + ") " + match[1] + " " + strings.TrimSpace(match[2])}, nil

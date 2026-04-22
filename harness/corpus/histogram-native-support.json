@@ -1,0 +1,16 @@
+[
+  {
+    "name": "histogram_quantile_rate_grouped_le",
+    "endpoint": "query",
+    "query": "histogram_quantile(0.5, sum by(le) (rate(harness_request_duration_seconds_bucket[5m])))",
+    "timeOffsetSeconds": 540,
+    "subjects": ["shim"]
+  },
+  {
+    "name": "histogram_quantile_rate_grouped_job_le",
+    "endpoint": "query",
+    "query": "histogram_quantile(0.9, sum by(job, le) (rate(harness_request_duration_seconds_bucket{job=~\"api\"}[5m])))",
+    "timeOffsetSeconds": 540,
+    "subjects": ["shim"]
+  }
+]

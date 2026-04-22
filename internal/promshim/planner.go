@@ -306,6 +306,10 @@ func (p *localRangeFunctionPlan) execute(ctx context.Context, evaluator *evaluat
 		if err != nil {
 			return nil, withInternalContext(fromExecError(err), "applying %s in instant mode", p.Func)
 		}
+		evalTimestamp := float64(params.EvaluationTime.UnixNano()) / float64(time.Second)
+		for i := range vector.Samples {
+			vector.Samples[i].Timestamp = evalTimestamp
+		}
 		return vector, nil
 	case evalModeRange:
 		return executeRangeVectorPlan(ctx, evaluator, params, p.Func, p.execute)
@@ -894,7 +898,14 @@ func (p *localSubqueryPlan) execute(ctx context.Context, evaluator *evaluator, p
 		return nil, newBadDataErrorf("subquery step must be greater than zero in %q", p.Expr.String())
 	}
 
-	start := end.Add(-p.Range)
+	stepMS := step.Milliseconds()
+	endMS := end.UnixMilli()
+	windowStartMS := endMS - p.Range.Milliseconds()
+	alignedStartMS := (windowStartMS / stepMS) * stepMS
+	if alignedStartMS <= windowStartMS {
+		alignedStartMS += stepMS
+	}
+	start := time.UnixMilli(alignedStartMS).UTC()
 	seriesByKey := map[string]*model.RangeSeries{}
 	seriesOrder := make([]string, 0)
 
@@ -1437,18 +1448,39 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx planContext, analysis *nati
 			Child:       child,
 		}, analysis.InfoFor(node)), nil
 	case *logicalHistogramQuantilePlan:
+		if ctx.allowsNativePlanning() {
+			if nativePlan, ok, err := maybeBuildNativeHistogramQuantilePlan(node, ctx, analysis); err != nil {
+				return nil, withInternalContext(err, "building native subtree plan for histogram_quantile %q", node.ExprString())
+			} else if ok {
+				return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+			}
+		}
 		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
 		if err != nil {
 			return nil, withInternalContext(err, "building execution child plan for histogram_quantile %q", node.ExprString())
 		}
 		return annotateQueryPlan(&localHistogramQuantilePlan{Expr: node.ExprString(), Quantile: node.Quantile, Child: child}, analysis.InfoFor(node)), nil
 	case *logicalHistogramFractionPlan:
+		if ctx.allowsNativePlanning() {
+			if nativePlan, ok, err := maybeBuildNativeHistogramFractionPlan(node, ctx, analysis); err != nil {
+				return nil, withInternalContext(err, "building native subtree plan for histogram_fraction %q", node.ExprString())
+			} else if ok {
+				return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+			}
+		}
 		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
 		if err != nil {
 			return nil, withInternalContext(err, "building execution child plan for histogram_fraction %q", node.ExprString())
 		}
 		return annotateQueryPlan(&localHistogramFractionPlan{Expr: node.ExprString(), Lower: node.Lower, Upper: node.Upper, Child: child}, analysis.InfoFor(node)), nil
 	case *logicalHistogramProjectionPlan:
+		if ctx.allowsNativePlanning() {
+			if nativePlan, ok, err := maybeBuildNativeHistogramProjectionPlan(node, ctx, analysis); err != nil {
+				return nil, withInternalContext(err, "building native subtree plan for %s %q", node.Func, node.ExprString())
+			} else if ok {
+				return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+			}
+		}
 		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
 		if err != nil {
 			return nil, withInternalContext(err, "building execution child plan for %s %q", node.Func, node.ExprString())

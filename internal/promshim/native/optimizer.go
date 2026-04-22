@@ -250,6 +250,15 @@ func normalizeTrivialSourceExpressions(fragment *NativeFragment) *NativeFragment
 	if normalized.Absent != nil {
 		normalized.Absent.Child = normalizeTrivialSourceExpressions(normalized.Absent.Child)
 	}
+	if normalized.HistogramProjection != nil {
+		normalized.HistogramProjection.Child = normalizeTrivialSourceExpressions(normalized.HistogramProjection.Child)
+	}
+	if normalized.HistogramFunction != nil {
+		normalized.HistogramFunction.Child = normalizeTrivialSourceExpressions(normalized.HistogramFunction.Child)
+	}
+	if normalized.ValueTransform != nil {
+		normalized.ValueTransform.Child = normalizeTrivialSourceExpressions(normalized.ValueTransform.Child)
+	}
 	if normalized.Kind == FragmentKindUnarySourceExpr && normalized.ValueExpr == "{value}" && normalized.TagsExpr == "{tags}" && !normalized.DropsMetric {
 		normalized.Kind = FragmentKindLeafSource
 	}
@@ -267,10 +276,23 @@ func flattenRedundantWrappers(fragment *NativeFragment) *NativeFragment {
 	if flattened.Absent != nil {
 		flattened.Absent.Child = flattenRedundantWrappers(flattened.Absent.Child)
 	}
+	if flattened.HistogramProjection != nil {
+		flattened.HistogramProjection.Child = flattenRedundantWrappers(flattened.HistogramProjection.Child)
+	}
+	if flattened.HistogramFunction != nil {
+		flattened.HistogramFunction.Child = flattenRedundantWrappers(flattened.HistogramFunction.Child)
+	}
+	if flattened.ValueTransform != nil {
+		flattened.ValueTransform.Child = flattenRedundantWrappers(flattened.ValueTransform.Child)
+	}
 	if flattened.Kind == FragmentKindUnarySourceExpr && flattened.ValueExpr == "{value}" && flattened.TagsExpr == "{tags}" && !flattened.DropsMetric {
 		flattened.Kind = FragmentKindLeafSource
 	}
 	return flattened
+}
+
+func RequiredInputBounds(fragment *NativeFragment, info *LoweringInfo, ctx OptimizationContext) (int64, int64, bool) {
+	return requiredInputBounds(fragment, info, ctx)
 }
 
 func requiredInputBounds(fragment *NativeFragment, info *LoweringInfo, ctx OptimizationContext) (int64, int64, bool) {
@@ -367,6 +389,21 @@ func resolvedFragmentAnchorTimeMS(fragment *NativeFragment, selector *SelectorSo
 	}
 	if fragment.Absent != nil {
 		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.Absent.Child, nil, ctx); ok {
+			return resolved, true
+		}
+	}
+	if fragment.HistogramProjection != nil {
+		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.HistogramProjection.Child, nil, ctx); ok {
+			return resolved, true
+		}
+	}
+	if fragment.HistogramFunction != nil {
+		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.HistogramFunction.Child, nil, ctx); ok {
+			return resolved, true
+		}
+	}
+	if fragment.ValueTransform != nil {
+		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.ValueTransform.Child, nil, ctx); ok {
 			return resolved, true
 		}
 	}
@@ -467,6 +504,15 @@ func baseSelectorSource(fragment *NativeFragment) *SelectorSource {
 	if fragment.Absent != nil {
 		return baseSelectorSource(fragment.Absent.Child)
 	}
+	if fragment.HistogramProjection != nil {
+		return baseSelectorSource(fragment.HistogramProjection.Child)
+	}
+	if fragment.HistogramFunction != nil {
+		return baseSelectorSource(fragment.HistogramFunction.Child)
+	}
+	if fragment.ValueTransform != nil {
+		return baseSelectorSource(fragment.ValueTransform.Child)
+	}
 	if fragment.Selector != nil {
 		return fragment.Selector
 	}
@@ -502,6 +548,15 @@ func requiredColumnsForFragment(fragment *NativeFragment) []string {
 	if fragment.Absent != nil {
 		columns = append(columns, requiredColumnsForFragment(fragment.Absent.Child)...)
 	}
+	if fragment.HistogramProjection != nil {
+		columns = append(columns, requiredColumnsForFragment(fragment.HistogramProjection.Child)...)
+	}
+	if fragment.HistogramFunction != nil {
+		columns = append(columns, requiredColumnsForFragment(fragment.HistogramFunction.Child)...)
+	}
+	if fragment.ValueTransform != nil {
+		columns = append(columns, requiredColumnsForFragment(fragment.ValueTransform.Child)...)
+	}
 	return mergeUniqueStrings(nil, columns...)
 }
 
@@ -509,7 +564,7 @@ func fragmentRequiresTags(fragment *NativeFragment) bool {
 	if fragment == nil {
 		return false
 	}
-	if fragment.Aggregation != nil || fragment.RangeFunction != nil || fragment.Subquery != nil {
+	if fragment.Aggregation != nil || fragment.RangeFunction != nil || fragment.Subquery != nil || fragment.HistogramProjection != nil || fragment.HistogramFunction != nil {
 		return true
 	}
 	if fragment.ScalarConvert != nil {
@@ -578,6 +633,9 @@ func semanticBarriersForFragment(fragment *NativeFragment) []string {
 	if fragment.Kind == FragmentKindAbsent && fragment.Absent != nil && fragment.Absent.Func == "absent_over_time" {
 		barriers = append(barriers, "range_window_materialization_boundary")
 	}
+	if fragment.Kind == FragmentKindHistogramProjection || fragment.Kind == FragmentKindHistogramFunction {
+		barriers = append(barriers, "histogram_bucket_materialization_boundary")
+	}
 	if fragment.DropsMetric || (fragment.Aggregation != nil && fragment.Aggregation.Source != nil && fragment.Aggregation.Source.DropsMetric) {
 		barriers = append(barriers, "metric_name_lineage_change")
 	}
@@ -589,7 +647,7 @@ func joinNormalizationForFragment(fragment *NativeFragment) string {
 		return "not_applicable"
 	}
 	switch fragment.Kind {
-	case FragmentKindAggregation, FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindSyntheticSeries, FragmentKindScalarConvert, FragmentKindInfoJoin, FragmentKindAbsent:
+	case FragmentKindAggregation, FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindSyntheticSeries, FragmentKindScalarConvert, FragmentKindInfoJoin, FragmentKindAbsent, FragmentKindHistogramProjection, FragmentKindHistogramFunction, FragmentKindValueTransform:
 		return "not_applicable"
 	default:
 		return "required"

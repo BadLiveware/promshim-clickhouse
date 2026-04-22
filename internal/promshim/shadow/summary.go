@@ -1,8 +1,8 @@
-package promshim
+package shadow
 
 import "sync"
 
-type shadowSummary struct {
+type Summary struct {
 	Total             int64            `json:"total"`
 	ByStatus          map[string]int64 `json:"byStatus,omitempty"`
 	ByCategory        map[string]int64 `json:"byCategory,omitempty"`
@@ -13,9 +13,9 @@ type shadowSummary struct {
 	TotalShadowEvalMs int64            `json:"totalShadowEvalMs"`
 }
 
-type shadowSummaryRecorder struct {
+type SummaryRecorder struct {
 	mu                sync.Mutex
-	metrics           *shadowMetrics
+	metrics           *Metrics
 	total             int64
 	byStatus          map[string]int64
 	byCategory        map[string]int64
@@ -26,8 +26,8 @@ type shadowSummaryRecorder struct {
 	totalShadowEvalMs int64
 }
 
-func newShadowSummaryRecorder(metrics *shadowMetrics) *shadowSummaryRecorder {
-	return &shadowSummaryRecorder{
+func newSummaryRecorder(metrics *Metrics) *SummaryRecorder {
+	return &SummaryRecorder{
 		metrics:       metrics,
 		byStatus:      map[string]int64{},
 		byCategory:    map[string]int64{},
@@ -35,14 +35,14 @@ func newShadowSummaryRecorder(metrics *shadowMetrics) *shadowSummaryRecorder {
 	}
 }
 
-func (r *shadowSummaryRecorder) record(report *shadowComparison) {
+func (r *SummaryRecorder) record(report *Comparison) {
 	if r == nil || report == nil {
 		return
 	}
 	r.mu.Lock()
 	r.total++
 	r.byStatus[report.Status]++
-	r.byCategory[shadowComparisonCategory(report)]++
+	r.byCategory[comparisonCategory(report)]++
 	r.totalServedPlanMs += report.ServedPlanMillis
 	r.totalServedEvalMs += report.ServedEvalMillis
 	r.totalShadowPlanMs += report.ShadowPlanMillis
@@ -57,7 +57,7 @@ func (r *shadowSummaryRecorder) record(report *shadowComparison) {
 	}
 }
 
-func (r *shadowSummaryRecorder) snapshot() *shadowSummary {
+func (r *SummaryRecorder) snapshot() *Summary {
 	if r == nil {
 		return nil
 	}
@@ -66,11 +66,11 @@ func (r *shadowSummaryRecorder) snapshot() *shadowSummary {
 	if r.total == 0 {
 		return nil
 	}
-	return &shadowSummary{
+	return &Summary{
 		Total:             r.total,
-		ByStatus:          cloneShadowCounts(r.byStatus),
-		ByCategory:        cloneShadowCounts(r.byCategory),
-		ByCompareMode:     cloneShadowCounts(r.byCompareMode),
+		ByStatus:          cloneCounts(r.byStatus),
+		ByCategory:        cloneCounts(r.byCategory),
+		ByCompareMode:     cloneCounts(r.byCompareMode),
 		TotalServedPlanMs: r.totalServedPlanMs,
 		TotalServedEvalMs: r.totalServedEvalMs,
 		TotalShadowPlanMs: r.totalShadowPlanMs,
@@ -78,7 +78,7 @@ func (r *shadowSummaryRecorder) snapshot() *shadowSummary {
 	}
 }
 
-func cloneShadowCounts(src map[string]int64) map[string]int64 {
+func cloneCounts(src map[string]int64) map[string]int64 {
 	if len(src) == 0 {
 		return nil
 	}
@@ -89,7 +89,7 @@ func cloneShadowCounts(src map[string]int64) map[string]int64 {
 	return out
 }
 
-func shadowComparisonCategory(report *shadowComparison) string {
+func comparisonCategory(report *Comparison) string {
 	if report == nil {
 		return "unknown"
 	}

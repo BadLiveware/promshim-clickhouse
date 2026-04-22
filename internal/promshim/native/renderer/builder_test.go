@@ -131,7 +131,7 @@ func TestRenderFragmentBuildsInstantRateSQLForSubquery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected rendered SQL, got error: %v", err)
 	}
-	if !strings.Contains(rendered.SQL, "arrayMap((prev, cur) -> if(cur < prev, cur, cur - prev)") {
+	if !strings.Contains(rendered.SQL, "arrayMap((p, c) -> if(c < p, c, c - p)") {
 		t.Fatalf("expected rate delta expression in SQL, got %q", rendered.SQL)
 	}
 	if !strings.Contains(rendered.SQL, "WHERE length(time_series) > 1") {
@@ -171,7 +171,7 @@ func TestRenderFragmentBuildsInstantIncreaseSQLForDirectRangeSelector(t *testing
 	if err != nil {
 		t.Fatalf("expected rendered SQL, got error: %v", err)
 	}
-	if !strings.Contains(rendered.SQL, "arraySum(arrayMap((prev, cur) -> if(cur < prev, cur, cur - prev)") {
+	if !strings.Contains(rendered.SQL, "arraySum(arrayMap((p, c) -> if(c < p, c, c - p)") {
 		t.Fatalf("expected increase delta expression in SQL, got %q", rendered.SQL)
 	}
 	if !strings.Contains(rendered.SQL, "WHERE length(time_series) > 1") {
@@ -303,7 +303,7 @@ func TestRenderFragmentBuildsRangeSumOverTimeSQLForDirectSelector(t *testing.T) 
 				Selector: &native.SelectorSource{
 					Kind:       native.SelectorKindRangeVector,
 					MetricName: "up",
-					Lookback:   5 * time.Minute,
+					Lookback:   time.Minute,
 				},
 				ValueExpr: "{value}",
 				TagsExpr:  "{tags}",
@@ -316,7 +316,7 @@ func TestRenderFragmentBuildsRangeSumOverTimeSQLForDirectSelector(t *testing.T) 
 		StartMS:         0,
 		EndMS:           300000,
 		StepMS:          30000,
-		RequiredStartMS: -300000,
+		RequiredStartMS: -60000,
 		RequiredEndMS:   300000,
 	})
 	if err != nil {
@@ -325,8 +325,11 @@ func TestRenderFragmentBuildsRangeSumOverTimeSQLForDirectSelector(t *testing.T) 
 	if !strings.Contains(rendered.SQL, "arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series") {
 		t.Fatalf("expected range result shaping in SQL, got %q", rendered.SQL)
 	}
-	if !strings.Contains(rendered.SQL, "arrayFilter(point -> tupleElement(point, 1) <= grid.eval_ts") || !strings.Contains(rendered.SQL, "AS window_series") {
-		t.Fatalf("expected shared window-series materialization in SQL, got %q", rendered.SQL)
+	if !strings.Contains(rendered.SQL, "arraySort(item -> item.1, groupArray((d.timestamp, d.value))) AS window_series") {
+		t.Fatalf("expected direct-selector window materialization in SQL, got %q", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, "CROSS JOIN") {
+		t.Fatalf("expected direct-selector fast path to avoid cross joining pre-materialized series, got %q", rendered.SQL)
 	}
 	if !strings.Contains(rendered.SQL, "arrayMap(point -> tupleElement(point, 1), window_series) AS window_timestamps") {
 		t.Fatalf("expected shared window timestamps array in SQL, got %q", rendered.SQL)
@@ -334,10 +337,10 @@ func TestRenderFragmentBuildsRangeSumOverTimeSQLForDirectSelector(t *testing.T) 
 	if !strings.Contains(rendered.SQL, "arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series) AS window_values") {
 		t.Fatalf("expected shared window values array in SQL, got %q", rendered.SQL)
 	}
-	if !strings.Contains(rendered.SQL, "arraySum(arrayFilter(v -> NOT isNaN(v), arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series)))") {
+	if !strings.Contains(rendered.SQL, "arraySum(arrayFilter(v -> NOT isNaN(v), window_values))") {
 		t.Fatalf("expected sum_over_time expression in SQL, got %q", rendered.SQL)
 	}
-	if got := rendered.QueryParams["param_range_matrix_matcher_0_value"]; got != "up" {
+	if got := rendered.QueryParams["param_range_window_matcher_0_value"]; got != "up" {
 		t.Fatalf("expected metric-name selector param, got %q with params=%#v", got, rendered.QueryParams)
 	}
 }
@@ -396,8 +399,8 @@ func TestRenderFragmentBuildsRangeSumOverTimeSQLForSubquery(t *testing.T) {
 	if !strings.Contains(rendered.SQL, "arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series) AS window_values") {
 		t.Fatalf("expected shared window values array in SQL, got %q", rendered.SQL)
 	}
-	if !strings.Contains(rendered.SQL, "arraySum(arrayFilter(v -> NOT isNaN(v), arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series)))") {
-		t.Fatalf("expected sum_over_time expression over window_series, got %q", rendered.SQL)
+	if !strings.Contains(rendered.SQL, "arraySum(arrayFilter(v -> NOT isNaN(v), window_values))") {
+		t.Fatalf("expected sum_over_time expression over window_values, got %q", rendered.SQL)
 	}
 }
 
@@ -477,8 +480,8 @@ func TestRenderFragmentBuildsRangeRateSQLForSubquery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected rendered SQL, got error: %v", err)
 	}
-	if !strings.Contains(rendered.SQL, "arrayMap((prev, cur) -> if(cur < prev, cur, cur - prev)") {
-		t.Fatalf("expected rate expression over window_series, got %q", rendered.SQL)
+	if !strings.Contains(rendered.SQL, "counter_delta_sum") {
+		t.Fatalf("expected precomputed counter-delta expression over window_series, got %q", rendered.SQL)
 	}
 	if !strings.Contains(rendered.SQL, "arrayFilter(point -> tupleElement(point, 1) <= grid.eval_ts") {
 		t.Fatalf("expected subquery window filtering in SQL, got %q", rendered.SQL)

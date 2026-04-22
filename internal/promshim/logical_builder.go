@@ -65,6 +65,10 @@ type logicalLabelReplacePlan = plan.LogicalLabelReplacePlan
 
 type logicalLabelJoinPlan = plan.LogicalLabelJoinPlan
 
+func BuildLogicalPlan(expr parser.Expr) (plan.LogicalPlan, error) {
+	return buildLogicalPlan(expr)
+}
+
 func buildLogicalPlan(expr parser.Expr) (logicalPlan, error) {
 	expr = unwrapTransparentExpr(expr)
 

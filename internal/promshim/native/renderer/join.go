@@ -71,6 +71,11 @@ func renderAggregationFragment(cfg storage.QueryConfig, fragment *native.NativeF
 		// empty-tags selector fast path.
 		forceFragmentFullTags(sourceFragment)
 	}
+	if fused, ok, err := tryRenderFusedRangeAggregationFragment(cfg, fragment, params); err != nil {
+		return renderedFragment{}, err
+	} else if ok {
+		return fused, nil
+	}
 	if source, err := renderAggregationSource(sourceFragment, params); err == nil {
 		switch params.Mode {
 		case native.RenderModeInstant:

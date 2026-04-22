@@ -1021,6 +1021,25 @@ func TestBuildLogicalPlanCreatesLabelReplacePlan(t *testing.T) {
 	}
 }
 
+func TestBuildLogicalPlanAcceptsPrometheus3UTF8LabelReplaceDestination(t *testing.T) {
+	expr, err := plan.ParseExpression(`label_replace(up, "~invalid", "", "src", "(.*)")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logical, err := BuildLogicalPlan(expr)
+	if err != nil {
+		t.Fatalf("expected logical label_replace plan, got error: %v", err)
+	}
+	labelPlan, ok := logical.(*logicalLabelReplacePlan)
+	if !ok {
+		t.Fatalf("expected logicalLabelReplacePlan, got %T", logical)
+	}
+	if labelPlan.Config.Dst != "~invalid" || labelPlan.Config.Src != "src" {
+		t.Fatalf("unexpected label_replace config: %#v", labelPlan.Config)
+	}
+}
+
 func TestBuildExecPlanLowersLogicalAggregationPlan(t *testing.T) {
 	logical := &logicalAggregationPlan{
 		Expr:     mustParseExpr(t, "sum by (job) (up)"),

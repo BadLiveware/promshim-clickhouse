@@ -96,10 +96,11 @@ func CloneFragment(fragment *NativeFragment) *NativeFragment {
 	}
 	if fragment.ValueTransform != nil {
 		cloned.ValueTransform = &ValueTransformFragment{
-			Child:       CloneFragment(fragment.ValueTransform.Child),
-			ValueExpr:   fragment.ValueTransform.ValueExpr,
-			FilterExpr:  fragment.ValueTransform.FilterExpr,
-			DropsMetric: fragment.ValueTransform.DropsMetric,
+			Child:            CloneFragment(fragment.ValueTransform.Child),
+			ValueExpr:        fragment.ValueTransform.ValueExpr,
+			FilterExpr:       fragment.ValueTransform.FilterExpr,
+			DropsMetric:      fragment.ValueTransform.DropsMetric,
+			RuntimeTransform: cloneRuntimeValueTransform(fragment.ValueTransform.RuntimeTransform),
 		}
 	}
 	return cloned
@@ -130,6 +131,17 @@ func cloneFloat64Pointer(value *float64) *float64 {
 	}
 	cloned := *value
 	return &cloned
+}
+
+func cloneRuntimeValueTransform(transform *RuntimeValueTransform) *RuntimeValueTransform {
+	if transform == nil {
+		return nil
+	}
+	return &RuntimeValueTransform{
+		Op:           transform.Op,
+		Scalar:       cloneFloat64Pointer(transform.Scalar),
+		ScalarOnLeft: transform.ScalarOnLeft,
+	}
 }
 
 func cloneFloat64Pointers(values []*float64) []*float64 {

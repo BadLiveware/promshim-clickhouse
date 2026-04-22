@@ -57,6 +57,118 @@ func TestNativeSubtreePlanNormalizesInstantVectorTimestampToEvaluationTime(t *te
 	}
 }
 
+func TestNativeSubtreePlanAppliesRuntimeModuloCorrectionToInstantVectors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"tags":[["job","demo"]],"timestamp":"2026-04-20 11:34:00.000","value":1264108626}`)
+	}))
+	defer server.Close()
+
+	client, err := storage.NewClient(storage.Config{Endpoint: server.URL, RequestTimeout: time.Second})
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	scalar := -7.333333333333334
+	plan := &nativeSubtreePlan{
+		Kind: "binary",
+		Expr: "demo_memory_usage_bytes % (1 * 2 + 4 / 6 - 10)",
+		Fragment: &nativeplan.NativeFragment{
+			Kind:       nativeplan.FragmentKindValueTransform,
+			OutputKind: nativeplan.OutputKindInstantVector,
+			ValueTransform: &nativeplan.ValueTransformFragment{
+				Child: &nativeplan.NativeFragment{
+					Kind:       nativeplan.FragmentKindLeafSource,
+					OutputKind: nativeplan.OutputKindInstantVector,
+					Selector:   &nativeplan.SelectorSource{Kind: nativeplan.SelectorKindInstantVector, MetricName: "demo_memory_usage_bytes", Lookback: 5 * time.Minute},
+					ValueExpr:  "{value}",
+					TagsExpr:   "{tags}",
+				},
+				ValueExpr: "{value}",
+				RuntimeTransform: &nativeplan.RuntimeValueTransform{
+					Op:     nativeplan.RuntimeValueTransformPromQLModulo,
+					Scalar: &scalar,
+				},
+				DropsMetric: true,
+			},
+		},
+		OptimizationReport: &nativeplan.OptimizationReport{RequiredInputStartMS: 0, RequiredInputEndMS: 0},
+	}
+
+	evalTime := time.Unix(1776807862, 0).UTC()
+	value, err := plan.execute(context.Background(), &Evaluator{database: "observability", table: "prometheus", client: client}, EvalParams{Mode: EvalModeInstant, EvaluationTime: evalTime})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	vector, ok := value.(model.VectorValue)
+	if !ok {
+		t.Fatalf("expected vector result, got %T", value)
+	}
+	if len(vector.Samples) != 1 {
+		t.Fatalf("expected one sample, got %#v", vector.Samples)
+	}
+	if got, want := vector.Samples[0].Value, 7.333333231264788; got != want {
+		t.Fatalf("expected PromQL modulo-corrected value %v, got %v", want, got)
+	}
+}
+
+func TestNativeSubtreePlanAppliesRuntimeModuloCorrectionToRangeMatrices(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"tags":[["job","demo"]],"time_series":[["2026-04-20 11:34:00.000",1264108626],["2026-04-20 11:34:10.000",1380797813]]}`)
+	}))
+	defer server.Close()
+
+	client, err := storage.NewClient(storage.Config{Endpoint: server.URL, RequestTimeout: time.Second})
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	scalar := -7.333333333333334
+	plan := &nativeSubtreePlan{
+		Kind: "binary",
+		Expr: "demo_memory_usage_bytes % (1 * 2 + 4 / 6 - 10)",
+		Fragment: &nativeplan.NativeFragment{
+			Kind:       nativeplan.FragmentKindValueTransform,
+			OutputKind: nativeplan.OutputKindInstantVector,
+			ValueTransform: &nativeplan.ValueTransformFragment{
+				Child: &nativeplan.NativeFragment{
+					Kind:       nativeplan.FragmentKindLeafSource,
+					OutputKind: nativeplan.OutputKindInstantVector,
+					Selector:   &nativeplan.SelectorSource{Kind: nativeplan.SelectorKindRangeVector, MetricName: "demo_memory_usage_bytes", Lookback: 5 * time.Minute, RequireFullTags: true},
+					ValueExpr:  "{value}",
+					TagsExpr:   "{tags}",
+				},
+				ValueExpr: "{value}",
+				RuntimeTransform: &nativeplan.RuntimeValueTransform{
+					Op:     nativeplan.RuntimeValueTransformPromQLModulo,
+					Scalar: &scalar,
+				},
+				DropsMetric: true,
+			},
+		},
+		OptimizationReport: &nativeplan.OptimizationReport{RequiredInputStartMS: 0, RequiredInputEndMS: 0},
+	}
+
+	value, err := plan.execute(context.Background(), &Evaluator{database: "observability", table: "prometheus", client: client}, EvalParams{Mode: EvalModeRange, Start: time.Unix(1776807862, 0).UTC(), End: time.Unix(1776807872, 0).UTC(), Step: 10 * time.Second})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	matrix, ok := value.(model.MatrixValue)
+	if !ok {
+		t.Fatalf("expected matrix result, got %T", value)
+	}
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 2 {
+		t.Fatalf("expected one 2-point series, got %#v", matrix.Series)
+	}
+	if got, want := matrix.Series[0].Values[0].Value, 7.333333231264788; got != want {
+		t.Fatalf("expected first PromQL modulo-corrected value %v, got %v", want, got)
+	}
+	if got, want := matrix.Series[0].Values[1].Value, 6.333333221842896; got != want {
+		t.Fatalf("expected second PromQL modulo-corrected value %v, got %v", want, got)
+	}
+}
+
 func TestNativeSubtreePlanExecutesRangeRateOverSubquery(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseMultipartForm(1 << 20); err != nil {

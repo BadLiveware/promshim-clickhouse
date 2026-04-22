@@ -2,6 +2,7 @@ package local
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
@@ -91,21 +92,29 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 		if len(samples) != 1 {
 			return nil, NewExecutionErrorf("native subtree scalar result for %q returned %d samples, expected exactly 1", p.Expr, len(samples))
 		}
-		return model.ScalarValue{Timestamp: samples[0].Timestamp, Value: samples[0].Value}, nil
+		return model.ScalarValue{Timestamp: samples[0].Timestamp, Value: applyNativeRuntimeTransform(samples[0].Value, runtimeValueTransformForFragment(p.Fragment))}, nil
 	case params.Mode == EvalModeInstant:
 		samples, err := DecodeInstantSamples(response.Body)
 		if err != nil {
 			return nil, WithInternalContext(err, "decoding native subtree instant result for %q", p.Expr)
 		}
 		evalTimestamp := float64(params.EvaluationTime.UnixNano()) / float64(time.Second)
+		runtimeTransform := runtimeValueTransformForFragment(p.Fragment)
 		for i := range samples {
 			samples[i].Timestamp = evalTimestamp
+			samples[i].Value = applyNativeRuntimeTransform(samples[i].Value, runtimeTransform)
 		}
 		return model.VectorValue{Samples: samples}, nil
 	case params.Mode == EvalModeRange:
 		series, err := DecodeRangeSeries(response.Body)
 		if err != nil {
 			return nil, WithInternalContext(err, "decoding native subtree range result for %q", p.Expr)
+		}
+		runtimeTransform := runtimeValueTransformForFragment(p.Fragment)
+		for i := range series {
+			for j := range series[i].Values {
+				series[i].Values[j].Value = applyNativeRuntimeTransform(series[i].Values[j].Value, runtimeTransform)
+			}
 		}
 		return model.MatrixValue{Series: series}, nil
 	default:
@@ -195,5 +204,31 @@ func explainNativeAggregationSource(info *nativeplan.LoweringInfo) ExplainNode {
 		Reason:   info.NativeReason,
 		Lowering: info.ExplainInfo(),
 		Children: children,
+	}
+}
+
+func runtimeValueTransformForFragment(fragment *nativeplan.NativeFragment) *nativeplan.RuntimeValueTransform {
+	if fragment == nil || fragment.ValueTransform == nil {
+		return nil
+	}
+	return fragment.ValueTransform.RuntimeTransform
+}
+
+func applyNativeRuntimeTransform(value float64, transform *nativeplan.RuntimeValueTransform) float64 {
+	if transform == nil {
+		return value
+	}
+	switch transform.Op {
+	case nativeplan.RuntimeValueTransformPromQLModulo:
+		if transform.Scalar == nil {
+			return value
+		}
+		lhs, rhs := value, *transform.Scalar
+		if transform.ScalarOnLeft {
+			lhs, rhs = rhs, lhs
+		}
+		return math.Mod(lhs, rhs)
+	default:
+		return value
 	}
 }

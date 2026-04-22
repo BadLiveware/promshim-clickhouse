@@ -953,6 +953,34 @@ func TestQueryExplainForceSupportedPrefersNativeRootOverDelegation(t *testing.T)
 	}
 }
 
+func TestQueryExplainForceSupportedAcceptsScalarLiteralNativeRoot(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	url := "/api/v1/query_explain?query=42&native_lowering_mode=force_supported"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200 for scalar-literal force_supported explain, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Plan.Strategy != "native_sql" {
+		t.Fatalf("expected native_sql root for scalar literal under force_supported, got %#v", body.Data.Plan)
+	}
+}
+
 func TestQueryRangeExplainForceSupportedPrefersNativeRootOverDelegation(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {

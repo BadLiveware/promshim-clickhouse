@@ -65,6 +65,14 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		info.Children = []*LoweringInfo{child}
 		info.LabelLineage = passthroughLabelLineage(child.LabelLineage)
 		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+		if literal, ok := syntheticLiteralValue(child.Fragment); ok {
+			if folded, ok := foldUnaryScalarLiteral(n.Op, literal); ok {
+				info.NativeLowerable = true
+				info.NativeReason = "scalar-only unary expression can fold to a native synthetic scalar series"
+				info.Fragment = &NativeFragment{Kind: FragmentKindSyntheticSeries, OutputKind: OutputKindScalar, DropsMetric: true, Synthetic: &SyntheticSeriesFragment{Func: "literal", Value: cloneFloat64Pointer(&folded)}}
+				return info
+			}
+		}
 		if child.Fragment != nil {
 			valueExpr, dropsMetric, ok := applyUnarySourceTransform(n.Op, child.Fragment.ValueExpr, child.Fragment.DropsMetric)
 			if ok {
@@ -101,9 +109,66 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		info.TimeRequirements = combineTimeRequirements(lhs.TimeRequirements, rhs.TimeRequirements)
 		info.LabelLineage = unknownLineage()
 
+		if lhsLiteral, ok := syntheticLiteralValue(lhs.Fragment); ok {
+			if rhsLiteral, ok := syntheticLiteralValue(rhs.Fragment); ok {
+				if folded, ok := foldBinaryScalarLiteral(n.Op, n.ReturnBool, lhsLiteral, rhsLiteral); ok {
+					info.NativeLowerable = true
+					info.NativeReason = "scalar-only expression can fold to a native synthetic scalar series"
+					info.Fragment = &NativeFragment{Kind: FragmentKindSyntheticSeries, OutputKind: OutputKindScalar, DropsMetric: true, Synthetic: &SyntheticSeriesFragment{Func: "literal", Value: cloneFloat64Pointer(&folded)}}
+					return info
+				}
+			}
+		}
+
 		lhsScalar, lhsIsScalar := n.LHS.(*planpkg.LogicalScalarLiteralPlan)
 		rhsScalar, rhsIsScalar := n.RHS.(*planpkg.LogicalScalarLiteralPlan)
+		lhsLiteral, lhsLiteralOK := syntheticLiteralValue(lhs.Fragment)
+		rhsLiteral, rhsLiteralOK := syntheticLiteralValue(rhs.Fragment)
 		switch {
+		case lhsLiteralOK && !lhsIsScalar && rhs.Fragment != nil && rhs.OutputKind == OutputKindInstantVector:
+			if frag, lineage, ok := applyComparisonBoolTransform(n.Op, n.ReturnBool, rhs.Fragment, rhs.LabelLineage, lhsLiteral, true); ok {
+				info.NativeLowerable = true
+				info.NativeReason = "scalar-expression/vector bool comparison lowers via a native value-transform wrapper"
+				info.LabelLineage = lineage
+				info.Fragment = frag
+				return info
+			}
+			if frag, lineage, ok := applyScalarValueTransform(n.Op, rhs.Fragment, rhs.LabelLineage, lhsLiteral, true); ok {
+				info.NativeLowerable = true
+				info.NativeReason = "scalar-expression/vector arithmetic lowers via a native value-transform wrapper"
+				info.LabelLineage = lineage
+				info.Fragment = frag
+				return info
+			}
+			if frag, lineage, ok := applyComparisonFilterTransform(n.Op, n.ReturnBool, rhs.Fragment, rhs.LabelLineage, lhsLiteral, true); ok {
+				info.NativeLowerable = true
+				info.NativeReason = "scalar-expression/vector comparison filters via a native value-transform wrapper"
+				info.LabelLineage = lineage
+				info.Fragment = frag
+				return info
+			}
+		case rhsLiteralOK && !rhsIsScalar && lhs.Fragment != nil && lhs.OutputKind == OutputKindInstantVector:
+			if frag, lineage, ok := applyComparisonBoolTransform(n.Op, n.ReturnBool, lhs.Fragment, lhs.LabelLineage, rhsLiteral, false); ok {
+				info.NativeLowerable = true
+				info.NativeReason = "vector/scalar-expression bool comparison lowers via a native value-transform wrapper"
+				info.LabelLineage = lineage
+				info.Fragment = frag
+				return info
+			}
+			if frag, lineage, ok := applyScalarValueTransform(n.Op, lhs.Fragment, lhs.LabelLineage, rhsLiteral, false); ok {
+				info.NativeLowerable = true
+				info.NativeReason = "vector/scalar-expression arithmetic lowers via a native value-transform wrapper"
+				info.LabelLineage = lineage
+				info.Fragment = frag
+				return info
+			}
+			if frag, lineage, ok := applyComparisonFilterTransform(n.Op, n.ReturnBool, lhs.Fragment, lhs.LabelLineage, rhsLiteral, false); ok {
+				info.NativeLowerable = true
+				info.NativeReason = "vector/scalar-expression comparison filters via a native value-transform wrapper"
+				info.LabelLineage = lineage
+				info.Fragment = frag
+				return info
+			}
 		case lhsIsScalar && rhs.Fragment != nil:
 			valueExpr, dropsMetric, ok := applyBinarySourceTransform(n.Op, rhs.Fragment.ValueExpr, lhsScalar.Value, true)
 			if ok {
@@ -125,6 +190,13 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 					info.LabelLineage = lineage
 					info.Fragment = frag
 				}
+				return info
+			}
+			if frag, lineage, ok := applyComparisonBoolTransform(n.Op, n.ReturnBool, rhs.Fragment, rhs.LabelLineage, lhsScalar.Value, true); ok {
+				info.NativeLowerable = true
+				info.NativeReason = "scalar-vector bool comparison lowers via a native value-transform wrapper"
+				info.LabelLineage = lineage
+				info.Fragment = frag
 				return info
 			}
 			if frag, lineage, ok := applyComparisonFilterTransform(n.Op, n.ReturnBool, rhs.Fragment, rhs.LabelLineage, lhsScalar.Value, true); ok {
@@ -157,6 +229,13 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 				}
 				return info
 			}
+			if frag, lineage, ok := applyComparisonBoolTransform(n.Op, n.ReturnBool, lhs.Fragment, lhs.LabelLineage, rhsScalar.Value, false); ok {
+				info.NativeLowerable = true
+				info.NativeReason = "vector-scalar bool comparison lowers via a native value-transform wrapper"
+				info.LabelLineage = lineage
+				info.Fragment = frag
+				return info
+			}
 			if frag, lineage, ok := applyComparisonFilterTransform(n.Op, n.ReturnBool, lhs.Fragment, lhs.LabelLineage, rhsScalar.Value, false); ok {
 				info.NativeLowerable = true
 				info.NativeReason = "vector-scalar comparison filters via a native value-transform wrapper"
@@ -164,18 +243,34 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 				info.Fragment = frag
 				return info
 			}
-		case isSyntheticScalarFragment(lhs.Fragment) && rhs.Fragment != nil && rhs.OutputKind == OutputKindInstantVector:
-			if frag, lineage, ok := applySyntheticScalarVectorTransform(n.Op, lhs.Fragment.Synthetic.Func, rhs.Fragment, rhs.LabelLineage, true); ok {
+		case isSyntheticScalarFragment(lhs.Fragment) && rhs.Fragment != nil:
+			if frag, lineage, ok := applySyntheticScalarChildTransform(n.Op, n.ReturnBool, lhs.Fragment.Synthetic.Func, rhs.Fragment, rhs.LabelLineage, true); ok {
 				info.NativeLowerable = true
-				info.NativeReason = "synthetic-scalar/vector arithmetic lowers via a native value-transform wrapper"
+				if isComparisonBinaryOperator(n.Op) {
+					if n.ReturnBool {
+						info.NativeReason = "synthetic-scalar child bool comparison lowers via a native value-transform wrapper"
+					} else {
+						info.NativeReason = "synthetic-scalar/vector comparison filters via a native value-transform wrapper"
+					}
+				} else {
+					info.NativeReason = "synthetic-scalar child arithmetic lowers via a native value-transform wrapper"
+				}
 				info.LabelLineage = lineage
 				info.Fragment = frag
 				return info
 			}
-		case isSyntheticScalarFragment(rhs.Fragment) && lhs.Fragment != nil && lhs.OutputKind == OutputKindInstantVector:
-			if frag, lineage, ok := applySyntheticScalarVectorTransform(n.Op, rhs.Fragment.Synthetic.Func, lhs.Fragment, lhs.LabelLineage, false); ok {
+		case isSyntheticScalarFragment(rhs.Fragment) && lhs.Fragment != nil:
+			if frag, lineage, ok := applySyntheticScalarChildTransform(n.Op, n.ReturnBool, rhs.Fragment.Synthetic.Func, lhs.Fragment, lhs.LabelLineage, false); ok {
 				info.NativeLowerable = true
-				info.NativeReason = "vector/synthetic-scalar arithmetic lowers via a native value-transform wrapper"
+				if isComparisonBinaryOperator(n.Op) {
+					if n.ReturnBool {
+						info.NativeReason = "child/synthetic-scalar bool comparison lowers via a native value-transform wrapper"
+					} else {
+						info.NativeReason = "vector/synthetic-scalar comparison filters via a native value-transform wrapper"
+					}
+				} else {
+					info.NativeReason = "child/synthetic-scalar arithmetic lowers via a native value-transform wrapper"
+				}
 				info.LabelLineage = lineage
 				info.Fragment = frag
 				return info

@@ -418,6 +418,23 @@ func TestRangeRequiredBoundsForChildIncludesSelectorOffset(t *testing.T) {
 	}
 }
 
+func TestRangeRequiredBoundsForChildIncludesNegativeSelectorOffset(t *testing.T) {
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindLeafSource,
+		OutputKind: native.OutputKindRangeMatrix,
+		Selector:   &native.SelectorSource{Kind: native.SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute, Offset: -1 * time.Minute},
+		ValueExpr:  "{value}",
+		TagsExpr:   "{tags}",
+	}
+	startMS, endMS := rangeRequiredBoundsForChild(fragment, 0, 300000)
+	if got, want := startMS, int64(-240000); got != want {
+		t.Fatalf("expected start bound %d, got %d", want, got)
+	}
+	if got, want := endMS, int64(360000); got != want {
+		t.Fatalf("expected end bound %d, got %d", want, got)
+	}
+}
+
 func TestRenderFragmentBuildsRangeRateSQLForSubquery(t *testing.T) {
 	fragment := &native.NativeFragment{
 		Kind:       native.FragmentKindRangeFunction,

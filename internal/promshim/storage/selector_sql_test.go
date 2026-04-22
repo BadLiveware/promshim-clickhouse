@@ -181,6 +181,21 @@ func TestBuildRangeSelectorQuerySQLUsesStepGridAndLookback(t *testing.T) {
 	}
 }
 
+func TestBuildRangeSelectorQuerySQLPreservesNegativeOffset(t *testing.T) {
+	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, -1*time.Minute, SelectorKindInstantVector)
+
+	sql, params, err := BuildRangeSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -240000, 360000, 0, 300000, 30000)
+	if err != nil {
+		t.Fatalf("expected range selector SQL, got error: %v", err)
+	}
+	if !strings.Contains(sql, "d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64})") {
+		t.Fatalf("expected offset placeholder in SQL, got %q", sql)
+	}
+	if params["param_offset_ms"] != "-60000" {
+		t.Fatalf("expected signed negative offset param, got %#v", params)
+	}
+}
+
 func TestBuildRangeSelectorQuerySQLOmitsTagsProjectionWhenUnneeded(t *testing.T) {
 	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, 0, SelectorKindInstantVector)
 	selector.NeedTags = false

@@ -1724,6 +1724,41 @@ func TestBuildPlanCreatesNativeLabelJoinPlan(t *testing.T) {
 	}
 }
 
+func TestBuildPlanAcceptsPrometheus3UTF8LabelMutationDestinations(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+		fn    string
+	}{
+		{name: "label_replace", query: `label_replace(up, "~invalid", "", "src", "(.*)")`, fn: "label_replace"},
+		{name: "label_join", query: `label_join(up, "~invalid", "-", "instance")`, fn: "label_join"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			expr, err := plan.ParseExpression(tc.query)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			built, err := buildPlan(expr)
+			if err != nil {
+				t.Fatalf("expected %s plan, got error: %v", tc.fn, err)
+			}
+			nativeRoot, ok := built.(*nativeSubtreePlan)
+			if !ok {
+				t.Fatalf("expected nativeSubtreePlan, got %T", built)
+			}
+			if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindLabelTransform || nativeRoot.Fragment.LabelTransform == nil || nativeRoot.Fragment.LabelTransform.Func != tc.fn {
+				t.Fatalf("expected native %s fragment, got %#v", tc.fn, nativeRoot)
+			}
+			if nativeRoot.Fragment.LabelTransform.Dst != "~invalid" {
+				t.Fatalf("expected UTF-8 destination label to be preserved, got %#v", nativeRoot.Fragment.LabelTransform)
+			}
+		})
+	}
+}
+
 func TestBuildPlanRejectsInvalidLabelReplaceRegex(t *testing.T) {
 	expr, err := plan.ParseExpression(`label_replace(up, "job_copy", "$1", "job", "[")`)
 	if err != nil {
@@ -3135,6 +3170,81 @@ func sameStrings(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+func TestBuildPlanWithContextBuildsNativeScalarLiteralPlanUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression(`42`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeInstant, EvaluationTime: time.Unix(300, 0).UTC(), NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native scalar literal plan, got error: %v", err)
+	}
+	native, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan for scalar literal under force_supported, got %T", built)
+	}
+	if native.Kind != "scalar_literal" {
+		t.Fatalf("expected scalar_literal native kind, got %#v", native)
+	}
+}
+
+func TestBuildPlanWithContextBuildsNativeScalarArithmeticPlanUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression(`1 * 2 + 4 / 6 - 10 % 2 ^ 2`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeInstant, EvaluationTime: time.Unix(300, 0).UTC(), NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native scalar arithmetic plan, got error: %v", err)
+	}
+	native, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan for scalar arithmetic under force_supported, got %T", built)
+	}
+	if native.Kind != "binary" {
+		t.Fatalf("expected binary native kind, got %#v", native)
+	}
+}
+
+func TestBuildPlanWithContextBuildsNativeVectorScalarExpressionPlansUnderForceSupported(t *testing.T) {
+	tests := []string{
+		`demo_num_cpus + (1 == bool 2)`,
+		`demo_memory_usage_bytes + (1 * 2 + 4 / 6 - 10)`,
+		`(1 * 2 + 4 / 6 - (10%7)^2) + demo_memory_usage_bytes`,
+		`demo_memory_usage_bytes == bool 1.2345`,
+		`1.2345 == bool demo_memory_usage_bytes`,
+		`time() + time()`,
+		`time() == bool time()`,
+		`demo_num_cpus >= time()`,
+		`time() >= demo_num_cpus`,
+		`time() >= bool 1`,
+		`1 >= bool time()`,
+	}
+
+	for _, query := range tests {
+		t.Run(query, func(t *testing.T) {
+			expr, err := plan.ParseExpression(query)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeInstant, EvaluationTime: time.Unix(300, 0).UTC(), NativeLoweringMode: NativeLoweringModeForceSupported})
+			if err != nil {
+				t.Fatalf("expected native scalar/vector composition plan, got error: %v", err)
+			}
+			native, ok := built.(*nativeSubtreePlan)
+			if !ok {
+				t.Fatalf("expected nativeSubtreePlan under force_supported, got %T", built)
+			}
+			if native.Kind != "binary" {
+				t.Fatalf("expected binary native kind, got %#v", native)
+			}
+		})
+	}
 }
 
 func TestBuildPlanWithContextBuildsNativeAbsentPlanUnderForceSupported(t *testing.T) {

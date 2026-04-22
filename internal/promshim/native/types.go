@@ -176,10 +176,21 @@ type ClampTransformFragment struct {
 }
 
 type ValueTransformFragment struct {
-	Child       *NativeFragment
-	ValueExpr   string
-	FilterExpr  string
-	DropsMetric bool
+	Child            *NativeFragment
+	ValueExpr        string
+	FilterExpr       string
+	DropsMetric      bool
+	RuntimeTransform *RuntimeValueTransform
+}
+
+const RuntimeValueTransformPromQLModulo RuntimeValueTransformOp = "promql_modulo"
+
+type RuntimeValueTransformOp string
+
+type RuntimeValueTransform struct {
+	Op           RuntimeValueTransformOp
+	Scalar       *float64
+	ScalarOnLeft bool
 }
 
 type AggregationSupport struct {

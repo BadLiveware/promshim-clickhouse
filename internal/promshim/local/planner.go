@@ -205,6 +205,13 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nati
 		}
 		return annotateQueryPlan(&delegatedExprPlan{Expr: node.Expr}, analysis.InfoFor(node)), nil
 	case *logicalScalarLiteralPlan:
+		if ctx.AllowsNativePlanning() {
+			if nativePlan, ok, err := maybeBuildNativeScalarLiteralPlan(node, ctx, analysis); err != nil {
+				return nil, WithInternalContext(err, "building native subtree plan for scalar literal %q", node.ExprString())
+			} else if ok {
+				return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
+			}
+		}
 		return annotateQueryPlan(&scalarLiteralPlan{Expr: node.ExprString(), Value: node.Value}, analysis.InfoFor(node)), nil
 	case *logicalUnaryPlan:
 		if ctx.AllowsNativePlanning() {

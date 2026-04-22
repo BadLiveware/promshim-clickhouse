@@ -379,6 +379,13 @@ func maybeBuildNativeHistogramProjectionPlan(node *logicalHistogramProjectionPla
 	return &nativeSubtreePlan{Kind: node.Func, Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report}, true, nil
 }
 
+func maybeBuildNativeScalarLiteralPlan(node *logicalScalarLiteralPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+	if !ctx.NativeLoweringMode.ForcesNativeRoot() {
+		return nil, false, nil
+	}
+	return maybeBuildNativeGenericPlan(node, node.ExprString(), "scalar_literal", ctx, analysis, nativeplan.FragmentKindSyntheticSeries)
+}
+
 func maybeBuildNativeVectorPlan(node *logicalVectorPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
 	return maybeBuildNativeGenericPlan(node, node.ExprString(), "vector", ctx, analysis, nativeplan.FragmentKindSyntheticSeries, nativeplan.FragmentKindScalarConvert)
 }
@@ -412,11 +419,19 @@ func maybeBuildNativeScalarBuiltinPlan(node *logicalScalarBuiltinPlan, ctx PlanC
 }
 
 func maybeBuildNativeUnaryPlan(node *logicalUnaryPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
-	return maybeBuildNativeGenericPlan(node, node.ExprString(), "unary", ctx, analysis, nativeplan.FragmentKindUnarySourceExpr, nativeplan.FragmentKindValueTransform)
+	info := analysis.InfoFor(node)
+	if info != nil && info.OutputKind == nativeplan.OutputKindScalar && !ctx.NativeLoweringMode.ForcesNativeRoot() {
+		return nil, false, nil
+	}
+	return maybeBuildNativeGenericPlan(node, node.ExprString(), "unary", ctx, analysis, nativeplan.FragmentKindUnarySourceExpr, nativeplan.FragmentKindValueTransform, nativeplan.FragmentKindSyntheticSeries)
 }
 
 func maybeBuildNativeBinaryPlan(node *logicalBinaryPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
-	return maybeBuildNativeGenericPlan(node, node.ExprString(), "binary", ctx, analysis, nativeplan.FragmentKindBinaryVectorJoin, nativeplan.FragmentKindBinaryScalarSourceExpr, nativeplan.FragmentKindValueTransform)
+	info := analysis.InfoFor(node)
+	if info != nil && info.OutputKind == nativeplan.OutputKindScalar && !ctx.NativeLoweringMode.ForcesNativeRoot() {
+		return nil, false, nil
+	}
+	return maybeBuildNativeGenericPlan(node, node.ExprString(), "binary", ctx, analysis, nativeplan.FragmentKindBinaryVectorJoin, nativeplan.FragmentKindBinaryScalarSourceExpr, nativeplan.FragmentKindValueTransform, nativeplan.FragmentKindSyntheticSeries)
 }
 
 func maybeBuildNativeRoundPlan(node *logicalRoundPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {

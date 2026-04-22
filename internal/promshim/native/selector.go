@@ -40,7 +40,7 @@ func buildSelectorSource(expr parser.Expr) (*SelectorSource, error) {
 			Matchers:        CloneMatchers(node.LabelMatchers),
 			RequireFullTags: true,
 			Lookback:        DefaultInstantSelectorLookback,
-			Offset:          absoluteDuration(node.OriginalOffset),
+			Offset:          node.OriginalOffset,
 			Timestamp:       cloneInt64Pointer(node.Timestamp),
 			StartOrEnd:      node.StartOrEnd,
 		}, nil
@@ -55,7 +55,7 @@ func buildSelectorSource(expr parser.Expr) (*SelectorSource, error) {
 			Matchers:        CloneMatchers(vectorSelector.LabelMatchers),
 			RequireFullTags: true,
 			Lookback:        node.Range,
-			Offset:          absoluteDuration(vectorSelector.OriginalOffset),
+			Offset:          vectorSelector.OriginalOffset,
 			Timestamp:       cloneInt64Pointer(vectorSelector.Timestamp),
 			StartOrEnd:      vectorSelector.StartOrEnd,
 		}, nil

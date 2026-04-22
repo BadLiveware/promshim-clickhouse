@@ -809,9 +809,51 @@ func TestBuildBinaryTemplateForScalarExprSupportsModulo(t *testing.T) {
 	if !dropsMetric {
 		t.Fatal("expected modulo template to drop metric name")
 	}
-	want := "modulo(({value}), (1.2345))"
-	if template != want {
-		t.Fatalf("unexpected template: got %q want %q", template, want)
+	for _, want := range []string{"positiveModulo(", "abs(", "isNaN(", "isInfinite(", "({value})"} {
+		if !strings.Contains(template, want) {
+			t.Fatalf("expected modulo template to contain %q, got %q", want, template)
+		}
+	}
+}
+
+func TestApplyScalarValueTransformUsesRuntimeModuloCorrection(t *testing.T) {
+	fragment, _, ok := applyScalarValueTransform(parser.MOD, &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindInstantVector}, leafLabelLineage(), 1.2345, false)
+	if !ok {
+		t.Fatal("expected modulo scalar transform to be native-lowerable")
+	}
+	if fragment == nil || fragment.ValueTransform == nil {
+		t.Fatalf("expected value transform fragment, got %#v", fragment)
+	}
+	if got, want := fragment.ValueTransform.ValueExpr, "{value}"; got != want {
+		t.Fatalf("expected raw child value expression for runtime modulo correction, got %q", got)
+	}
+	if fragment.ValueTransform.RuntimeTransform == nil {
+		t.Fatal("expected runtime modulo correction metadata")
+	}
+	if got, want := fragment.ValueTransform.RuntimeTransform.Op, RuntimeValueTransformPromQLModulo; got != want {
+		t.Fatalf("expected modulo runtime transform op %q, got %q", want, got)
+	}
+}
+
+func TestApplySyntheticScalarChildTransformSupportsTimeScalarRoots(t *testing.T) {
+	child := &NativeFragment{Kind: FragmentKindSyntheticSeries, OutputKind: OutputKindScalar, Synthetic: &SyntheticSeriesFragment{Func: "time"}}
+	fragment, _, ok := applySyntheticScalarChildTransform(parser.ADD, false, "time", child, unknownLineage(), true)
+	if !ok {
+		t.Fatal("expected time()+time() root to be native-lowerable")
+	}
+	if fragment == nil || fragment.Kind != FragmentKindValueTransform || fragment.OutputKind != OutputKindScalar {
+		t.Fatalf("expected scalar value-transform fragment, got %#v", fragment)
+	}
+}
+
+func TestApplySyntheticScalarChildTransformSupportsTimeVectorComparisons(t *testing.T) {
+	child := &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindInstantVector}
+	fragment, _, ok := applySyntheticScalarChildTransform(parser.GTE, false, "time", child, leafLabelLineage(), true)
+	if !ok {
+		t.Fatal("expected time() >= vector filter to be native-lowerable")
+	}
+	if fragment == nil || fragment.ValueTransform == nil || fragment.ValueTransform.FilterExpr == "" {
+		t.Fatalf("expected comparison filter fragment, got %#v", fragment)
 	}
 }
 
@@ -823,9 +865,10 @@ func TestApplyBinarySourceTransformSupportsModulo(t *testing.T) {
 	if !dropsMetric {
 		t.Fatal("expected modulo source transform to drop metric name")
 	}
-	want := "modulo(({value}), 1.2345)"
-	if template != want {
-		t.Fatalf("unexpected template: got %q want %q", template, want)
+	for _, want := range []string{"positiveModulo(", "abs(", "isNaN(", "isInfinite(", "1.2345"} {
+		if !strings.Contains(template, want) {
+			t.Fatalf("expected modulo source transform to contain %q, got %q", want, template)
+		}
 	}
 }
 

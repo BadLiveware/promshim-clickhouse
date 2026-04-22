@@ -334,15 +334,15 @@ func requiredInputBounds(fragment *NativeFragment, info *LoweringInfo, ctx Optim
 	lookbackMS := int64(0)
 	offsetMS := int64(0)
 	selector := BaseSelectorSource(fragment)
-	if info != nil {
+	if fragment != nil && fragment.Selector != nil {
+		lookbackMS = fragment.Selector.Lookback.Milliseconds()
+		offsetMS = fragment.Selector.Offset.Milliseconds()
+	} else if info != nil {
 		lookbackMS = info.TimeRequirements.Lookback.Milliseconds()
 		offsetMS = info.TimeRequirements.Offset.Milliseconds()
-	}
-	if lookbackMS == 0 && offsetMS == 0 {
-		if selector != nil {
-			lookbackMS = selector.Lookback.Milliseconds()
-			offsetMS = selector.Offset.Milliseconds()
-		}
+	} else if selector != nil {
+		lookbackMS = selector.Lookback.Milliseconds()
+		offsetMS = selector.Offset.Milliseconds()
 	}
 	switch ctx.Mode {
 	case RenderModeInstant:

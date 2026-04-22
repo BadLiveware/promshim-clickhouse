@@ -13,8 +13,9 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-// TestAlignSubqueryStepStartMatchesPromEngine mirrors the subquery step-grid
-// formula at prometheus/promql/engine.go:2394-2399 to guard against drift.
+// TestAlignSubqueryStepStartMatchesPromEngine guards the epoch-aligned
+// subquery step-grid behavior against drift using cases observed in the
+// reference Prometheus harness.
 func TestAlignSubqueryStepStartMatchesPromEngine(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -22,9 +23,9 @@ func TestAlignSubqueryStepStartMatchesPromEngine(t *testing.T) {
 		step        int64
 		want        int64
 	}{
-		{name: "epoch-aligned window start excludes left edge", windowStart: 1776807220000, step: 10000, want: 1776807230000},
+		{name: "epoch-aligned window start keeps left edge", windowStart: 1776807220000, step: 10000, want: 1776807220000},
 		{name: "non-aligned window start rounds up", windowStart: 1776807222000, step: 10000, want: 1776807230000},
-		{name: "negative epoch-aligned window start excludes left edge", windowStart: -360000, step: 60000, want: -300000},
+		{name: "negative epoch-aligned window start keeps left edge", windowStart: -360000, step: 60000, want: -360000},
 		{name: "non-aligned window with 1m step", windowStart: -350000, step: 60000, want: -300000},
 		{name: "zero step is a no-op", windowStart: 12345, step: 0, want: 12345},
 	}
@@ -544,16 +545,15 @@ func TestRenderFragmentBuildsRangeSubqueryUsingInnerStepAndExpandedEnvelope(t *t
 	if got, want := rendered.QueryParams["param_step_ms"], "60000"; got != want {
 		t.Fatalf("expected inner subquery step %q, got %#v", want, rendered.QueryParams)
 	}
-	// Subquery step grid is epoch-anchored (mirrors Prom's engine.go:2394-2399):
-	// windowStart = 0 - 60000 - 300000 = -360000; first step-multiple strictly
-	// greater than that, anchored to epoch 0, is -300000.
-	if got, want := rendered.QueryParams["param_start_ms"], "-300000"; got != want {
+	// Subquery step grid is epoch-anchored and keeps an exact left-edge step when
+	// the expanded window start already lands on the step grid.
+	if got, want := rendered.QueryParams["param_start_ms"], "-360000"; got != want {
 		t.Fatalf("expected epoch-aligned subquery start %q, got %#v", want, rendered.QueryParams)
 	}
 	if got, want := rendered.QueryParams["param_end_ms"], "240000"; got != want {
 		t.Fatalf("expected expanded subquery end %q, got %#v", want, rendered.QueryParams)
 	}
-	if got, want := rendered.QueryParams["param_required_start_ms"], "-600000"; got != want {
+	if got, want := rendered.QueryParams["param_required_start_ms"], "-660000"; got != want {
 		t.Fatalf("expected child required start %q, got %#v", want, rendered.QueryParams)
 	}
 	if got, want := rendered.QueryParams["param_required_end_ms"], "240000"; got != want {
@@ -599,13 +599,13 @@ func TestRenderFragmentBuildsRangeSubquerySourceSQL(t *testing.T) {
 	if got, want := rendered.QueryParams["param_step_ms"], "60000"; got != want {
 		t.Fatalf("expected subquery inner step %q, got %#v", want, rendered.QueryParams)
 	}
-	if got, want := rendered.QueryParams["param_start_ms"], "-300000"; got != want {
+	if got, want := rendered.QueryParams["param_start_ms"], "-360000"; got != want {
 		t.Fatalf("expected epoch-aligned subquery start %q, got %#v", want, rendered.QueryParams)
 	}
 	if got, want := rendered.QueryParams["param_end_ms"], "240000"; got != want {
 		t.Fatalf("expected expanded subquery end %q, got %#v", want, rendered.QueryParams)
 	}
-	if got, want := rendered.QueryParams["param_required_start_ms"], "-600000"; got != want {
+	if got, want := rendered.QueryParams["param_required_start_ms"], "-660000"; got != want {
 		t.Fatalf("expected child required start %q, got %#v", want, rendered.QueryParams)
 	}
 	if got, want := rendered.QueryParams["param_required_end_ms"], "240000"; got != want {

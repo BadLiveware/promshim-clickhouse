@@ -523,6 +523,10 @@ func applySelectorProjection(fragment *NativeFragment) {
 		return
 	}
 	if fragment.Aggregation != nil {
+		applySelectorProjection(fragment.Aggregation.Source)
+		if containsAggregationBoundary(fragment.Aggregation.Source) {
+			return
+		}
 		selector := BaseSelectorSource(fragment.Aggregation.Source)
 		if selector != nil {
 			switch {
@@ -543,6 +547,59 @@ func applySelectorProjection(fragment *NativeFragment) {
 		fragment.Selector.RequireFullTags = true
 		fragment.Selector.RequiredTagLabels = nil
 	}
+}
+
+func containsAggregationBoundary(fragment *NativeFragment) bool {
+	if fragment == nil {
+		return false
+	}
+	if fragment.Aggregation != nil {
+		return true
+	}
+	if fragment.RangeFunction != nil {
+		return containsAggregationBoundary(fragment.RangeFunction.Child)
+	}
+	if fragment.Subquery != nil {
+		return containsAggregationBoundary(fragment.Subquery.Child)
+	}
+	if fragment.ScalarConvert != nil {
+		return containsAggregationBoundary(fragment.ScalarConvert.Child)
+	}
+	if fragment.InfoJoin != nil {
+		return containsAggregationBoundary(fragment.InfoJoin.Child)
+	}
+	if fragment.Absent != nil {
+		return containsAggregationBoundary(fragment.Absent.Child)
+	}
+	if fragment.HistogramProjection != nil {
+		return containsAggregationBoundary(fragment.HistogramProjection.Child)
+	}
+	if fragment.HistogramFunction != nil {
+		if containsAggregationBoundary(fragment.HistogramFunction.Child) {
+			return true
+		}
+		for _, quantile := range fragment.HistogramFunction.Quantiles {
+			if containsAggregationBoundary(quantile) {
+				return true
+			}
+		}
+	}
+	if fragment.SortTransform != nil {
+		return containsAggregationBoundary(fragment.SortTransform.Child)
+	}
+	if fragment.LabelTransform != nil {
+		return containsAggregationBoundary(fragment.LabelTransform.Child)
+	}
+	if fragment.ClampTransform != nil {
+		return containsAggregationBoundary(fragment.ClampTransform.Child) || containsAggregationBoundary(fragment.ClampTransform.Min) || containsAggregationBoundary(fragment.ClampTransform.Max)
+	}
+	if fragment.ValueTransform != nil {
+		return containsAggregationBoundary(fragment.ValueTransform.Child)
+	}
+	if fragment.BinaryJoin != nil {
+		return containsAggregationBoundary(fragment.BinaryJoin.LHS) || containsAggregationBoundary(fragment.BinaryJoin.RHS)
+	}
+	return false
 }
 
 func containsLabelTransform(fragment *NativeFragment) bool {

@@ -65,13 +65,13 @@ func TestNativeSubtreePlanExecutesRangeRateOverSubquery(t *testing.T) {
 		if got, want := r.FormValue("param_step_ms"), "60000"; got != want {
 			t.Fatalf("expected inner subquery step %q, got %q", want, got)
 		}
-		if got, want := r.FormValue("param_start_ms"), "-240000"; got != want {
+		if got, want := r.FormValue("param_start_ms"), "-300000"; got != want {
 			t.Fatalf("expected expanded subquery start %q, got %q", want, got)
 		}
 		if got, want := r.FormValue("param_end_ms"), "300000"; got != want {
 			t.Fatalf("expected expanded subquery end %q, got %q", want, got)
 		}
-		if got, want := r.FormValue("param_required_start_ms"), "-540000"; got != want {
+		if got, want := r.FormValue("param_required_start_ms"), "-600000"; got != want {
 			t.Fatalf("expected shifted required start %q, got %q", want, got)
 		}
 		if got, want := r.FormValue("param_required_end_ms"), "300000"; got != want {
@@ -124,13 +124,13 @@ func TestNativeSubtreePlanExecutesRangeQuantileOverTimeOverSubquery(t *testing.T
 		if got, want := r.FormValue("param_step_ms"), "60000"; got != want {
 			t.Fatalf("expected inner subquery step %q, got %q", want, got)
 		}
-		if got, want := r.FormValue("param_start_ms"), "-240000"; got != want {
+		if got, want := r.FormValue("param_start_ms"), "-300000"; got != want {
 			t.Fatalf("expected expanded subquery start %q, got %q", want, got)
 		}
 		if got, want := r.FormValue("param_end_ms"), "300000"; got != want {
 			t.Fatalf("expected expanded subquery end %q, got %q", want, got)
 		}
-		if got, want := r.FormValue("param_required_start_ms"), "-540000"; got != want {
+		if got, want := r.FormValue("param_required_start_ms"), "-600000"; got != want {
 			t.Fatalf("expected shifted required start %q, got %q", want, got)
 		}
 		if got, want := r.FormValue("param_required_end_ms"), "300000"; got != want {
@@ -233,13 +233,13 @@ func TestNativeSubtreePlanExecutesRangeRootSubquery(t *testing.T) {
 		if got, want := r.FormValue("param_step_ms"), "60000"; got != want {
 			t.Fatalf("expected root-subquery step %q, got %q", want, got)
 		}
-		if got, want := r.FormValue("param_start_ms"), "-240000"; got != want {
+		if got, want := r.FormValue("param_start_ms"), "-300000"; got != want {
 			t.Fatalf("expected root-subquery start %q, got %q", want, got)
 		}
 		if got, want := r.FormValue("param_end_ms"), "300000"; got != want {
 			t.Fatalf("expected root-subquery end %q, got %q", want, got)
 		}
-		if got, want := r.FormValue("param_required_start_ms"), "-540000"; got != want {
+		if got, want := r.FormValue("param_required_start_ms"), "-600000"; got != want {
 			t.Fatalf("expected root-subquery required start %q, got %q", want, got)
 		}
 		if got, want := r.FormValue("param_required_end_ms"), "300000"; got != want {

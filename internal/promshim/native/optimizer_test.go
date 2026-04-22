@@ -42,6 +42,43 @@ func TestBuildOptimizedFragmentRecordsMandatoryPassOutputs(t *testing.T) {
 	}
 }
 
+func TestBuildOptimizedFragmentPreservesNestedAggregationGroupingProjection(t *testing.T) {
+	expr := mustParseExpr(t, `count(count by(instance) (up{job="api"}))`)
+	outerAgg, ok := expr.(*parser.AggregateExpr)
+	if !ok {
+		t.Fatalf("expected outer aggregate expr, got %T", expr)
+	}
+	innerAgg, ok := outerAgg.Expr.(*parser.AggregateExpr)
+	if !ok {
+		t.Fatalf("expected inner aggregate expr, got %T", outerAgg.Expr)
+	}
+	logical := &planpkg.LogicalAggregationPlan{
+		Expr: outerAgg,
+		Op:   outerAgg.Op,
+		Child: &planpkg.LogicalAggregationPlan{
+			Expr:     innerAgg,
+			Op:       innerAgg.Op,
+			Grouping: append([]string(nil), innerAgg.Grouping...),
+			Child:    &planpkg.LogicalLeafExprPlan{Expr: innerAgg.Expr},
+		},
+	}
+
+	optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 60000})
+	if err != nil {
+		t.Fatalf("expected optimized fragment, got error: %v", err)
+	}
+	selector := BaseSelectorSource(optimized.Fragment)
+	if selector == nil {
+		t.Fatal("expected base selector source")
+	}
+	if selector.RequireFullTags {
+		t.Fatalf("did not expect full-tag requirement, got %#v", selector)
+	}
+	if got := selector.RequiredTagLabels; len(got) != 1 || got[0] != "instance" {
+		t.Fatalf("expected nested aggregation to preserve instance projection, got %#v", selector.RequiredTagLabels)
+	}
+}
+
 func TestBuildOptimizedFragmentUsesFullSubqueryTemporalBounds(t *testing.T) {
 	subqueryExpr := mustParseExpr(t, `(up * 100)[5m:1m] offset 1m`)
 	subquery, ok := subqueryExpr.(*parser.SubqueryExpr)

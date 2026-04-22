@@ -8,6 +8,7 @@ services:
       - "29092:9092"
     volumes:
       - ../clickhouse/config.d/prometheus.xml:/etc/clickhouse-server/config.d/prometheus.xml:ro
+      - ../clickhouse/config.d/system-logs-ttl.xml:/etc/clickhouse-server/config.d/system-logs-ttl.xml:ro
       - ../clickhouse/users.d/timeseries.xml:/etc/clickhouse-server/users.d/timeseries.xml:ro
       - clickhouse_data:/var/lib/clickhouse
 

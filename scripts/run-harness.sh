@@ -12,14 +12,17 @@ Default (no args) runs every suite:
   2) dashboard     — harness/corpus/common-dashboard-subset.json (--subjects shim)
   3) compliance    — upstream PromQL compliance tester (delegates to
                      scripts/run-compliance.sh)
+  4) bench         — Prom-vs-promshim native-SQL tripwire
+                     (delegates to scripts/run-bench.sh; shares the compliance
+                     stack and fixture)
 
 Suites 1+2 share a single main-harness stack (clickhouse/prometheus/promshim)
-and a single seed. Suite 3 runs against the separate compliance stack with
+and a single seed. Suites 3+4 run against the separate compliance stack with
 its frozen fixture. Each suite prints its own summary; the runner exits 0 as
-long as the tooling itself completes.
+long as the tooling itself completes and no bench regressions are detected.
 
 Suite selection:
-  --suite <name>        all (default) | differential | dashboard | compliance
+  --suite <name>        all (default) | differential | dashboard | compliance | bench
 
 Differential-only knobs (imply --suite differential when used alone):
   --theme <name>        Run one themed corpus from
@@ -101,8 +104,8 @@ if [[ -z "$SUITE" ]]; then
 fi
 
 case "$SUITE" in
-  all|differential|dashboard|compliance) ;;
-  *) fatal "--suite must be one of: all, differential, dashboard, compliance" ;;
+  all|differential|dashboard|compliance|bench) ;;
+  *) fatal "--suite must be one of: all, differential, dashboard, compliance, bench" ;;
 esac
 
 if ! [[ "$INIT_RETRIES" =~ ^[0-9]+$ ]] || [[ "$INIT_RETRIES" -lt 1 ]]; then
@@ -273,6 +276,18 @@ run_compliance_suite() {
   "${REPO_ROOT}/scripts/run-compliance.sh" "${args[@]}" || true
 }
 
+run_bench_suite() {
+  # The bench reuses the compliance stack. When SUITE=all we've just run
+  # the compliance suite, which left the stack up if --keep-up was set.
+  # When SUITE=bench alone, we bring up the compliance stack ourselves.
+  local args=(--ready-timeout "$READY_TIMEOUT")
+  if [[ "$SUITE" == "bench" ]]; then
+    args+=(--bring-up)
+  fi
+  log "Delegating to scripts/run-bench.sh ${args[*]}"
+  "${REPO_ROOT}/scripts/run-bench.sh" "${args[@]}" || true
+}
+
 log "Suite: ${SUITE}"
 
 case "$SUITE" in
@@ -288,6 +303,10 @@ esac
 
 case "$SUITE" in
   compliance|all) run_compliance_suite ;;
+esac
+
+case "$SUITE" in
+  bench|all) run_bench_suite ;;
 esac
 
 log "Harness run completed."

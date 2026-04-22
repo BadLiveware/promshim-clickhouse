@@ -66,20 +66,21 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, local.ApiErrorToHTTP(err)
 	}
+	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
 	if req.Explain || mode.ForcesExplainResponse() {
 		resultType, result, err := httpapi.RenderInstantQueryValue(value)
 		if err != nil {
 			return nil, local.ApiErrorToHTTP(local.NewExecutionErrorf("rendering instant query response: %v", err))
 		}
-		return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{
+		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
 			"status":                "success",
 			"nativeLoweringMode":    string(mode),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
-			"plan":                  local.ExplainPlanWithLowering(plan, analysis.Root),
+			"plan":                  explain,
 		}}, nil
 	}
-	return &httpapi.Response{Stream: func(w http.ResponseWriter) error {
+	return &httpapi.Response{Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Stream: func(w http.ResponseWriter) error {
 		return httpapi.WritePromSuccessInstantValue(w, value)
 	}}, nil
 }
@@ -104,20 +105,21 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, local.ApiErrorToHTTP(err)
 	}
+	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
 	if req.Explain || mode.ForcesExplainResponse() {
 		resultType, result, err := httpapi.RenderRangeQueryValue(value)
 		if err != nil {
 			return nil, local.ApiErrorToHTTP(local.NewExecutionErrorf("rendering range query response: %v", err))
 		}
-		return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{
+		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
 			"status":                "success",
 			"nativeLoweringMode":    string(mode),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
-			"plan":                  local.ExplainPlanWithLowering(plan, analysis.Root),
+			"plan":                  explain,
 		}}, nil
 	}
-	return &httpapi.Response{Stream: func(w http.ResponseWriter) error {
+	return &httpapi.Response{Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Stream: func(w http.ResponseWriter) error {
 		return httpapi.WritePromSuccessRangeValue(w, value)
 	}}, nil
 }
@@ -140,23 +142,24 @@ func (h *queryService) instantQueryShadow(ctx context.Context, req httpapi.Insta
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, local.ApiErrorToHTTP(err)
 	}
-	shadowReport := h.shadow.RunInstant(ctx, req, local.ExplainPlan(plan).Strategy, value, servedPlanDuration, servedEvalDuration)
+	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
+	shadowReport := h.shadow.RunInstant(ctx, req, explain.Strategy, value, servedPlanDuration, servedEvalDuration)
 	if req.Explain {
 		resultType, result, err := httpapi.RenderInstantQueryValue(value)
 		if err != nil {
 			return nil, local.ApiErrorToHTTP(local.NewExecutionErrorf("rendering instant query response: %v", err))
 		}
-		return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{
+		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
 			"status":                "success",
 			"nativeLoweringMode":    string(local.NativeLoweringModeShadow),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
-			"plan":                  local.ExplainPlanWithLowering(plan, analysis.Root),
+			"plan":                  explain,
 			"shadow":                shadowReport,
 			"shadowSummary":         h.shadow.Summary(),
 		}}, nil
 	}
-	return &httpapi.Response{Stream: func(w http.ResponseWriter) error {
+	return &httpapi.Response{Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Stream: func(w http.ResponseWriter) error {
 		return httpapi.WritePromSuccessInstantValue(w, value)
 	}}, nil
 }
@@ -179,23 +182,24 @@ func (h *queryService) rangeQueryShadow(ctx context.Context, req httpapi.RangeQu
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, local.ApiErrorToHTTP(err)
 	}
-	shadowReport := h.shadow.RunRange(ctx, req, local.ExplainPlan(plan).Strategy, value, servedPlanDuration, servedEvalDuration)
+	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
+	shadowReport := h.shadow.RunRange(ctx, req, explain.Strategy, value, servedPlanDuration, servedEvalDuration)
 	if req.Explain {
 		resultType, result, err := httpapi.RenderRangeQueryValue(value)
 		if err != nil {
 			return nil, local.ApiErrorToHTTP(local.NewExecutionErrorf("rendering range query response: %v", err))
 		}
-		return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{
+		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
 			"status":                "success",
 			"nativeLoweringMode":    string(local.NativeLoweringModeShadow),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
-			"plan":                  local.ExplainPlanWithLowering(plan, analysis.Root),
+			"plan":                  explain,
 			"shadow":                shadowReport,
 			"shadowSummary":         h.shadow.Summary(),
 		}}, nil
 	}
-	return &httpapi.Response{Stream: func(w http.ResponseWriter) error {
+	return &httpapi.Response{Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Stream: func(w http.ResponseWriter) error {
 		return httpapi.WritePromSuccessRangeValue(w, value)
 	}}, nil
 }
@@ -209,7 +213,8 @@ func (h *queryService) ExplainInstant(_ context.Context, req httpapi.InstantQuer
 	if apiErr != nil {
 		return nil, apiErr
 	}
-	return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{
+	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
+	return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
 		"status": "success",
 		"data": map[string]any{
 			"mode":                  string(local.EvalModeInstant),
@@ -217,7 +222,7 @@ func (h *queryService) ExplainInstant(_ context.Context, req httpapi.InstantQuer
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(query),
 			"query":                 query,
 			"evaluationTime":        evaluationTime.UTC().Format(time.RFC3339Nano),
-			"plan":                  local.ExplainPlanWithLowering(plan, analysis.Root),
+			"plan":                  explain,
 		},
 	}}, nil
 }
@@ -231,7 +236,8 @@ func (h *queryService) ExplainRange(_ context.Context, req httpapi.RangeQueryReq
 	if apiErr != nil {
 		return nil, apiErr
 	}
-	return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{
+	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
+	return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
 		"status": "success",
 		"data": map[string]any{
 			"mode":                  string(local.EvalModeRange),
@@ -241,7 +247,7 @@ func (h *queryService) ExplainRange(_ context.Context, req httpapi.RangeQueryReq
 			"start":                 start.UTC().Format(time.RFC3339Nano),
 			"end":                   end.UTC().Format(time.RFC3339Nano),
 			"step":                  step.String(),
-			"plan":                  local.ExplainPlanWithLowering(plan, analysis.Root),
+			"plan":                  explain,
 		},
 	}}, nil
 }

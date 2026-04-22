@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/BadLiveware/promshim-ch/internal/promshim/obs"
 )
 
 type Config struct {
@@ -78,7 +80,9 @@ func (c *Client) Execute(ctx context.Context, sql string, params map[string]stri
 	request.Header.Set("Authorization", c.basicAuth)
 	request.Header.Set("Content-Type", writer.FormDataContentType())
 
+	start := time.Now()
 	response, err := c.httpClient.Do(request)
+	obs.FromContext(ctx).Observe(time.Since(start))
 	if err != nil {
 		return nil, err
 	}

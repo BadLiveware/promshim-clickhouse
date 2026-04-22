@@ -71,22 +71,31 @@ type OptimizedFragment struct {
 	Report   *OptimizationReport
 }
 
+type fragmentMutationKind string
+
+const (
+	mutationNone           fragmentMutationKind = "none"
+	mutationSelectorFields fragmentMutationKind = "selector_fields"
+	mutationStructural     fragmentMutationKind = "structural"
+)
+
 type optimizerPassSpec struct {
-	ID    OptimizerPass
-	Layer OptimizerLayer
-	Apply func(*optimizerState) error
+	ID      OptimizerPass
+	Layer   OptimizerLayer
+	Mutates fragmentMutationKind
+	Apply   func(*optimizerState) error
 }
 
 var optimizerPasses = []optimizerPassSpec{
-	{ID: PassTrivialExpressionNormalization, Layer: OptimizerLayerLogical, Apply: applyTrivialExpressionNormalization},
-	{ID: PassEvaluationRangePropagation, Layer: OptimizerLayerLogical, Apply: applyEvaluationRangePropagation},
-	{ID: PassCommonMatcherInference, Layer: OptimizerLayerLogical, Apply: applyCommonMatcherInference},
-	{ID: PassLabelPredicatePushdown, Layer: OptimizerLayerFragment, Apply: applyLabelPredicatePushdown},
-	{ID: PassProjectionPushdown, Layer: OptimizerLayerFragment, Apply: applyProjectionPushdown},
-	{ID: PassFunctionPatternRewrites, Layer: OptimizerLayerFragment, Apply: applyFunctionPatternRewrites},
-	{ID: PassJoinNormalizationDuplicateDetection, Layer: OptimizerLayerFragment, Apply: applyJoinNormalizationDuplicateDetection},
-	{ID: PassFlattenRedundantWrappers, Layer: OptimizerLayerFragment, Apply: applyFlattenRedundantWrappers},
-	{ID: PassFinalSQLShapingLateMaterialization, Layer: OptimizerLayerFinalSQL, Apply: applyFinalSQLShapingLateMaterialization},
+	{ID: PassTrivialExpressionNormalization, Layer: OptimizerLayerLogical, Mutates: mutationStructural, Apply: applyTrivialExpressionNormalization},
+	{ID: PassEvaluationRangePropagation, Layer: OptimizerLayerLogical, Mutates: mutationNone, Apply: applyEvaluationRangePropagation},
+	{ID: PassCommonMatcherInference, Layer: OptimizerLayerLogical, Mutates: mutationSelectorFields, Apply: applyCommonMatcherInference},
+	{ID: PassLabelPredicatePushdown, Layer: OptimizerLayerFragment, Mutates: mutationSelectorFields, Apply: applyLabelPredicatePushdown},
+	{ID: PassProjectionPushdown, Layer: OptimizerLayerFragment, Mutates: mutationSelectorFields, Apply: applyProjectionPushdown},
+	{ID: PassFunctionPatternRewrites, Layer: OptimizerLayerFragment, Mutates: mutationNone, Apply: applyFunctionPatternRewrites},
+	{ID: PassJoinNormalizationDuplicateDetection, Layer: OptimizerLayerFragment, Mutates: mutationNone, Apply: applyJoinNormalizationDuplicateDetection},
+	{ID: PassFlattenRedundantWrappers, Layer: OptimizerLayerFragment, Mutates: mutationStructural, Apply: applyFlattenRedundantWrappers},
+	{ID: PassFinalSQLShapingLateMaterialization, Layer: OptimizerLayerFinalSQL, Mutates: mutationNone, Apply: applyFinalSQLShapingLateMaterialization},
 }
 
 var functionRewriteCatalog = []string{
@@ -167,7 +176,7 @@ type optimizerState struct {
 }
 
 func applyTrivialExpressionNormalization(state *optimizerState) error {
-	state.fragment = normalizeTrivialSourceExpressions(state.fragment)
+	normalizeTrivialSourceExpressionsInPlace(state.fragment)
 	return nil
 }
 
@@ -227,7 +236,7 @@ func applyJoinNormalizationDuplicateDetection(state *optimizerState) error {
 }
 
 func applyFlattenRedundantWrappers(state *optimizerState) error {
-	state.fragment = flattenRedundantWrappers(state.fragment)
+	flattenRedundantWrappersInPlace(state.fragment)
 	return nil
 }
 
@@ -239,84 +248,64 @@ func applyFinalSQLShapingLateMaterialization(state *optimizerState) error {
 	return nil
 }
 
-func normalizeTrivialSourceExpressions(fragment *NativeFragment) *NativeFragment {
+func applyIdentityUnaryWrapperRewrite(fragment *NativeFragment) {
 	if fragment == nil {
-		return nil
+		return
 	}
-	normalized := CloneFragment(fragment)
-	if normalized.Aggregation != nil {
-		normalized.Aggregation.Source = normalizeTrivialSourceExpressions(normalized.Aggregation.Source)
+	if fragment.Kind == FragmentKindUnarySourceExpr && fragment.ValueExpr == "{value}" && fragment.TagsExpr == "{tags}" && !fragment.DropsMetric {
+		fragment.Kind = FragmentKindLeafSource
 	}
-	if normalized.Absent != nil {
-		normalized.Absent.Child = normalizeTrivialSourceExpressions(normalized.Absent.Child)
-	}
-	if normalized.HistogramProjection != nil {
-		normalized.HistogramProjection.Child = normalizeTrivialSourceExpressions(normalized.HistogramProjection.Child)
-	}
-	if normalized.HistogramFunction != nil {
-		normalized.HistogramFunction.Child = normalizeTrivialSourceExpressions(normalized.HistogramFunction.Child)
-		for i, quantile := range normalized.HistogramFunction.Quantiles {
-			normalized.HistogramFunction.Quantiles[i] = normalizeTrivialSourceExpressions(quantile)
-		}
-	}
-	if normalized.SortTransform != nil {
-		normalized.SortTransform.Child = normalizeTrivialSourceExpressions(normalized.SortTransform.Child)
-	}
-	if normalized.LabelTransform != nil {
-		normalized.LabelTransform.Child = normalizeTrivialSourceExpressions(normalized.LabelTransform.Child)
-	}
-	if normalized.ClampTransform != nil {
-		normalized.ClampTransform.Child = normalizeTrivialSourceExpressions(normalized.ClampTransform.Child)
-		normalized.ClampTransform.Min = normalizeTrivialSourceExpressions(normalized.ClampTransform.Min)
-		normalized.ClampTransform.Max = normalizeTrivialSourceExpressions(normalized.ClampTransform.Max)
-	}
-	if normalized.ValueTransform != nil {
-		normalized.ValueTransform.Child = normalizeTrivialSourceExpressions(normalized.ValueTransform.Child)
-	}
-	if normalized.Kind == FragmentKindUnarySourceExpr && normalized.ValueExpr == "{value}" && normalized.TagsExpr == "{tags}" && !normalized.DropsMetric {
-		normalized.Kind = FragmentKindLeafSource
-	}
-	return normalized
 }
 
-func flattenRedundantWrappers(fragment *NativeFragment) *NativeFragment {
-	if fragment == nil {
-		return nil
+func walkChildFragments(fragment *NativeFragment, visit func(*NativeFragment)) {
+	if fragment == nil || visit == nil {
+		return
 	}
-	flattened := CloneFragment(fragment)
-	if flattened.Aggregation != nil {
-		flattened.Aggregation.Source = flattenRedundantWrappers(flattened.Aggregation.Source)
+	if fragment.Aggregation != nil {
+		visit(fragment.Aggregation.Source)
 	}
-	if flattened.Absent != nil {
-		flattened.Absent.Child = flattenRedundantWrappers(flattened.Absent.Child)
+	if fragment.Absent != nil {
+		visit(fragment.Absent.Child)
 	}
-	if flattened.HistogramProjection != nil {
-		flattened.HistogramProjection.Child = flattenRedundantWrappers(flattened.HistogramProjection.Child)
+	if fragment.HistogramProjection != nil {
+		visit(fragment.HistogramProjection.Child)
 	}
-	if flattened.HistogramFunction != nil {
-		flattened.HistogramFunction.Child = flattenRedundantWrappers(flattened.HistogramFunction.Child)
-		for i, quantile := range flattened.HistogramFunction.Quantiles {
-			flattened.HistogramFunction.Quantiles[i] = flattenRedundantWrappers(quantile)
+	if fragment.HistogramFunction != nil {
+		visit(fragment.HistogramFunction.Child)
+		for _, quantile := range fragment.HistogramFunction.Quantiles {
+			visit(quantile)
 		}
 	}
-	if flattened.SortTransform != nil {
-		flattened.SortTransform.Child = flattenRedundantWrappers(flattened.SortTransform.Child)
+	if fragment.SortTransform != nil {
+		visit(fragment.SortTransform.Child)
 	}
-	if flattened.LabelTransform != nil {
-		flattened.LabelTransform.Child = flattenRedundantWrappers(flattened.LabelTransform.Child)
+	if fragment.LabelTransform != nil {
+		visit(fragment.LabelTransform.Child)
 	}
-	if flattened.ClampTransform != nil {
-		flattened.ClampTransform.Child = flattenRedundantWrappers(flattened.ClampTransform.Child)
-		flattened.ClampTransform.Min = flattenRedundantWrappers(flattened.ClampTransform.Min)
-		flattened.ClampTransform.Max = flattenRedundantWrappers(flattened.ClampTransform.Max)
+	if fragment.ClampTransform != nil {
+		visit(fragment.ClampTransform.Child)
+		visit(fragment.ClampTransform.Min)
+		visit(fragment.ClampTransform.Max)
 	}
-	if flattened.ValueTransform != nil {
-		flattened.ValueTransform.Child = flattenRedundantWrappers(flattened.ValueTransform.Child)
+	if fragment.ValueTransform != nil {
+		visit(fragment.ValueTransform.Child)
 	}
-	if flattened.Kind == FragmentKindUnarySourceExpr && flattened.ValueExpr == "{value}" && flattened.TagsExpr == "{tags}" && !flattened.DropsMetric {
-		flattened.Kind = FragmentKindLeafSource
+}
+
+func normalizeTrivialSourceExpressionsInPlace(fragment *NativeFragment) {
+	if fragment == nil {
+		return
 	}
-	return flattened
+	walkChildFragments(fragment, normalizeTrivialSourceExpressionsInPlace)
+	applyIdentityUnaryWrapperRewrite(fragment)
+}
+
+func flattenRedundantWrappersInPlace(fragment *NativeFragment) {
+	if fragment == nil {
+		return
+	}
+	walkChildFragments(fragment, flattenRedundantWrappersInPlace)
+	applyIdentityUnaryWrapperRewrite(fragment)
 }
 
 func RequiredInputBounds(fragment *NativeFragment, info *LoweringInfo, ctx OptimizationContext) (int64, int64, bool) {

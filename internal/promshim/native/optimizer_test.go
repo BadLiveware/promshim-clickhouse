@@ -6,6 +6,7 @@ import (
 	"time"
 
 	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -502,6 +503,111 @@ func TestOptimizeFragmentDeduplicatesInferredMetricMatcherInPushdown(t *testing.
 	}
 	if count != 1 {
 		t.Fatalf("expected deduplicated pushed metric matcher, got count=%d predicates=%#v", count, optimized.Report.PushedPredicates)
+	}
+}
+
+func TestOptimizeFragmentDoesNotMutateInputFragment(t *testing.T) {
+	fragment := &NativeFragment{
+		Kind:       FragmentKindAggregation,
+		OutputKind: OutputKindInstantVector,
+		Aggregation: &AggregationFragment{
+			Op:       parser.SUM,
+			Grouping: []string{"job"},
+			Source: &NativeFragment{
+				Kind:       FragmentKindUnarySourceExpr,
+				OutputKind: OutputKindInstantVector,
+				Selector: &SelectorSource{
+					Kind:            SelectorKindInstantVector,
+					MetricName:      "up",
+					RequireFullTags: true,
+					Lookback:        DefaultInstantSelectorLookback,
+				},
+				ValueExpr: "{value}",
+				TagsExpr:  "{tags}",
+			},
+		},
+	}
+
+	optimized, err := OptimizeFragment(fragment, nil, OptimizationContext{Mode: RenderModeInstant, EvaluationTimeMS: 300000})
+	if err != nil {
+		t.Fatalf("expected optimizer to succeed, got error: %v", err)
+	}
+	if optimized.Fragment == fragment {
+		t.Fatal("expected optimizer to operate on a cloned fragment")
+	}
+	if fragment.Aggregation == nil || fragment.Aggregation.Source == nil {
+		t.Fatalf("expected original fragment to stay intact, got %#v", fragment)
+	}
+	if got, want := fragment.Aggregation.Source.Kind, FragmentKindUnarySourceExpr; got != want {
+		t.Fatalf("expected original child kind %q, got %q", want, got)
+	}
+	if got, want := optimized.Fragment.Aggregation.Source.Kind, FragmentKindLeafSource; got != want {
+		t.Fatalf("expected optimized child kind %q, got %q", want, got)
+	}
+}
+
+func BenchmarkOptimizeFragmentWide(b *testing.B) {
+	fragment := &NativeFragment{
+		Kind:       FragmentKindAggregation,
+		OutputKind: OutputKindInstantVector,
+		Aggregation: &AggregationFragment{
+			Op:       parser.SUM,
+			Grouping: []string{"job", "namespace"},
+			Source: &NativeFragment{
+				Kind:       FragmentKindLabelTransform,
+				OutputKind: OutputKindInstantVector,
+				LabelTransform: &LabelTransformFragment{
+					Func:      "label_replace",
+					Dst:       "service",
+					Repl:      "$1",
+					Regex:     "(.*)",
+					Src:       "job",
+					SrcLabels: []string{"job"},
+					Child: &NativeFragment{
+						Kind:       FragmentKindSortTransform,
+						OutputKind: OutputKindInstantVector,
+						SortTransform: &SortTransformFragment{
+							Func: "sort_desc",
+							Child: &NativeFragment{
+								Kind:       FragmentKindRangeFunction,
+								OutputKind: OutputKindInstantVector,
+								RangeFunction: &RangeFunctionFragment{
+									Func: "rate",
+									Child: &NativeFragment{
+										Kind:       FragmentKindLeafSource,
+										OutputKind: OutputKindRangeMatrix,
+										Selector: &SelectorSource{
+											Kind:       SelectorKindRangeVector,
+											MetricName: "http_requests_total",
+											Matchers: []*labels.Matcher{
+												labels.MustNewMatcher(labels.MatchEqual, "namespace", "prod"),
+												labels.MustNewMatcher(labels.MatchRegexp, "job", "api|worker"),
+											},
+											RequireFullTags: true,
+											Lookback:        5 * time.Minute,
+										},
+										ValueExpr: "{value}",
+										TagsExpr:  "{tags}",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	ctx := OptimizationContext{Mode: RenderModeRange, StartMS: 0, EndMS: 15 * 60 * 1000, StepMS: 30 * 1000}
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		optimized, err := OptimizeFragment(fragment, nil, ctx)
+		if err != nil {
+			b.Fatalf("expected optimizer to succeed, got error: %v", err)
+		}
+		if optimized == nil || optimized.Fragment == nil {
+			b.Fatal("expected optimized fragment result")
+		}
 	}
 }
 

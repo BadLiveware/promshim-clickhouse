@@ -141,7 +141,7 @@ func alignSubqueryStepStart(windowStartMS, stepMS int64) int64 {
 		return windowStartMS
 	}
 	aligned := (windowStartMS / stepMS) * stepMS
-	if aligned <= windowStartMS {
+	if aligned < windowStartMS {
 		aligned += stepMS
 	}
 	return aligned

@@ -423,6 +423,11 @@ Status update:
 - selector-backed aggregation over native label-mutation children now stays native as well, so compositions like `sum by (...) (label_join(...))` no longer need the old local fallback path
 - targeted native-only differential validation for the label-mutation slice is green via a custom corpus covering instant/range behavior plus metric-name preservation forms (`8 ok / 0 error / 0 diff`)
 - the Path 2 compliance matrix now has zero remaining non-`yes` rows; the last bucket is closed
+- broader acceptance review after the matrix closure is now green for the main repo checkpoint corpora too:
+  - `go test ./...` is green
+  - `./scripts/run-harness.sh --corpus native-lowering-starter.json --subjects shim --native-only` is green (`22 ok / 0 error / 0 diff`)
+  - `./scripts/run-harness.sh --corpus common-dashboard-subset.json --subjects shim --native-only` is green (`92 ok / 0 error / 0 diff`)
+- the remaining validation caveat is the reference-environment parser limitation already noted above: the current Prometheus image still rejects `info(...)` and `histogram_quantiles(...)`, so those functions cannot be differential-compared in this harness even though repo validation and the compliance matrix are green
 
 ### 9. Finish the pointwise/math/trig/date/function closure
 

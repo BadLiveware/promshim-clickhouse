@@ -1,4 +1,65 @@
 {
-  "nextId": 215,
-  "tasks": []
+  "nextId": 273,
+  "tasks": [
+    {
+      "id": "268",
+      "subject": "Update README Path 2 status wording",
+      "description": "Refresh README.md coarse Path 2 support matrix and surrounding rollout/status wording so it no longer says subset/mostly/no for the now-closed native SQL surface, while preserving any honest caveats about reference-harness parser limitations and whole-query delegation scope.",
+      "status": "completed",
+      "activeForm": "Updating README Path 2 wording",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776867159192,
+      "updatedAt": 1776867362218
+    },
+    {
+      "id": "269",
+      "subject": "Review final acceptance validation coverage",
+      "description": "Review the remaining acceptance criteria from .pi/path2-native-sql-100-compliance-plan.md, decide which additional acceptance-suite runs should be executed or explicitly documented as blocked/limited, run any repo-sanctioned validation that is still appropriate, and record the outcome.",
+      "status": "completed",
+      "activeForm": "Reviewing acceptance validation coverage",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776867159192,
+      "updatedAt": 1776867362218
+    },
+    {
+      "id": "270",
+      "subject": "Produce final Path 2 done checklist",
+      "description": "Assess completion against the plan's Definition of Done and explicit acceptance criteria, then summarize what is done, what remains only as external/reference-environment limitation, and whether the plan can be considered complete.",
+      "status": "completed",
+      "activeForm": "Producing final done checklist",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776867159192,
+      "updatedAt": 1776867370630
+    },
+    {
+      "id": "271",
+      "subject": "Fix native-only starter corpus subquery diffs",
+      "description": "Investigate and fix the remaining native-only differential mismatches from `./scripts/run-harness.sh --corpus native-lowering-starter.json --subjects shim --native-only`, specifically `harness_requests_total[5m:60s]`, `(harness_up * 100)[5m:60s]`, and `sum_over_time((harness_up * 100)[5m:60s])`. Preserve Prometheus-compatible subquery envelope/step-grid semantics and wrapper composition behavior.",
+      "status": "completed",
+      "activeForm": "Fixing starter-corpus subquery diffs",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776867356552,
+      "updatedAt": 1776868714479
+    },
+    {
+      "id": "272",
+      "subject": "Fix common dashboard nested-count diff",
+      "description": "Investigate and fix the remaining native-only differential mismatch from `./scripts/run-harness.sh --corpus common-dashboard-subset.json --subjects shim --native-only` for `count(count by(instance) (harness_up{job=\"api\"}))`, preserving aggregation semantics and native-root composition correctness.",
+      "status": "completed",
+      "activeForm": "Fixing nested-count dashboard diff",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776867356552,
+      "updatedAt": 1776869027561
+    }
+  ]
 }

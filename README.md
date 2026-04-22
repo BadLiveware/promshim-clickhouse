@@ -107,20 +107,20 @@ Request-level `native_lowering_mode=...` still overrides the process default.
 | PromQL family | Path 1 whole-query delegation | Path 2 native SQL | Path 3 local |
 |---|---:|---:|---:|
 | Simple selectors | Limited | Yes | Yes |
-| Aggregations | No (today) | Yes, subset | Yes |
-| Scalar/vector arithmetic | No (today) | Yes, subset | Yes |
-| Vector-vector joins | No (today) | Yes, subset | Yes |
-| Pointwise math/trig/date transforms | No (today) | Mostly yes | Yes |
+| Aggregations | No (today) | Yes | Yes |
+| Scalar/vector arithmetic | No (today) | Yes | Yes |
+| Vector-vector joins | No (today) | Yes | Yes |
+| Pointwise math/trig/date transforms | No (today) | Yes | Yes |
 | Scalar/date builtins (`time`, `pi`) | No | Yes | Yes |
 | `scalar(v)` | No | Yes | Yes |
-| `info(...)` | No | Yes, subset | Yes |
-| Range/counter family | No | Broad supported subset | Yes |
-| `quantile_over_time` | No | No, intentional keep-local | Yes |
-| Sort family | No | No | Yes |
-| `round` | No | No | Yes |
-| `label_replace`, `label_join` | No | No | Yes |
-| Histogram helper family | No | No | Yes |
-| `absent`, `absent_over_time` | No | No | Yes |
+| `info(...)` | No | Yes | Yes |
+| Range/counter family | No | Yes | Yes |
+| `quantile_over_time` | No | Yes | Yes |
+| Sort family | No | Yes | Yes |
+| `round` | No | Yes | Yes |
+| `label_replace`, `label_join` | No | Yes | Yes |
+| Histogram helper family | No | Yes | Yes |
+| `absent`, `absent_over_time` | No | Yes | Yes |
 
 ### Path notes
 
@@ -130,28 +130,13 @@ This path is intentionally conservative today. It is mostly useful for simple wh
 
 #### Path 2 — native SQL lowering
 
-This is the main native execution path in the repo today. Supported native families include:
+This is the main native execution path in the repo today. For the current ClickHouse `TimeSeries` storage model and the repo's vendored Prometheus parser surface, the Path 2 compliance matrix is now fully green: the repo-owned native SQL lowering path covers the previously open aggregation, join/set, range/counter/subquery, histogram-helper, sort, round, label-mutation, absent, info, and function-cleanup gaps.
 
-- selector-backed roots
-- pushdown-safe aggregations: `sum`, `count`, `min`, `max`, `avg`, `stddev`, `stdvar`, `quantile`, `group`
-- source-expression transforms: `abs`, `ceil`, `floor`, `sgn`, `exp`, `ln`, `log2`, `log10`, `sqrt`, trig/hyperbolic functions, `deg`, `rad`, `timestamp`, date/time extractors, clamp family with literal bounds
-- synthetic scalar/date builtins: `time()`, `pi()`, zero-arg date functions
-- `scalar(v)`
-- `info(...)` for the supported single-info-metric subset
-- range/counter/window family: `last_over_time`, `sum_over_time`, `avg_over_time`, `min_over_time`, `max_over_time`, `count_over_time`, `stddev_over_time`, `stdvar_over_time`, `present_over_time`, `mad_over_time`, `rate`, `irate`, `increase`, `delta`, `idelta`, `changes`, `deriv`, `resets`, `predict_linear`, `double_exponential_smoothing`, `holt_winters`
+Two validation notes remain worth calling out explicitly:
 
-Intentional exception:
-
-- `quantile_over_time` remains local-only by design
+- the main native-only checkpoint corpora are now green again after the final closure work, including `native-lowering-starter.json`, `common-dashboard-subset.json`, and the targeted themed/native-only corpora used to close the last feature slices
+- the current reference Prometheus image used by the harness still rejects `info(...)` and `histogram_quantiles(...)` at parse time, so those two functions cannot be differential-compared in that environment even though repo tests and the compliance matrix are green
 
 #### Path 3 — local execution
 
-This is the broadest support surface and the fallback path for supported queries that are not delegated or natively lowered. In addition to the native-supported subset, local-only support currently covers families such as:
-
-- sort functions
-- `round`
-- `label_replace`, `label_join`
-- histogram helpers: `histogram_quantile`, `histogram_count`, `histogram_sum`, `histogram_avg`, `histogram_fraction`
-- `vector`
-- `absent`, `absent_over_time`
-- `quantile_over_time`
+This remains the broadest execution surface operationally because it is still the fallback when whole-query delegation is disabled/rejected and when a request is intentionally served locally (for example in rollout baselines and shadow comparisons). However, the previous family-level native-SQL gaps are now closed; Path 3 remains primarily the compatibility/fallback executor rather than the home of a large local-only PromQL feature set.

@@ -2449,14 +2449,14 @@ func TestLocalSubqueryPlanExecutesChildAcrossInstantWindow(t *testing.T) {
 	if len(matrix.Series) != 1 {
 		t.Fatalf("expected one output series, got %#v", matrix.Series)
 	}
-	if len(matrix.Series[0].Values) != 2 {
-		t.Fatalf("expected two subquery points, got %#v", matrix.Series[0].Values)
+	if len(matrix.Series[0].Values) != 3 {
+		t.Fatalf("expected three subquery points, got %#v", matrix.Series[0].Values)
 	}
-	if matrix.Series[0].Values[0].Timestamp != 120 || matrix.Series[0].Values[1].Timestamp != 180 {
+	if matrix.Series[0].Values[0].Timestamp != 60 || matrix.Series[0].Values[1].Timestamp != 120 || matrix.Series[0].Values[2].Timestamp != 180 {
 		t.Fatalf("unexpected subquery timestamps: %#v", matrix.Series[0].Values)
 	}
-	if len(calls) != 2 {
-		t.Fatalf("expected two child evaluations, got %d", len(calls))
+	if len(calls) != 3 {
+		t.Fatalf("expected three child evaluations, got %d", len(calls))
 	}
 }
 
@@ -2910,10 +2910,10 @@ func TestLocalSubqueryPlanUsesLocalPathForDelegatedMatrixRootInInstantMode(t *te
 	if !ok {
 		t.Fatalf("expected matrix result, got %T", value)
 	}
-	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 2 {
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
 		t.Fatalf("expected local matrix-root points, got %#v", matrix.Series)
 	}
-	if calls != 2 {
+	if calls != 3 {
 		t.Fatalf("expected local child to be called per subquery step, got %d", calls)
 	}
 }
@@ -2937,10 +2937,10 @@ func TestLocalSubqueryPlanAppliesTimestampAndOffset(t *testing.T) {
 		t.Fatalf("expected successful timestamp+offset subquery execution, got error: %v", err)
 	}
 	matrix := value.(model.MatrixValue)
-	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 2 {
-		t.Fatalf("expected one series with two points, got %#v", matrix.Series)
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
+		t.Fatalf("expected one series with three points, got %#v", matrix.Series)
 	}
-	expected := []int64{180, 240}
+	expected := []int64{120, 180, 240}
 	if len(calls) != len(expected) {
 		t.Fatalf("expected %d child evaluations, got %d", len(expected), len(calls))
 	}
@@ -2966,10 +2966,10 @@ func TestLocalSubqueryPlanDefaultsMissingStepToOneMinute(t *testing.T) {
 		t.Fatalf("expected successful default-step subquery execution, got error: %v", err)
 	}
 	matrix := value.(model.MatrixValue)
-	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 2 {
-		t.Fatalf("expected one series with two points, got %#v", matrix.Series)
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
+		t.Fatalf("expected one series with three points, got %#v", matrix.Series)
 	}
-	want := []int64{120, 180}
+	want := []int64{60, 120, 180}
 	if len(calls) != len(want) {
 		t.Fatalf("expected %d child evaluations, got %d", len(want), len(calls))
 	}
@@ -2996,10 +2996,10 @@ func TestLocalSubqueryPlanExecutesLocalRangeMode(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected matrix result, got %T", value)
 	}
-	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 5 {
-		t.Fatalf("expected one series with five points, got %#v", matrix.Series)
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 6 {
+		t.Fatalf("expected one series with six points, got %#v", matrix.Series)
 	}
-	want := []int64{-60, 0, 60, 120, 180}
+	want := []int64{-120, -60, 0, 60, 120, 180}
 	if len(calls) != len(want) {
 		t.Fatalf("expected %d child evaluations, got %d", len(want), len(calls))
 	}
@@ -3026,10 +3026,10 @@ func TestLocalSubqueryPlanExecutesAnchoredLocalRangeMode(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected matrix result, got %T", value)
 	}
-	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 2 {
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
 		t.Fatalf("expected anchored subquery to materialize one fixed window, got %#v", matrix.Series)
 	}
-	want := []int64{120, 180}
+	want := []int64{60, 120, 180}
 	if len(calls) != len(want) {
 		t.Fatalf("expected %d child evaluations, got %d", len(want), len(calls))
 	}

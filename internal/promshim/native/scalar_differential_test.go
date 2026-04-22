@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/exec"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/local/exec"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
 )
 

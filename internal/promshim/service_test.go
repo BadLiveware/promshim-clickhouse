@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/BadLiveware/promshim-ch/internal/promshim/local"
 )
 
 func TestQueryExplainReturnsDelegatedWholeQueryPlanWhenClassifierAllowsIt(t *testing.T) {
@@ -26,7 +28,7 @@ func TestQueryExplainReturnsDelegatedWholeQueryPlanWhenClassifierAllowsIt(t *tes
 		Status string `json:"status"`
 		Data   struct {
 			Mode string      `json:"mode"`
-			Plan ExplainNode `json:"plan"`
+			Plan local.ExplainNode `json:"plan"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
@@ -65,7 +67,7 @@ func TestQueryRangeExplainReturnsLocalFallbackReason(t *testing.T) {
 		Status string `json:"status"`
 		Data   struct {
 			Mode string      `json:"mode"`
-			Plan ExplainNode `json:"plan"`
+			Plan local.ExplainNode `json:"plan"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
@@ -97,7 +99,7 @@ func TestQueryRangeExplainBuildsVectorAndRoundPlans(t *testing.T) {
 	var body struct {
 		Status string `json:"status"`
 		Data   struct {
-			Plan ExplainNode `json:"plan"`
+			Plan local.ExplainNode `json:"plan"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
@@ -168,7 +170,7 @@ func TestQueryRangeExplainBuildsIncreasePlan(t *testing.T) {
 	var body struct {
 		Status string `json:"status"`
 		Data   struct {
-			Plan ExplainNode `json:"plan"`
+			Plan local.ExplainNode `json:"plan"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
@@ -199,7 +201,7 @@ func TestQueryRangeExplainBuildsNativeAggregateOverTimePlan(t *testing.T) {
 	var body struct {
 		Status string `json:"status"`
 		Data   struct {
-			Plan ExplainNode `json:"plan"`
+			Plan local.ExplainNode `json:"plan"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
@@ -231,7 +233,7 @@ func TestQueryRangeExplainBuildsNativeCounterRangePlans(t *testing.T) {
 		var body struct {
 			Status string `json:"status"`
 			Data   struct {
-				Plan ExplainNode `json:"plan"`
+				Plan local.ExplainNode `json:"plan"`
 			} `json:"data"`
 		}
 		if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
@@ -264,7 +266,7 @@ func TestQueryRangeExplainBuildsNativeRangePlansForSubquery(t *testing.T) {
 		var body struct {
 			Status string `json:"status"`
 			Data   struct {
-				Plan ExplainNode `json:"plan"`
+				Plan local.ExplainNode `json:"plan"`
 			} `json:"data"`
 		}
 		if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
@@ -304,7 +306,7 @@ func TestQueryExplainBuildsIncreaseDeltaIDeltaChangesAndDerivPlansForSubquerySel
 		var body struct {
 			Status string `json:"status"`
 			Data   struct {
-				Plan ExplainNode `json:"plan"`
+				Plan local.ExplainNode `json:"plan"`
 			} `json:"data"`
 		}
 		if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
@@ -349,7 +351,7 @@ func TestQueryExplainBuildsRateAndIratePlansForSubquerySelectors(t *testing.T) {
 		var body struct {
 			Status string `json:"status"`
 			Data   struct {
-				Plan ExplainNode `json:"plan"`
+				Plan local.ExplainNode `json:"plan"`
 			} `json:"data"`
 		}
 		if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
@@ -415,7 +417,7 @@ func TestQueryExplainBuildsHistogramProjectionNativePlan(t *testing.T) {
 			var body struct {
 				Status string `json:"status"`
 				Data   struct {
-					Plan ExplainNode `json:"plan"`
+					Plan local.ExplainNode `json:"plan"`
 				} `json:"data"`
 			}
 			if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
@@ -447,7 +449,7 @@ func TestQueryExplainBuildsHistogramQuantileNativePlan(t *testing.T) {
 	var body struct {
 		Status string `json:"status"`
 		Data   struct {
-			Plan ExplainNode `json:"plan"`
+			Plan local.ExplainNode `json:"plan"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
@@ -478,7 +480,7 @@ func TestQueryExplainBuildsHistogramFractionPlan(t *testing.T) {
 	var body struct {
 		Status string `json:"status"`
 		Data   struct {
-			Plan ExplainNode `json:"plan"`
+			Plan local.ExplainNode `json:"plan"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
@@ -544,7 +546,7 @@ func TestQueryWithExplainIncludesPlanAndNormalResult(t *testing.T) {
 			ResultType string `json:"resultType"`
 			Result     []any  `json:"result"`
 		} `json:"data"`
-		Plan ExplainNode `json:"plan"`
+		Plan local.ExplainNode `json:"plan"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
@@ -583,7 +585,7 @@ func TestQueryRangeWithExplainIncludesPlanAndNormalResult(t *testing.T) {
 			ResultType string           `json:"resultType"`
 			Result     []map[string]any `json:"result"`
 		} `json:"data"`
-		Plan ExplainNode `json:"plan"`
+		Plan local.ExplainNode `json:"plan"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
@@ -660,7 +662,7 @@ func TestQueryExplainReportsScalarRootAsNotEligibleForEntireQueryDelegation(t *t
 }
 
 func TestQueryExplainModeReturnsPlanWithoutExplainFlag(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: NativeLoweringModePrefer})
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModePrefer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -676,12 +678,12 @@ func TestQueryExplainModeReturnsPlanWithoutExplainFlag(t *testing.T) {
 	var body struct {
 		Status             string      `json:"status"`
 		NativeLoweringMode string      `json:"nativeLoweringMode"`
-		Plan               ExplainNode `json:"plan"`
+		Plan               local.ExplainNode `json:"plan"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.NativeLoweringMode != string(NativeLoweringModeExplain) {
+	if body.NativeLoweringMode != string(local.NativeLoweringModeExplain) {
 		t.Fatalf("expected explain native lowering mode, got %#v", body)
 	}
 	if body.Plan.Strategy != "local" {
@@ -742,7 +744,7 @@ func TestQueryShadowModeReturnsServedPlanAndShadowReport(t *testing.T) {
 	var body struct {
 		Status             string      `json:"status"`
 		NativeLoweringMode string      `json:"nativeLoweringMode"`
-		Plan               ExplainNode `json:"plan"`
+		Plan               local.ExplainNode `json:"plan"`
 		Shadow             struct {
 			ServedStrategy   string `json:"servedStrategy"`
 			ShadowStrategy   string `json:"shadowStrategy"`
@@ -766,7 +768,7 @@ func TestQueryShadowModeReturnsServedPlanAndShadowReport(t *testing.T) {
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.NativeLoweringMode != string(NativeLoweringModeShadow) {
+	if body.NativeLoweringMode != string(local.NativeLoweringModeShadow) {
 		t.Fatalf("expected shadow mode, got %#v", body)
 	}
 	if body.Plan.Strategy != "local" {
@@ -787,7 +789,7 @@ func TestQueryShadowModeReturnsServedPlanAndShadowReport(t *testing.T) {
 }
 
 func TestQueryExplainHonorsNativeLoweringModeOff(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: NativeLoweringModePrefer})
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModePrefer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -804,13 +806,13 @@ func TestQueryExplainHonorsNativeLoweringModeOff(t *testing.T) {
 		Status string `json:"status"`
 		Data   struct {
 			NativeLoweringMode string      `json:"nativeLoweringMode"`
-			Plan               ExplainNode `json:"plan"`
+			Plan               local.ExplainNode `json:"plan"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Data.NativeLoweringMode != string(NativeLoweringModeOff) {
+	if body.Data.NativeLoweringMode != string(local.NativeLoweringModeOff) {
 		t.Fatalf("expected off mode in explain response, got %#v", body.Data)
 	}
 	if body.Data.Plan.Strategy != "local" {
@@ -865,7 +867,7 @@ func TestQueryExplainForceSupportedPrefersNativeRootOverDelegation(t *testing.T)
 	var body struct {
 		Status string `json:"status"`
 		Data   struct {
-			Plan ExplainNode `json:"plan"`
+			Plan local.ExplainNode `json:"plan"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
@@ -893,7 +895,7 @@ func TestQueryRangeExplainForceSupportedPrefersNativeRootOverDelegation(t *testi
 	var body struct {
 		Status string `json:"status"`
 		Data   struct {
-			Plan ExplainNode `json:"plan"`
+			Plan local.ExplainNode `json:"plan"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
@@ -921,7 +923,7 @@ func TestQueryExplainForceSupportedAcceptsAbsentNativeRoot(t *testing.T) {
 	var body struct {
 		Status string `json:"status"`
 		Data   struct {
-			Plan ExplainNode `json:"plan"`
+			Plan local.ExplainNode `json:"plan"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
@@ -949,7 +951,7 @@ func TestQueryRangeExplainForceSupportedAcceptsAbsentOverTimeNativeRoot(t *testi
 	var body struct {
 		Status string `json:"status"`
 		Data   struct {
-			Plan ExplainNode `json:"plan"`
+			Plan local.ExplainNode `json:"plan"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {

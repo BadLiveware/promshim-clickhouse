@@ -6,13 +6,13 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/BadLiveware/promshim-ch/internal/promshim/local"
 )
 
 const (
-	defaultMaxRangePointsPerSeries   int64 = 50000
-	defaultRangeChunkPointsPerSeries int64 = 5000
-	defaultMaxResponseSeries         int64 = 5000
-	defaultMaxResponsePoints         int64 = 500000
+	defaultMaxResponseSeries int64 = 5000
+	defaultMaxResponsePoints int64 = 500000
 )
 
 type Options struct {
@@ -23,7 +23,7 @@ type Options struct {
 	Password                  string
 	RequestTimeout            time.Duration
 	ClickHouseVersion         string
-	NativeLoweringMode        NativeLoweringMode
+	NativeLoweringMode        local.NativeLoweringMode
 	MaxRangePointsPerSeries   int64
 	RangeChunkPointsPerSeries int64
 	MaxResponseSeries         int64
@@ -41,15 +41,15 @@ func LoadOptionsFromEnv() (Options, error) {
 		Password:                  getenv("PROM_SHIM_CLICKHOUSE_PASSWORD", "otel"),
 		RequestTimeout:            time.Second * time.Duration(getenvInt("PROM_SHIM_REQUEST_TIMEOUT_SECONDS", 30)),
 		ClickHouseVersion:         getenv("PROM_SHIM_CLICKHOUSE_VERSION", "26.3"),
-		NativeLoweringMode:        NativeLoweringMode(getenv("PROM_SHIM_NATIVE_LOWERING_MODE", string(NativeLoweringModePrefer))),
-		MaxRangePointsPerSeries:   getenvInt64("PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES", defaultMaxRangePointsPerSeries),
-		RangeChunkPointsPerSeries: getenvInt64("PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES", defaultRangeChunkPointsPerSeries),
+		NativeLoweringMode:        local.NativeLoweringMode(getenv("PROM_SHIM_NATIVE_LOWERING_MODE", string(local.NativeLoweringModePrefer))),
+		MaxRangePointsPerSeries:   getenvInt64("PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES", local.DefaultMaxRangePointsPerSeries),
+		RangeChunkPointsPerSeries: getenvInt64("PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES", local.DefaultRangeChunkPointsPerSeries),
 		MaxResponseSeries:         getenvInt64("PROM_SHIM_MAX_RESPONSE_SERIES", defaultMaxResponseSeries),
 		MaxResponsePoints:         getenvInt64("PROM_SHIM_MAX_RESPONSE_POINTS", defaultMaxResponsePoints),
 	}
 
 	opts = normalizeOptions(opts)
-	if _, err := parseNativeLoweringMode(string(opts.NativeLoweringMode)); err != nil {
+	if _, err := local.ParseNativeLoweringMode(string(opts.NativeLoweringMode)); err != nil {
 		return Options{}, fmt.Errorf("invalid PROM_SHIM_NATIVE_LOWERING_MODE: %w", err)
 	}
 
@@ -92,13 +92,13 @@ func getenvInt64(key string, fallback int64) int64 {
 }
 
 func normalizeOptions(opts Options) Options {
-	opts.ClickHouseVersion = normalizeClickHouseVersion(opts.ClickHouseVersion)
-	opts.NativeLoweringMode = normalizeNativeLoweringMode(opts.NativeLoweringMode)
+	opts.ClickHouseVersion = local.NormalizeClickHouseVersion(opts.ClickHouseVersion)
+	opts.NativeLoweringMode = local.NormalizeNativeLoweringMode(opts.NativeLoweringMode)
 	if opts.MaxRangePointsPerSeries <= 0 {
-		opts.MaxRangePointsPerSeries = defaultMaxRangePointsPerSeries
+		opts.MaxRangePointsPerSeries = local.DefaultMaxRangePointsPerSeries
 	}
 	if opts.RangeChunkPointsPerSeries <= 0 {
-		opts.RangeChunkPointsPerSeries = defaultRangeChunkPointsPerSeries
+		opts.RangeChunkPointsPerSeries = local.DefaultRangeChunkPointsPerSeries
 	}
 	if opts.MaxResponseSeries <= 0 {
 		opts.MaxResponseSeries = defaultMaxResponseSeries

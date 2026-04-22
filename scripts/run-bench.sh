@@ -17,6 +17,17 @@ Options:
                      then run the bench against it.
   --corpus PATH      Bench corpus JSON
                      (default: harness/corpus/bench-native-lowering.json).
+  --long-range [7d|30d|1y|all]
+                     Run the named long-range dashboard profile, or "all"
+                     to run 7d, 30d, and 1y sequentially. Each profile sets
+                     --corpus harness/corpus/bench-native-lowering-<P>.json
+                     and --eval-time to that profile's pinned end_time
+                     (7d→2026-03-22, 30d→2026-02-22, 1y→2025-03-22).
+                     Argument is optional; defaults to 7d. Requires
+                     ./scripts/seed-long-range.sh --profile <P> beforehand.
+                     Skips Prometheus comparison (data only lives in CH).
+  --eval-time RFC3339  Override the bench evaluation time passed to
+                       promshim-bench (default pinned to the 10m fixture).
   --baseline PATH    Baseline bench report; exits non-zero on regressions
                      (default: harness/bench/baseline.json when present).
   --update-baseline  Rewrite the baseline file from this run's results.
@@ -58,6 +69,8 @@ REPEATS=10
 WARMUP=2
 READY_TIMEOUT=60
 MATRIX=0
+LONG_RANGE=""
+EVAL_TIME=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -69,10 +82,64 @@ while [[ $# -gt 0 ]]; do
     --warmup)          WARMUP="$2"; shift 2 ;;
     --ready-timeout)   READY_TIMEOUT="$2"; shift 2 ;;
     --matrix)          MATRIX=1; shift ;;
+    --long-range)
+      # Optional argument: --long-range [7d|30d|1y|all], default 7d.
+      if [[ $# -ge 2 && "$2" =~ ^(7d|30d|1y|all)$ ]]; then
+        LONG_RANGE="$2"; shift 2
+      else
+        LONG_RANGE="7d"; shift
+      fi
+      ;;
+    --eval-time)       EVAL_TIME="$2"; shift 2 ;;
     -h|--help)         usage; exit 0 ;;
     *)                 fatal "Unknown argument: $1" ;;
   esac
 done
+
+if [[ -n "$LONG_RANGE" ]]; then
+  # Long-range data is ClickHouse-only; Prom wasn't seeded with backdated
+  # samples. Skip the Prom readiness gate so bench can still run.
+  SKIP_PROM_READY=1
+
+  if [[ "$LONG_RANGE" == "all" ]]; then
+    # Re-invoke self once per profile so each gets its own promshim-bench
+    # process (and its own bench-report.json artifact path). Stop on first
+    # non-zero status so the optimization loop sees real regressions.
+    SELF="${BASH_SOURCE[0]}"
+    STATUS=0
+    for P in 7d 30d 1y; do
+      log "Long-range profile ${P} starting."
+      PASSTHROUGH=(--long-range "$P")
+      if (( BRING_UP == 1 ));        then PASSTHROUGH+=(--bring-up); fi
+      if (( UPDATE_BASELINE == 1 )); then PASSTHROUGH+=(--update-baseline); fi
+      if (( MATRIX == 1 ));          then PASSTHROUGH+=(--matrix); fi
+      PASSTHROUGH+=(--repeats "$REPEATS" --warmup "$WARMUP" --ready-timeout "$READY_TIMEOUT")
+      if [[ -n "$BASELINE" ]]; then PASSTHROUGH+=(--baseline "$BASELINE"); fi
+      set +e
+      "$SELF" "${PASSTHROUGH[@]}"
+      sub=$?
+      set -e
+      if (( sub != 0 )); then
+        log "Long-range profile ${P} failed (status=${sub})."
+        STATUS=$sub
+      fi
+    done
+    exit "$STATUS"
+  fi
+
+  case "$LONG_RANGE" in
+    7d)  PROFILE_END_TIME="2026-03-22T21:45:42Z" ;;
+    30d) PROFILE_END_TIME="2026-02-22T21:45:42Z" ;;
+    1y)  PROFILE_END_TIME="2025-03-22T21:45:42Z" ;;
+    *)   fatal "Unknown --long-range profile: $LONG_RANGE (want 7d|30d|1y|all)" ;;
+  esac
+  if [[ "$CORPUS" == "$DEFAULT_CORPUS" ]]; then
+    CORPUS="harness/corpus/bench-native-lowering-${LONG_RANGE}.json"
+  fi
+  if [[ -z "$EVAL_TIME" ]]; then
+    EVAL_TIME="$PROFILE_END_TIME"
+  fi
+fi
 
 ensure_command go
 ensure_command curl
@@ -104,8 +171,12 @@ wait_for_http() {
   fatal "${name} did not become ready within ${READY_TIMEOUT}s (${url})"
 }
 
-log "Checking Prometheus (:29090) and promshim (:29091) readiness."
-wait_for_http "Prometheus reference" "http://localhost:29090/-/ready"
+if [[ "${SKIP_PROM_READY:-0}" == "1" ]]; then
+  log "Checking promshim (:29091) readiness (Prom skipped for --long-range)."
+else
+  log "Checking Prometheus (:29090) and promshim (:29091) readiness."
+  wait_for_http "Prometheus reference" "http://localhost:29090/-/ready"
+fi
 wait_for_http "promshim"             "http://localhost:29091/-/ready"
 
 log "Probing promshim -> ClickHouse integration."
@@ -137,6 +208,9 @@ if [[ -n "$BASELINE" ]]; then
 fi
 if (( UPDATE_BASELINE == 1 )); then
   ARGS+=(--update-baseline)
+fi
+if [[ -n "$EVAL_TIME" ]]; then
+  ARGS+=(--eval-time "$EVAL_TIME")
 fi
 
 log "Running promshim-bench ${ARGS[*]}"

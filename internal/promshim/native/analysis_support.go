@@ -32,12 +32,12 @@ func isSupportedNativeAggregateOverTime(name string) bool {
 	}
 }
 
-// rangeFunctionPreservesMetricName reports whether the range function returns a
+// RangeFunctionPreservesMetricName reports whether the range function returns a
 // sample from the original series (preserving __name__) rather than a derived
 // aggregation. Only last_over_time has this property among the supported range
 // functions; everything else (rate/increase/delta/*_over_time/deriv/...) drops
 // the metric name because the returned value is a new quantity.
-func rangeFunctionPreservesMetricName(name string) bool {
+func RangeFunctionPreservesMetricName(name string) bool {
 	return name == "last_over_time"
 }
 

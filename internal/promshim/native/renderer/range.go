@@ -1,6 +1,7 @@
-package native
+package renderer
 
 import (
+	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"fmt"
 	"strconv"
 	"time"
@@ -9,11 +10,11 @@ import (
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 )
 
-func renderSubqueryFragment(cfg storage.QueryConfig, fragment *NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderSubqueryFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
 	if fragment.Subquery == nil || fragment.Subquery.Child == nil {
 		return RenderedQuery{}, fmt.Errorf("subquery fragment is missing subquery metadata")
 	}
-	if params.Mode != RenderModeInstant {
+	if params.Mode != native.RenderModeInstant {
 		return RenderedQuery{}, fmt.Errorf("native subquery rendering in %s mode is not implemented yet", params.Mode)
 	}
 	endMS := params.EvaluationTimeMS
@@ -31,7 +32,7 @@ func renderSubqueryFragment(cfg storage.QueryConfig, fragment *NativeFragment, p
 	startMS := alignSubqueryStepStart(endMS-fragment.Subquery.Range.Milliseconds(), stepMS)
 	childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(fragment.Subquery.Child, startMS, endMS)
 	childRendered, err := RenderFragment(cfg, fragment.Subquery.Child, RenderParams{
-		Mode:                RenderModeRange,
+		Mode:                native.RenderModeRange,
 		StartMS:             startMS,
 		EndMS:               endMS,
 		StepMS:              step.Milliseconds(),
@@ -45,12 +46,12 @@ func renderSubqueryFragment(cfg storage.QueryConfig, fragment *NativeFragment, p
 	return childRendered, nil
 }
 
-func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
 	if fragment.RangeFunction == nil || fragment.RangeFunction.Child == nil {
 		return RenderedQuery{}, fmt.Errorf("range function fragment is missing range metadata")
 	}
 	switch params.Mode {
-	case RenderModeInstant:
+	case native.RenderModeInstant:
 		childRendered, err := RenderFragment(cfg, fragment.RangeFunction.Child, params)
 		if err != nil {
 			return RenderedQuery{}, err
@@ -60,12 +61,12 @@ func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *NativeFragme
 			return RenderedQuery{}, err
 		}
 		return RenderedQuery{SQL: sql, QueryParams: childRendered.QueryParams}, nil
-	case RenderModeRange:
+	case native.RenderModeRange:
 		selectorFragment := fragment.RangeFunction.Child
-		if selectorFragment != nil && selectorFragment.Kind == FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == SelectorKindRangeVector {
+		if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector {
 			childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment, params.StartMS, params.EndMS)
 			childRendered, err := RenderFragment(cfg, selectorFragment, RenderParams{
-				Mode:                RenderModeRange,
+				Mode:                native.RenderModeRange,
 				StartMS:             params.StartMS,
 				EndMS:               params.EndMS,
 				StepMS:              params.StepMS,
@@ -82,7 +83,7 @@ func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *NativeFragme
 			}
 			return RenderedQuery{SQL: sql, QueryParams: childRendered.QueryParams}, nil
 		}
-		if selectorFragment != nil && selectorFragment.Kind == FragmentKindSubquery && selectorFragment.Subquery != nil && selectorFragment.Subquery.Child != nil {
+		if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindSubquery && selectorFragment.Subquery != nil && selectorFragment.Subquery.Child != nil {
 			subqueryStep := selectorFragment.Subquery.Step
 			if subqueryStep <= 0 {
 				subqueryStep = time.Minute
@@ -92,7 +93,7 @@ func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *NativeFragme
 			expandedStartMS := alignSubqueryStepStart(params.StartMS-selectorFragment.Subquery.Offset.Milliseconds()-selectorFragment.Subquery.Range.Milliseconds(), subqueryStepMS)
 			childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment.Subquery.Child, expandedStartMS, expandedEndMS)
 			childRendered, err := RenderFragment(cfg, selectorFragment.Subquery.Child, RenderParams{
-				Mode:                RenderModeRange,
+				Mode:                native.RenderModeRange,
 				StartMS:             expandedStartMS,
 				EndMS:               expandedEndMS,
 				StepMS:              subqueryStepMS,
@@ -164,7 +165,7 @@ func buildInstantRangeFunctionSQL(sourceSQL, fn string, paramNumber *float64, pa
 }
 
 func rangeFunctionTagsExpr(fn string) string {
-	if rangeFunctionPreservesMetricName(fn) {
+	if native.RangeFunctionPreservesMetricName(fn) {
 		return "tags"
 	}
 	return "arrayFilter(tag -> tag.1 != '__name__', tags)"
@@ -195,11 +196,11 @@ func extrapolationFactorSQL(timestampsExpr sqlb.Expr, seriesLength sqlb.Expr, ev
 	return "if((" + sampledMS + ") <= 0, 1.0, (" + extrapolateTo + ") / (" + sampledMS + "))"
 }
 
-func rangeFunctionChildRangeMS(child *NativeFragment) int64 {
+func rangeFunctionChildRangeMS(child *native.NativeFragment) int64 {
 	if child == nil {
 		return 0
 	}
-	if child.Selector != nil && child.Selector.Kind == SelectorKindRangeVector {
+	if child.Selector != nil && child.Selector.Kind == native.SelectorKindRangeVector {
 		return child.Selector.Lookback.Milliseconds()
 	}
 	if child.Subquery != nil {

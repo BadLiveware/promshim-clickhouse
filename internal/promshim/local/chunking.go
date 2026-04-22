@@ -1,4 +1,4 @@
-package promshim
+package local
 
 import (
 	"context"
@@ -9,33 +9,33 @@ import (
 )
 
 type chunkedRangePlan struct {
-	Child                queryPlan
+	Child                Plan
 	ChunkPointsPerSeries int64
 	Reason               string
 	Estimate             *planEstimate
 }
 
-func (p *chunkedRangePlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
-	if params.Mode != evalModeRange {
-		return p.Child.execute(ctx, evaluator, params)
+func (p *chunkedRangePlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+	if params.Mode != EvalModeRange {
+		return p.Child.execute(ctx, Evaluator, params)
 	}
 	chunks, err := splitRangeIntoChunks(params, p.ChunkPointsPerSeries)
 	if err != nil {
-		return nil, withInternalContext(err, "building range chunks")
+		return nil, WithInternalContext(err, "building range chunks")
 	}
 	merged := model.MatrixValue{Series: nil}
 	for _, chunk := range chunks {
-		value, err := p.Child.execute(ctx, evaluator, chunk)
+		value, err := p.Child.execute(ctx, Evaluator, chunk)
 		if err != nil {
-			return nil, withInternalContext(err, "executing chunked range subquery start=%s end=%s", chunk.Start, chunk.End)
+			return nil, WithInternalContext(err, "executing chunked range subquery start=%s end=%s", chunk.Start, chunk.End)
 		}
 		matrix, ok := value.(model.MatrixValue)
 		if !ok {
-			return nil, newExecutionErrorf("chunked range execution requires matrix child results, got %T", value)
+			return nil, NewExecutionErrorf("chunked range execution requires matrix child results, got %T", value)
 		}
 		merged, err = mergeMatrixValues(merged, matrix)
 		if err != nil {
-			return nil, withInternalContext(err, "merging chunked range subquery start=%s end=%s", chunk.Start, chunk.End)
+			return nil, WithInternalContext(err, "merging chunked range subquery start=%s end=%s", chunk.Start, chunk.End)
 		}
 	}
 	return merged, nil
@@ -51,17 +51,17 @@ func (p *chunkedRangePlan) explain() ExplainNode {
 	}
 }
 
-func splitRangeIntoChunks(params evalParams, chunkPointsPerSeries int64) ([]evalParams, error) {
-	if params.Mode != evalModeRange {
-		return []evalParams{params}, nil
+func splitRangeIntoChunks(params EvalParams, chunkPointsPerSeries int64) ([]EvalParams, error) {
+	if params.Mode != EvalModeRange {
+		return []EvalParams{params}, nil
 	}
 	if params.Step <= 0 {
-		return nil, newBadDataErrorf("step must be greater than zero for chunked range evaluation")
+		return nil, NewBadDataErrorf("step must be greater than zero for chunked range evaluation")
 	}
 	if chunkPointsPerSeries <= 0 {
-		return nil, newBadDataErrorf("chunk points per series must be greater than zero for chunked range evaluation")
+		return nil, NewBadDataErrorf("chunk points per series must be greater than zero for chunked range evaluation")
 	}
-	chunks := make([]evalParams, 0)
+	chunks := make([]EvalParams, 0)
 	currentStart := params.Start
 	for !currentStart.After(params.End) {
 		remainingPoints := int64(params.End.Sub(currentStart)/params.Step) + 1
@@ -73,7 +73,7 @@ func splitRangeIntoChunks(params evalParams, chunkPointsPerSeries int64) ([]eval
 		if currentEnd.After(params.End) {
 			currentEnd = params.End
 		}
-		chunks = append(chunks, evalParams{
+		chunks = append(chunks, EvalParams{
 			Mode:           params.Mode,
 			EvaluationTime: params.EvaluationTime,
 			Start:          currentStart,
@@ -98,7 +98,7 @@ func mergeMatrixValues(left, right model.MatrixValue) (model.MatrixValue, error)
 		if existing, ok := merged[key]; ok {
 			values, err := model.AppendRangePointsStrict(existing.Values, series.Values)
 			if err != nil {
-				return model.MatrixValue{}, newExecutionErrorf("chunked range merge encountered non-increasing timestamps for labelset %q", key)
+				return model.MatrixValue{}, NewExecutionErrorf("chunked range merge encountered non-increasing timestamps for labelset %q", key)
 			}
 			existing.Values = values
 			merged[key] = existing

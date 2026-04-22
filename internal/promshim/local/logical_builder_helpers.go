@@ -1,4 +1,4 @@
-package promshim
+package local
 
 import (
 	"strings"
@@ -16,7 +16,7 @@ func aggregatePlanParam(expr *parser.AggregateExpr) (*float64, string, error) {
 	case parser.TOPK, parser.BOTTOMK, parser.QUANTILE:
 		literal, ok := unwrapTransparentExpr(expr.Param).(*parser.NumberLiteral)
 		if !ok {
-			return nil, "", newUnsupportedErrorf("aggregation operator %q currently requires a literal scalar parameter", strings.ToLower(expr.Op.String()))
+			return nil, "", NewUnsupportedErrorf("aggregation operator %q currently requires a literal scalar parameter", strings.ToLower(expr.Op.String()))
 		}
 		value := literal.Val
 		return &value, "", nil
@@ -26,7 +26,7 @@ func aggregatePlanParam(expr *parser.AggregateExpr) (*float64, string, error) {
 			return nil, "", err
 		}
 		if !commonmodel.UTF8Validation.IsValidLabelName(label) {
-			return nil, "", newBadDataErrorf("invalid destination label name in count_values(): %s", label)
+			return nil, "", NewBadDataErrorf("invalid destination label name in count_values(): %s", label)
 		}
 		return nil, label, nil
 	default:
@@ -38,14 +38,14 @@ func buildLogicalPointwiseFunctionPlan(name string, call *parser.Call) (logicalP
 	paramNumbers := make([]*float64, 0, max(0, len(call.Args)-1))
 	argOffset := 0
 	if name == "clamp" || name == "clamp_min" || name == "clamp_max" {
-		child, err := buildLogicalPlan(call.Args[0])
+		child, err := BuildLogicalPlan(call.Args[0])
 		if err != nil {
-			return nil, withInternalContext(err, "building logical child plan for %s %q", name, call.String())
+			return nil, WithInternalContext(err, "building logical child plan for %s %q", name, call.String())
 		}
 		for _, arg := range call.Args[1:] {
 			value, err := numberLiteralArgument(arg, name+" scalar parameter")
 			if err != nil {
-				return nil, withInternalContext(err, "building logical %s %q", name, call.String())
+				return nil, WithInternalContext(err, "building logical %s %q", name, call.String())
 			}
 			valueCopy := value
 			paramNumbers = append(paramNumbers, &valueCopy)
@@ -57,9 +57,9 @@ func buildLogicalPointwiseFunctionPlan(name string, call *parser.Call) (logicalP
 	}
 	var child logicalPlan
 	if argOffset == 1 {
-		builtChild, err := buildLogicalPlan(call.Args[0])
+		builtChild, err := BuildLogicalPlan(call.Args[0])
 		if err != nil {
-			return nil, withInternalContext(err, "building logical child plan for %s %q", name, call.String())
+			return nil, WithInternalContext(err, "building logical child plan for %s %q", name, call.String())
 		}
 		child = builtChild
 	}
@@ -84,7 +84,7 @@ func stringLiteralArgument(expr parser.Expr, description string) (string, error)
 	expr = unwrapTransparentExpr(expr)
 	literal, ok := expr.(*parser.StringLiteral)
 	if !ok {
-		return "", newBadDataErrorf("expected string literal for %s, got %T", description, expr)
+		return "", NewBadDataErrorf("expected string literal for %s, got %T", description, expr)
 	}
 	return literal.Val, nil
 }
@@ -93,7 +93,7 @@ func numberLiteralArgument(expr parser.Expr, description string) (float64, error
 	expr = unwrapTransparentExpr(expr)
 	literal, ok := expr.(*parser.NumberLiteral)
 	if !ok {
-		return 0, newBadDataErrorf("expected numeric literal for %s, got %T", description, expr)
+		return 0, NewBadDataErrorf("expected numeric literal for %s, got %T", description, expr)
 	}
 	return literal.Val, nil
 }

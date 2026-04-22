@@ -1,26 +1,26 @@
-package promshim
+package local
 
 import (
 	"context"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/exec"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/local/exec"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
 )
 
 type localHistogramQuantilePlan struct {
 	Expr     string
 	Quantile float64
-	Child    queryPlan
+	Child    Plan
 }
 
-func (p *localHistogramQuantilePlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
-	childValue, err := p.Child.execute(ctx, evaluator, params)
+func (p *localHistogramQuantilePlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+	childValue, err := p.Child.execute(ctx, Evaluator, params)
 	if err != nil {
-		return nil, withInternalContext(err, "evaluating histogram_quantile child quantile=%v", p.Quantile)
+		return nil, WithInternalContext(err, "evaluating histogram_quantile child quantile=%v", p.Quantile)
 	}
 	result, err := exec.ApplyHistogramQuantileRuntimeValue(p.Quantile, childValue)
 	if err != nil {
-		return nil, withInternalContext(fromExecError(err), "applying histogram_quantile quantile=%v", p.Quantile)
+		return nil, WithInternalContext(FromExecError(err), "applying histogram_quantile quantile=%v", p.Quantile)
 	}
 	return result, nil
 }
@@ -33,17 +33,17 @@ type localHistogramFractionPlan struct {
 	Expr  string
 	Lower float64
 	Upper float64
-	Child queryPlan
+	Child Plan
 }
 
-func (p *localHistogramFractionPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
-	childValue, err := p.Child.execute(ctx, evaluator, params)
+func (p *localHistogramFractionPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+	childValue, err := p.Child.execute(ctx, Evaluator, params)
 	if err != nil {
-		return nil, withInternalContext(err, "evaluating histogram_fraction child bounds=[%v,%v]", p.Lower, p.Upper)
+		return nil, WithInternalContext(err, "evaluating histogram_fraction child bounds=[%v,%v]", p.Lower, p.Upper)
 	}
 	result, err := exec.ApplyHistogramFractionRuntimeValue(p.Lower, p.Upper, childValue)
 	if err != nil {
-		return nil, withInternalContext(fromExecError(err), "applying histogram_fraction bounds=[%v,%v]", p.Lower, p.Upper)
+		return nil, WithInternalContext(FromExecError(err), "applying histogram_fraction bounds=[%v,%v]", p.Lower, p.Upper)
 	}
 	return result, nil
 }
@@ -55,13 +55,13 @@ func (p *localHistogramFractionPlan) explain() ExplainNode {
 type localHistogramProjectionPlan struct {
 	Expr  string
 	Func  string
-	Child queryPlan
+	Child Plan
 }
 
-func (p *localHistogramProjectionPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
-	childValue, err := p.Child.execute(ctx, evaluator, params)
+func (p *localHistogramProjectionPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+	childValue, err := p.Child.execute(ctx, Evaluator, params)
 	if err != nil {
-		return nil, withInternalContext(err, "evaluating %s child", p.Func)
+		return nil, WithInternalContext(err, "evaluating %s child", p.Func)
 	}
 	var result model.RuntimeValue
 	switch p.Func {
@@ -72,10 +72,10 @@ func (p *localHistogramProjectionPlan) execute(ctx context.Context, evaluator *e
 	case "histogram_avg":
 		result, err = exec.ApplyHistogramAvgRuntimeValue(childValue)
 	default:
-		return nil, newExecutionErrorf("unknown histogram projection function %q", p.Func)
+		return nil, NewExecutionErrorf("unknown histogram projection function %q", p.Func)
 	}
 	if err != nil {
-		return nil, withInternalContext(fromExecError(err), "applying %s", p.Func)
+		return nil, WithInternalContext(FromExecError(err), "applying %s", p.Func)
 	}
 	return result, nil
 }

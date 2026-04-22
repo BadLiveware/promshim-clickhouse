@@ -1,4 +1,4 @@
-package promshim
+package local
 
 import nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
 
@@ -8,11 +8,11 @@ type nativeAggregationEligibility struct {
 	Source   nativeAggregationSource
 }
 
-func decideNativeAggregationPushdown(node *logicalAggregationPlan, ctx planContext) nativeAggregationEligibility {
+func decideNativeAggregationPushdown(node *logicalAggregationPlan, ctx PlanContext) nativeAggregationEligibility {
 	return decideNativeAggregationPushdownFromAnalysis(node, nativeplan.Analyze(node), ctx)
 }
 
-func decideNativeAggregationPushdownFromAnalysis(node *logicalAggregationPlan, analysis *nativeplan.Analysis, ctx planContext) nativeAggregationEligibility {
+func decideNativeAggregationPushdownFromAnalysis(node *logicalAggregationPlan, analysis *nativeplan.Analysis, ctx PlanContext) nativeAggregationEligibility {
 	if node == nil {
 		return nativeAggregationEligibility{Reason: "aggregation pushdown requires an aggregation node"}
 	}

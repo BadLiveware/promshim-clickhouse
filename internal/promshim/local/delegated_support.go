@@ -1,4 +1,4 @@
-package promshim
+package local
 
 import (
 	"strings"
@@ -7,16 +7,16 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-func ensureDelegatedExprSupportedForContext(expr parser.Expr, ctx planContext, stage string) error {
+func ensureDelegatedExprSupportedForContext(expr parser.Expr, ctx PlanContext, stage string) error {
 	result := analyzeDelegatedExprSupportForContext(expr, ctx)
 	if result.Supported {
 		return nil
 	}
-	return newPlanBuildError(expr, result, stage)
+	return NewPlanBuildError(expr, result, stage)
 }
 
-func analyzeDelegatedExprSupportForContext(expr parser.Expr, ctx planContext) planpkg.SupportResult {
-	if ctx.Mode != evalModeRange || expr == nil {
+func analyzeDelegatedExprSupportForContext(expr parser.Expr, ctx PlanContext) planpkg.SupportResult {
+	if ctx.Mode != EvalModeRange || expr == nil {
 		return planpkg.SupportResult{Supported: true}
 	}
 

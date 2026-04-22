@@ -1,4 +1,4 @@
-package promshim
+package local
 
 import (
 	"fmt"
@@ -8,30 +8,30 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-type delegationClassifierResult struct {
+type DelegationClassifierResult struct {
 	Eligible          bool   `json:"eligible"`
 	Reason            string `json:"reason,omitempty"`
 	ClickHouseVersion string `json:"clickHouseVersion,omitempty"`
 }
 
-// classifyEntireQueryDelegation decides whether the entire expression can be
+// ClassifyEntireQueryDelegation decides whether the entire expression can be
 // handed to ClickHouse as a single prometheusQuery()/prometheusQueryRange()
 // call. The classifier is an explicit allowlist of constructs that compliance
 // has verified against the target ClickHouse version. New constructs graduate
 // from the native-SQL tier into whole-query delegation only after compliance
 // confirms ClickHouse matches Prometheus semantics.
-func classifyEntireQueryDelegation(expr parser.Expr, clickHouseVersion string) delegationClassifierResult {
-	version := normalizeClickHouseVersion(clickHouseVersion)
+func ClassifyEntireQueryDelegation(expr parser.Expr, clickHouseVersion string) DelegationClassifierResult {
+	version := NormalizeClickHouseVersion(clickHouseVersion)
 	if expr == nil {
-		return delegationClassifierResult{Eligible: false, Reason: "empty expression", ClickHouseVersion: version}
+		return DelegationClassifierResult{Eligible: false, Reason: "empty expression", ClickHouseVersion: version}
 	}
 	if expr.Type() == parser.ValueTypeScalar {
-		return delegationClassifierResult{Eligible: false, Reason: fmt.Sprintf("ClickHouse %s whole-query delegation does not support scalar-only roots", version), ClickHouseVersion: version}
+		return DelegationClassifierResult{Eligible: false, Reason: fmt.Sprintf("ClickHouse %s whole-query delegation does not support scalar-only roots", version), ClickHouseVersion: version}
 	}
 	if reason := unsupportedDelegationReason(expr, version); reason != "" {
-		return delegationClassifierResult{Eligible: false, Reason: reason, ClickHouseVersion: version}
+		return DelegationClassifierResult{Eligible: false, Reason: reason, ClickHouseVersion: version}
 	}
-	return delegationClassifierResult{Eligible: true, ClickHouseVersion: version}
+	return DelegationClassifierResult{Eligible: true, ClickHouseVersion: version}
 }
 
 // unsupportedDelegationReason returns a human-readable reason if the
@@ -64,7 +64,7 @@ func unsupportedDelegationReason(node parser.Node, version string) string {
 	return fmt.Sprintf("ClickHouse %s whole-query delegation does not yet allow %T", version, node)
 }
 
-func normalizeClickHouseVersion(raw string) string {
+func NormalizeClickHouseVersion(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return "26.3"
@@ -98,7 +98,7 @@ func compareClickHouseVersion(left, right string) int {
 }
 
 func parseVersionParts(raw string) []int {
-	parts := strings.Split(normalizeClickHouseVersion(raw), ".")
+	parts := strings.Split(NormalizeClickHouseVersion(raw), ".")
 	out := make([]int, 0, len(parts))
 	for _, part := range parts {
 		value, err := strconv.Atoi(part)

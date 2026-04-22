@@ -1,4 +1,4 @@
-package promshim
+package local
 
 import (
 	"context"
@@ -128,8 +128,8 @@ func TestResolveDelegatedPromQLRewritesAtStartEndForRange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	promQL, err := resolveDelegatedPromQL(expr, evalParams{
-		Mode:  evalModeRange,
+	promQL, err := resolveDelegatedPromQL(expr, EvalParams{
+		Mode:  EvalModeRange,
 		Start: time.Unix(100, 0).UTC(),
 		End:   time.Unix(200, 0).UTC(),
 	})
@@ -151,7 +151,7 @@ func TestResolveDelegatedPromQLRewritesAtStartEndForInstantToEvaluationTime(t *t
 	}
 
 	evalTime := time.Unix(321, 0).UTC()
-	promQL, err := resolveDelegatedPromQL(expr, evalParams{Mode: evalModeInstant, EvaluationTime: evalTime})
+	promQL, err := resolveDelegatedPromQL(expr, EvalParams{Mode: EvalModeInstant, EvaluationTime: evalTime})
 	if err != nil {
 		t.Fatalf("expected @ start() rewrite for instant mode, got error: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestResolveDelegatedPromQLRewritesSubqueryAtStartForRange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	promQL, err := resolveDelegatedPromQL(expr, evalParams{Mode: evalModeRange, Start: time.Unix(100, 0).UTC(), End: time.Unix(200, 0).UTC(), Step: time.Minute})
+	promQL, err := resolveDelegatedPromQL(expr, EvalParams{Mode: EvalModeRange, Start: time.Unix(100, 0).UTC(), End: time.Unix(200, 0).UTC(), Step: time.Minute})
 	if err != nil {
 		t.Fatalf("expected subquery @ start() rewrite, got error: %v", err)
 	}
@@ -362,7 +362,7 @@ func TestBuildPlanWithContextCreatesNativeRangeFunctionPlanInRangeModeForDirectS
 			t.Fatal(err)
 		}
 
-		execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+		execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
 		if err != nil {
 			t.Fatalf("expected native range plan for %q, got error: %v", query, err)
 		}
@@ -383,7 +383,7 @@ func TestBuildPlanWithContextCreatesNativeRangeFunctionPlanInRangeModeForSubquer
 			t.Fatal(err)
 		}
 
-		execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+		execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
 		if err != nil {
 			t.Fatalf("expected native range subquery plan for %q, got error: %v", query, err)
 		}
@@ -711,9 +711,9 @@ func TestBuildPlanRejectsNonLiteralHistogramQuantileParameter(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unsupported plan build error")
 	}
-	var buildErr *planBuildError
+	var buildErr *PlanBuildError
 	if !errors.As(err, &buildErr) {
-		t.Fatalf("expected planBuildError, got %T (%v)", err, err)
+		t.Fatalf("expected PlanBuildError, got %T (%v)", err, err)
 	}
 	if !strings.Contains(buildErr.Support.Reason, "literal scalar quantile") {
 		t.Fatalf("expected quantile parameter reason, got %#v", buildErr.Support)
@@ -730,9 +730,9 @@ func TestBuildPlanRejectsNonLiteralHistogramFractionBound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unsupported plan build error")
 	}
-	var buildErr *planBuildError
+	var buildErr *PlanBuildError
 	if !errors.As(err, &buildErr) {
-		t.Fatalf("expected planBuildError, got %T (%v)", err, err)
+		t.Fatalf("expected PlanBuildError, got %T (%v)", err, err)
 	}
 	if !strings.Contains(buildErr.Support.Reason, "literal scalar lower bound") {
 		t.Fatalf("unexpected reason for histogram_fraction bound rejection: %#v", buildErr.Support)
@@ -740,7 +740,7 @@ func TestBuildPlanRejectsNonLiteralHistogramFractionBound(t *testing.T) {
 }
 
 func TestDecideNativeAggregationPushdownAllowsDelegatedLeaf(t *testing.T) {
-	logical, err := buildLogicalPlan(mustParseExpr(t, "sum by (job) (up)"))
+	logical, err := BuildLogicalPlan(mustParseExpr(t, "sum by (job) (up)"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -749,7 +749,7 @@ func TestDecideNativeAggregationPushdownAllowsDelegatedLeaf(t *testing.T) {
 		t.Fatalf("expected logicalAggregationPlan, got %T", logical)
 	}
 
-	decision := decideNativeAggregationPushdown(agg, planContext{PreferNativeAggregationPushdown: true})
+	decision := decideNativeAggregationPushdown(agg, PlanContext{PreferNativeAggregationPushdown: true})
 	if !decision.Eligible {
 		t.Fatalf("expected pushdown eligibility, got %#v", decision)
 	}
@@ -764,8 +764,8 @@ func TestBuildPlanWithContextCreatesNativeAggregationPlanForRangeDelegatedLeaf(t
 		t.Fatal(err)
 	}
 
-	plan, err := buildPlanWithContext(expr, planContext{
-		Mode:                            evalModeRange,
+	plan, err := buildPlanWithContext(expr, PlanContext{
+		Mode:                            EvalModeRange,
 		Start:                           time.Unix(0, 0).UTC(),
 		End:                             time.Unix(300, 0).UTC(),
 		Step:                            30 * time.Second,
@@ -785,8 +785,8 @@ func TestBuildPlanWithContextCreatesNativeAggregationPlanForUnaryTransformedLeaf
 		t.Fatal(err)
 	}
 
-	plan, err := buildPlanWithContext(expr, planContext{
-		Mode:                            evalModeRange,
+	plan, err := buildPlanWithContext(expr, PlanContext{
+		Mode:                            EvalModeRange,
 		Start:                           time.Unix(0, 0).UTC(),
 		End:                             time.Unix(300, 0).UTC(),
 		Step:                            30 * time.Second,
@@ -817,8 +817,8 @@ func TestBuildPlanWithContextCreatesNativeAggregationPlanForVectorScalarLeaf(t *
 		t.Fatal(err)
 	}
 
-	plan, err := buildPlanWithContext(expr, planContext{
-		Mode:                            evalModeRange,
+	plan, err := buildPlanWithContext(expr, PlanContext{
+		Mode:                            EvalModeRange,
 		Start:                           time.Unix(0, 0).UTC(),
 		End:                             time.Unix(300, 0).UTC(),
 		Step:                            30 * time.Second,
@@ -849,7 +849,7 @@ func TestBuildPlanWithContextCreatesLocalPlanForInfo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeInstant, NativeLoweringMode: NativeLoweringModeOff})
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeInstant, NativeLoweringMode: NativeLoweringModeOff})
 	if err != nil {
 		t.Fatalf("expected local info() plan, got error: %v", err)
 	}
@@ -864,7 +864,7 @@ func TestBuildPlanWithContextCreatesNativePlanForInfo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
 	if err != nil {
 		t.Fatalf("expected native info() plan, got error: %v", err)
 	}
@@ -883,7 +883,7 @@ func TestBuildPlanWithContextAvoidsNativeRangePlanForAnchoredPointwiseFunction(t
 		t.Fatal(err)
 	}
 
-	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModePrefer})
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModePrefer})
 	if err != nil {
 		t.Fatalf("expected non-native anchored pointwise plan without hard failure, got error: %v", err)
 	}
@@ -898,7 +898,7 @@ func TestBuildPlanWithContextCreatesNativePlanForPointwiseFunction(t *testing.T)
 		t.Fatal(err)
 	}
 
-	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
 	if err != nil {
 		t.Fatalf("expected native pointwise plan, got error: %v", err)
 	}
@@ -917,7 +917,7 @@ func TestBuildPlanWithContextAvoidsNativeRangeAggregationForAnchoredSelector(t *
 		t.Fatal(err)
 	}
 
-	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModePrefer})
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModePrefer})
 	if err != nil {
 		t.Fatalf("expected non-native anchored aggregation plan without hard failure, got error: %v", err)
 	}
@@ -942,7 +942,7 @@ func TestBuildPlanWithContextAvoidsNativeRangeAggregationForStartEndAnchors(t *t
 				t.Fatal(err)
 			}
 
-			built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModePrefer})
+			built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModePrefer})
 			if err != nil {
 				t.Fatalf("expected non-native anchored aggregation plan without hard failure, got error: %v", err)
 			}
@@ -963,7 +963,7 @@ func TestBuildPlanWithContextCreatesNativePlanForScalarConvert(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
 	if err != nil {
 		t.Fatalf("expected native scalar() plan, got error: %v", err)
 	}
@@ -982,7 +982,7 @@ func TestBuildPlanWithContextCreatesLocalPlanForPredictLinear(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeInstant, NativeLoweringMode: NativeLoweringModeOff})
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeInstant, NativeLoweringMode: NativeLoweringModeOff})
 	if err != nil {
 		t.Fatalf("expected local predict_linear plan, got error: %v", err)
 	}
@@ -1001,7 +1001,7 @@ func TestBuildPlanWithContextCreatesNativePlanForPredictLinear(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
 	if err != nil {
 		t.Fatalf("expected native predict_linear plan, got error: %v", err)
 	}
@@ -1023,7 +1023,7 @@ func TestBuildPlanWithContextCreatesLocalPlanForDoubleExponentialSmoothing(t *te
 		t.Fatal(err)
 	}
 
-	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeInstant, NativeLoweringMode: NativeLoweringModeOff})
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeInstant, NativeLoweringMode: NativeLoweringModeOff})
 	if err != nil {
 		t.Fatalf("expected local smoothing plan, got error: %v", err)
 	}
@@ -1042,7 +1042,7 @@ func TestBuildPlanWithContextCreatesNativePlanForDoubleExponentialSmoothing(t *t
 		t.Fatal(err)
 	}
 
-	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
 	if err != nil {
 		t.Fatalf("expected native smoothing plan, got error: %v", err)
 	}
@@ -1064,7 +1064,7 @@ func TestBuildPlanWithContextNormalizesHoltWintersAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
 	if err != nil {
 		t.Fatalf("expected native alias plan, got error: %v", err)
 	}
@@ -1083,7 +1083,7 @@ func TestBuildPlanWithContextCreatesNativePlanForSyntheticDateFunction(t *testin
 		t.Fatal(err)
 	}
 
-	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
 	if err != nil {
 		t.Fatalf("expected native minute() plan, got error: %v", err)
 	}
@@ -1102,7 +1102,7 @@ func TestBuildPlanWithContextCreatesNativePlanForScalarBuiltin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
 	if err != nil {
 		t.Fatalf("expected native time() plan, got error: %v", err)
 	}
@@ -1116,7 +1116,7 @@ func TestBuildPlanWithContextCreatesNativePlanForScalarBuiltin(t *testing.T) {
 }
 
 func TestDecideNativeAggregationPushdownRejectsNonPushdownSafeChild(t *testing.T) {
-	logical, err := buildLogicalPlan(mustParseExpr(t, `sum by (job) (label_join(up, "joined", "/", "job", "namespace"))`))
+	logical, err := BuildLogicalPlan(mustParseExpr(t, `sum by (job) (label_join(up, "joined", "/", "job", "namespace"))`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1125,7 +1125,7 @@ func TestDecideNativeAggregationPushdownRejectsNonPushdownSafeChild(t *testing.T
 		t.Fatalf("expected logicalAggregationPlan, got %T", logical)
 	}
 
-	decision := decideNativeAggregationPushdown(agg, planContext{PreferNativeAggregationPushdown: true})
+	decision := decideNativeAggregationPushdown(agg, PlanContext{PreferNativeAggregationPushdown: true})
 	if decision.Eligible {
 		t.Fatalf("expected non-eligible pushdown, got %#v", decision)
 	}
@@ -1135,12 +1135,12 @@ func TestDecideNativeAggregationPushdownRejectsNonPushdownSafeChild(t *testing.T
 }
 
 func TestDecideNativeAggregationPushdownRejectsWhenDisabled(t *testing.T) {
-	logical, err := buildLogicalPlan(mustParseExpr(t, "sum by (job) (up)"))
+	logical, err := BuildLogicalPlan(mustParseExpr(t, "sum by (job) (up)"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	agg := logical.(*logicalAggregationPlan)
-	decision := decideNativeAggregationPushdown(agg, planContext{PreferNativeAggregationPushdown: false})
+	decision := decideNativeAggregationPushdown(agg, PlanContext{PreferNativeAggregationPushdown: false})
 	if decision.Eligible {
 		t.Fatalf("expected disabled pushdown to be rejected, got %#v", decision)
 	}
@@ -1155,8 +1155,8 @@ func TestBuildPlanWithContextFallsBackToLocalAggregationForNonLeafChild(t *testi
 		t.Fatal(err)
 	}
 
-	plan, err := buildPlanWithContext(expr, planContext{
-		Mode:                            evalModeRange,
+	plan, err := buildPlanWithContext(expr, PlanContext{
+		Mode:                            EvalModeRange,
 		Start:                           time.Unix(0, 0).UTC(),
 		End:                             time.Unix(300, 0).UTC(),
 		Step:                            30 * time.Second,
@@ -1176,8 +1176,8 @@ func TestExplainPlanDescribesNativeAggregationStrategy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plan, analysis, err := buildPlanWithContextAndAnalysis(expr, planContext{
-		Mode:                            evalModeRange,
+	plan, analysis, err := BuildPlanWithContextAndAnalysis(expr, PlanContext{
+		Mode:                            EvalModeRange,
 		Start:                           time.Unix(0, 0).UTC(),
 		End:                             time.Unix(300, 0).UTC(),
 		Step:                            30 * time.Second,
@@ -1186,7 +1186,7 @@ func TestExplainPlanDescribesNativeAggregationStrategy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected native aggregation plan, got error: %v", err)
 	}
-	explain := explainPlanWithLowering(plan, analysis.Root)
+	explain := ExplainPlanWithLowering(plan, analysis.Root)
 	if explain.Strategy != "native_sql" {
 		t.Fatalf("expected native_sql strategy, got %#v", explain)
 	}
@@ -1234,8 +1234,8 @@ func TestExplainPlanDescribesNativeTransformedAggregationStrategy(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	plan, analysis, err := buildPlanWithContextAndAnalysis(expr, planContext{
-		Mode:                            evalModeRange,
+	plan, analysis, err := BuildPlanWithContextAndAnalysis(expr, PlanContext{
+		Mode:                            EvalModeRange,
 		Start:                           time.Unix(0, 0).UTC(),
 		End:                             time.Unix(300, 0).UTC(),
 		Step:                            30 * time.Second,
@@ -1244,7 +1244,7 @@ func TestExplainPlanDescribesNativeTransformedAggregationStrategy(t *testing.T) 
 	if err != nil {
 		t.Fatalf("expected native aggregation plan, got error: %v", err)
 	}
-	explain := explainPlanWithLowering(plan, analysis.Root)
+	explain := ExplainPlanWithLowering(plan, analysis.Root)
 	if explain.Strategy != "native_sql" {
 		t.Fatalf("expected native_sql strategy, got %#v", explain)
 	}
@@ -1262,15 +1262,15 @@ func TestExplainPlanDescribesLocalAggregationFallbackReasonWhenPushdownDisabled(
 		t.Fatal(err)
 	}
 
-	plan, analysis, err := buildPlanWithContextAndAnalysis(expr, planContext{
-		Mode:                            evalModeInstant,
+	plan, analysis, err := BuildPlanWithContextAndAnalysis(expr, PlanContext{
+		Mode:                            EvalModeInstant,
 		EvaluationTime:                  time.Unix(300, 0).UTC(),
 		PreferNativeAggregationPushdown: false,
 	})
 	if err != nil {
 		t.Fatalf("expected local aggregation plan, got error: %v", err)
 	}
-	explain := explainPlanWithLowering(plan, analysis.Root)
+	explain := ExplainPlanWithLowering(plan, analysis.Root)
 	if explain.Strategy != "local" {
 		t.Fatalf("expected local strategy, got %#v", explain)
 	}
@@ -1288,8 +1288,8 @@ func TestExplainPlanDescribesLocalAggregationFallbackReasonWhenChildIsNotPushdow
 		t.Fatal(err)
 	}
 
-	plan, analysis, err := buildPlanWithContextAndAnalysis(expr, planContext{
-		Mode:                            evalModeRange,
+	plan, analysis, err := BuildPlanWithContextAndAnalysis(expr, PlanContext{
+		Mode:                            EvalModeRange,
 		Start:                           time.Unix(0, 0).UTC(),
 		End:                             time.Unix(300, 0).UTC(),
 		Step:                            30 * time.Second,
@@ -1298,7 +1298,7 @@ func TestExplainPlanDescribesLocalAggregationFallbackReasonWhenChildIsNotPushdow
 	if err != nil {
 		t.Fatalf("expected local aggregation plan, got error: %v", err)
 	}
-	explain := explainPlanWithLowering(plan, analysis.Root)
+	explain := ExplainPlanWithLowering(plan, analysis.Root)
 	if explain.Strategy != "local" {
 		t.Fatalf("expected local strategy, got %#v", explain)
 	}
@@ -1362,11 +1362,11 @@ func TestExplainPlanDescribesNativeVectorMatchingBinaryStrategy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	execPlan, analysis, err := buildPlanWithContextAndAnalysis(expr, planContext{Mode: evalModeInstant, EvaluationTime: time.Unix(300, 0).UTC(), PreferNativeAggregationPushdown: true})
+	execPlan, analysis, err := BuildPlanWithContextAndAnalysis(expr, PlanContext{Mode: EvalModeInstant, EvaluationTime: time.Unix(300, 0).UTC(), PreferNativeAggregationPushdown: true})
 	if err != nil {
 		t.Fatalf("expected native vector matching plan, got error: %v", err)
 	}
-	explain := explainPlanWithLowering(execPlan, analysis.Root)
+	explain := ExplainPlanWithLowering(execPlan, analysis.Root)
 	if explain.Strategy != "native_sql" || explain.Kind != "binary" {
 		t.Fatalf("expected native binary strategy, got %#v", explain)
 	}
@@ -1512,9 +1512,9 @@ func TestBuildPlanRejectsUnsupportedAggregationParameterExpression(t *testing.T)
 	if err == nil {
 		t.Fatal("expected unsupported plan build error")
 	}
-	var buildErr *planBuildError
+	var buildErr *PlanBuildError
 	if !errors.As(err, &buildErr) {
-		t.Fatalf("expected planBuildError, got %T (%v)", err, err)
+		t.Fatalf("expected PlanBuildError, got %T (%v)", err, err)
 	}
 	if buildErr.Support.Supported {
 		t.Fatalf("expected unsupported support result, got %#v", buildErr.Support)
@@ -1671,7 +1671,7 @@ func TestBuildPlanWithContextCreatesDeltaPlanForSubqueryInRangeMode(t *testing.T
 		t.Fatal(err)
 	}
 
-	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
 	if err != nil {
 		t.Fatalf("expected native delta plan, got error: %v", err)
 	}
@@ -1693,7 +1693,7 @@ func TestBuildPlanWithContextCreatesIDeltaPlanForSubqueryInRangeMode(t *testing.
 		t.Fatal(err)
 	}
 
-	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
 	if err != nil {
 		t.Fatalf("expected native idelta plan, got error: %v", err)
 	}
@@ -1715,7 +1715,7 @@ func TestBuildPlanWithContextCreatesChangesPlanForSubqueryInRangeMode(t *testing
 		t.Fatal(err)
 	}
 
-	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
 	if err != nil {
 		t.Fatalf("expected native changes plan, got error: %v", err)
 	}
@@ -1737,7 +1737,7 @@ func TestBuildPlanWithContextCreatesDerivPlanForSubqueryInRangeMode(t *testing.T
 		t.Fatal(err)
 	}
 
-	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
 	if err != nil {
 		t.Fatalf("expected native deriv plan, got error: %v", err)
 	}
@@ -1759,7 +1759,7 @@ func TestBuildPlanWithContextCreatesRatePlanForSubqueryInRangeMode(t *testing.T)
 		t.Fatal(err)
 	}
 
-	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
 	if err != nil {
 		t.Fatalf("expected native rate plan, got error: %v", err)
 	}
@@ -1781,7 +1781,7 @@ func TestBuildPlanWithContextCreatesIncreasePlanInRangeMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
 	if err != nil {
 		t.Fatalf("expected increase plan, got error: %v", err)
 	}
@@ -1796,7 +1796,7 @@ func TestBuildPlanWithContextCreatesIncreasePlanForSubqueryInRangeMode(t *testin
 		t.Fatal(err)
 	}
 
-	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute})
 	if err != nil {
 		t.Fatalf("expected native increase plan, got error: %v", err)
 	}
@@ -1818,7 +1818,7 @@ func TestBuildPlanWithContextCreatesLocalAggregationOverIncreaseInRangeMode(t *t
 		t.Fatal(err)
 	}
 
-	execPlan, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, PreferNativeAggregationPushdown: true})
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, PreferNativeAggregationPushdown: true})
 	if err != nil {
 		t.Fatalf("expected aggregation over increase plan, got error: %v", err)
 	}
@@ -1834,14 +1834,14 @@ func TestBuildPlanWithContextCreatesLocalAggregationOverIncreaseInRangeMode(t *t
 func TestLocalSubqueryPlanExecutesChildAcrossInstantWindow(t *testing.T) {
 	expr := mustParseExpr(t, "(up * 100)[2m:1m]")
 	calls := make([]time.Time, 0)
-	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 		calls = append(calls, params.EvaluationTime.UTC())
 		ts := float64(params.EvaluationTime.Unix())
 		return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: ts, Value: ts}}}, nil
 	}}
 	plan := &localSubqueryPlan{Expr: expr, Range: 2 * time.Minute, Step: time.Minute, Child: child}
 
-	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeInstant, EvaluationTime: time.Unix(180, 0).UTC()})
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(180, 0).UTC()})
 	if err != nil {
 		t.Fatalf("expected successful local subquery execution, got error: %v", err)
 	}
@@ -1866,7 +1866,7 @@ func TestLocalSubqueryPlanExecutesChildAcrossInstantWindow(t *testing.T) {
 func TestScalarLiteralPlanRangeMode(t *testing.T) {
 	plan := &scalarLiteralPlan{Expr: "1", Value: 1}
 
-	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
 	if err != nil {
 		t.Fatalf("expected successful scalar range execution, got error: %v", err)
 	}
@@ -1887,7 +1887,7 @@ func TestScalarLiteralPlanRangeMode(t *testing.T) {
 func TestScalarBuiltinPlanRangeMode(t *testing.T) {
 	plan := &scalarBuiltinPlan{Expr: "time()", Func: "time"}
 
-	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
 	if err != nil {
 		t.Fatalf("expected successful scalar builtin range execution, got error: %v", err)
 	}
@@ -1904,18 +1904,18 @@ func TestScalarBuiltinPlanRangeMode(t *testing.T) {
 }
 
 func TestLocalScalarConvertPlanInstantAndRange(t *testing.T) {
-	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
-		if params.Mode == evalModeInstant && params.EvaluationTime.Equal(time.Unix(120, 0).UTC()) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+		if params.Mode == EvalModeInstant && params.EvaluationTime.Equal(time.Unix(120, 0).UTC()) {
 			return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: 1, Value: 7}}}, nil
 		}
-		if params.Mode == evalModeInstant && params.EvaluationTime.Equal(time.Unix(150, 0).UTC()) {
+		if params.Mode == EvalModeInstant && params.EvaluationTime.Equal(time.Unix(150, 0).UTC()) {
 			return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: 1, Value: 7}, {Metric: map[string]string{"job": "worker"}, Timestamp: 1, Value: 8}}}, nil
 		}
 		return model.VectorValue{}, nil
 	}}
 	plan := &localScalarConvertPlan{Expr: "scalar(up)", Child: child}
 
-	instant, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeInstant, EvaluationTime: time.Unix(120, 0).UTC()})
+	instant, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(120, 0).UTC()})
 	if err != nil {
 		t.Fatalf("expected successful scalar instant execution, got error: %v", err)
 	}
@@ -1923,7 +1923,7 @@ func TestLocalScalarConvertPlanInstantAndRange(t *testing.T) {
 	if !ok || scalar.Value != 7 {
 		t.Fatalf("unexpected scalar instant result: %#v", instant)
 	}
-	rangeValue, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	rangeValue, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
 	if err != nil {
 		t.Fatalf("expected successful scalar range execution, got error: %v", err)
 	}
@@ -1940,12 +1940,12 @@ func TestLocalScalarConvertPlanInstantAndRange(t *testing.T) {
 }
 
 func TestLocalVectorPlanInstant(t *testing.T) {
-	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, _ evalParams) (model.RuntimeValue, error) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, _ EvalParams) (model.RuntimeValue, error) {
 		return model.ScalarValue{Timestamp: 12.5, Value: 4}, nil
 	}}
 	plan := &localVectorPlan{Expr: "vector(1)", Child: child}
 
-	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeInstant, EvaluationTime: time.Unix(10, 0).UTC()})
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(10, 0).UTC()})
 	if err != nil {
 		t.Fatalf("expected successful vector instant execution, got error: %v", err)
 	}
@@ -1966,13 +1966,13 @@ func TestLocalVectorPlanInstant(t *testing.T) {
 
 func TestLocalVectorPlanRangeMode(t *testing.T) {
 	calls := 0
-	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 		calls++
 		return model.ScalarValue{Timestamp: float64(params.EvaluationTime.Unix()), Value: 1}, nil
 	}}
 	plan := &localVectorPlan{Expr: "vector(1)", Child: child}
 
-	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
 	if err != nil {
 		t.Fatalf("expected successful vector range execution, got error: %v", err)
 	}
@@ -1992,12 +1992,12 @@ func TestLocalVectorPlanRangeMode(t *testing.T) {
 }
 
 func TestLocalSortPlanInstant(t *testing.T) {
-	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, _ evalParams) (model.RuntimeValue, error) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, _ EvalParams) (model.RuntimeValue, error) {
 		return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "b"}, Timestamp: 1, Value: 2}, {Metric: map[string]string{"job": "a"}, Timestamp: 1, Value: 1}}}, nil
 	}}
 	plan := &localSortPlan{Expr: "sort(up)", Func: "sort", Child: child}
 
-	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeInstant, EvaluationTime: time.Unix(10, 0).UTC()})
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(10, 0).UTC()})
 	if err != nil {
 		t.Fatalf("expected successful sort instant execution, got error: %v", err)
 	}
@@ -2011,12 +2011,12 @@ func TestLocalSortPlanInstant(t *testing.T) {
 }
 
 func TestLocalRoundPlanInstant(t *testing.T) {
-	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, _ evalParams) (model.RuntimeValue, error) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, _ EvalParams) (model.RuntimeValue, error) {
 		return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"__name__": "a"}, Timestamp: 1, Value: 1.2}}}, nil
 	}}
 	plan := &localRoundPlan{Expr: "round(up)", Child: child}
 
-	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeInstant, EvaluationTime: time.Unix(10, 0).UTC()})
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(10, 0).UTC()})
 	if err != nil {
 		t.Fatalf("expected successful round instant execution, got error: %v", err)
 	}
@@ -2036,14 +2036,14 @@ func TestLocalRoundPlanInstant(t *testing.T) {
 }
 
 func TestLocalRoundPlanRangeMode(t *testing.T) {
-	plan := &localRoundPlan{Expr: "round(up)", Child: testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+	plan := &localRoundPlan{Expr: "round(up)", Child: testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 		if params.EvaluationTime.Unix()%60 == 0 {
 			return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: float64(params.EvaluationTime.Unix()), Value: 2.7}}}, nil
 		}
 		return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: float64(params.EvaluationTime.Unix()), Value: 1.2}}}, nil
 	}}}
 
-	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
 	if err != nil {
 		t.Fatalf("expected successful range round execution, got error: %v", err)
 	}
@@ -2063,14 +2063,14 @@ func TestLocalRoundPlanRangeMode(t *testing.T) {
 }
 
 func TestLocalRangeFunctionPlanLastOverTimeInRangeMode(t *testing.T) {
-	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 		t0 := float64(params.EvaluationTime.Add(-time.Minute).Unix())
 		t1 := float64(params.EvaluationTime.Unix())
 		return model.MatrixValue{Series: []model.RangeSeries{{Metric: map[string]string{"job": "api"}, Values: []model.RangePoint{{Timestamp: t0, Value: t0}, {Timestamp: t1, Value: t1}}}}}, nil
 	}}
 	plan := &localRangeFunctionPlan{Expr: "last_over_time((up * 100)[5m:1m])", Func: "last_over_time", Child: child}
 
-	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
 	if err != nil {
 		t.Fatalf("expected successful range-mode last_over_time execution, got error: %v", err)
 	}
@@ -2090,7 +2090,7 @@ func TestLocalRangeFunctionPlanLastOverTimeInRangeMode(t *testing.T) {
 }
 
 func TestLocalQuantileOverTimePlanInstant(t *testing.T) {
-	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 		return model.MatrixValue{Series: []model.RangeSeries{
 			{Metric: map[string]string{"job": "api", "instance": "a"}, Values: []model.RangePoint{{Timestamp: float64(params.EvaluationTime.Add(-10 * time.Second).Unix()), Value: 2}, {Timestamp: float64(params.EvaluationTime.Add(-5 * time.Second).Unix()), Value: 1}, {Timestamp: float64(params.EvaluationTime.Unix()), Value: 3}}},
 			{Metric: map[string]string{"job": "api", "instance": "b"}, Values: []model.RangePoint{{Timestamp: float64(params.EvaluationTime.Add(-10 * time.Second).Unix()), Value: 7}, {Timestamp: float64(params.EvaluationTime.Unix()), Value: 5}}},
@@ -2098,7 +2098,7 @@ func TestLocalQuantileOverTimePlanInstant(t *testing.T) {
 	}}
 	plan := &localQuantileOverTimePlan{Expr: "quantile_over_time(0.5, (up*100)[5m:30s])", Quantile: 0.5, Child: child}
 
-	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeInstant, EvaluationTime: time.Unix(180, 0).UTC()})
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(180, 0).UTC()})
 	if err != nil {
 		t.Fatalf("expected successful instant quantile_over_time execution, got error: %v", err)
 	}
@@ -2115,14 +2115,14 @@ func TestLocalQuantileOverTimePlanInstant(t *testing.T) {
 }
 
 func TestLocalQuantileOverTimePlanRangeMode(t *testing.T) {
-	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 		return model.MatrixValue{Series: []model.RangeSeries{
 			{Metric: map[string]string{"job": "api", "instance": "a"}, Values: []model.RangePoint{{Timestamp: float64(params.EvaluationTime.Add(-10 * time.Second).Unix()), Value: 2}, {Timestamp: float64(params.EvaluationTime.Unix()), Value: 10}}},
 		}}, nil
 	}}
 	plan := &localQuantileOverTimePlan{Expr: "quantile_over_time(0.5, (up*100)[5m:30s])", Quantile: 0.5, Child: child}
 
-	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
 	if err != nil {
 		t.Fatalf("expected successful range-mode quantile_over_time execution, got error: %v", err)
 	}
@@ -2147,13 +2147,13 @@ func TestLocalQuantileOverTimePlanRangeMode(t *testing.T) {
 }
 
 func TestLocalRangeFunctionPlanRangeModeNormalizesToOuterStepTimestamps(t *testing.T) {
-	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 		shifted := float64(params.EvaluationTime.Add(-10 * time.Second).Unix())
 		return model.MatrixValue{Series: []model.RangeSeries{{Metric: map[string]string{"job": "api"}, Values: []model.RangePoint{{Timestamp: shifted, Value: 1}}}}}, nil
 	}}
 	plan := &localRangeFunctionPlan{Expr: "last_over_time((up * 100)[5m:1m])", Func: "last_over_time", Child: child}
 
-	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
 	if err != nil {
 		t.Fatalf("expected successful range-mode execution, got error: %v", err)
 	}
@@ -2167,12 +2167,12 @@ func TestLocalRangeFunctionPlanRangeModeNormalizesToOuterStepTimestamps(t *testi
 }
 
 func TestLocalAbsentPlanRangeModeProducesMatrixForMissingSeries(t *testing.T) {
-	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, _ evalParams) (model.RuntimeValue, error) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, _ EvalParams) (model.RuntimeValue, error) {
 		return model.VectorValue{}, nil
 	}}
 	plan := &localAbsentPlan{Expr: `absent(nonexistent{job="api"})`, OutputMetric: map[string]string{"job": "api"}, Child: child}
 
-	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
 	if err != nil {
 		t.Fatalf("expected successful absent range execution, got error: %v", err)
 	}
@@ -2189,12 +2189,12 @@ func TestLocalAbsentPlanRangeModeProducesMatrixForMissingSeries(t *testing.T) {
 }
 
 func TestLocalAbsentOverTimePlanRangeModeProducesMatrixForMissingSeries(t *testing.T) {
-	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, _ evalParams) (model.RuntimeValue, error) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, _ EvalParams) (model.RuntimeValue, error) {
 		return model.MatrixValue{}, nil
 	}}
 	plan := &localAbsentOverTimePlan{Expr: `absent_over_time(nonexistent{job="api"}[5m])`, OutputMetric: map[string]string{"job": "api"}, Child: child}
 
-	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second})
 	if err != nil {
 		t.Fatalf("expected successful absent_over_time range execution, got error: %v", err)
 	}
@@ -2212,7 +2212,7 @@ func TestLocalAbsentOverTimePlanRangeModeProducesMatrixForMissingSeries(t *testi
 
 func TestExecuteRangeVectorPlanPreservesSparseDisappearingSeries(t *testing.T) {
 	calls := 0
-	plan := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+	plan := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 		calls++
 		switch params.EvaluationTime.Unix() {
 		case 120:
@@ -2226,7 +2226,7 @@ func TestExecuteRangeVectorPlanPreservesSparseDisappearingSeries(t *testing.T) {
 		}
 	}}
 
-	value, err := executeRangeVectorPlan(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second}, "sparse_test", plan.execute)
+	value, err := executeRangeVectorPlan(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeRange, Start: time.Unix(120, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: 30 * time.Second}, "sparse_test", plan.execute)
 	if err != nil {
 		t.Fatalf("expected successful sparse range execution, got error: %v", err)
 	}
@@ -2251,14 +2251,14 @@ func TestExecuteRangeVectorPlanPreservesSparseDisappearingSeries(t *testing.T) {
 func TestLocalSubqueryPlanUsesLocalPathForDelegatedMatrixRootInInstantMode(t *testing.T) {
 	expr := mustParseExpr(t, "up[2m:1m]")
 	calls := 0
-	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 		calls++
 		ts := float64(params.EvaluationTime.Unix())
 		return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: ts, Value: ts}}}, nil
 	}}
 	plan := &localSubqueryPlan{Expr: expr, Range: 2 * time.Minute, Step: time.Minute, DelegatedLeafCompatible: true, Child: child}
 
-	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeInstant, EvaluationTime: time.Unix(180, 0).UTC()})
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(180, 0).UTC()})
 	if err != nil {
 		t.Fatalf("expected local matrix-root subquery execution, got error: %v", err)
 	}
@@ -2281,14 +2281,14 @@ func TestLocalSubqueryPlanAppliesTimestampAndOffset(t *testing.T) {
 		t.Fatalf("expected subquery expression, got %T", expr)
 	}
 	calls := make([]int64, 0)
-	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 		calls = append(calls, params.EvaluationTime.Unix())
 		ts := float64(params.EvaluationTime.Unix())
 		return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: ts, Value: ts}}}, nil
 	}}
 	plan := &localSubqueryPlan{Expr: expr, Range: subquery.Range, Step: subquery.Step, Offset: subquery.OriginalOffset, Timestamp: cloneInt64Pointer(subquery.Timestamp), StartOrEnd: subquery.StartOrEnd, Child: child}
 
-	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeInstant, EvaluationTime: time.Unix(999, 0).UTC()})
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(999, 0).UTC()})
 	if err != nil {
 		t.Fatalf("expected successful timestamp+offset subquery execution, got error: %v", err)
 	}
@@ -2310,14 +2310,14 @@ func TestLocalSubqueryPlanAppliesTimestampAndOffset(t *testing.T) {
 func TestLocalSubqueryPlanDefaultsMissingStepToOneMinute(t *testing.T) {
 	expr := mustParseExpr(t, "(up * 100)[2m:1m]")
 	calls := make([]int64, 0)
-	child := testQueryPlan{executeFn: func(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 		calls = append(calls, params.EvaluationTime.Unix())
 		ts := float64(params.EvaluationTime.Unix())
 		return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: ts, Value: ts}}}, nil
 	}}
 	plan := &localSubqueryPlan{Expr: expr, Range: 2 * time.Minute, Step: 0, Child: child}
 
-	value, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeInstant, EvaluationTime: time.Unix(180, 0).UTC()})
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(180, 0).UTC()})
 	if err != nil {
 		t.Fatalf("expected successful default-step subquery execution, got error: %v", err)
 	}
@@ -2340,7 +2340,7 @@ func TestLocalSubqueryPlanRejectsLocalRangeMode(t *testing.T) {
 	expr := mustParseExpr(t, "(up * 100)[2m:1m]")
 	plan := &localSubqueryPlan{Expr: expr, Range: 2 * time.Minute, Step: time.Minute, Child: testQueryPlan{}}
 
-	_, err := plan.execute(context.Background(), &evaluator{}, evalParams{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: time.Minute})
+	_, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: time.Minute})
 	if err == nil {
 		t.Fatal("expected unsupported local range-mode subquery execution")
 	}
@@ -2350,14 +2350,14 @@ func TestLocalSubqueryPlanRejectsLocalRangeMode(t *testing.T) {
 }
 
 type testQueryPlan struct {
-	executeFn func(context.Context, *evaluator, evalParams) (model.RuntimeValue, error)
+	executeFn func(context.Context, *Evaluator, EvalParams) (model.RuntimeValue, error)
 }
 
-func (p testQueryPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+func (p testQueryPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 	if p.executeFn == nil {
 		return model.VectorValue{}, nil
 	}
-	return p.executeFn(ctx, evaluator, params)
+	return p.executeFn(ctx, Evaluator, params)
 }
 
 func (p testQueryPlan) explain() ExplainNode {
@@ -2382,7 +2382,7 @@ func TestBuildPlanWithContextBuildsNativeAbsentPlanUnderForceSupported(t *testin
 		t.Fatal(err)
 	}
 
-	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeInstant, EvaluationTime: time.Unix(300, 0).UTC(), NativeLoweringMode: NativeLoweringModeForceSupported})
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeInstant, EvaluationTime: time.Unix(300, 0).UTC(), NativeLoweringMode: NativeLoweringModeForceSupported})
 	if err != nil {
 		t.Fatalf("expected native absent plan, got error: %v", err)
 	}
@@ -2401,7 +2401,7 @@ func TestBuildPlanWithContextBuildsNativeAbsentOverTimeRangePlanUnderForceSuppor
 		t.Fatal(err)
 	}
 
-	built, err := buildPlanWithContext(expr, planContext{Mode: evalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
 	if err != nil {
 		t.Fatalf("expected native absent_over_time range plan, got error: %v", err)
 	}

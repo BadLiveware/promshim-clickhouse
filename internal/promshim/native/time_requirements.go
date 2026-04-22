@@ -24,7 +24,7 @@ func leafTimeRequirements(expr parser.Expr) TimeRequirements {
 	switch node := expr.(type) {
 	case *parser.VectorSelector:
 		return TimeRequirements{
-			Lookback: defaultInstantSelectorLookback,
+			Lookback: DefaultInstantSelectorLookback,
 			Offset:   absoluteDuration(node.OriginalOffset),
 		}
 	case *parser.MatrixSelector:

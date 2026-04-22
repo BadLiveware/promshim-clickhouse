@@ -1,6 +1,7 @@
-package native
+package renderer
 
 import (
+	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"strings"
 	"testing"
 	"time"
@@ -63,20 +64,20 @@ func TestBuildFragmentReturnsAggregationTree(t *testing.T) {
 		},
 	}
 
-	fragment, err := BuildFragment(logical, nil)
+	fragment, err := native.BuildFragment(logical, nil)
 	if err != nil {
 		t.Fatalf("expected native fragment, got error: %v", err)
 	}
-	if fragment.Kind != FragmentKindAggregation {
+	if fragment.Kind != native.FragmentKindAggregation {
 		t.Fatalf("expected aggregation fragment, got %#v", fragment)
 	}
 	if fragment.Aggregation == nil || fragment.Aggregation.Source == nil {
 		t.Fatalf("expected aggregation source fragment, got %#v", fragment)
 	}
-	if fragment.Aggregation.Source.Kind != FragmentKindBinaryScalarSourceExpr {
+	if fragment.Aggregation.Source.Kind != native.FragmentKindBinaryScalarSourceExpr {
 		t.Fatalf("expected binary scalar source fragment, got %#v", fragment.Aggregation.Source)
 	}
-	if fragment.Aggregation.Source.Selector == nil || fragment.Aggregation.Source.Selector.Kind != SelectorKindInstantVector {
+	if fragment.Aggregation.Source.Selector == nil || fragment.Aggregation.Source.Selector.Kind != native.SelectorKindInstantVector {
 		t.Fatalf("expected selector-backed source fragment, got %#v", fragment.Aggregation.Source)
 	}
 	if !strings.Contains(fragment.Aggregation.Source.ValueExpr, "100") || !strings.Contains(fragment.Aggregation.Source.ValueExpr, "*") {
@@ -85,29 +86,29 @@ func TestBuildFragmentReturnsAggregationTree(t *testing.T) {
 }
 
 func TestRenderFragmentBuildsInstantRateSQLForSubquery(t *testing.T) {
-	fragment := &NativeFragment{
-		Kind:       FragmentKindRangeFunction,
-		OutputKind: OutputKindInstantVector,
-		RangeFunction: &RangeFunctionFragment{
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindRangeFunction,
+		OutputKind: native.OutputKindInstantVector,
+		RangeFunction: &native.RangeFunctionFragment{
 			Func: "rate",
-			Child: &NativeFragment{
-				Kind:       FragmentKindSubquery,
-				OutputKind: OutputKindRangeMatrix,
-				Subquery: &SubqueryFragment{
+			Child: &native.NativeFragment{
+				Kind:       native.FragmentKindSubquery,
+				OutputKind: native.OutputKindRangeMatrix,
+				Subquery: &native.SubqueryFragment{
 					Range: 5 * time.Minute,
 					Step:  time.Minute,
-					Child: &NativeFragment{
-						Kind:       FragmentKindAggregation,
-						OutputKind: OutputKindInstantVector,
-						Aggregation: &AggregationFragment{
+					Child: &native.NativeFragment{
+						Kind:       native.FragmentKindAggregation,
+						OutputKind: native.OutputKindInstantVector,
+						Aggregation: &native.AggregationFragment{
 							Op: parser.SUM,
-							Source: &NativeFragment{
-								Kind:       FragmentKindLeafSource,
-								OutputKind: OutputKindInstantVector,
-								Selector: &SelectorSource{
-									Kind:       SelectorKindInstantVector,
+							Source: &native.NativeFragment{
+								Kind:       native.FragmentKindLeafSource,
+								OutputKind: native.OutputKindInstantVector,
+								Selector: &native.SelectorSource{
+									Kind:       native.SelectorKindInstantVector,
 									MetricName: "up",
-									Lookback:   defaultInstantSelectorLookback,
+									Lookback:   native.DefaultInstantSelectorLookback,
 								},
 								ValueExpr: "{value}",
 								TagsExpr:  "{tags}",
@@ -120,7 +121,7 @@ func TestRenderFragmentBuildsInstantRateSQLForSubquery(t *testing.T) {
 	}
 
 	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
-		Mode:             RenderModeInstant,
+		Mode:             native.RenderModeInstant,
 		EvaluationTimeMS: 300000,
 		RequiredStartMS:  0,
 		RequiredEndMS:    300000,
@@ -140,16 +141,16 @@ func TestRenderFragmentBuildsInstantRateSQLForSubquery(t *testing.T) {
 }
 
 func TestRenderFragmentBuildsInstantIncreaseSQLForDirectRangeSelector(t *testing.T) {
-	fragment := &NativeFragment{
-		Kind:       FragmentKindRangeFunction,
-		OutputKind: OutputKindInstantVector,
-		RangeFunction: &RangeFunctionFragment{
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindRangeFunction,
+		OutputKind: native.OutputKindInstantVector,
+		RangeFunction: &native.RangeFunctionFragment{
 			Func: "increase",
-			Child: &NativeFragment{
-				Kind:       FragmentKindLeafSource,
-				OutputKind: OutputKindRangeMatrix,
-				Selector: &SelectorSource{
-					Kind:       SelectorKindRangeVector,
+			Child: &native.NativeFragment{
+				Kind:       native.FragmentKindLeafSource,
+				OutputKind: native.OutputKindRangeMatrix,
+				Selector: &native.SelectorSource{
+					Kind:       native.SelectorKindRangeVector,
 					MetricName: "up",
 					Lookback:   5 * time.Minute,
 				},
@@ -160,7 +161,7 @@ func TestRenderFragmentBuildsInstantIncreaseSQLForDirectRangeSelector(t *testing
 	}
 
 	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
-		Mode:             RenderModeInstant,
+		Mode:             native.RenderModeInstant,
 		EvaluationTimeMS: 300000,
 		RequiredStartMS:  0,
 		RequiredEndMS:    300000,
@@ -180,33 +181,33 @@ func TestRenderFragmentBuildsInstantIncreaseSQLForDirectRangeSelector(t *testing
 }
 
 func TestRenderFragmentBuildsInstantBinaryJoinSQLNamespacesSelectorParams(t *testing.T) {
-	fragment := &NativeFragment{
-		Kind:       FragmentKindBinaryVectorJoin,
-		OutputKind: OutputKindInstantVector,
-		BinaryJoin: &BinaryJoinFragment{
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindBinaryVectorJoin,
+		OutputKind: native.OutputKindInstantVector,
+		BinaryJoin: &native.BinaryJoinFragment{
 			Op:        parser.ADD,
-			JoinShape: JoinShapeOneToOne,
+			JoinShape: native.JoinShapeOneToOne,
 			VectorMatching: &parser.VectorMatching{
 				Card: parser.CardOneToOne,
 			},
-			LHS: &NativeFragment{
-				Kind:       FragmentKindLeafSource,
-				OutputKind: OutputKindInstantVector,
-				Selector: &SelectorSource{
-					Kind:       SelectorKindInstantVector,
+			LHS: &native.NativeFragment{
+				Kind:       native.FragmentKindLeafSource,
+				OutputKind: native.OutputKindInstantVector,
+				Selector: &native.SelectorSource{
+					Kind:       native.SelectorKindInstantVector,
 					MetricName: "up",
-					Lookback:   defaultInstantSelectorLookback,
+					Lookback:   native.DefaultInstantSelectorLookback,
 				},
 				ValueExpr: "{value}",
 				TagsExpr:  "{tags}",
 			},
-			RHS: &NativeFragment{
-				Kind:       FragmentKindLeafSource,
-				OutputKind: OutputKindInstantVector,
-				Selector: &SelectorSource{
-					Kind:       SelectorKindInstantVector,
+			RHS: &native.NativeFragment{
+				Kind:       native.FragmentKindLeafSource,
+				OutputKind: native.OutputKindInstantVector,
+				Selector: &native.SelectorSource{
+					Kind:       native.SelectorKindInstantVector,
 					MetricName: "up",
-					Lookback:   defaultInstantSelectorLookback,
+					Lookback:   native.DefaultInstantSelectorLookback,
 				},
 				ValueExpr: "{value}",
 				TagsExpr:  "{tags}",
@@ -215,7 +216,7 @@ func TestRenderFragmentBuildsInstantBinaryJoinSQLNamespacesSelectorParams(t *tes
 	}
 
 	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
-		Mode:             RenderModeInstant,
+		Mode:             native.RenderModeInstant,
 		EvaluationTimeMS: 300000,
 		RequiredStartMS:  0,
 		RequiredEndMS:    300000,
@@ -237,29 +238,29 @@ func TestRenderFragmentBuildsInstantBinaryJoinSQLNamespacesSelectorParams(t *tes
 }
 
 func TestRenderFragmentBuildsInstantDerivSQLForSubquery(t *testing.T) {
-	fragment := &NativeFragment{
-		Kind:       FragmentKindRangeFunction,
-		OutputKind: OutputKindInstantVector,
-		RangeFunction: &RangeFunctionFragment{
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindRangeFunction,
+		OutputKind: native.OutputKindInstantVector,
+		RangeFunction: &native.RangeFunctionFragment{
 			Func: "deriv",
-			Child: &NativeFragment{
-				Kind:       FragmentKindSubquery,
-				OutputKind: OutputKindRangeMatrix,
-				Subquery: &SubqueryFragment{
+			Child: &native.NativeFragment{
+				Kind:       native.FragmentKindSubquery,
+				OutputKind: native.OutputKindRangeMatrix,
+				Subquery: &native.SubqueryFragment{
 					Range: 5 * time.Minute,
 					Step:  time.Minute,
-					Child: &NativeFragment{
-						Kind:       FragmentKindAggregation,
-						OutputKind: OutputKindInstantVector,
-						Aggregation: &AggregationFragment{
+					Child: &native.NativeFragment{
+						Kind:       native.FragmentKindAggregation,
+						OutputKind: native.OutputKindInstantVector,
+						Aggregation: &native.AggregationFragment{
 							Op: parser.SUM,
-							Source: &NativeFragment{
-								Kind:       FragmentKindLeafSource,
-								OutputKind: OutputKindInstantVector,
-								Selector: &SelectorSource{
-									Kind:       SelectorKindInstantVector,
+							Source: &native.NativeFragment{
+								Kind:       native.FragmentKindLeafSource,
+								OutputKind: native.OutputKindInstantVector,
+								Selector: &native.SelectorSource{
+									Kind:       native.SelectorKindInstantVector,
 									MetricName: "up",
-									Lookback:   defaultInstantSelectorLookback,
+									Lookback:   native.DefaultInstantSelectorLookback,
 								},
 								ValueExpr: "{value}",
 								TagsExpr:  "{tags}",
@@ -272,7 +273,7 @@ func TestRenderFragmentBuildsInstantDerivSQLForSubquery(t *testing.T) {
 	}
 
 	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
-		Mode:             RenderModeInstant,
+		Mode:             native.RenderModeInstant,
 		EvaluationTimeMS: 300000,
 		RequiredStartMS:  0,
 		RequiredEndMS:    300000,
@@ -289,16 +290,16 @@ func TestRenderFragmentBuildsInstantDerivSQLForSubquery(t *testing.T) {
 }
 
 func TestRenderFragmentBuildsRangeSumOverTimeSQLForDirectSelector(t *testing.T) {
-	fragment := &NativeFragment{
-		Kind:       FragmentKindRangeFunction,
-		OutputKind: OutputKindInstantVector,
-		RangeFunction: &RangeFunctionFragment{
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindRangeFunction,
+		OutputKind: native.OutputKindInstantVector,
+		RangeFunction: &native.RangeFunctionFragment{
 			Func: "sum_over_time",
-			Child: &NativeFragment{
-				Kind:       FragmentKindLeafSource,
-				OutputKind: OutputKindRangeMatrix,
-				Selector: &SelectorSource{
-					Kind:       SelectorKindRangeVector,
+			Child: &native.NativeFragment{
+				Kind:       native.FragmentKindLeafSource,
+				OutputKind: native.OutputKindRangeMatrix,
+				Selector: &native.SelectorSource{
+					Kind:       native.SelectorKindRangeVector,
 					MetricName: "up",
 					Lookback:   5 * time.Minute,
 				},
@@ -309,7 +310,7 @@ func TestRenderFragmentBuildsRangeSumOverTimeSQLForDirectSelector(t *testing.T) 
 	}
 
 	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
-		Mode:            RenderModeRange,
+		Mode:            native.RenderModeRange,
 		StartMS:         0,
 		EndMS:           300000,
 		StepMS:          30000,
@@ -340,26 +341,26 @@ func TestRenderFragmentBuildsRangeSumOverTimeSQLForDirectSelector(t *testing.T) 
 }
 
 func TestRenderFragmentBuildsRangeSumOverTimeSQLForSubquery(t *testing.T) {
-	fragment := &NativeFragment{
-		Kind:       FragmentKindRangeFunction,
-		OutputKind: OutputKindInstantVector,
-		RangeFunction: &RangeFunctionFragment{
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindRangeFunction,
+		OutputKind: native.OutputKindInstantVector,
+		RangeFunction: &native.RangeFunctionFragment{
 			Func: "sum_over_time",
-			Child: &NativeFragment{
-				Kind:       FragmentKindSubquery,
-				OutputKind: OutputKindRangeMatrix,
-				Subquery: &SubqueryFragment{
+			Child: &native.NativeFragment{
+				Kind:       native.FragmentKindSubquery,
+				OutputKind: native.OutputKindRangeMatrix,
+				Subquery: &native.SubqueryFragment{
 					Range: 5 * time.Minute,
 					Step:  time.Minute,
-					Child: &NativeFragment{
-						Kind:       FragmentKindAggregation,
-						OutputKind: OutputKindInstantVector,
-						Aggregation: &AggregationFragment{
+					Child: &native.NativeFragment{
+						Kind:       native.FragmentKindAggregation,
+						OutputKind: native.OutputKindInstantVector,
+						Aggregation: &native.AggregationFragment{
 							Op: parser.SUM,
-							Source: &NativeFragment{
-								Kind:       FragmentKindLeafSource,
-								OutputKind: OutputKindInstantVector,
-								Selector:   &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "up", Lookback: defaultInstantSelectorLookback},
+							Source: &native.NativeFragment{
+								Kind:       native.FragmentKindLeafSource,
+								OutputKind: native.OutputKindInstantVector,
+								Selector:   &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "up", Lookback: native.DefaultInstantSelectorLookback},
 								ValueExpr:  "{value}",
 								TagsExpr:   "{tags}",
 							},
@@ -371,7 +372,7 @@ func TestRenderFragmentBuildsRangeSumOverTimeSQLForSubquery(t *testing.T) {
 	}
 
 	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
-		Mode:            RenderModeRange,
+		Mode:            native.RenderModeRange,
 		StartMS:         0,
 		EndMS:           300000,
 		StepMS:          30000,
@@ -399,10 +400,10 @@ func TestRenderFragmentBuildsRangeSumOverTimeSQLForSubquery(t *testing.T) {
 }
 
 func TestRangeRequiredBoundsForChildIncludesSelectorOffset(t *testing.T) {
-	fragment := &NativeFragment{
-		Kind:       FragmentKindLeafSource,
-		OutputKind: OutputKindRangeMatrix,
-		Selector:   &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute, Offset: time.Minute},
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindLeafSource,
+		OutputKind: native.OutputKindRangeMatrix,
+		Selector:   &native.SelectorSource{Kind: native.SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute, Offset: time.Minute},
 		ValueExpr:  "{value}",
 		TagsExpr:   "{tags}",
 	}
@@ -416,26 +417,26 @@ func TestRangeRequiredBoundsForChildIncludesSelectorOffset(t *testing.T) {
 }
 
 func TestRenderFragmentBuildsRangeRateSQLForSubquery(t *testing.T) {
-	fragment := &NativeFragment{
-		Kind:       FragmentKindRangeFunction,
-		OutputKind: OutputKindInstantVector,
-		RangeFunction: &RangeFunctionFragment{
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindRangeFunction,
+		OutputKind: native.OutputKindInstantVector,
+		RangeFunction: &native.RangeFunctionFragment{
 			Func: "rate",
-			Child: &NativeFragment{
-				Kind:       FragmentKindSubquery,
-				OutputKind: OutputKindRangeMatrix,
-				Subquery: &SubqueryFragment{
+			Child: &native.NativeFragment{
+				Kind:       native.FragmentKindSubquery,
+				OutputKind: native.OutputKindRangeMatrix,
+				Subquery: &native.SubqueryFragment{
 					Range: 5 * time.Minute,
 					Step:  time.Minute,
-					Child: &NativeFragment{
-						Kind:       FragmentKindAggregation,
-						OutputKind: OutputKindInstantVector,
-						Aggregation: &AggregationFragment{
+					Child: &native.NativeFragment{
+						Kind:       native.FragmentKindAggregation,
+						OutputKind: native.OutputKindInstantVector,
+						Aggregation: &native.AggregationFragment{
 							Op: parser.SUM,
-							Source: &NativeFragment{
-								Kind:       FragmentKindLeafSource,
-								OutputKind: OutputKindInstantVector,
-								Selector:   &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "up", Lookback: defaultInstantSelectorLookback},
+							Source: &native.NativeFragment{
+								Kind:       native.FragmentKindLeafSource,
+								OutputKind: native.OutputKindInstantVector,
+								Selector:   &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "up", Lookback: native.DefaultInstantSelectorLookback},
 								ValueExpr:  "{value}",
 								TagsExpr:   "{tags}",
 							},
@@ -447,7 +448,7 @@ func TestRenderFragmentBuildsRangeRateSQLForSubquery(t *testing.T) {
 	}
 
 	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
-		Mode:            RenderModeRange,
+		Mode:            native.RenderModeRange,
 		StartMS:         0,
 		EndMS:           300000,
 		StepMS:          30000,
@@ -466,15 +467,15 @@ func TestRenderFragmentBuildsRangeRateSQLForSubquery(t *testing.T) {
 }
 
 func TestRenderFragmentBuildsRangeFunctionSQLForOffsetSelectorUsesShiftedRequiredBounds(t *testing.T) {
-	fragment := &NativeFragment{
-		Kind:       FragmentKindRangeFunction,
-		OutputKind: OutputKindInstantVector,
-		RangeFunction: &RangeFunctionFragment{
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindRangeFunction,
+		OutputKind: native.OutputKindInstantVector,
+		RangeFunction: &native.RangeFunctionFragment{
 			Func: "sum_over_time",
-			Child: &NativeFragment{
-				Kind:       FragmentKindLeafSource,
-				OutputKind: OutputKindRangeMatrix,
-				Selector:   &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute, Offset: time.Minute},
+			Child: &native.NativeFragment{
+				Kind:       native.FragmentKindLeafSource,
+				OutputKind: native.OutputKindRangeMatrix,
+				Selector:   &native.SelectorSource{Kind: native.SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute, Offset: time.Minute},
 				ValueExpr:  "{value}",
 				TagsExpr:   "{tags}",
 			},
@@ -482,7 +483,7 @@ func TestRenderFragmentBuildsRangeFunctionSQLForOffsetSelectorUsesShiftedRequire
 	}
 
 	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
-		Mode:            RenderModeRange,
+		Mode:            native.RenderModeRange,
 		StartMS:         0,
 		EndMS:           300000,
 		StepMS:          30000,
@@ -504,22 +505,22 @@ func TestRenderFragmentBuildsRangeFunctionSQLForOffsetSelectorUsesShiftedRequire
 }
 
 func TestRenderFragmentBuildsRangeSubqueryUsingInnerStepAndExpandedEnvelope(t *testing.T) {
-	fragment := &NativeFragment{
-		Kind:       FragmentKindRangeFunction,
-		OutputKind: OutputKindInstantVector,
-		RangeFunction: &RangeFunctionFragment{
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindRangeFunction,
+		OutputKind: native.OutputKindInstantVector,
+		RangeFunction: &native.RangeFunctionFragment{
 			Func: "sum_over_time",
-			Child: &NativeFragment{
-				Kind:       FragmentKindSubquery,
-				OutputKind: OutputKindRangeMatrix,
-				Subquery: &SubqueryFragment{
+			Child: &native.NativeFragment{
+				Kind:       native.FragmentKindSubquery,
+				OutputKind: native.OutputKindRangeMatrix,
+				Subquery: &native.SubqueryFragment{
 					Range:  5 * time.Minute,
 					Step:   time.Minute,
 					Offset: time.Minute,
-					Child: &NativeFragment{
-						Kind:       FragmentKindLeafSource,
-						OutputKind: OutputKindInstantVector,
-						Selector:   &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "up", Lookback: defaultInstantSelectorLookback},
+					Child: &native.NativeFragment{
+						Kind:       native.FragmentKindLeafSource,
+						OutputKind: native.OutputKindInstantVector,
+						Selector:   &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "up", Lookback: native.DefaultInstantSelectorLookback},
 						ValueExpr:  "{value}",
 						TagsExpr:   "{tags}",
 					},
@@ -529,7 +530,7 @@ func TestRenderFragmentBuildsRangeSubqueryUsingInnerStepAndExpandedEnvelope(t *t
 	}
 
 	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
-		Mode:            RenderModeRange,
+		Mode:            native.RenderModeRange,
 		StartMS:         0,
 		EndMS:           300000,
 		StepMS:          30000,
@@ -566,21 +567,21 @@ func TestRenderFragmentBuildsRangeSubqueryUsingInnerStepAndExpandedEnvelope(t *t
 }
 
 func TestRenderFragmentDefaultsMissingSubqueryStepToOneMinute(t *testing.T) {
-	fragment := &NativeFragment{
-		Kind:       FragmentKindRangeFunction,
-		OutputKind: OutputKindInstantVector,
-		RangeFunction: &RangeFunctionFragment{
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindRangeFunction,
+		OutputKind: native.OutputKindInstantVector,
+		RangeFunction: &native.RangeFunctionFragment{
 			Func: "sum_over_time",
-			Child: &NativeFragment{
-				Kind:       FragmentKindSubquery,
-				OutputKind: OutputKindRangeMatrix,
-				Subquery: &SubqueryFragment{
+			Child: &native.NativeFragment{
+				Kind:       native.FragmentKindSubquery,
+				OutputKind: native.OutputKindRangeMatrix,
+				Subquery: &native.SubqueryFragment{
 					Range: 5 * time.Minute,
 					Step:  0,
-					Child: &NativeFragment{
-						Kind:       FragmentKindLeafSource,
-						OutputKind: OutputKindInstantVector,
-						Selector:   &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "up", Lookback: defaultInstantSelectorLookback},
+					Child: &native.NativeFragment{
+						Kind:       native.FragmentKindLeafSource,
+						OutputKind: native.OutputKindInstantVector,
+						Selector:   &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "up", Lookback: native.DefaultInstantSelectorLookback},
 						ValueExpr:  "{value}",
 						TagsExpr:   "{tags}",
 					},
@@ -590,7 +591,7 @@ func TestRenderFragmentDefaultsMissingSubqueryStepToOneMinute(t *testing.T) {
 	}
 
 	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
-		Mode:            RenderModeRange,
+		Mode:            native.RenderModeRange,
 		StartMS:         0,
 		EndMS:           300000,
 		StepMS:          30000,
@@ -606,21 +607,21 @@ func TestRenderFragmentDefaultsMissingSubqueryStepToOneMinute(t *testing.T) {
 }
 
 func TestRenderFragmentBuildsRangeSumOverTimeSQLForSubqueryWithWrappedLocalChild(t *testing.T) {
-	fragment := &NativeFragment{
-		Kind:       FragmentKindRangeFunction,
-		OutputKind: OutputKindInstantVector,
-		RangeFunction: &RangeFunctionFragment{
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindRangeFunction,
+		OutputKind: native.OutputKindInstantVector,
+		RangeFunction: &native.RangeFunctionFragment{
 			Func: "sum_over_time",
-			Child: &NativeFragment{
-				Kind:       FragmentKindSubquery,
-				OutputKind: OutputKindRangeMatrix,
-				Subquery: &SubqueryFragment{
+			Child: &native.NativeFragment{
+				Kind:       native.FragmentKindSubquery,
+				OutputKind: native.OutputKindRangeMatrix,
+				Subquery: &native.SubqueryFragment{
 					Range: 5 * time.Minute,
 					Step:  time.Minute,
-					Child: &NativeFragment{
-						Kind:       FragmentKindBinaryScalarSourceExpr,
-						OutputKind: OutputKindInstantVector,
-						Selector:   &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "up", Lookback: defaultInstantSelectorLookback},
+					Child: &native.NativeFragment{
+						Kind:       native.FragmentKindBinaryScalarSourceExpr,
+						OutputKind: native.OutputKindInstantVector,
+						Selector:   &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "up", Lookback: native.DefaultInstantSelectorLookback},
 						ValueExpr:  "({value}) * 100",
 						TagsExpr:   "{tags}",
 					},
@@ -630,7 +631,7 @@ func TestRenderFragmentBuildsRangeSumOverTimeSQLForSubqueryWithWrappedLocalChild
 	}
 
 	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
-		Mode:            RenderModeRange,
+		Mode:            native.RenderModeRange,
 		StartMS:         0,
 		EndMS:           300000,
 		StepMS:          30000,
@@ -693,19 +694,19 @@ func TestRenderFragmentBuildsInstantPointwiseTransformSQL(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			template, ok := nativePointwiseSourceTemplate(tc.name, tc.params)
+			template, ok := native.NativePointwiseSourceTemplate(tc.name, tc.params)
 			if !ok {
 				t.Fatalf("expected native template for %s", tc.name)
 			}
-			fragment := &NativeFragment{
-				Kind:        FragmentKindUnarySourceExpr,
-				OutputKind:  OutputKindInstantVector,
-				Selector:    &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "up", Lookback: defaultInstantSelectorLookback},
+			fragment := &native.NativeFragment{
+				Kind:        native.FragmentKindUnarySourceExpr,
+				OutputKind:  native.OutputKindInstantVector,
+				Selector:    &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "up", Lookback: native.DefaultInstantSelectorLookback},
 				ValueExpr:   template,
 				TagsExpr:    "arrayFilter(tag -> tag.1 != '__name__', {tags})",
 				DropsMetric: true,
 			}
-			rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 300000, RequiredStartMS: 0, RequiredEndMS: 300000})
+			rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 300000, RequiredStartMS: 0, RequiredEndMS: 300000})
 			if err != nil {
 				t.Fatalf("expected rendered SQL, got error: %v", err)
 			}
@@ -720,12 +721,12 @@ func TestRenderFragmentBuildsSyntheticRangeSeriesSQL(t *testing.T) {
 	testCases := []string{"minute", "hour", "day_of_week", "day_of_month", "day_of_year", "days_in_month", "month", "year"}
 	for _, name := range testCases {
 		t.Run(name, func(t *testing.T) {
-			fragment := &NativeFragment{Kind: FragmentKindSyntheticSeries, OutputKind: OutputKindInstantVector, Synthetic: &SyntheticSeriesFragment{Func: name}}
+			fragment := &native.NativeFragment{Kind: native.FragmentKindSyntheticSeries, OutputKind: native.OutputKindInstantVector, Synthetic: &native.SyntheticSeriesFragment{Func: name}}
 			expectedValueSQL, err := syntheticSeriesValueSQL(name, "ts_ms")
 			if err != nil {
 				t.Fatalf("expected synthetic value SQL, got error: %v", err)
 			}
-			rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000})
+			rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000})
 			if err != nil {
 				t.Fatalf("expected rendered SQL, got error: %v", err)
 			}
@@ -749,8 +750,8 @@ func TestRenderFragmentBuildsSyntheticInstantScalarSQL(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			fragment := &NativeFragment{Kind: FragmentKindSyntheticSeries, OutputKind: OutputKindScalar, Synthetic: &SyntheticSeriesFragment{Func: tc.name}}
-			rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 123456})
+			fragment := &native.NativeFragment{Kind: native.FragmentKindSyntheticSeries, OutputKind: native.OutputKindScalar, Synthetic: &native.SyntheticSeriesFragment{Func: tc.name}}
+			rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 123456})
 			if err != nil {
 				t.Fatalf("expected rendered SQL, got error: %v", err)
 			}
@@ -765,9 +766,9 @@ func TestRenderFragmentBuildsSyntheticInstantScalarSQL(t *testing.T) {
 }
 
 func TestRenderFragmentBuildsInfoJoinSQL(t *testing.T) {
-	fragment := &NativeFragment{Kind: FragmentKindInfoJoin, OutputKind: OutputKindInstantVector, InfoJoin: &InfoJoinFragment{Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindInstantVector, Selector: &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "up", Lookback: defaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}, InfoMetricName: "target_info", SelectorMatchers: nil, CopyLabelNames: []string{"k8s_cluster_name"}, DropUnmatched: false}}
+	fragment := &native.NativeFragment{Kind: native.FragmentKindInfoJoin, OutputKind: native.OutputKindInstantVector, InfoJoin: &native.InfoJoinFragment{Child: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindInstantVector, Selector: &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "up", Lookback: native.DefaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}, InfoMetricName: "target_info", SelectorMatchers: nil, CopyLabelNames: []string{"k8s_cluster_name"}, DropUnmatched: false}}
 
-	instant, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456})
+	instant, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456})
 	if err != nil {
 		t.Fatalf("expected instant info join SQL, got error: %v", err)
 	}
@@ -781,7 +782,7 @@ func TestRenderFragmentBuildsInfoJoinSQL(t *testing.T) {
 		t.Fatalf("expected target_info selector param, got %#v", instant.QueryParams)
 	}
 
-	rangeRendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000})
+	rangeRendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000})
 	if err != nil {
 		t.Fatalf("expected range info join SQL, got error: %v", err)
 	}
@@ -794,9 +795,9 @@ func TestRenderFragmentBuildsInfoJoinSQL(t *testing.T) {
 }
 
 func TestRenderFragmentBuildsScalarConvertSQL(t *testing.T) {
-	fragment := &NativeFragment{Kind: FragmentKindScalarConvert, OutputKind: OutputKindScalar, ScalarConvert: &ScalarConvertFragment{Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindInstantVector, Selector: &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "up", Lookback: defaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
+	fragment := &native.NativeFragment{Kind: native.FragmentKindScalarConvert, OutputKind: native.OutputKindScalar, ScalarConvert: &native.ScalarConvertFragment{Child: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindInstantVector, Selector: &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "up", Lookback: native.DefaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
 
-	instant, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456})
+	instant, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456})
 	if err != nil {
 		t.Fatalf("expected instant scalar convert SQL, got error: %v", err)
 	}
@@ -804,7 +805,7 @@ func TestRenderFragmentBuildsScalarConvertSQL(t *testing.T) {
 		t.Fatalf("expected scalar convert instant SQL, got %q", instant.SQL)
 	}
 
-	rangeRendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000})
+	rangeRendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000})
 	if err != nil {
 		t.Fatalf("expected range scalar convert SQL, got error: %v", err)
 	}
@@ -817,7 +818,7 @@ func TestRenderFragmentBuildsScalarConvertSQL(t *testing.T) {
 }
 
 func TestRenderClassicHistogramGroupsQueryBuildsInstantMaterializationSQL(t *testing.T) {
-	rendered, err := renderClassicHistogramGroupsQuery(storage.QueryConfig{Database: "observability", Table: "prometheus"}, &NativeFragment{Kind: FragmentKindAggregation, OutputKind: OutputKindInstantVector, Aggregation: &AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindInstantVector, Selector: &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "http_request_duration_seconds_bucket", Lookback: defaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456}, "hist")
+	rendered, err := renderClassicHistogramGroupsQuery(storage.QueryConfig{Database: "observability", Table: "prometheus"}, &native.NativeFragment{Kind: native.FragmentKindAggregation, OutputKind: native.OutputKindInstantVector, Aggregation: &native.AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindInstantVector, Selector: &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "http_request_duration_seconds_bucket", Lookback: native.DefaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}, RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456}, "hist")
 	if err != nil {
 		t.Fatalf("expected classic histogram instant materialization SQL, got error: %v", err)
 	}
@@ -839,7 +840,7 @@ func TestRenderClassicHistogramGroupsQueryBuildsInstantMaterializationSQL(t *tes
 }
 
 func TestRenderClassicHistogramGroupsQueryBuildsRangeMaterializationSQL(t *testing.T) {
-	rendered, err := renderClassicHistogramGroupsQuery(storage.QueryConfig{Database: "observability", Table: "prometheus"}, &NativeFragment{Kind: FragmentKindAggregation, OutputKind: OutputKindInstantVector, Aggregation: &AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindInstantVector, Selector: &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "http_request_duration_seconds_bucket", Lookback: defaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000}, "hist")
+	rendered, err := renderClassicHistogramGroupsQuery(storage.QueryConfig{Database: "observability", Table: "prometheus"}, &native.NativeFragment{Kind: native.FragmentKindAggregation, OutputKind: native.OutputKindInstantVector, Aggregation: &native.AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindInstantVector, Selector: &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "http_request_duration_seconds_bucket", Lookback: native.DefaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}, RenderParams{Mode: native.RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000}, "hist")
 	if err != nil {
 		t.Fatalf("expected classic histogram range materialization SQL, got error: %v", err)
 	}
@@ -871,9 +872,9 @@ func TestRenderFragmentBuildsHistogramProjectionSQL(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			fragment := &NativeFragment{Kind: FragmentKindHistogramProjection, OutputKind: OutputKindInstantVector, HistogramProjection: &HistogramProjectionFragment{Func: tc.name, Child: &NativeFragment{Kind: FragmentKindAggregation, OutputKind: OutputKindInstantVector, Aggregation: &AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindInstantVector, Selector: &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "http_request_duration_seconds_bucket", Lookback: defaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}}}
+			fragment := &native.NativeFragment{Kind: native.FragmentKindHistogramProjection, OutputKind: native.OutputKindInstantVector, HistogramProjection: &native.HistogramProjectionFragment{Func: tc.name, Child: &native.NativeFragment{Kind: native.FragmentKindAggregation, OutputKind: native.OutputKindInstantVector, Aggregation: &native.AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindInstantVector, Selector: &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "http_request_duration_seconds_bucket", Lookback: native.DefaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}}}
 
-			instant, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456})
+			instant, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456})
 			if err != nil {
 				t.Fatalf("expected histogram projection instant SQL, got error: %v", err)
 			}
@@ -884,7 +885,7 @@ func TestRenderFragmentBuildsHistogramProjectionSQL(t *testing.T) {
 				}
 			}
 
-			rangeRendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000})
+			rangeRendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000})
 			if err != nil {
 				t.Fatalf("expected histogram projection range SQL, got error: %v", err)
 			}
@@ -900,9 +901,9 @@ func TestRenderFragmentBuildsHistogramProjectionSQL(t *testing.T) {
 
 func TestRenderFragmentBuildsHistogramQuantileSQL(t *testing.T) {
 	quantile := 0.9
-	fragment := &NativeFragment{Kind: FragmentKindHistogramFunction, OutputKind: OutputKindInstantVector, HistogramFunction: &HistogramFunctionFragment{Func: "histogram_quantile", Quantile: &quantile, Child: &NativeFragment{Kind: FragmentKindAggregation, OutputKind: OutputKindInstantVector, Aggregation: &AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &NativeFragment{Kind: FragmentKindRangeFunction, OutputKind: OutputKindInstantVector, RangeFunction: &RangeFunctionFragment{Func: "rate", Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindRangeMatrix, Selector: &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "http_request_duration_seconds_bucket", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}}}}}
+	fragment := &native.NativeFragment{Kind: native.FragmentKindHistogramFunction, OutputKind: native.OutputKindInstantVector, HistogramFunction: &native.HistogramFunctionFragment{Func: "histogram_quantile", Quantile: &quantile, Child: &native.NativeFragment{Kind: native.FragmentKindAggregation, OutputKind: native.OutputKindInstantVector, Aggregation: &native.AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &native.NativeFragment{Kind: native.FragmentKindRangeFunction, OutputKind: native.OutputKindInstantVector, RangeFunction: &native.RangeFunctionFragment{Func: "rate", Child: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindRangeMatrix, Selector: &native.SelectorSource{Kind: native.SelectorKindRangeVector, MetricName: "http_request_duration_seconds_bucket", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}}}}}
 
-	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 300000, RequiredStartMS: 0, RequiredEndMS: 300000})
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 300000, RequiredStartMS: 0, RequiredEndMS: 300000})
 	if err != nil {
 		t.Fatalf("expected histogram quantile SQL, got error: %v", err)
 	}
@@ -916,9 +917,9 @@ func TestRenderFragmentBuildsHistogramQuantileSQL(t *testing.T) {
 
 func TestRenderFragmentBuildsHistogramFractionSQL(t *testing.T) {
 	lower, upper := 0.0, 1.0
-	fragment := &NativeFragment{Kind: FragmentKindHistogramFunction, OutputKind: OutputKindInstantVector, HistogramFunction: &HistogramFunctionFragment{Func: "histogram_fraction", Lower: &lower, Upper: &upper, Child: &NativeFragment{Kind: FragmentKindAggregation, OutputKind: OutputKindInstantVector, Aggregation: &AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &NativeFragment{Kind: FragmentKindRangeFunction, OutputKind: OutputKindInstantVector, RangeFunction: &RangeFunctionFragment{Func: "rate", Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindRangeMatrix, Selector: &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "http_request_duration_seconds_bucket", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}}}}}
+	fragment := &native.NativeFragment{Kind: native.FragmentKindHistogramFunction, OutputKind: native.OutputKindInstantVector, HistogramFunction: &native.HistogramFunctionFragment{Func: "histogram_fraction", Lower: &lower, Upper: &upper, Child: &native.NativeFragment{Kind: native.FragmentKindAggregation, OutputKind: native.OutputKindInstantVector, Aggregation: &native.AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &native.NativeFragment{Kind: native.FragmentKindRangeFunction, OutputKind: native.OutputKindInstantVector, RangeFunction: &native.RangeFunctionFragment{Func: "rate", Child: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindRangeMatrix, Selector: &native.SelectorSource{Kind: native.SelectorKindRangeVector, MetricName: "http_request_duration_seconds_bucket", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}}}}}
 
-	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 300000, RequiredStartMS: 0, RequiredEndMS: 300000})
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 300000, RequiredStartMS: 0, RequiredEndMS: 300000})
 	if err != nil {
 		t.Fatalf("expected histogram fraction SQL, got error: %v", err)
 	}
@@ -931,9 +932,9 @@ func TestRenderFragmentBuildsHistogramFractionSQL(t *testing.T) {
 }
 
 func TestRenderFragmentBuildsAbsentSQL(t *testing.T) {
-	fragment := &NativeFragment{Kind: FragmentKindAbsent, OutputKind: OutputKindInstantVector, Absent: &AbsentFragment{Func: "absent", OutputMetric: map[string]string{"job": "api"}, Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindInstantVector, Selector: &SelectorSource{Kind: SelectorKindInstantVector, MetricName: "up", Lookback: defaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
+	fragment := &native.NativeFragment{Kind: native.FragmentKindAbsent, OutputKind: native.OutputKindInstantVector, Absent: &native.AbsentFragment{Func: "absent", OutputMetric: map[string]string{"job": "api"}, Child: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindInstantVector, Selector: &native.SelectorSource{Kind: native.SelectorKindInstantVector, MetricName: "up", Lookback: native.DefaultInstantSelectorLookback}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
 
-	instant, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456})
+	instant, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: 0, RequiredEndMS: 123456})
 	if err != nil {
 		t.Fatalf("expected absent instant SQL, got error: %v", err)
 	}
@@ -944,7 +945,7 @@ func TestRenderFragmentBuildsAbsentSQL(t *testing.T) {
 		}
 	}
 
-	rangeRendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000})
+	rangeRendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 120000})
 	if err != nil {
 		t.Fatalf("expected absent range SQL, got error: %v", err)
 	}
@@ -957,9 +958,9 @@ func TestRenderFragmentBuildsAbsentSQL(t *testing.T) {
 }
 
 func TestRenderFragmentBuildsAbsentOverTimeSQL(t *testing.T) {
-	fragment := &NativeFragment{Kind: FragmentKindAbsent, OutputKind: OutputKindInstantVector, Absent: &AbsentFragment{Func: "absent_over_time", OutputMetric: map[string]string{"job": "api"}, Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindRangeMatrix, Selector: &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
+	fragment := &native.NativeFragment{Kind: native.FragmentKindAbsent, OutputKind: native.OutputKindInstantVector, Absent: &native.AbsentFragment{Func: "absent_over_time", OutputMetric: map[string]string{"job": "api"}, Child: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindRangeMatrix, Selector: &native.SelectorSource{Kind: native.SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
 
-	instant, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: -300000, RequiredEndMS: 123456})
+	instant, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 123456, RequiredStartMS: -300000, RequiredEndMS: 123456})
 	if err != nil {
 		t.Fatalf("expected absent_over_time instant SQL, got error: %v", err)
 	}
@@ -970,7 +971,7 @@ func TestRenderFragmentBuildsAbsentOverTimeSQL(t *testing.T) {
 		}
 	}
 
-	rangeRendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 60000, RequiredStartMS: -300000, RequiredEndMS: 300000})
+	rangeRendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 60000, RequiredStartMS: -300000, RequiredEndMS: 300000})
 	if err != nil {
 		t.Fatalf("expected absent_over_time range SQL, got error: %v", err)
 	}
@@ -994,8 +995,8 @@ func TestRenderFragmentBuildsTier1RangeFunctionSQL(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			fragment := &NativeFragment{Kind: FragmentKindRangeFunction, OutputKind: OutputKindInstantVector, RangeFunction: &RangeFunctionFragment{Func: tc.name, Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindRangeMatrix, Selector: &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
-			rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 300000})
+			fragment := &native.NativeFragment{Kind: native.FragmentKindRangeFunction, OutputKind: native.OutputKindInstantVector, RangeFunction: &native.RangeFunctionFragment{Func: tc.name, Child: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindRangeMatrix, Selector: &native.SelectorSource{Kind: native.SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
+			rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 300000})
 			if err != nil {
 				t.Fatalf("expected rendered SQL, got error: %v", err)
 			}
@@ -1007,8 +1008,8 @@ func TestRenderFragmentBuildsTier1RangeFunctionSQL(t *testing.T) {
 }
 
 func TestRenderFragmentBuildsMadOverTimeSQL(t *testing.T) {
-	fragment := &NativeFragment{Kind: FragmentKindRangeFunction, OutputKind: OutputKindInstantVector, RangeFunction: &RangeFunctionFragment{Func: "mad_over_time", Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindRangeMatrix, Selector: &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
-	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 60000, RequiredStartMS: -300000, RequiredEndMS: 300000})
+	fragment := &native.NativeFragment{Kind: native.FragmentKindRangeFunction, OutputKind: native.OutputKindInstantVector, RangeFunction: &native.RangeFunctionFragment{Func: "mad_over_time", Child: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindRangeMatrix, Selector: &native.SelectorSource{Kind: native.SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 60000, RequiredStartMS: -300000, RequiredEndMS: 300000})
 	if err != nil {
 		t.Fatalf("expected rendered SQL, got error: %v", err)
 	}
@@ -1022,8 +1023,8 @@ func TestRenderFragmentBuildsMadOverTimeSQL(t *testing.T) {
 
 func TestRenderFragmentBuildsPredictLinearSQL(t *testing.T) {
 	duration := 60.0
-	fragment := &NativeFragment{Kind: FragmentKindRangeFunction, OutputKind: OutputKindInstantVector, RangeFunction: &RangeFunctionFragment{Func: "predict_linear", ParamNumber: &duration, Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindRangeMatrix, Selector: &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
-	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 60000, RequiredStartMS: -300000, RequiredEndMS: 300000})
+	fragment := &native.NativeFragment{Kind: native.FragmentKindRangeFunction, OutputKind: native.OutputKindInstantVector, RangeFunction: &native.RangeFunctionFragment{Func: "predict_linear", ParamNumber: &duration, Child: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindRangeMatrix, Selector: &native.SelectorSource{Kind: native.SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 60000, RequiredStartMS: -300000, RequiredEndMS: 300000})
 	if err != nil {
 		t.Fatalf("expected rendered SQL, got error: %v", err)
 	}
@@ -1037,8 +1038,8 @@ func TestRenderFragmentBuildsPredictLinearSQL(t *testing.T) {
 
 func TestRenderFragmentBuildsDoubleExponentialSmoothingSQL(t *testing.T) {
 	sf, tf := 0.5, 0.3
-	fragment := &NativeFragment{Kind: FragmentKindRangeFunction, OutputKind: OutputKindInstantVector, RangeFunction: &RangeFunctionFragment{Func: "double_exponential_smoothing", ParamNumbers: []*float64{&sf, &tf}, Child: &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindRangeMatrix, Selector: &SelectorSource{Kind: SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
-	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 60000, RequiredStartMS: -300000, RequiredEndMS: 300000})
+	fragment := &native.NativeFragment{Kind: native.FragmentKindRangeFunction, OutputKind: native.OutputKindInstantVector, RangeFunction: &native.RangeFunctionFragment{Func: "double_exponential_smoothing", ParamNumbers: []*float64{&sf, &tf}, Child: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindRangeMatrix, Selector: &native.SelectorSource{Kind: native.SelectorKindRangeVector, MetricName: "up", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 60000, RequiredStartMS: -300000, RequiredEndMS: 300000})
 	if err != nil {
 		t.Fatalf("expected rendered SQL, got error: %v", err)
 	}
@@ -1051,19 +1052,19 @@ func TestRenderFragmentBuildsDoubleExponentialSmoothingSQL(t *testing.T) {
 }
 
 func TestRenderFragmentBuildsRangeAggregationSQL(t *testing.T) {
-	fragment := &NativeFragment{
-		Kind:       FragmentKindAggregation,
-		OutputKind: OutputKindInstantVector,
-		Aggregation: &AggregationFragment{
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindAggregation,
+		OutputKind: native.OutputKindInstantVector,
+		Aggregation: &native.AggregationFragment{
 			Op:       parser.SUM,
 			Grouping: []string{"job"},
-			Source: &NativeFragment{
-				Kind:       FragmentKindBinaryScalarSourceExpr,
-				OutputKind: OutputKindInstantVector,
-				Selector: &SelectorSource{
-					Kind:       SelectorKindInstantVector,
+			Source: &native.NativeFragment{
+				Kind:       native.FragmentKindBinaryScalarSourceExpr,
+				OutputKind: native.OutputKindInstantVector,
+				Selector: &native.SelectorSource{
+					Kind:       native.SelectorKindInstantVector,
 					MetricName: "up",
-					Lookback:   defaultInstantSelectorLookback,
+					Lookback:   native.DefaultInstantSelectorLookback,
 				},
 				ValueExpr:   "({value}) * 100",
 				TagsExpr:    "arrayFilter(tag -> tag.1 != '__name__', {tags})",
@@ -1073,7 +1074,7 @@ func TestRenderFragmentBuildsRangeAggregationSQL(t *testing.T) {
 	}
 
 	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
-		Mode:            RenderModeRange,
+		Mode:            native.RenderModeRange,
 		StartMS:         0,
 		EndMS:           300000,
 		StepMS:          30000,

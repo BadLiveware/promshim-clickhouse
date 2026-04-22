@@ -1,4 +1,4 @@
-package promshim
+package local
 
 import (
 	"math"
@@ -41,7 +41,7 @@ func TestRawPromValueToFloat64RejectsNativeHistogramObjectSamples(t *testing.T) 
 
 func TestDecodeInstantSamplesRejectsNativeHistogramObjectAsUnsupported(t *testing.T) {
 	payload := `{"tags":[["job","api"]],"timestamp":"2026-04-20 11:34:00.000","value":{"schema":0,"count":1,"sum":10}}`
-	_, err := decodeInstantSamples(strings.NewReader(payload))
+	_, err := DecodeInstantSamples(strings.NewReader(payload))
 	if err == nil {
 		t.Fatal("expected unsupported error")
 	}
@@ -52,7 +52,7 @@ func TestDecodeInstantSamplesRejectsNativeHistogramObjectAsUnsupported(t *testin
 
 func TestDecodeRangeSeriesRejectsNativeHistogramObjectAsUnsupported(t *testing.T) {
 	payload := `{"tags":[["job","api"]],"time_series":[["2026-04-20 11:34:00.000",{"schema":0,"count":1,"sum":10}]]}`
-	_, err := decodeRangeSeries(strings.NewReader(payload))
+	_, err := DecodeRangeSeries(strings.NewReader(payload))
 	if err == nil {
 		t.Fatal("expected unsupported error")
 	}

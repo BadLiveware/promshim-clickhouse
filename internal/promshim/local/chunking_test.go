@@ -1,4 +1,4 @@
-package promshim
+package local
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 
 type syntheticRangePlan struct{}
 
-func (syntheticRangePlan) execute(_ context.Context, _ *evaluator, params evalParams) (model.RuntimeValue, error) {
+func (syntheticRangePlan) execute(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 	values := make([]model.RangePoint, 0)
 	for current := params.Start; !current.After(params.End); current = current.Add(params.Step) {
 		values = append(values, model.RangePoint{Timestamp: float64(current.Unix()), Value: float64(current.Unix())})
@@ -30,8 +30,8 @@ func TestBuildPlanWithContextRejectsRangeQueryOverGuardrail(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = buildPlanWithContext(expr, planContext{
-		Mode:                      evalModeRange,
+	_, err = buildPlanWithContext(expr, PlanContext{
+		Mode:                      EvalModeRange,
 		Start:                     time.Unix(0, 0).UTC(),
 		End:                       time.Unix(600, 0).UTC(),
 		Step:                      30 * time.Second,
@@ -55,8 +55,8 @@ func TestBuildPlanWithContextWrapsLargeLocalRangePlanInChunkedRangePlan(t *testi
 		t.Fatal(err)
 	}
 
-	plan, err := buildPlanWithContext(expr, planContext{
-		Mode:                      evalModeRange,
+	plan, err := buildPlanWithContext(expr, PlanContext{
+		Mode:                      EvalModeRange,
 		Start:                     time.Unix(0, 0).UTC(),
 		End:                       time.Unix(600, 0).UTC(),
 		Step:                      30 * time.Second,
@@ -83,8 +83,8 @@ func TestChunkedRangePlanExecutesAndMergesChunks(t *testing.T) {
 		Estimate:             &planEstimate{PointsPerSeries: 4},
 	}
 
-	value, err := plan.execute(context.Background(), nil, evalParams{
-		Mode:  evalModeRange,
+	value, err := plan.execute(context.Background(), nil, EvalParams{
+		Mode:  EvalModeRange,
 		Start: time.Unix(0, 0).UTC(),
 		End:   time.Unix(90, 0).UTC(),
 		Step:  30 * time.Second,

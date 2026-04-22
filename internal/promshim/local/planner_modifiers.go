@@ -1,4 +1,4 @@
-package promshim
+package local
 
 import (
 	"math"
@@ -15,10 +15,10 @@ import (
 // aligned scrapes on the right. See harness P1 findings for the root cause.
 const clickHouseRangePadding = time.Millisecond
 
-func resolveDelegatedPromQL(expr parser.Expr, params evalParams) (string, error) {
+func resolveDelegatedPromQL(expr parser.Expr, params EvalParams) (string, error) {
 	parsed, err := planpkg.ParseExpression(expr.String())
 	if err != nil {
-		return "", newExecutionErrorf("re-parsing expression for delegation rewrite: %v", err)
+		return "", NewExecutionErrorf("re-parsing expression for delegation rewrite: %v", err)
 	}
 	if containsStartEndAtModifier(parsed) {
 		resolveStartEndAtModifierRecursive(parsed, params)
@@ -91,7 +91,7 @@ func containsStartEndAtModifier(expr parser.Expr) bool {
 	}
 }
 
-func resolveStartEndAtModifierRecursive(expr parser.Expr, params evalParams) {
+func resolveStartEndAtModifierRecursive(expr parser.Expr, params EvalParams) {
 	switch node := expr.(type) {
 	case *parser.VectorSelector:
 		resolveSelectorStartEndAtModifier(node, params)
@@ -124,7 +124,7 @@ func resolveStartEndAtModifierRecursive(expr parser.Expr, params evalParams) {
 	}
 }
 
-func resolveSelectorStartEndAtModifier(selector *parser.VectorSelector, params evalParams) {
+func resolveSelectorStartEndAtModifier(selector *parser.VectorSelector, params EvalParams) {
 	if selector == nil {
 		return
 	}
@@ -136,7 +136,7 @@ func resolveSelectorStartEndAtModifier(selector *parser.VectorSelector, params e
 	selector.StartOrEnd = 0
 }
 
-func resolveSubqueryStartEndAtModifier(subquery *parser.SubqueryExpr, params evalParams) {
+func resolveSubqueryStartEndAtModifier(subquery *parser.SubqueryExpr, params EvalParams) {
 	if subquery == nil {
 		return
 	}
@@ -148,17 +148,17 @@ func resolveSubqueryStartEndAtModifier(subquery *parser.SubqueryExpr, params eva
 	subquery.StartOrEnd = 0
 }
 
-func resolveStartEndMillis(token parser.ItemType, params evalParams) *int64 {
+func resolveStartEndMillis(token parser.ItemType, params EvalParams) *int64 {
 	var resolved int64
 	switch token {
 	case parser.START:
-		if params.Mode == evalModeRange {
+		if params.Mode == EvalModeRange {
 			resolved = params.Start.UnixMilli()
 		} else {
 			resolved = params.EvaluationTime.UnixMilli()
 		}
 	case parser.END:
-		if params.Mode == evalModeRange {
+		if params.Mode == EvalModeRange {
 			resolved = params.End.UnixMilli()
 		} else {
 			resolved = params.EvaluationTime.UnixMilli()
@@ -197,7 +197,7 @@ func cloneFloat64Pointers(values []*float64) []*float64 {
 	return out
 }
 
-func defaultSubqueryStep(params evalParams) time.Duration {
+func defaultSubqueryStep(params EvalParams) time.Duration {
 	if params.Step > 0 {
 		return params.Step
 	}

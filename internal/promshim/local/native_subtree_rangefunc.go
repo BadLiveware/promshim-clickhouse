@@ -1,19 +1,20 @@
-package promshim
+package local
 
 import (
 	nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/native/renderer"
 	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-func rejectRangeModeFixedTemporalAnchor(ctx planContext, fragment *nativeplan.NativeFragment) bool {
-	return ctx.Mode == evalModeRange && nativeplan.HasFixedTemporalAnchor(fragment)
+func rejectRangeModeFixedTemporalAnchor(ctx PlanContext, fragment *nativeplan.NativeFragment) bool {
+	return ctx.Mode == EvalModeRange && nativeplan.HasFixedTemporalAnchor(fragment)
 }
 
-func maybeBuildNativeRangeFunctionPlan(node *logicalRangeFunctionPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
-	if ctx.Mode == evalModeRange {
+func maybeBuildNativeRangeFunctionPlan(node *logicalRangeFunctionPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+	if ctx.Mode == EvalModeRange {
 		info := analysis.InfoFor(node)
 		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
 			return nil, false, nil
@@ -26,8 +27,8 @@ func maybeBuildNativeRangeFunctionPlan(node *logicalRangeFunctionPlan, ctx planC
 	return maybeBuildNativeRangeLikePlan(node, node.Func, node.ExprString(), ctx, analysis)
 }
 
-func maybeBuildNativeRatePlan(node *logicalRatePlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
-	if ctx.Mode == evalModeRange {
+func maybeBuildNativeRatePlan(node *logicalRatePlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+	if ctx.Mode == EvalModeRange {
 		info := analysis.InfoFor(node)
 		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
 			return nil, false, nil
@@ -40,8 +41,8 @@ func maybeBuildNativeRatePlan(node *logicalRatePlan, ctx planContext, analysis *
 	return maybeBuildNativeRangeLikePlan(node, node.Func, node.ExprString(), ctx, analysis)
 }
 
-func maybeBuildNativeIncreasePlan(node *logicalIncreasePlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
-	if ctx.Mode == evalModeRange {
+func maybeBuildNativeIncreasePlan(node *logicalIncreasePlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+	if ctx.Mode == EvalModeRange {
 		info := analysis.InfoFor(node)
 		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
 			return nil, false, nil
@@ -54,8 +55,8 @@ func maybeBuildNativeIncreasePlan(node *logicalIncreasePlan, ctx planContext, an
 	return maybeBuildNativeRangeLikePlan(node, "increase", node.ExprString(), ctx, analysis)
 }
 
-func maybeBuildNativeDeltaPlan(node *logicalDeltaPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
-	if ctx.Mode == evalModeRange {
+func maybeBuildNativeDeltaPlan(node *logicalDeltaPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+	if ctx.Mode == EvalModeRange {
 		info := analysis.InfoFor(node)
 		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
 			return nil, false, nil
@@ -68,8 +69,8 @@ func maybeBuildNativeDeltaPlan(node *logicalDeltaPlan, ctx planContext, analysis
 	return maybeBuildNativeRangeLikePlan(node, node.Func, node.ExprString(), ctx, analysis)
 }
 
-func maybeBuildNativeChangesPlan(node *logicalChangesPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
-	if ctx.Mode == evalModeRange {
+func maybeBuildNativeChangesPlan(node *logicalChangesPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+	if ctx.Mode == EvalModeRange {
 		info := analysis.InfoFor(node)
 		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
 			return nil, false, nil
@@ -82,8 +83,8 @@ func maybeBuildNativeChangesPlan(node *logicalChangesPlan, ctx planContext, anal
 	return maybeBuildNativeRangeLikePlan(node, "changes", node.ExprString(), ctx, analysis)
 }
 
-func maybeBuildNativeDerivPlan(node *logicalDerivPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
-	if ctx.Mode == evalModeRange {
+func maybeBuildNativeDerivPlan(node *logicalDerivPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+	if ctx.Mode == EvalModeRange {
 		info := analysis.InfoFor(node)
 		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
 			return nil, false, nil
@@ -96,12 +97,12 @@ func maybeBuildNativeDerivPlan(node *logicalDerivPlan, ctx planContext, analysis
 	return maybeBuildNativeRangeLikePlan(node, "deriv", node.ExprString(), ctx, analysis)
 }
 
-func maybeBuildNativeRangeLikePlan(node planpkg.LogicalPlan, kind, expr string, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+func maybeBuildNativeRangeLikePlan(node planpkg.LogicalPlan, kind, expr string, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
 	return maybeBuildNativeRangeLikePlanAllowRange(node, kind, expr, ctx, analysis, false)
 }
 
-func maybeBuildNativeRangeLikePlanAllowRange(node planpkg.LogicalPlan, kind, expr string, ctx planContext, analysis *nativeplan.Analysis, allowRange bool) (queryPlan, bool, error) {
-	if ctx.Mode != evalModeInstant && !(allowRange && ctx.Mode == evalModeRange) {
+func maybeBuildNativeRangeLikePlanAllowRange(node planpkg.LogicalPlan, kind, expr string, ctx PlanContext, analysis *nativeplan.Analysis, allowRange bool) (Plan, bool, error) {
+	if ctx.Mode != EvalModeInstant && !(allowRange && ctx.Mode == EvalModeRange) {
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
@@ -122,7 +123,7 @@ func maybeBuildNativeRangeLikePlanAllowRange(node planpkg.LogicalPlan, kind, exp
 		return nil, false, nil
 	}
 	renderMode := renderModeForPlanContext(ctx)
-	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{
+	rendered, err := renderer.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, renderer.RenderParams{
 		Mode:             renderMode,
 		EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(),
 		StartMS:          ctx.Start.UnixMilli(),
@@ -131,7 +132,7 @@ func maybeBuildNativeRangeLikePlanAllowRange(node planpkg.LogicalPlan, kind, exp
 		RequiredStartMS:  optimized.Report.RequiredInputStartMS,
 		RequiredEndMS:    optimized.Report.RequiredInputEndMS,
 		ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
-			return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+			return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
 		},
 	})
 	if err != nil {
@@ -159,16 +160,16 @@ func maybeBuildNativeRangeLikePlanAllowRange(node planpkg.LogicalPlan, kind, exp
 	}, true, nil
 }
 
-func maybeBuildNativeAbsentPlan(node *logicalAbsentPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+func maybeBuildNativeAbsentPlan(node *logicalAbsentPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
 	return maybeBuildNativeAbsentLikePlan(node, "absent", node.ExprString(), ctx, analysis)
 }
 
-func maybeBuildNativeAbsentOverTimePlan(node *logicalAbsentOverTimePlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+func maybeBuildNativeAbsentOverTimePlan(node *logicalAbsentOverTimePlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
 	return maybeBuildNativeAbsentLikePlan(node, "absent_over_time", node.ExprString(), ctx, analysis)
 }
 
-func maybeBuildNativeAbsentLikePlan(node planpkg.LogicalPlan, kind, expr string, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
-	if ctx.Mode != evalModeInstant && ctx.Mode != evalModeRange {
+func maybeBuildNativeAbsentLikePlan(node planpkg.LogicalPlan, kind, expr string, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+	if ctx.Mode != EvalModeInstant && ctx.Mode != EvalModeRange {
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
@@ -183,8 +184,8 @@ func maybeBuildNativeAbsentLikePlan(node planpkg.LogicalPlan, kind, expr string,
 		return nil, false, nil
 	}
 	renderMode := renderModeForPlanContext(ctx)
-	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
-		return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+	rendered, err := renderer.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, renderer.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
+		return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
 	}})
 	if err != nil {
 		return nil, false, err

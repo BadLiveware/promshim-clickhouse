@@ -1,6 +1,7 @@
-package native
+package renderer
 
 import (
+	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,7 +11,7 @@ import (
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 )
 
-func renderBinaryJoinFragment(cfg storage.QueryConfig, fragment *NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderBinaryJoinFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
 	if fragment.BinaryJoin == nil || fragment.BinaryJoin.LHS == nil || fragment.BinaryJoin.RHS == nil {
 		return RenderedQuery{}, fmt.Errorf("binary join fragment is missing join metadata")
 	}
@@ -25,17 +26,17 @@ func renderBinaryJoinFragment(cfg storage.QueryConfig, fragment *NativeFragment,
 	joinCfg := storage.BinaryJoinConfig{
 		Op:             fragment.BinaryJoin.Op,
 		ReturnBool:     fragment.BinaryJoin.ReturnBool,
-		VectorMatching: cloneVectorMatching(fragment.BinaryJoin.VectorMatching),
+		VectorMatching: native.CloneVectorMatching(fragment.BinaryJoin.VectorMatching),
 		JoinShape:      fragment.BinaryJoin.JoinShape,
 	}
 	switch params.Mode {
-	case RenderModeInstant:
+	case native.RenderModeInstant:
 		sql, queryParams, err := storage.BuildInstantBinaryVectorJoinSQL(lhsSQL, lhsParams, rhsSQL, rhsParams, joinCfg)
 		if err != nil {
 			return RenderedQuery{}, err
 		}
 		return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
-	case RenderModeRange:
+	case native.RenderModeRange:
 		sql, queryParams, err := storage.BuildRangeBinaryVectorJoinSQL(lhsSQL, lhsParams, rhsSQL, rhsParams, joinCfg)
 		if err != nil {
 			return RenderedQuery{}, err
@@ -46,19 +47,19 @@ func renderBinaryJoinFragment(cfg storage.QueryConfig, fragment *NativeFragment,
 	}
 }
 
-func renderAggregationFragment(cfg storage.QueryConfig, fragment *NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderAggregationFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
 	if fragment.Aggregation == nil || fragment.Aggregation.Source == nil {
 		return RenderedQuery{}, fmt.Errorf("aggregation fragment is missing aggregation metadata")
 	}
 	if source, err := renderAggregationSource(fragment.Aggregation.Source, params); err == nil {
 		switch params.Mode {
-		case RenderModeInstant:
+		case native.RenderModeInstant:
 			sql, queryParams, err := storage.BuildInstantAggregationQuerySQLWithBounds(cfg, source, params.EvaluationTimeMS, params.RequiredStartMS, params.RequiredEndMS, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber)
 			if err != nil {
 				return RenderedQuery{}, err
 			}
 			return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
-		case RenderModeRange:
+		case native.RenderModeRange:
 			sql, queryParams, err := storage.BuildRangeAggregationQuerySQLWithBounds(cfg, source, params.StartMS, params.EndMS, params.StepMS, params.RequiredStartMS, params.RequiredEndMS, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber)
 			if err != nil {
 				return RenderedQuery{}, err
@@ -74,13 +75,13 @@ func renderAggregationFragment(cfg storage.QueryConfig, fragment *NativeFragment
 	}
 	source := storage.AggregationSource{ValueExpr: "{value}", TagsExpr: "{tags}"}
 	switch params.Mode {
-	case RenderModeInstant:
+	case native.RenderModeInstant:
 		sql, queryParams, err := storage.BuildInstantAggregationOverSubquerySQL(source, childSQL, childParams, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber)
 		if err != nil {
 			return RenderedQuery{}, err
 		}
 		return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
-	case RenderModeRange:
+	case native.RenderModeRange:
 		sql, queryParams, err := storage.BuildRangeAggregationOverSubquerySQL(source, childSQL, childParams, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber)
 		if err != nil {
 			return RenderedQuery{}, err
@@ -91,22 +92,22 @@ func renderAggregationFragment(cfg storage.QueryConfig, fragment *NativeFragment
 	}
 }
 
-func renderInfoJoinFragment(cfg storage.QueryConfig, fragment *NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderInfoJoinFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
 	if fragment == nil || fragment.InfoJoin == nil || fragment.InfoJoin.Child == nil {
 		return RenderedQuery{}, fmt.Errorf("info join fragment is missing child metadata")
 	}
-	childFragment := cloneFragment(fragment.InfoJoin.Child)
+	childFragment := native.CloneFragment(fragment.InfoJoin.Child)
 	forceFragmentFullTags(childFragment)
 	childSQL, childParams, err := renderFragmentSubquery(cfg, childFragment, params, "info_lhs")
 	if err != nil {
 		return RenderedQuery{}, err
 	}
-	selector := storage.SelectorSource{Kind: storage.SelectorKindInstantVector, MetricName: fragment.InfoJoin.InfoMetricName, Matchers: cloneMatchers(fragment.InfoJoin.SelectorMatchers), NeedTags: true, RequireFullTags: true, LookbackMS: defaultInstantSelectorLookback.Milliseconds()}
+	selector := storage.SelectorSource{Kind: storage.SelectorKindInstantVector, MetricName: fragment.InfoJoin.InfoMetricName, Matchers: native.CloneMatchers(fragment.InfoJoin.SelectorMatchers), NeedTags: true, RequireFullTags: true, LookbackMS: native.DefaultInstantSelectorLookback.Milliseconds()}
 	var infoSQL string
 	var infoParams map[string]string
 	switch params.Mode {
-	case RenderModeInstant:
-		infoSQL, infoParams, err = storage.BuildInstantSelectorQuerySQL(cfg, selector, params.EvaluationTimeMS-defaultInstantSelectorLookback.Milliseconds(), params.EvaluationTimeMS)
+	case native.RenderModeInstant:
+		infoSQL, infoParams, err = storage.BuildInstantSelectorQuerySQL(cfg, selector, params.EvaluationTimeMS-native.DefaultInstantSelectorLookback.Milliseconds(), params.EvaluationTimeMS)
 		if err != nil {
 			return RenderedQuery{}, err
 		}
@@ -115,8 +116,8 @@ func renderInfoJoinFragment(cfg storage.QueryConfig, fragment *NativeFragment, p
 			return RenderedQuery{}, err
 		}
 		return RenderedQuery{SQL: joinSQL, QueryParams: joinParams}, nil
-	case RenderModeRange:
-		requiredStartMS := params.StartMS - defaultInstantSelectorLookback.Milliseconds()
+	case native.RenderModeRange:
+		requiredStartMS := params.StartMS - native.DefaultInstantSelectorLookback.Milliseconds()
 		infoSQL, infoParams, err = storage.BuildRangeSelectorQuerySQL(cfg, selector, requiredStartMS, params.EndMS, params.StartMS, params.EndMS, params.StepMS)
 		if err != nil {
 			return RenderedQuery{}, err
@@ -131,7 +132,7 @@ func renderInfoJoinFragment(cfg storage.QueryConfig, fragment *NativeFragment, p
 	}
 }
 
-func renderValueTransformFragment(cfg storage.QueryConfig, fragment *NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderValueTransformFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
 	if fragment == nil || fragment.ValueTransform == nil || fragment.ValueTransform.Child == nil {
 		return RenderedQuery{}, fmt.Errorf("value transform fragment is missing child metadata")
 	}
@@ -148,7 +149,7 @@ func renderValueTransformFragment(cfg storage.QueryConfig, fragment *NativeFragm
 		tagsTemplate = "arrayFilter(tag -> tag.1 != '__name__', {tags})"
 	}
 	switch params.Mode {
-	case RenderModeInstant:
+	case native.RenderModeInstant:
 		tagsExpr, err := storage.CompileSourceTagsTemplate(tagsTemplate, sqlb.Ident("tags"))
 		if err != nil {
 			return RenderedQuery{}, err
@@ -173,7 +174,7 @@ func renderValueTransformFragment(cfg storage.QueryConfig, fragment *NativeFragm
 			return RenderedQuery{}, err
 		}
 		return RenderedQuery{SQL: sql, QueryParams: childRendered.QueryParams}, nil
-	case RenderModeRange:
+	case native.RenderModeRange:
 		tagsExpr, err := storage.CompileSourceTagsTemplate(tagsTemplate, sqlb.Ident("tags"))
 		if err != nil {
 			return RenderedQuery{}, err
@@ -221,7 +222,7 @@ func renderValueTransformFragment(cfg storage.QueryConfig, fragment *NativeFragm
 	}
 }
 
-func renderAbsentFragment(cfg storage.QueryConfig, fragment *NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderAbsentFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
 	if fragment == nil || fragment.Absent == nil || fragment.Absent.Child == nil {
 		return RenderedQuery{}, fmt.Errorf("absent fragment is missing child metadata")
 	}
@@ -235,11 +236,11 @@ func renderAbsentFragment(cfg storage.QueryConfig, fragment *NativeFragment, par
 		}
 		mergeRenderedQueryParams(queryParams, childParams)
 		switch params.Mode {
-		case RenderModeInstant:
+		case native.RenderModeInstant:
 			queryParams["param_evaluation_ms"] = strconv.FormatInt(params.EvaluationTimeMS, 10)
 			sql := "SELECT " + tagsSQL + " AS tags, fromUnixTimestamp64Milli({evaluation_ms:Int64}) AS timestamp, toFloat64(1) AS value FROM (SELECT count() AS sample_count FROM (" + childSQL + ") AS absent_child) AS probe WHERE probe.sample_count = 0\nFORMAT JSONEachRow\n"
 			return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
-		case RenderModeRange:
+		case native.RenderModeRange:
 			queryParams["param_start_ms"] = strconv.FormatInt(params.StartMS, 10)
 			queryParams["param_end_ms"] = strconv.FormatInt(params.EndMS, 10)
 			queryParams["param_step_ms"] = strconv.FormatInt(params.StepMS, 10)
@@ -250,7 +251,7 @@ func renderAbsentFragment(cfg storage.QueryConfig, fragment *NativeFragment, par
 		}
 	case "absent_over_time":
 		switch params.Mode {
-		case RenderModeInstant:
+		case native.RenderModeInstant:
 			childSQL, childParams, err := renderFragmentSubquery(cfg, fragment.Absent.Child, params, "absent_child")
 			if err != nil {
 				return RenderedQuery{}, err
@@ -259,7 +260,7 @@ func renderAbsentFragment(cfg storage.QueryConfig, fragment *NativeFragment, par
 			queryParams["param_evaluation_ms"] = strconv.FormatInt(params.EvaluationTimeMS, 10)
 			sql := "SELECT " + tagsSQL + " AS tags, fromUnixTimestamp64Milli({evaluation_ms:Int64}) AS timestamp, toFloat64(1) AS value FROM (SELECT count() AS sample_count FROM (" + childSQL + ") AS absent_child ARRAY JOIN absent_child.time_series AS point) AS probe WHERE probe.sample_count = 0\nFORMAT JSONEachRow\n"
 			return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
-		case RenderModeRange:
+		case native.RenderModeRange:
 			queryParams["param_start_ms"] = strconv.FormatInt(params.StartMS, 10)
 			queryParams["param_end_ms"] = strconv.FormatInt(params.EndMS, 10)
 			queryParams["param_step_ms"] = strconv.FormatInt(params.StepMS, 10)
@@ -278,13 +279,13 @@ func renderAbsentFragment(cfg storage.QueryConfig, fragment *NativeFragment, par
 	}
 }
 
-func renderAbsentOverTimeWindowedSource(cfg storage.QueryConfig, child *NativeFragment, params RenderParams) (string, map[string]string, error) {
+func renderAbsentOverTimeWindowedSource(cfg storage.QueryConfig, child *native.NativeFragment, params RenderParams) (string, map[string]string, error) {
 	if child == nil {
 		return "", nil, fmt.Errorf("absent_over_time child fragment is missing")
 	}
-	if child.Kind == FragmentKindLeafSource && child.Selector != nil && child.Selector.Kind == SelectorKindRangeVector {
+	if child.Kind == native.FragmentKindLeafSource && child.Selector != nil && child.Selector.Kind == native.SelectorKindRangeVector {
 		childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
-		rendered, err := RenderFragment(cfg, child, RenderParams{Mode: RenderModeRange, StartMS: params.StartMS, EndMS: params.EndMS, StepMS: params.StepMS, RequiredStartMS: childRequiredStartMS, RequiredEndMS: childRequiredEndMS, ResolveSourcePromQL: params.ResolveSourcePromQL})
+		rendered, err := RenderFragment(cfg, child, RenderParams{Mode: native.RenderModeRange, StartMS: params.StartMS, EndMS: params.EndMS, StepMS: params.StepMS, RequiredStartMS: childRequiredStartMS, RequiredEndMS: childRequiredEndMS, ResolveSourcePromQL: params.ResolveSourcePromQL})
 		if err != nil {
 			return "", nil, err
 		}
@@ -298,7 +299,7 @@ func renderAbsentOverTimeWindowedSource(cfg storage.QueryConfig, child *NativeFr
 		}
 		return windowedSQL, namespacedParams, nil
 	}
-	if child.Kind == FragmentKindSubquery && child.Subquery != nil && child.Subquery.Child != nil {
+	if child.Kind == native.FragmentKindSubquery && child.Subquery != nil && child.Subquery.Child != nil {
 		subqueryStep := child.Subquery.Step
 		if subqueryStep <= 0 {
 			subqueryStep = time.Minute
@@ -306,7 +307,7 @@ func renderAbsentOverTimeWindowedSource(cfg storage.QueryConfig, child *NativeFr
 		expandedEndMS := params.EndMS - child.Subquery.Offset.Milliseconds()
 		expandedStartMS := params.StartMS - child.Subquery.Offset.Milliseconds() - child.Subquery.Range.Milliseconds()
 		childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(child.Subquery.Child, expandedStartMS, expandedEndMS)
-		rendered, err := RenderFragment(cfg, child.Subquery.Child, RenderParams{Mode: RenderModeRange, StartMS: expandedStartMS, EndMS: expandedEndMS, StepMS: subqueryStep.Milliseconds(), RequiredStartMS: childRequiredStartMS, RequiredEndMS: childRequiredEndMS, ResolveSourcePromQL: params.ResolveSourcePromQL})
+		rendered, err := RenderFragment(cfg, child.Subquery.Child, RenderParams{Mode: native.RenderModeRange, StartMS: expandedStartMS, EndMS: expandedEndMS, StepMS: subqueryStep.Milliseconds(), RequiredStartMS: childRequiredStartMS, RequiredEndMS: childRequiredEndMS, ResolveSourcePromQL: params.ResolveSourcePromQL})
 		if err != nil {
 			return "", nil, err
 		}

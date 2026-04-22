@@ -1,11 +1,11 @@
-package promshim
+package local
 
 import (
 	"context"
 	"sort"
 	"time"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/exec"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/local/exec"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
 	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
 	"github.com/prometheus/prometheus/model/labels"
@@ -15,33 +15,33 @@ import (
 type localInfoPlan struct {
 	Expr             string
 	SelectorMatchers []*labels.Matcher
-	Child            queryPlan
+	Child            Plan
 }
 
-func (p *localInfoPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+func (p *localInfoPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 	switch params.Mode {
-	case evalModeInstant:
-		childValue, err := p.Child.execute(ctx, evaluator, params)
+	case EvalModeInstant:
+		childValue, err := p.Child.execute(ctx, Evaluator, params)
 		if err != nil {
-			return nil, withInternalContext(err, "evaluating info child in instant mode")
+			return nil, WithInternalContext(err, "evaluating info child in instant mode")
 		}
 		base, ok := childValue.(model.VectorValue)
 		if !ok {
-			return nil, newExecutionErrorf("info child returned %T, expected vector", childValue)
+			return nil, NewExecutionErrorf("info child returned %T, expected vector", childValue)
 		}
-		infoVector, err := evaluator.fetchInfoVector(ctx, base, p.SelectorMatchers, params)
+		infoVector, err := Evaluator.fetchInfoVector(ctx, base, p.SelectorMatchers, params)
 		if err != nil {
-			return nil, withInternalContext(err, "fetching info series for %q", p.Expr)
+			return nil, WithInternalContext(err, "fetching info series for %q", p.Expr)
 		}
 		result, err := exec.ApplyInfo(base, infoVector, p.SelectorMatchers)
 		if err != nil {
-			return nil, withInternalContext(fromExecError(err), "applying info()")
+			return nil, WithInternalContext(FromExecError(err), "applying info()")
 		}
 		return result, nil
-	case evalModeRange:
-		return executeRangeVectorPlan(ctx, evaluator, params, "info", p.execute)
+	case EvalModeRange:
+		return executeRangeVectorPlan(ctx, Evaluator, params, "info", p.execute)
 	default:
-		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+		return nil, NewExecutionErrorf("unknown evaluation mode %q", params.Mode)
 	}
 }
 
@@ -49,25 +49,25 @@ func (p *localInfoPlan) explain() ExplainNode {
 	return ExplainNode{Kind: "info", Strategy: "local", Expr: p.Expr, Children: []ExplainNode{p.Child.explain()}}
 }
 
-func (e *evaluator) fetchInfoVector(ctx context.Context, base model.VectorValue, selectorMatchers []*labels.Matcher, params evalParams) (model.VectorValue, error) {
+func (e *Evaluator) fetchInfoVector(ctx context.Context, base model.VectorValue, selectorMatchers []*labels.Matcher, params EvalParams) (model.VectorValue, error) {
 	query, err := exec.BuildInfoFetchExprString(base, selectorMatchers)
 	if err != nil {
-		return model.VectorValue{}, withInternalContext(err, "building info fetch selector")
+		return model.VectorValue{}, WithInternalContext(err, "building info fetch selector")
 	}
 	if query == "" {
 		return model.VectorValue{}, nil
 	}
 	expr, err := planpkg.ParseExpression(query)
 	if err != nil {
-		return model.VectorValue{}, withInternalContext(err, "parsing info fetch selector %q", query)
+		return model.VectorValue{}, WithInternalContext(err, "parsing info fetch selector %q", query)
 	}
-	value, err := e.executeDelegated(ctx, expr, evalParams{Mode: evalModeInstant, EvaluationTime: params.EvaluationTime})
+	value, err := e.executeDelegated(ctx, expr, EvalParams{Mode: EvalModeInstant, EvaluationTime: params.EvaluationTime})
 	if err != nil {
 		return model.VectorValue{}, err
 	}
 	vector, ok := value.(model.VectorValue)
 	if !ok {
-		return model.VectorValue{}, newExecutionErrorf("info fetch returned %T, expected vector", value)
+		return model.VectorValue{}, NewExecutionErrorf("info fetch returned %T, expected vector", value)
 	}
 	return vector, nil
 }
@@ -75,25 +75,25 @@ func (e *evaluator) fetchInfoVector(ctx context.Context, base model.VectorValue,
 type localAbsentPlan struct {
 	Expr         string
 	OutputMetric map[string]string
-	Child        queryPlan
+	Child        Plan
 }
 
-func (p *localAbsentPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+func (p *localAbsentPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 	switch params.Mode {
-	case evalModeInstant:
-		childValue, err := p.Child.execute(ctx, evaluator, params)
+	case EvalModeInstant:
+		childValue, err := p.Child.execute(ctx, Evaluator, params)
 		if err != nil {
-			return nil, withInternalContext(err, "evaluating absent child in instant mode")
+			return nil, WithInternalContext(err, "evaluating absent child in instant mode")
 		}
 		vector, err := exec.ApplyAbsent(childValue, p.OutputMetric, float64(params.EvaluationTime.UnixNano())/float64(time.Second))
 		if err != nil {
-			return nil, withInternalContext(fromExecError(err), "applying absent in instant mode")
+			return nil, WithInternalContext(FromExecError(err), "applying absent in instant mode")
 		}
 		return vector, nil
-	case evalModeRange:
-		return executeRangeVectorPlan(ctx, evaluator, params, "absent", p.execute)
+	case EvalModeRange:
+		return executeRangeVectorPlan(ctx, Evaluator, params, "absent", p.execute)
 	default:
-		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+		return nil, NewExecutionErrorf("unknown evaluation mode %q", params.Mode)
 	}
 }
 
@@ -106,29 +106,29 @@ type localAbsentOverTimePlan struct {
 	OutputMetric       map[string]string
 	BoundaryProbeExpr  parser.Expr
 	BoundaryProbeRange time.Duration
-	Child              queryPlan
+	Child              Plan
 }
 
-func (p *localAbsentOverTimePlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+func (p *localAbsentOverTimePlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 	switch params.Mode {
-	case evalModeInstant:
-		childValue, err := p.Child.execute(ctx, evaluator, params)
+	case EvalModeInstant:
+		childValue, err := p.Child.execute(ctx, Evaluator, params)
 		if err != nil {
-			return nil, withInternalContext(err, "evaluating absent_over_time child in instant mode")
+			return nil, WithInternalContext(err, "evaluating absent_over_time child in instant mode")
 		}
 		vector, err := exec.ApplyAbsentOverTime(childValue, p.OutputMetric, float64(params.EvaluationTime.UnixNano())/float64(time.Second))
 		if err != nil {
-			return nil, withInternalContext(fromExecError(err), "applying absent_over_time in instant mode")
+			return nil, WithInternalContext(FromExecError(err), "applying absent_over_time in instant mode")
 		}
 		if len(vector.Samples) > 0 && p.BoundaryProbeExpr != nil && p.BoundaryProbeRange > 0 {
 			boundaryTime := params.EvaluationTime.Add(-p.BoundaryProbeRange)
-			boundaryValue, err := evaluator.executeDelegated(ctx, p.BoundaryProbeExpr, evalParams{Mode: evalModeInstant, EvaluationTime: boundaryTime})
+			boundaryValue, err := Evaluator.executeDelegated(ctx, p.BoundaryProbeExpr, EvalParams{Mode: EvalModeInstant, EvaluationTime: boundaryTime})
 			if err != nil {
-				return nil, withInternalContext(err, "probing absent_over_time left boundary at %s", boundaryTime.UTC().Format(time.RFC3339Nano))
+				return nil, WithInternalContext(err, "probing absent_over_time left boundary at %s", boundaryTime.UTC().Format(time.RFC3339Nano))
 			}
 			probeMatrix, ok := boundaryValue.(model.MatrixValue)
 			if !ok {
-				return nil, newExecutionErrorf("absent_over_time boundary probe returned %T, expected matrix", boundaryValue)
+				return nil, NewExecutionErrorf("absent_over_time boundary probe returned %T, expected matrix", boundaryValue)
 			}
 			for _, series := range probeMatrix.Series {
 				if len(series.Values) > 0 {
@@ -137,10 +137,10 @@ func (p *localAbsentOverTimePlan) execute(ctx context.Context, evaluator *evalua
 			}
 		}
 		return vector, nil
-	case evalModeRange:
-		return executeRangeVectorPlan(ctx, evaluator, params, "absent_over_time", p.execute)
+	case EvalModeRange:
+		return executeRangeVectorPlan(ctx, Evaluator, params, "absent_over_time", p.execute)
 	default:
-		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+		return nil, NewExecutionErrorf("unknown evaluation mode %q", params.Mode)
 	}
 }
 
@@ -156,20 +156,20 @@ type localSubqueryPlan struct {
 	Timestamp               *int64
 	StartOrEnd              parser.ItemType
 	DelegatedLeafCompatible bool
-	Child                   queryPlan
+	Child                   Plan
 }
 
-func (p *localSubqueryPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
-	useDelegatedPath := p.DelegatedLeafCompatible && !(params.Mode == evalModeInstant && p.Expr != nil && p.Expr.Type() == parser.ValueTypeMatrix)
+func (p *localSubqueryPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+	useDelegatedPath := p.DelegatedLeafCompatible && !(params.Mode == EvalModeInstant && p.Expr != nil && p.Expr.Type() == parser.ValueTypeMatrix)
 	if useDelegatedPath {
-		value, err := evaluator.executeDelegated(ctx, p.Expr, params)
+		value, err := Evaluator.executeDelegated(ctx, p.Expr, params)
 		if err != nil {
-			return nil, withInternalContext(err, "executing delegated subquery expression %q", p.Expr.String())
+			return nil, WithInternalContext(err, "executing delegated subquery expression %q", p.Expr.String())
 		}
 		return value, nil
 	}
-	if params.Mode != evalModeInstant {
-		return nil, newUnsupportedErrorf("local subquery execution in %s mode is not implemented yet for %q", params.Mode, p.Expr.String())
+	if params.Mode != EvalModeInstant {
+		return nil, NewUnsupportedErrorf("local subquery execution in %s mode is not implemented yet for %q", params.Mode, p.Expr.String())
 	}
 
 	end := params.EvaluationTime
@@ -182,14 +182,14 @@ func (p *localSubqueryPlan) execute(ctx context.Context, evaluator *evaluator, p
 		end = end.Add(-p.Offset)
 	}
 	if p.Range <= 0 {
-		return nil, newBadDataErrorf("subquery range must be greater than zero in %q", p.Expr.String())
+		return nil, NewBadDataErrorf("subquery range must be greater than zero in %q", p.Expr.String())
 	}
 	step := p.Step
 	if step <= 0 {
 		step = defaultSubqueryStep(params)
 	}
 	if step <= 0 {
-		return nil, newBadDataErrorf("subquery step must be greater than zero in %q", p.Expr.String())
+		return nil, NewBadDataErrorf("subquery step must be greater than zero in %q", p.Expr.String())
 	}
 
 	stepMS := step.Milliseconds()
@@ -204,13 +204,13 @@ func (p *localSubqueryPlan) execute(ctx context.Context, evaluator *evaluator, p
 	seriesOrder := make([]string, 0)
 
 	for ts := start; !ts.After(end); ts = ts.Add(step) {
-		childValue, err := p.Child.execute(ctx, evaluator, evalParams{Mode: evalModeInstant, EvaluationTime: ts})
+		childValue, err := p.Child.execute(ctx, Evaluator, EvalParams{Mode: EvalModeInstant, EvaluationTime: ts})
 		if err != nil {
-			return nil, withInternalContext(err, "evaluating local subquery child at %s for %q", ts.UTC().Format(time.RFC3339Nano), p.Expr.String())
+			return nil, WithInternalContext(err, "evaluating local subquery child at %s for %q", ts.UTC().Format(time.RFC3339Nano), p.Expr.String())
 		}
 		vector, ok := childValue.(model.VectorValue)
 		if !ok {
-			return nil, newExecutionErrorf("subquery child must evaluate to vector at %s for %q, got %T", ts.UTC().Format(time.RFC3339Nano), p.Expr.String(), childValue)
+			return nil, NewExecutionErrorf("subquery child must evaluate to vector at %s for %q, got %T", ts.UTC().Format(time.RFC3339Nano), p.Expr.String(), childValue)
 		}
 		for _, sample := range vector.Samples {
 			key := model.LabelsKey(sample.Metric)
@@ -255,17 +255,17 @@ func (p *localSubqueryPlan) explain() ExplainNode {
 type localLabelReplacePlan struct {
 	Expr   string
 	Config model.LabelReplaceConfig
-	Child  queryPlan
+	Child  Plan
 }
 
-func (p *localLabelReplacePlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
-	childValue, err := p.Child.execute(ctx, evaluator, params)
+func (p *localLabelReplacePlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+	childValue, err := p.Child.execute(ctx, Evaluator, params)
 	if err != nil {
-		return nil, withInternalContext(err, "evaluating label_replace child dst=%q src=%q", p.Config.Dst, p.Config.Src)
+		return nil, WithInternalContext(err, "evaluating label_replace child dst=%q src=%q", p.Config.Dst, p.Config.Src)
 	}
 	result, err := exec.ApplyLabelReplaceRuntimeValue(childValue, p.Config)
 	if err != nil {
-		return nil, withInternalContext(fromExecError(err), "applying label_replace dst=%q src=%q", p.Config.Dst, p.Config.Src)
+		return nil, WithInternalContext(FromExecError(err), "applying label_replace dst=%q src=%q", p.Config.Dst, p.Config.Src)
 	}
 	return result, nil
 }
@@ -277,17 +277,17 @@ func (p *localLabelReplacePlan) explain() ExplainNode {
 type localLabelJoinPlan struct {
 	Expr   string
 	Config model.LabelJoinConfig
-	Child  queryPlan
+	Child  Plan
 }
 
-func (p *localLabelJoinPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
-	childValue, err := p.Child.execute(ctx, evaluator, params)
+func (p *localLabelJoinPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+	childValue, err := p.Child.execute(ctx, Evaluator, params)
 	if err != nil {
-		return nil, withInternalContext(err, "evaluating label_join child dst=%q src=%v", p.Config.Dst, p.Config.SrcLabels)
+		return nil, WithInternalContext(err, "evaluating label_join child dst=%q src=%v", p.Config.Dst, p.Config.SrcLabels)
 	}
 	result, err := exec.ApplyLabelJoinRuntimeValue(childValue, p.Config)
 	if err != nil {
-		return nil, withInternalContext(fromExecError(err), "applying label_join dst=%q src=%v", p.Config.Dst, p.Config.SrcLabels)
+		return nil, WithInternalContext(FromExecError(err), "applying label_join dst=%q src=%v", p.Config.Dst, p.Config.SrcLabels)
 	}
 	return result, nil
 }

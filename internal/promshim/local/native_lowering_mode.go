@@ -1,4 +1,4 @@
-package promshim
+package local
 
 import (
 	"fmt"
@@ -15,7 +15,7 @@ const (
 	NativeLoweringModeForceSupported NativeLoweringMode = "force_supported"
 )
 
-func parseNativeLoweringMode(raw string) (NativeLoweringMode, error) {
+func ParseNativeLoweringMode(raw string) (NativeLoweringMode, error) {
 	mode := NativeLoweringMode(strings.ToLower(strings.TrimSpace(raw)))
 	switch mode {
 	case "", NativeLoweringModePrefer:
@@ -27,22 +27,22 @@ func parseNativeLoweringMode(raw string) (NativeLoweringMode, error) {
 	}
 }
 
-func normalizeNativeLoweringMode(mode NativeLoweringMode) NativeLoweringMode {
-	normalized, err := parseNativeLoweringMode(string(mode))
+func NormalizeNativeLoweringMode(mode NativeLoweringMode) NativeLoweringMode {
+	normalized, err := ParseNativeLoweringMode(string(mode))
 	if err != nil {
 		return NativeLoweringModePrefer
 	}
 	return normalized
 }
 
-func (mode NativeLoweringMode) enablesNativePlanning() bool {
-	return normalizeNativeLoweringMode(mode) != NativeLoweringModeOff
+func (mode NativeLoweringMode) EnablesNativePlanning() bool {
+	return NormalizeNativeLoweringMode(mode) != NativeLoweringModeOff
 }
 
-func (mode NativeLoweringMode) forcesNativeRoot() bool {
-	return normalizeNativeLoweringMode(mode) == NativeLoweringModeForceSupported
+func (mode NativeLoweringMode) ForcesNativeRoot() bool {
+	return NormalizeNativeLoweringMode(mode) == NativeLoweringModeForceSupported
 }
 
-func (mode NativeLoweringMode) forcesExplainResponse() bool {
-	return normalizeNativeLoweringMode(mode) == NativeLoweringModeExplain
+func (mode NativeLoweringMode) ForcesExplainResponse() bool {
+	return NormalizeNativeLoweringMode(mode) == NativeLoweringModeExplain
 }

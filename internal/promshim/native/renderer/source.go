@@ -1,19 +1,20 @@
-package native
+package renderer
 
 import (
+	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"fmt"
 	"strconv"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 )
 
-func renderSourceFragment(cfg storage.QueryConfig, fragment *NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderSourceFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
 	source, err := renderAggregationSource(fragment, params)
 	if err != nil {
 		return RenderedQuery{}, err
 	}
 	switch params.Mode {
-	case RenderModeInstant:
+	case native.RenderModeInstant:
 		if source.Selector != nil {
 			sql, queryParams, err := storage.BuildInstantSelectorQuerySQL(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS)
 			if err != nil {
@@ -41,7 +42,7 @@ func renderSourceFragment(cfg storage.QueryConfig, fragment *NativeFragment, par
 			return RenderedQuery{}, err
 		}
 		return RenderedQuery{SQL: wrappedSQL, QueryParams: queryParams}, nil
-	case RenderModeRange:
+	case native.RenderModeRange:
 		if source.Selector != nil {
 			sql, queryParams, err := storage.BuildRangeSelectorQuerySQL(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS, params.StartMS, params.EndMS, params.StepMS)
 			if err != nil {
@@ -74,13 +75,13 @@ func renderSourceFragment(cfg storage.QueryConfig, fragment *NativeFragment, par
 	}
 }
 
-func renderSyntheticFragment(fragment *NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderSyntheticFragment(fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
 	if fragment == nil || fragment.Synthetic == nil {
 		return RenderedQuery{}, fmt.Errorf("synthetic series fragment is missing synthetic metadata")
 	}
 	queryParams := map[string]string{}
 	switch params.Mode {
-	case RenderModeInstant:
+	case native.RenderModeInstant:
 		valueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic.Func, "{evaluation_ms:Int64}")
 		if err != nil {
 			return RenderedQuery{}, err
@@ -88,7 +89,7 @@ func renderSyntheticFragment(fragment *NativeFragment, params RenderParams) (Ren
 		queryParams["param_evaluation_ms"] = strconv.FormatInt(params.EvaluationTimeMS, 10)
 		sql := "SELECT CAST([], 'Array(Tuple(String, String))') AS tags, fromUnixTimestamp64Milli({evaluation_ms:Int64}) AS timestamp, " + valueSQL + " AS value\nFORMAT JSONEachRow\n"
 		return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
-	case RenderModeRange:
+	case native.RenderModeRange:
 		if params.StepMS <= 0 {
 			return RenderedQuery{}, fmt.Errorf("synthetic range render requires a positive step")
 		}
@@ -134,7 +135,7 @@ func syntheticSeriesValueSQL(name, tsMSExpr string) (string, error) {
 	}
 }
 
-func renderScalarConvertFragment(cfg storage.QueryConfig, fragment *NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderScalarConvertFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
 	if fragment == nil || fragment.ScalarConvert == nil || fragment.ScalarConvert.Child == nil {
 		return RenderedQuery{}, fmt.Errorf("scalar convert fragment is missing child metadata")
 	}
@@ -147,11 +148,11 @@ func renderScalarConvertFragment(cfg storage.QueryConfig, fragment *NativeFragme
 		queryParams[key] = value
 	}
 	switch params.Mode {
-	case RenderModeInstant:
+	case native.RenderModeInstant:
 		queryParams["param_evaluation_ms"] = strconv.FormatInt(params.EvaluationTimeMS, 10)
 		sql := "SELECT CAST([], 'Array(Tuple(String, String))') AS tags, fromUnixTimestamp64Milli({evaluation_ms:Int64}) AS timestamp, if(count() = 1, any(value), nan) AS value FROM (" + childSQL + ") AS scalar_child\nFORMAT JSONEachRow\n"
 		return RenderedQuery{SQL: sql, QueryParams: queryParams}, nil
-	case RenderModeRange:
+	case native.RenderModeRange:
 		queryParams["param_start_ms"] = strconv.FormatInt(params.StartMS, 10)
 		queryParams["param_end_ms"] = strconv.FormatInt(params.EndMS, 10)
 		queryParams["param_step_ms"] = strconv.FormatInt(params.StepMS, 10)
@@ -168,12 +169,12 @@ func renderScalarConvertFragment(cfg storage.QueryConfig, fragment *NativeFragme
 	}
 }
 
-func renderAggregationSource(fragment *NativeFragment, params RenderParams) (storage.AggregationSource, error) {
+func renderAggregationSource(fragment *native.NativeFragment, params RenderParams) (storage.AggregationSource, error) {
 	if fragment == nil {
 		return storage.AggregationSource{}, fmt.Errorf("aggregation fragment is missing its source fragment")
 	}
 	switch fragment.Kind {
-	case FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr:
+	case native.FragmentKindLeafSource, native.FragmentKindUnarySourceExpr, native.FragmentKindBinaryScalarSourceExpr:
 		// Supported by the initial renderer skeleton.
 	default:
 		return storage.AggregationSource{}, fmt.Errorf("aggregation source fragment kind %q is not renderable yet", fragment.Kind)
@@ -207,7 +208,7 @@ func renderAggregationSource(fragment *NativeFragment, params RenderParams) (sto
 	return storage.AggregationSource{PromQLLeaf: promQL, ValueExpr: fragment.ValueExpr, TagsExpr: fragment.TagsExpr}, nil
 }
 
-func forceFragmentFullTags(fragment *NativeFragment) {
+func forceFragmentFullTags(fragment *native.NativeFragment) {
 	if fragment == nil {
 		return
 	}

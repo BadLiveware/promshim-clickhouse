@@ -10,15 +10,16 @@ import (
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
 	nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/shadow"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
 type queryService struct {
-	opts          Options
-	client        *storage.Client
-	evaluator     *evaluator
-	shadowSummary *shadowSummaryRecorder
+	opts      Options
+	client    *storage.Client
+	evaluator *evaluator
+	shadow    *shadow.Runner
 }
 
 func NewHandler(opts Options) (http.Handler, error) {
@@ -32,15 +33,14 @@ func NewHandler(opts Options) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	shadowMetrics := newShadowMetrics()
 	service := &queryService{
-		opts:          opts,
-		client:        client,
-		evaluator:     newEvaluator(opts, client),
-		shadowSummary: newShadowSummaryRecorder(shadowMetrics),
+		opts:      opts,
+		client:    client,
+		evaluator: newEvaluator(opts, client),
 	}
+	service.shadow = shadow.NewRunner(service)
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", shadowMetrics.handler())
+	mux.Handle("/metrics", service.shadow.MetricsHandler())
 	mux.Handle("/", httpapi.NewHandler(service))
 	return mux, nil
 }
@@ -139,7 +139,7 @@ func (h *queryService) instantQueryShadow(ctx context.Context, req httpapi.Insta
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, apiErrorToHTTP(err)
 	}
-	shadow := h.runInstantShadowComparison(ctx, req, plan, value, servedPlanDuration, servedEvalDuration)
+	shadowReport := h.shadow.RunInstant(ctx, req, explainPlan(plan).Strategy, value, servedPlanDuration, servedEvalDuration)
 	if req.Explain {
 		resultType, result, err := httpapi.RenderInstantQueryValue(value)
 		if err != nil {
@@ -151,8 +151,8 @@ func (h *queryService) instantQueryShadow(ctx context.Context, req httpapi.Insta
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
 			"plan":                  explainPlanWithLowering(plan, analysis.Root),
-			"shadow":                shadow,
-			"shadowSummary":         h.shadowSummary.snapshot(),
+			"shadow":                shadowReport,
+			"shadowSummary":         h.shadow.Summary(),
 		}}, nil
 	}
 	return &httpapi.Response{Stream: func(w http.ResponseWriter) error {
@@ -178,7 +178,7 @@ func (h *queryService) rangeQueryShadow(ctx context.Context, req httpapi.RangeQu
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, apiErrorToHTTP(err)
 	}
-	shadow := h.runRangeShadowComparison(ctx, req, plan, value, servedPlanDuration, servedEvalDuration)
+	shadowReport := h.shadow.RunRange(ctx, req, explainPlan(plan).Strategy, value, servedPlanDuration, servedEvalDuration)
 	if req.Explain {
 		resultType, result, err := httpapi.RenderRangeQueryValue(value)
 		if err != nil {
@@ -190,8 +190,8 @@ func (h *queryService) rangeQueryShadow(ctx context.Context, req httpapi.RangeQu
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
 			"plan":                  explainPlanWithLowering(plan, analysis.Root),
-			"shadow":                shadow,
-			"shadowSummary":         h.shadowSummary.snapshot(),
+			"shadow":                shadowReport,
+			"shadowSummary":         h.shadow.Summary(),
 		}}, nil
 	}
 	return &httpapi.Response{Stream: func(w http.ResponseWriter) error {

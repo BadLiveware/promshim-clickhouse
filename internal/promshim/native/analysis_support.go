@@ -24,8 +24,8 @@ func isSupportedNativeSyntheticDateFunction(name string) bool {
 
 func isSupportedNativeAggregateOverTime(name string) bool {
 	switch name {
-	case "last_over_time", "sum_over_time", "avg_over_time", "min_over_time", "max_over_time", "count_over_time",
-		"stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time":
+	case "last_over_time", "first_over_time", "sum_over_time", "avg_over_time", "min_over_time", "max_over_time", "count_over_time",
+		"stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time", "ts_of_first_over_time", "ts_of_last_over_time", "ts_of_max_over_time", "ts_of_min_over_time":
 		return true
 	default:
 		return false
@@ -34,11 +34,11 @@ func isSupportedNativeAggregateOverTime(name string) bool {
 
 // RangeFunctionPreservesMetricName reports whether the range function returns a
 // sample from the original series (preserving __name__) rather than a derived
-// aggregation. Only last_over_time has this property among the supported range
-// functions; everything else (rate/increase/delta/*_over_time/deriv/...) drops
+// aggregation. last_over_time and first_over_time behave like selectors in this
+// respect; everything else (rate/increase/delta/*_over_time/deriv/...) drops
 // the metric name because the returned value is a new quantity.
 func RangeFunctionPreservesMetricName(name string) bool {
-	return name == "last_over_time"
+	return name == "last_over_time" || name == "first_over_time"
 }
 
 func isSupportedNativeCounterRangeFunction(name string) bool {
@@ -50,9 +50,18 @@ func isSupportedNativeCounterRangeFunction(name string) bool {
 	}
 }
 
+func IsSelectionNativeAggregation(op parser.ItemType) bool {
+	switch op {
+	case parser.TOPK, parser.BOTTOMK, parser.LIMITK, parser.LIMIT_RATIO:
+		return true
+	default:
+		return false
+	}
+}
+
 func isSupportedNativeAggregation(op parser.ItemType) bool {
 	switch op {
-	case parser.SUM, parser.COUNT, parser.MIN, parser.MAX, parser.AVG, parser.STDDEV, parser.STDVAR, parser.QUANTILE, parser.GROUP:
+	case parser.SUM, parser.COUNT, parser.MIN, parser.MAX, parser.AVG, parser.STDDEV, parser.STDVAR, parser.QUANTILE, parser.GROUP, parser.TOPK, parser.BOTTOMK, parser.COUNT_VALUES, parser.LIMITK, parser.LIMIT_RATIO:
 		return true
 	default:
 		return false
@@ -82,7 +91,7 @@ func IsSupportedNativeRangeModeForWindowedArraysSubquery(fragment *NativeFragmen
 	if fragment == nil || fragment.RangeFunction == nil || fragment.RangeFunction.Child == nil {
 		return false
 	}
-	if !isSupportedNativeAggregateOverTime(fragment.RangeFunction.Func) && fragment.RangeFunction.Func != "predict_linear" && fragment.RangeFunction.Func != "resets" && fragment.RangeFunction.Func != "double_exponential_smoothing" && fragment.RangeFunction.Func != "holt_winters" {
+	if !isSupportedNativeAggregateOverTime(fragment.RangeFunction.Func) && fragment.RangeFunction.Func != "predict_linear" && fragment.RangeFunction.Func != "quantile_over_time" && fragment.RangeFunction.Func != "resets" && fragment.RangeFunction.Func != "double_exponential_smoothing" && fragment.RangeFunction.Func != "holt_winters" {
 		return false
 	}
 	child := fragment.RangeFunction.Child
@@ -117,7 +126,7 @@ func isSupportedNativeSubqueryChildFragment(fragment *NativeFragment) bool {
 		return false
 	}
 	switch fragment.Kind {
-	case FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindAggregation, FragmentKindBinaryVectorJoin, FragmentKindRangeFunction, FragmentKindValueTransform:
+	case FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindAggregation, FragmentKindBinaryVectorJoin, FragmentKindRangeFunction, FragmentKindSortTransform, FragmentKindLabelTransform, FragmentKindClampTransform, FragmentKindValueTransform:
 		return true
 	default:
 		return false

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"ch-observability/internal/promshim/model"
+	nativeplan "ch-observability/internal/promshim/native"
 	"ch-observability/internal/promshim/plan"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -155,6 +156,28 @@ func TestBuildLogicalPlanCreatesHistogramQuantilePlan(t *testing.T) {
 	}
 	if ratePlan, ok := agg.Child.(*logicalRatePlan); !ok || ratePlan.Func != "rate" {
 		t.Fatalf("expected logicalRatePlan child under histogram_quantile aggregation, got %T (%#v)", agg.Child, agg.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesHistogramQuantilesPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("histogram_quantiles(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])), \"quantile\", 0.5, scalar(sum(up)))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logical, err := BuildLogicalPlan(expr)
+	if err != nil {
+		t.Fatalf("expected logical histogram_quantiles plan, got error: %v", err)
+	}
+	histogramPlan, ok := logical.(*logicalHistogramQuantilesPlan)
+	if !ok {
+		t.Fatalf("expected logicalHistogramQuantilesPlan, got %T", logical)
+	}
+	if histogramPlan.Label != "quantile" || len(histogramPlan.ParamChildren) != 2 {
+		t.Fatalf("unexpected histogram_quantiles metadata: %#v", histogramPlan)
+	}
+	if histogramPlan.ParamNumbers[0] == nil || *histogramPlan.ParamNumbers[0] != 0.5 || histogramPlan.ParamNumbers[1] != nil {
+		t.Fatalf("unexpected histogram_quantiles scalar metadata: %#v", histogramPlan.ParamNumbers)
 	}
 }
 
@@ -517,6 +540,29 @@ func TestBuildLogicalPlanCreatesPointwiseFunctionPlan(t *testing.T) {
 	}
 	if _, ok := pointwise.Child.(*logicalLeafExprPlan); !ok {
 		t.Fatalf("expected vector child for abs(), got %T", pointwise.Child)
+	}
+}
+
+func TestBuildLogicalPlanCreatesClampPlanWithScalarParameterChildren(t *testing.T) {
+	logical, err := BuildLogicalPlan(mustParseExpr(t, "clamp_min(up, scalar(sum(up)))"))
+	if err != nil {
+		t.Fatalf("expected logical clamp_min plan, got error: %v", err)
+	}
+	pointwise, ok := logical.(*logicalPointwiseFunctionPlan)
+	if !ok {
+		t.Fatalf("expected logicalPointwiseFunctionPlan, got %T", logical)
+	}
+	if pointwise.Func != "clamp_min" || len(pointwise.ParamChildren) != 1 {
+		t.Fatalf("unexpected clamp_min plan: %#v", pointwise)
+	}
+	if _, ok := pointwise.Child.(*logicalLeafExprPlan); !ok {
+		t.Fatalf("expected vector child for clamp_min(), got %T", pointwise.Child)
+	}
+	if _, ok := pointwise.ParamChildren[0].(*logicalScalarConvertPlan); !ok {
+		t.Fatalf("expected scalar parameter child for clamp_min(), got %T", pointwise.ParamChildren[0])
+	}
+	if len(pointwise.ParamNumbers) != 1 || pointwise.ParamNumbers[0] != nil {
+		t.Fatalf("expected non-literal clamp parameter metadata, got %#v", pointwise.ParamNumbers)
 	}
 }
 
@@ -1234,19 +1280,19 @@ func TestBuildExecPlanLowersLogicalLabelJoinPlan(t *testing.T) {
 		Child:  &logicalLeafExprPlan{Expr: mustParseExpr(t, "up")},
 	}
 
-	plan, err := buildExecPlan(logical)
+	built, err := buildExecPlan(logical)
 	if err != nil {
 		t.Fatalf("expected execution label_join plan, got error: %v", err)
 	}
-	joinPlan, ok := plan.(*localLabelJoinPlan)
+	nativeRoot, ok := built.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localLabelJoinPlan, got %T", plan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if joinPlan.Config.Dst != "joined" {
-		t.Fatalf("unexpected label_join config: %#v", joinPlan.Config)
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindLabelTransform || nativeRoot.Fragment.LabelTransform == nil {
+		t.Fatalf("expected native label transform fragment, got %#v", nativeRoot)
 	}
-	if _, ok := joinPlan.Child.(*delegatedExprPlan); !ok {
-		t.Fatalf("expected delegated child, got %T", joinPlan.Child)
+	if nativeRoot.Fragment.LabelTransform.Dst != "joined" {
+		t.Fatalf("unexpected label_join config: %#v", nativeRoot.Fragment.LabelTransform)
 	}
 }
 

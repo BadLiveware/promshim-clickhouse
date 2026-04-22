@@ -60,6 +60,24 @@ func mutateDestinationLabel(child LabelLineage, destination string, state LabelL
 	return updated
 }
 
+func countValuesLabelLineage(child LabelLineage, grouping []string, without bool, valueLabel string) LabelLineage {
+	mutated := mutateDestinationLabel(child, valueLabel, LabelLineageSynthetic)
+	effectiveGrouping := append([]string(nil), grouping...)
+	if !without {
+		found := false
+		for _, label := range effectiveGrouping {
+			if label == valueLabel {
+				found = true
+				break
+			}
+		}
+		if !found {
+			effectiveGrouping = append(effectiveGrouping, valueLabel)
+		}
+	}
+	return aggregationLabelLineage(mutated, effectiveGrouping, without)
+}
+
 func aggregationLabelLineage(child LabelLineage, grouping []string, without bool) LabelLineage {
 	result := LabelLineage{
 		Known:      map[string]LabelLineageState{"__name__": LabelLineageDropped},

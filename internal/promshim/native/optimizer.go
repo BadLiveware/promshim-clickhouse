@@ -255,6 +255,20 @@ func normalizeTrivialSourceExpressions(fragment *NativeFragment) *NativeFragment
 	}
 	if normalized.HistogramFunction != nil {
 		normalized.HistogramFunction.Child = normalizeTrivialSourceExpressions(normalized.HistogramFunction.Child)
+		for i, quantile := range normalized.HistogramFunction.Quantiles {
+			normalized.HistogramFunction.Quantiles[i] = normalizeTrivialSourceExpressions(quantile)
+		}
+	}
+	if normalized.SortTransform != nil {
+		normalized.SortTransform.Child = normalizeTrivialSourceExpressions(normalized.SortTransform.Child)
+	}
+	if normalized.LabelTransform != nil {
+		normalized.LabelTransform.Child = normalizeTrivialSourceExpressions(normalized.LabelTransform.Child)
+	}
+	if normalized.ClampTransform != nil {
+		normalized.ClampTransform.Child = normalizeTrivialSourceExpressions(normalized.ClampTransform.Child)
+		normalized.ClampTransform.Min = normalizeTrivialSourceExpressions(normalized.ClampTransform.Min)
+		normalized.ClampTransform.Max = normalizeTrivialSourceExpressions(normalized.ClampTransform.Max)
 	}
 	if normalized.ValueTransform != nil {
 		normalized.ValueTransform.Child = normalizeTrivialSourceExpressions(normalized.ValueTransform.Child)
@@ -281,6 +295,20 @@ func flattenRedundantWrappers(fragment *NativeFragment) *NativeFragment {
 	}
 	if flattened.HistogramFunction != nil {
 		flattened.HistogramFunction.Child = flattenRedundantWrappers(flattened.HistogramFunction.Child)
+		for i, quantile := range flattened.HistogramFunction.Quantiles {
+			flattened.HistogramFunction.Quantiles[i] = flattenRedundantWrappers(quantile)
+		}
+	}
+	if flattened.SortTransform != nil {
+		flattened.SortTransform.Child = flattenRedundantWrappers(flattened.SortTransform.Child)
+	}
+	if flattened.LabelTransform != nil {
+		flattened.LabelTransform.Child = flattenRedundantWrappers(flattened.LabelTransform.Child)
+	}
+	if flattened.ClampTransform != nil {
+		flattened.ClampTransform.Child = flattenRedundantWrappers(flattened.ClampTransform.Child)
+		flattened.ClampTransform.Min = flattenRedundantWrappers(flattened.ClampTransform.Min)
+		flattened.ClampTransform.Max = flattenRedundantWrappers(flattened.ClampTransform.Max)
 	}
 	if flattened.ValueTransform != nil {
 		flattened.ValueTransform.Child = flattenRedundantWrappers(flattened.ValueTransform.Child)
@@ -293,6 +321,10 @@ func flattenRedundantWrappers(fragment *NativeFragment) *NativeFragment {
 
 func RequiredInputBounds(fragment *NativeFragment, info *LoweringInfo, ctx OptimizationContext) (int64, int64, bool) {
 	return requiredInputBounds(fragment, info, ctx)
+}
+
+func ResolvedAnchorTimeMS(fragment *NativeFragment, ctx OptimizationContext) (int64, bool) {
+	return resolvedFragmentAnchorTimeMS(fragment, BaseSelectorSource(fragment), ctx)
 }
 
 func requiredInputBounds(fragment *NativeFragment, info *LoweringInfo, ctx OptimizationContext) (int64, int64, bool) {
@@ -322,6 +354,11 @@ func requiredInputBounds(fragment *NativeFragment, info *LoweringInfo, ctx Optim
 		startMS := endMS - lookbackMS
 		return startMS, endMS, true
 	case RenderModeRange:
+		if anchorMS, ok := resolvedFragmentAnchorTimeMS(fragment, selector, ctx); ok {
+			endMS := anchorMS - offsetMS
+			startMS := endMS - lookbackMS
+			return startMS, endMS, true
+		}
 		endMS := ctx.EndMS - offsetMS
 		startMS := ctx.StartMS - offsetMS - lookbackMS
 		return startMS, endMS, true
@@ -401,6 +438,32 @@ func resolvedFragmentAnchorTimeMS(fragment *NativeFragment, selector *SelectorSo
 		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.HistogramFunction.Child, nil, ctx); ok {
 			return resolved, true
 		}
+		for _, quantile := range fragment.HistogramFunction.Quantiles {
+			if resolved, ok := resolvedFragmentAnchorTimeMS(quantile, nil, ctx); ok {
+				return resolved, true
+			}
+		}
+	}
+	if fragment.SortTransform != nil {
+		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.SortTransform.Child, nil, ctx); ok {
+			return resolved, true
+		}
+	}
+	if fragment.LabelTransform != nil {
+		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.LabelTransform.Child, nil, ctx); ok {
+			return resolved, true
+		}
+	}
+	if fragment.ClampTransform != nil {
+		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.ClampTransform.Child, nil, ctx); ok {
+			return resolved, true
+		}
+		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.ClampTransform.Min, nil, ctx); ok {
+			return resolved, true
+		}
+		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.ClampTransform.Max, nil, ctx); ok {
+			return resolved, true
+		}
 	}
 	if fragment.ValueTransform != nil {
 		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.ValueTransform.Child, nil, ctx); ok {
@@ -463,7 +526,7 @@ func applySelectorProjection(fragment *NativeFragment) {
 		selector := BaseSelectorSource(fragment.Aggregation.Source)
 		if selector != nil {
 			switch {
-			case fragment.Aggregation.Without:
+			case fragment.Aggregation.Without || containsLabelTransform(fragment.Aggregation.Source):
 				selector.RequireFullTags = true
 				selector.RequiredTagLabels = nil
 			case len(fragment.Aggregation.Grouping) == 0:
@@ -480,6 +543,59 @@ func applySelectorProjection(fragment *NativeFragment) {
 		fragment.Selector.RequireFullTags = true
 		fragment.Selector.RequiredTagLabels = nil
 	}
+}
+
+func containsLabelTransform(fragment *NativeFragment) bool {
+	if fragment == nil {
+		return false
+	}
+	if fragment.LabelTransform != nil {
+		return true
+	}
+	if fragment.Aggregation != nil {
+		return containsLabelTransform(fragment.Aggregation.Source)
+	}
+	if fragment.RangeFunction != nil {
+		return containsLabelTransform(fragment.RangeFunction.Child)
+	}
+	if fragment.Subquery != nil {
+		return containsLabelTransform(fragment.Subquery.Child)
+	}
+	if fragment.ScalarConvert != nil {
+		return containsLabelTransform(fragment.ScalarConvert.Child)
+	}
+	if fragment.InfoJoin != nil {
+		return containsLabelTransform(fragment.InfoJoin.Child)
+	}
+	if fragment.Absent != nil {
+		return containsLabelTransform(fragment.Absent.Child)
+	}
+	if fragment.HistogramProjection != nil {
+		return containsLabelTransform(fragment.HistogramProjection.Child)
+	}
+	if fragment.HistogramFunction != nil {
+		if containsLabelTransform(fragment.HistogramFunction.Child) {
+			return true
+		}
+		for _, quantile := range fragment.HistogramFunction.Quantiles {
+			if containsLabelTransform(quantile) {
+				return true
+			}
+		}
+	}
+	if fragment.SortTransform != nil {
+		return containsLabelTransform(fragment.SortTransform.Child)
+	}
+	if fragment.ClampTransform != nil {
+		return containsLabelTransform(fragment.ClampTransform.Child) || containsLabelTransform(fragment.ClampTransform.Min) || containsLabelTransform(fragment.ClampTransform.Max)
+	}
+	if fragment.ValueTransform != nil {
+		return containsLabelTransform(fragment.ValueTransform.Child)
+	}
+	if fragment.BinaryJoin != nil {
+		return containsLabelTransform(fragment.BinaryJoin.LHS) || containsLabelTransform(fragment.BinaryJoin.RHS)
+	}
+	return false
 }
 
 func BaseSelectorSource(fragment *NativeFragment) *SelectorSource {
@@ -508,7 +624,30 @@ func BaseSelectorSource(fragment *NativeFragment) *SelectorSource {
 		return BaseSelectorSource(fragment.HistogramProjection.Child)
 	}
 	if fragment.HistogramFunction != nil {
-		return BaseSelectorSource(fragment.HistogramFunction.Child)
+		if selector := BaseSelectorSource(fragment.HistogramFunction.Child); selector != nil {
+			return selector
+		}
+		for _, quantile := range fragment.HistogramFunction.Quantiles {
+			if selector := BaseSelectorSource(quantile); selector != nil {
+				return selector
+			}
+		}
+		return nil
+	}
+	if fragment.SortTransform != nil {
+		return BaseSelectorSource(fragment.SortTransform.Child)
+	}
+	if fragment.LabelTransform != nil {
+		return BaseSelectorSource(fragment.LabelTransform.Child)
+	}
+	if fragment.ClampTransform != nil {
+		if selector := BaseSelectorSource(fragment.ClampTransform.Child); selector != nil {
+			return selector
+		}
+		if selector := BaseSelectorSource(fragment.ClampTransform.Min); selector != nil {
+			return selector
+		}
+		return BaseSelectorSource(fragment.ClampTransform.Max)
 	}
 	if fragment.ValueTransform != nil {
 		return BaseSelectorSource(fragment.ValueTransform.Child)
@@ -553,6 +692,20 @@ func requiredColumnsForFragment(fragment *NativeFragment) []string {
 	}
 	if fragment.HistogramFunction != nil {
 		columns = append(columns, requiredColumnsForFragment(fragment.HistogramFunction.Child)...)
+		for _, quantile := range fragment.HistogramFunction.Quantiles {
+			columns = append(columns, requiredColumnsForFragment(quantile)...)
+		}
+	}
+	if fragment.SortTransform != nil {
+		columns = append(columns, requiredColumnsForFragment(fragment.SortTransform.Child)...)
+	}
+	if fragment.LabelTransform != nil {
+		columns = append(columns, requiredColumnsForFragment(fragment.LabelTransform.Child)...)
+	}
+	if fragment.ClampTransform != nil {
+		columns = append(columns, requiredColumnsForFragment(fragment.ClampTransform.Child)...)
+		columns = append(columns, requiredColumnsForFragment(fragment.ClampTransform.Min)...)
+		columns = append(columns, requiredColumnsForFragment(fragment.ClampTransform.Max)...)
 	}
 	if fragment.ValueTransform != nil {
 		columns = append(columns, requiredColumnsForFragment(fragment.ValueTransform.Child)...)
@@ -564,7 +717,7 @@ func fragmentRequiresTags(fragment *NativeFragment) bool {
 	if fragment == nil {
 		return false
 	}
-	if fragment.Aggregation != nil || fragment.RangeFunction != nil || fragment.Subquery != nil || fragment.HistogramProjection != nil || fragment.HistogramFunction != nil {
+	if fragment.Aggregation != nil || fragment.RangeFunction != nil || fragment.Subquery != nil || fragment.HistogramProjection != nil || fragment.HistogramFunction != nil || fragment.SortTransform != nil || fragment.LabelTransform != nil || fragment.ClampTransform != nil {
 		return true
 	}
 	if fragment.ScalarConvert != nil {
@@ -647,7 +800,7 @@ func joinNormalizationForFragment(fragment *NativeFragment) string {
 		return "not_applicable"
 	}
 	switch fragment.Kind {
-	case FragmentKindAggregation, FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindSyntheticSeries, FragmentKindScalarConvert, FragmentKindInfoJoin, FragmentKindAbsent, FragmentKindHistogramProjection, FragmentKindHistogramFunction, FragmentKindValueTransform:
+	case FragmentKindAggregation, FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindSyntheticSeries, FragmentKindScalarConvert, FragmentKindInfoJoin, FragmentKindAbsent, FragmentKindHistogramProjection, FragmentKindHistogramFunction, FragmentKindSortTransform, FragmentKindLabelTransform, FragmentKindClampTransform, FragmentKindValueTransform:
 		return "not_applicable"
 	default:
 		return "required"

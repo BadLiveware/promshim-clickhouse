@@ -42,7 +42,7 @@ func TestApplySortFunctionSortsByLabels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected sort_by_label output, got error: %v", err)
 	}
-	if asc.Samples[0].Metric["job"] != "api-10" || asc.Samples[1].Metric["instance"] != "a" || asc.Samples[2].Metric["instance"] != "c" {
+	if asc.Samples[0].Metric["job"] != "api-2" || asc.Samples[0].Metric["instance"] != "a" || asc.Samples[1].Metric["instance"] != "c" || asc.Samples[2].Metric["job"] != "api-10" {
 		t.Fatalf("unexpected ascending label sort output: %#v", asc.Samples)
 	}
 
@@ -50,7 +50,7 @@ func TestApplySortFunctionSortsByLabels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected sort_by_label_desc output, got error: %v", err)
 	}
-	if desc.Samples[0].Metric["instance"] != "c" || desc.Samples[1].Metric["instance"] != "a" || desc.Samples[2].Metric["job"] != "api-10" {
+	if desc.Samples[0].Metric["job"] != "api-10" || desc.Samples[1].Metric["instance"] != "c" || desc.Samples[2].Metric["instance"] != "a" {
 		t.Fatalf("unexpected descending label sort output: %#v", desc.Samples)
 	}
 }

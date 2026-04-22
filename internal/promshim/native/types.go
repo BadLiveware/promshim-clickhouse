@@ -40,6 +40,9 @@ const (
 	FragmentKindAbsent                 FragmentKind = "absent"
 	FragmentKindHistogramProjection    FragmentKind = "histogram_projection"
 	FragmentKindHistogramFunction      FragmentKind = "histogram_function"
+	FragmentKindSortTransform          FragmentKind = "sort_transform"
+	FragmentKindLabelTransform         FragmentKind = "label_transform"
+	FragmentKindClampTransform         FragmentKind = "clamp_transform"
 	FragmentKindValueTransform         FragmentKind = "value_transform"
 )
 
@@ -61,13 +64,17 @@ type NativeFragment struct {
 	Absent              *AbsentFragment
 	HistogramProjection *HistogramProjectionFragment
 	HistogramFunction   *HistogramFunctionFragment
+	SortTransform       *SortTransformFragment
+	LabelTransform      *LabelTransformFragment
+	ClampTransform      *ClampTransformFragment
 	ValueTransform      *ValueTransformFragment
 }
 
 const (
-	JoinShapeOneToOne  = "one_to_one"
-	JoinShapeManyToOne = "many_to_one"
-	JoinShapeOneToMany = "one_to_many"
+	JoinShapeOneToOne   = "one_to_one"
+	JoinShapeManyToOne  = "many_to_one"
+	JoinShapeOneToMany  = "one_to_many"
+	JoinShapeManyToMany = "many_to_many"
 )
 
 type BinaryJoinFragment struct {
@@ -96,15 +103,18 @@ type SubqueryFragment struct {
 }
 
 type AggregationFragment struct {
-	Op          parser.ItemType
-	Grouping    []string
-	Without     bool
-	ParamNumber *float64
-	Source      *NativeFragment
+	Op              parser.ItemType
+	Grouping        []string
+	Without         bool
+	ParamNumber     *float64
+	ParamString     string
+	Source          *NativeFragment
+	EmitZeroOnEmpty bool
 }
 
 type SyntheticSeriesFragment struct {
-	Func string
+	Func  string
+	Value *float64
 }
 
 type ScalarConvertFragment struct {
@@ -131,11 +141,38 @@ type HistogramProjectionFragment struct {
 }
 
 type HistogramFunctionFragment struct {
-	Func     string
-	Quantile *float64
-	Lower    *float64
-	Upper    *float64
-	Child    *NativeFragment
+	Func      string
+	Label     string
+	Quantile  *float64
+	Quantiles []*NativeFragment
+	Lower     *float64
+	Upper     *float64
+	Child     *NativeFragment
+}
+
+type SortTransformFragment struct {
+	Func   string
+	Labels []string
+	Child  *NativeFragment
+}
+
+type LabelTransformFragment struct {
+	Func             string
+	Dst              string
+	Repl             string
+	Regex            string
+	RegexSubexpNames []string
+	Src              string
+	Separator        string
+	SrcLabels        []string
+	Child            *NativeFragment
+}
+
+type ClampTransformFragment struct {
+	Func  string
+	Child *NativeFragment
+	Min   *NativeFragment
+	Max   *NativeFragment
 }
 
 type ValueTransformFragment struct {
@@ -274,6 +311,15 @@ func HasFixedTemporalAnchor(fragment *NativeFragment) bool {
 		return true
 	}
 	if fragment.HistogramFunction != nil && HasFixedTemporalAnchor(fragment.HistogramFunction.Child) {
+		return true
+	}
+	if fragment.SortTransform != nil && HasFixedTemporalAnchor(fragment.SortTransform.Child) {
+		return true
+	}
+	if fragment.LabelTransform != nil && HasFixedTemporalAnchor(fragment.LabelTransform.Child) {
+		return true
+	}
+	if fragment.ClampTransform != nil && (HasFixedTemporalAnchor(fragment.ClampTransform.Child) || HasFixedTemporalAnchor(fragment.ClampTransform.Min) || HasFixedTemporalAnchor(fragment.ClampTransform.Max)) {
 		return true
 	}
 	if fragment.ValueTransform != nil && HasFixedTemporalAnchor(fragment.ValueTransform.Child) {

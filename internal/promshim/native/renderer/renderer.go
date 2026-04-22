@@ -39,6 +39,9 @@ func renderFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, pa
 	if fragment == nil {
 		return renderedFragment{}, fmt.Errorf("native fragment render requires a fragment")
 	}
+	if params.Mode == native.RenderModeRange && native.HasFixedTemporalAnchor(fragment) {
+		return renderAnchoredRangeFragment(cfg, fragment, params)
+	}
 	switch fragment.Kind {
 	case native.FragmentKindLeafSource, native.FragmentKindUnarySourceExpr, native.FragmentKindBinaryScalarSourceExpr:
 		return renderSourceFragment(cfg, fragment, params)
@@ -54,6 +57,12 @@ func renderFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, pa
 		return renderHistogramProjectionFragment(cfg, fragment, params)
 	case native.FragmentKindHistogramFunction:
 		return renderHistogramFunctionFragment(cfg, fragment, params)
+	case native.FragmentKindSortTransform:
+		return renderSortTransformFragment(cfg, fragment, params)
+	case native.FragmentKindLabelTransform:
+		return renderLabelTransformFragment(cfg, fragment, params)
+	case native.FragmentKindClampTransform:
+		return renderClampTransformFragment(cfg, fragment, params)
 	case native.FragmentKindSubquery:
 		return renderSubqueryFragment(cfg, fragment, params)
 	case native.FragmentKindRangeFunction:

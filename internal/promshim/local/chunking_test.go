@@ -50,7 +50,7 @@ func TestBuildPlanWithContextRejectsRangeQueryOverGuardrail(t *testing.T) {
 }
 
 func TestBuildPlanWithContextWrapsLargeLocalRangePlanInChunkedRangePlan(t *testing.T) {
-	expr, err := plan.ParseExpression(`label_join(up, "joined", "/", "job", "namespace")`)
+	expr, err := plan.ParseExpression(`sum by (job) (up)`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,8 +70,8 @@ func TestBuildPlanWithContextWrapsLargeLocalRangePlanInChunkedRangePlan(t *testi
 	if !ok {
 		t.Fatalf("expected chunkedRangePlan, got %T", plan)
 	}
-	if _, ok := chunked.Child.(*localLabelJoinPlan); !ok {
-		t.Fatalf("expected localLabelJoinPlan child, got %T", chunked.Child)
+	if _, ok := chunked.Child.(*localAggregationPlan); !ok {
+		t.Fatalf("expected localAggregationPlan child, got %T", chunked.Child)
 	}
 }
 

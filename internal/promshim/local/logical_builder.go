@@ -27,6 +27,8 @@ type logicalHistogramFractionPlan = plan.LogicalHistogramFractionPlan
 
 type logicalHistogramProjectionPlan = plan.LogicalHistogramProjectionPlan
 
+type logicalHistogramQuantilesPlan = plan.LogicalHistogramQuantilesPlan
+
 type logicalRangeFunctionPlan = plan.LogicalRangeFunctionPlan
 
 type logicalVectorPlan = plan.LogicalVectorPlan
@@ -227,7 +229,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 			return nil, WithInternalContext(err, "building logical child plan for histogram_fraction %q", call.String())
 		}
 		return &logicalHistogramFractionPlan{Expr: call, Lower: lower, Upper: upper, Child: child}, nil
-	case "histogram_count", "histogram_sum", "histogram_avg":
+	case "histogram_count", "histogram_sum", "histogram_avg", "histogram_stddev", "histogram_stdvar":
 		if result := plan.AnalyzeHistogramProjectionCall(name, call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
@@ -236,6 +238,34 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 			return nil, WithInternalContext(err, "building logical child plan for %s %q", name, call.String())
 		}
 		return &logicalHistogramProjectionPlan{Expr: call, Func: name, Child: child}, nil
+	case "histogram_quantiles":
+		if result := plan.AnalyzeHistogramQuantilesCall(call); !result.Supported {
+			return nil, NewPlanBuildError(call, result, "call planning")
+		}
+		label, err := stringLiteralArgument(call.Args[1], "histogram_quantiles label")
+		if err != nil {
+			return nil, WithInternalContext(err, "building logical histogram_quantiles %q", call.String())
+		}
+		child, err := BuildLogicalPlan(call.Args[0])
+		if err != nil {
+			return nil, WithInternalContext(err, "building logical child plan for histogram_quantiles %q", call.String())
+		}
+		paramNumbers := make([]*float64, 0, len(call.Args)-2)
+		paramChildren := make([]logicalPlan, 0, len(call.Args)-2)
+		for _, arg := range call.Args[2:] {
+			builtArg, err := BuildLogicalPlan(arg)
+			if err != nil {
+				return nil, WithInternalContext(err, "building logical histogram_quantiles scalar parameter for %q", call.String())
+			}
+			paramChildren = append(paramChildren, builtArg)
+			if literal, ok := unwrapTransparentExpr(arg).(*parser.NumberLiteral); ok {
+				valueCopy := literal.Val
+				paramNumbers = append(paramNumbers, &valueCopy)
+			} else {
+				paramNumbers = append(paramNumbers, nil)
+			}
+		}
+		return &logicalHistogramQuantilesPlan{Expr: call, Label: label, ParamNumbers: paramNumbers, ParamChildren: paramChildren, Child: child}, nil
 	case "vector":
 		if result := plan.AnalyzeVectorCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
@@ -360,7 +390,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 			return nil, WithInternalContext(err, "building logical child plan for deriv %q", call.String())
 		}
 		return &logicalDerivPlan{Expr: call, Child: child}, nil
-	case "last_over_time", "sum_over_time", "avg_over_time", "max_over_time", "min_over_time", "count_over_time", "stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time", "resets":
+	case "last_over_time", "first_over_time", "sum_over_time", "avg_over_time", "max_over_time", "min_over_time", "count_over_time", "stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time", "resets", "ts_of_first_over_time", "ts_of_last_over_time", "ts_of_max_over_time", "ts_of_min_over_time":
 		if result := plan.AnalyzeRangeFunctionCall(name, call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}

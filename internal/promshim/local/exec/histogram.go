@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"ch-observability/internal/promshim/model"
+	promlabels "github.com/prometheus/prometheus/model/labels"
 )
 
 const histogramSmallDeltaTolerance = 1e-12
@@ -32,6 +33,27 @@ func ApplyHistogramQuantileRuntimeValue(quantile float64, value model.RuntimeVal
 		})}, nil
 	default:
 		return nil, executionf("histogram_quantile requires vector or matrix input, got %T", value)
+	}
+}
+
+func ApplyHistogramQuantilesRuntimeValue(label string, quantiles []*float64, value model.RuntimeValue) (model.RuntimeValue, error) {
+	resolved := make([]float64, 0, len(quantiles))
+	for _, quantile := range quantiles {
+		if quantile == nil {
+			resolved = append(resolved, math.NaN())
+			continue
+		}
+		resolved = append(resolved, *quantile)
+	}
+	switch typed := value.(type) {
+	case model.VectorValue:
+		return model.VectorValue{Samples: histogramQuantilesInstantSamples(typed.Samples, label, resolved)}, nil
+	case model.MatrixValue:
+		return model.MatrixValue{Series: applyClassicHistogramRange(typed.Series, func(samples []model.InstantSample) []model.InstantSample {
+			return histogramQuantilesInstantSamples(samples, label, resolved)
+		})}, nil
+	default:
+		return nil, executionf("histogram_quantiles requires vector or matrix input, got %T", value)
 	}
 }
 
@@ -67,6 +89,28 @@ func ApplyHistogramSumRuntimeValue(value model.RuntimeValue) (model.RuntimeValue
 		return model.MatrixValue{Series: applyClassicHistogramRange(typed.Series, histogramSumInstantSamples)}, nil
 	default:
 		return nil, executionf("histogram_sum requires vector or matrix input, got %T", value)
+	}
+}
+
+func ApplyHistogramStdVarRuntimeValue(value model.RuntimeValue) (model.RuntimeValue, error) {
+	switch typed := value.(type) {
+	case model.VectorValue:
+		return model.VectorValue{Samples: histogramStdVarInstantSamples(typed.Samples)}, nil
+	case model.MatrixValue:
+		return model.MatrixValue{Series: applyClassicHistogramRange(typed.Series, histogramStdVarInstantSamples)}, nil
+	default:
+		return nil, executionf("histogram_stdvar requires vector or matrix input, got %T", value)
+	}
+}
+
+func ApplyHistogramStdDevRuntimeValue(value model.RuntimeValue) (model.RuntimeValue, error) {
+	switch typed := value.(type) {
+	case model.VectorValue:
+		return model.VectorValue{Samples: histogramStdDevInstantSamples(typed.Samples)}, nil
+	case model.MatrixValue:
+		return model.MatrixValue{Series: applyClassicHistogramRange(typed.Series, histogramStdDevInstantSamples)}, nil
+	default:
+		return nil, executionf("histogram_stddev requires vector or matrix input, got %T", value)
 	}
 }
 
@@ -110,6 +154,22 @@ func histogramQuantileInstantSamples(samples []model.InstantSample, quantile flo
 	})
 }
 
+func histogramQuantilesInstantSamples(samples []model.InstantSample, label string, quantiles []float64) []model.InstantSample {
+	groups := buildClassicHistogramGroups(samples)
+	keys := sortedBucketKeys(groups)
+	result := make([]model.InstantSample, 0, len(keys)*len(quantiles))
+	for _, key := range keys {
+		group := groups[key]
+		buckets := sortedClassicHistogramBuckets(group.Buckets)
+		for _, quantile := range quantiles {
+			metric := model.CloneMetric(group.Metric)
+			metric[label] = promlabels.FormatOpenMetricsFloat(quantile)
+			result = append(result, model.InstantSample{Metric: metric, Timestamp: group.Timestamp, Value: classicBucketQuantile(quantile, buckets)})
+		}
+	}
+	return sortVectorSamples(result).Samples
+}
+
 func histogramCountInstantSamples(samples []model.InstantSample) []model.InstantSample {
 	return mapClassicHistogramInstant(samples, classicBucketCount)
 }
@@ -126,6 +186,14 @@ func histogramSumInstantSamples(samples []model.InstantSample) []model.InstantSa
 
 func histogramAvgInstantSamples(samples []model.InstantSample) []model.InstantSample {
 	return mapClassicHistogramInstant(samples, classicBucketAvgEstimate)
+}
+
+func histogramStdVarInstantSamples(samples []model.InstantSample) []model.InstantSample {
+	return mapClassicHistogramInstant(samples, classicBucketStdVarEstimate)
+}
+
+func histogramStdDevInstantSamples(samples []model.InstantSample) []model.InstantSample {
+	return mapClassicHistogramInstant(samples, classicBucketStdDevEstimate)
 }
 
 func mapClassicHistogramInstant(samples []model.InstantSample, valueFn func([]classicHistogramBucket) float64) []model.InstantSample {
@@ -364,6 +432,60 @@ func classicBucketSumEstimate(buckets []classicHistogramBucket) float64 {
 	}
 
 	return total
+}
+
+func classicBucketStdVarEstimate(buckets []classicHistogramBucket) float64 {
+	count := classicBucketCount(buckets)
+	if count <= 0 || math.IsNaN(count) {
+		return math.NaN()
+	}
+	mean := classicBucketAvgEstimate(buckets)
+	if math.IsNaN(mean) {
+		return math.NaN()
+	}
+	total := 0.0
+	prevCount := 0.0
+	prevUpper := 0.0
+	for index, bucket := range buckets {
+		count := bucket.Count
+		if math.IsNaN(count) {
+			return math.NaN()
+		}
+		delta := count - prevCount
+		if delta < 0 {
+			delta = 0
+		}
+
+		upper := bucket.UpperBound
+		lower := prevUpper
+		if index == 0 && upper <= 0 {
+			lower = upper
+		}
+		if math.IsInf(upper, +1) {
+			upper = prevUpper
+		}
+
+		midpoint := lower
+		if !math.IsNaN(lower) && !math.IsNaN(upper) && !math.IsInf(lower, 0) && !math.IsInf(upper, 0) {
+			midpoint = lower + (upper-lower)/2
+		}
+		if math.IsNaN(midpoint) || math.IsInf(midpoint, 0) {
+			midpoint = 0
+		}
+		diff := midpoint - mean
+		total += delta * diff * diff
+		prevCount = count
+		prevUpper = bucket.UpperBound
+	}
+	return total / count
+}
+
+func classicBucketStdDevEstimate(buckets []classicHistogramBucket) float64 {
+	variance := classicBucketStdVarEstimate(buckets)
+	if math.IsNaN(variance) {
+		return variance
+	}
+	return math.Sqrt(variance)
 }
 
 func classicBucketAvgEstimate(buckets []classicHistogramBucket) float64 {

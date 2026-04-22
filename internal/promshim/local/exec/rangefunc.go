@@ -10,17 +10,22 @@ import (
 type matrixRangeFunction func(model.MatrixValue) (model.VectorValue, error)
 
 var localMatrixRangeFunctions = map[string]matrixRangeFunction{
-	"last_over_time":    applyLastOverTimeMatrix,
-	"sum_over_time":     applySumOverTimeMatrix,
-	"avg_over_time":     applyAvgOverTimeMatrix,
-	"max_over_time":     applyMaxOverTimeMatrix,
-	"min_over_time":     applyMinOverTimeMatrix,
-	"count_over_time":   applyCountOverTimeMatrix,
-	"stddev_over_time":  applyStddevOverTimeMatrix,
-	"stdvar_over_time":  applyStdvarOverTimeMatrix,
-	"present_over_time": applyPresentOverTimeMatrix,
-	"mad_over_time":     applyMadOverTimeMatrix,
-	"resets":            applyResetsMatrix,
+	"last_over_time":        applyLastOverTimeMatrix,
+	"first_over_time":       applyFirstOverTimeMatrix,
+	"sum_over_time":         applySumOverTimeMatrix,
+	"avg_over_time":         applyAvgOverTimeMatrix,
+	"max_over_time":         applyMaxOverTimeMatrix,
+	"min_over_time":         applyMinOverTimeMatrix,
+	"count_over_time":       applyCountOverTimeMatrix,
+	"stddev_over_time":      applyStddevOverTimeMatrix,
+	"stdvar_over_time":      applyStdvarOverTimeMatrix,
+	"present_over_time":     applyPresentOverTimeMatrix,
+	"mad_over_time":         applyMadOverTimeMatrix,
+	"resets":                applyResetsMatrix,
+	"ts_of_first_over_time": applyTsOfFirstOverTimeMatrix,
+	"ts_of_last_over_time":  applyTsOfLastOverTimeMatrix,
+	"ts_of_max_over_time":   applyTsOfMaxOverTimeMatrix,
+	"ts_of_min_over_time":   applyTsOfMinOverTimeMatrix,
 }
 
 func ApplyRangeFunctionInstant(name string, input model.RuntimeValue) (model.VectorValue, error) {
@@ -37,6 +42,10 @@ func ApplyRangeFunctionInstant(name string, input model.RuntimeValue) (model.Vec
 
 func ApplyLastOverTimeInstant(input model.RuntimeValue) (model.VectorValue, error) {
 	return ApplyRangeFunctionInstant("last_over_time", input)
+}
+
+func ApplyFirstOverTimeInstant(input model.RuntimeValue) (model.VectorValue, error) {
+	return ApplyRangeFunctionInstant("first_over_time", input)
 }
 
 func ApplyQuantileOverTime(quantile float64, input model.RuntimeValue) (model.VectorValue, error) {
@@ -347,7 +356,7 @@ func applyLastOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, error
 			continue
 		}
 		last := series.Values[len(series.Values)-1]
-		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: last.Value})
+		out = append(out, model.InstantSample{Metric: model.CloneMetric(series.Metric), Timestamp: last.Timestamp, Value: last.Value})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		left := model.LabelsKey(out[i].Metric)
@@ -358,6 +367,84 @@ func applyLastOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, error
 		return left < right
 	})
 	return model.VectorValue{Samples: out}, nil
+}
+
+func applyFirstOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, error) {
+	out := make([]model.InstantSample, 0, len(matrix.Series))
+	for _, series := range matrix.Series {
+		if len(series.Values) == 0 {
+			continue
+		}
+		first := series.Values[0]
+		out = append(out, model.InstantSample{Metric: model.CloneMetric(series.Metric), Timestamp: first.Timestamp, Value: first.Value})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := model.LabelsKey(out[i].Metric)
+		right := model.LabelsKey(out[j].Metric)
+		if left == right {
+			return out[i].Timestamp < out[j].Timestamp
+		}
+		return left < right
+	})
+	return model.VectorValue{Samples: out}, nil
+}
+
+func applyTsOfFirstOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, error) {
+	out := make([]model.InstantSample, 0, len(matrix.Series))
+	for _, series := range matrix.Series {
+		if len(series.Values) == 0 {
+			continue
+		}
+		first := series.Values[0]
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: first.Timestamp, Value: first.Timestamp})
+	}
+	return sortVectorSamples(out), nil
+}
+
+func applyTsOfLastOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, error) {
+	out := make([]model.InstantSample, 0, len(matrix.Series))
+	for _, series := range matrix.Series {
+		if len(series.Values) == 0 {
+			continue
+		}
+		last := series.Values[len(series.Values)-1]
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: last.Timestamp})
+	}
+	return sortVectorSamples(out), nil
+}
+
+func applyTsOfMaxOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, error) {
+	out := make([]model.InstantSample, 0, len(matrix.Series))
+	for _, series := range matrix.Series {
+		if len(series.Values) == 0 {
+			continue
+		}
+		best := series.Values[0]
+		for _, point := range series.Values[1:] {
+			if point.Value >= best.Value || math.IsNaN(best.Value) {
+				best = point
+			}
+		}
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: best.Timestamp, Value: best.Timestamp})
+	}
+	return sortVectorSamples(out), nil
+}
+
+func applyTsOfMinOverTimeMatrix(matrix model.MatrixValue) (model.VectorValue, error) {
+	out := make([]model.InstantSample, 0, len(matrix.Series))
+	for _, series := range matrix.Series {
+		if len(series.Values) == 0 {
+			continue
+		}
+		best := series.Values[0]
+		for _, point := range series.Values[1:] {
+			if point.Value <= best.Value || math.IsNaN(best.Value) {
+				best = point
+			}
+		}
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: best.Timestamp, Value: best.Timestamp})
+	}
+	return sortVectorSamples(out), nil
 }
 
 func applyQuantileOverTimeMatrix(quantile float64, matrix model.MatrixValue) []model.InstantSample {

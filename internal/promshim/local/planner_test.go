@@ -78,7 +78,7 @@ func TestBuildPlanCreatesDelegatedTimeModifierLeafPlan(t *testing.T) {
 	}
 }
 
-func TestBuildPlanCreatesSubqueryPlan(t *testing.T) {
+func TestBuildPlanCreatesNativeSubqueryPlan(t *testing.T) {
 	expr, err := plan.ParseExpression("(up * 100)[5m:30s]")
 	if err != nil {
 		t.Fatal(err)
@@ -88,19 +88,19 @@ func TestBuildPlanCreatesSubqueryPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected subquery plan, got error: %v", err)
 	}
-	subquery, ok := execPlan.(*localSubqueryPlan)
+	subquery, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localSubqueryPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if subquery.Expr.String() != "(up * 100)[5m:30s]" {
-		t.Fatalf("expected subquery expression to be preserved, got %q", subquery.Expr.String())
+	if subquery.Fragment == nil || subquery.Fragment.Kind != nativeplan.FragmentKindSubquery || subquery.Fragment.Subquery == nil {
+		t.Fatalf("expected native subquery fragment, got %#v", subquery)
 	}
-	if subquery.DelegatedLeafCompatible {
-		t.Fatalf("expected non-delegated-compatible subquery for (up * 100)[5m:30s], got %#v", subquery)
+	if subquery.Expr != "(up * 100)[5m:30s]" {
+		t.Fatalf("expected subquery expression to be preserved, got %q", subquery.Expr)
 	}
 }
 
-func TestBuildPlanCreatesSubqueryWithLocalAggregationChildPlan(t *testing.T) {
+func TestBuildPlanCreatesNativeSubqueryPlanWithAggregationChild(t *testing.T) {
 	expr, err := plan.ParseExpression("sum(up)[5m:30s]")
 	if err != nil {
 		t.Fatal(err)
@@ -110,15 +110,15 @@ func TestBuildPlanCreatesSubqueryWithLocalAggregationChildPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected subquery plan, got error: %v", err)
 	}
-	subquery, ok := execPlan.(*localSubqueryPlan)
+	subquery, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localSubqueryPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if subquery.DelegatedLeafCompatible {
-		t.Fatalf("expected non-delegated-compatible subquery for sum(up)[5m:30s], got %#v", subquery)
+	if subquery.Fragment == nil || subquery.Fragment.Kind != nativeplan.FragmentKindSubquery || subquery.Fragment.Subquery == nil {
+		t.Fatalf("expected native subquery fragment, got %#v", subquery)
 	}
-	if _, ok := subquery.Child.(*localAggregationPlan); !ok {
-		t.Fatalf("expected local aggregation child inside subquery, got %T", subquery.Child)
+	if subquery.Fragment.Subquery.Child == nil || subquery.Fragment.Subquery.Child.Kind != nativeplan.FragmentKindAggregation {
+		t.Fatalf("expected native aggregation child inside subquery, got %#v", subquery.Fragment.Subquery.Child)
 	}
 }
 
@@ -223,6 +223,72 @@ func TestBuildPlanCreatesTopKAggregationPlan(t *testing.T) {
 	}
 }
 
+func TestBuildPlanCreatesCountValuesAggregationPlan(t *testing.T) {
+	expr, err := plan.ParseExpression(`count_values("sample_value", up)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected count_values aggregation plan, got error: %v", err)
+	}
+	agg, ok := execPlan.(*localAggregationPlan)
+	if !ok {
+		t.Fatalf("expected localAggregationPlan, got %T", execPlan)
+	}
+	if agg.Op != parser.COUNT_VALUES {
+		t.Fatalf("expected count_values op, got %v", agg.Op)
+	}
+	if agg.ParamString != "sample_value" {
+		t.Fatalf("expected count_values label parameter, got %#v", agg.ParamString)
+	}
+}
+
+func TestBuildPlanCreatesLimitKAggregationPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("limitk(2, up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected limitk aggregation plan, got error: %v", err)
+	}
+	agg, ok := execPlan.(*localAggregationPlan)
+	if !ok {
+		t.Fatalf("expected localAggregationPlan, got %T", execPlan)
+	}
+	if agg.Op != parser.LIMITK {
+		t.Fatalf("expected limitk op, got %v", agg.Op)
+	}
+	if agg.ParamNumber == nil || *agg.ParamNumber != 2 {
+		t.Fatalf("expected limitk parameter 2, got %#v", agg.ParamNumber)
+	}
+}
+
+func TestBuildPlanCreatesLimitRatioAggregationPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("limit_ratio(0.5, up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected limit_ratio aggregation plan, got error: %v", err)
+	}
+	agg, ok := execPlan.(*localAggregationPlan)
+	if !ok {
+		t.Fatalf("expected localAggregationPlan, got %T", execPlan)
+	}
+	if agg.Op != parser.LIMIT_RATIO {
+		t.Fatalf("expected limit_ratio op, got %v", agg.Op)
+	}
+	if agg.ParamNumber == nil || *agg.ParamNumber != 0.5 {
+		t.Fatalf("expected limit_ratio parameter 0.5, got %#v", agg.ParamNumber)
+	}
+}
+
 func TestBuildPlanCreatesHistogramQuantilePlan(t *testing.T) {
 	expr, err := plan.ParseExpression("histogram_quantile(0.9, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
 	if err != nil {
@@ -245,8 +311,30 @@ func TestBuildPlanCreatesHistogramQuantilePlan(t *testing.T) {
 	}
 }
 
+func TestBuildPlanCreatesHistogramQuantilesPlan(t *testing.T) {
+	expr, err := plan.ParseExpression("histogram_quantiles(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])), \"quantile\", 0.5, scalar(sum(up)))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlan(expr)
+	if err != nil {
+		t.Fatalf("expected histogram_quantiles plan, got error: %v", err)
+	}
+	nativePlan, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
+	}
+	if nativePlan.Kind != "histogram_quantiles" {
+		t.Fatalf("expected histogram_quantiles native plan, got %#v", nativePlan)
+	}
+	if len(nativePlan.Children) != 3 {
+		t.Fatalf("expected histogram and scalar children under histogram_quantiles native plan, got %#v", nativePlan.Children)
+	}
+}
+
 func TestBuildPlanCreatesHistogramProjectionPlan(t *testing.T) {
-	for _, fn := range []string{"histogram_count", "histogram_sum", "histogram_avg"} {
+	for _, fn := range []string{"histogram_count", "histogram_sum", "histogram_avg", "histogram_stddev", "histogram_stdvar"} {
 		t.Run(fn, func(t *testing.T) {
 			expr, err := plan.ParseExpression(fn + "(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
 			if err != nil {
@@ -272,7 +360,7 @@ func TestBuildPlanCreatesHistogramProjectionPlan(t *testing.T) {
 }
 
 func TestBuildPlanCreatesDirectHistogramProjectionNativePlan(t *testing.T) {
-	for _, fn := range []string{"histogram_count", "histogram_sum", "histogram_avg"} {
+	for _, fn := range []string{"histogram_count", "histogram_sum", "histogram_avg", "histogram_stddev", "histogram_stdvar"} {
 		t.Run(fn, func(t *testing.T) {
 			expr, err := plan.ParseExpression(fn + `(http_request_duration_seconds_bucket{job="api"})`)
 			if err != nil {
@@ -356,7 +444,7 @@ func TestBuildPlanCreatesNativeIncreasePlan(t *testing.T) {
 }
 
 func TestBuildPlanWithContextCreatesNativeRangeFunctionPlanInRangeModeForDirectSelector(t *testing.T) {
-	for _, query := range []string{"sum_over_time(up[5m])", "rate(up[5m])", "increase(up[5m])", "changes(up[5m])", "resets(up[5m])"} {
+	for _, query := range []string{"sum_over_time(up[5m])", "rate(up[5m])", "increase(up[5m])", "changes(up[5m])", "resets(up[5m])", "quantile_over_time(0.95, up[5m])", "first_over_time(up[5m])", "ts_of_first_over_time(up[5m])", "ts_of_last_over_time(up[5m])", "ts_of_max_over_time(up[5m])", "ts_of_min_over_time(up[5m])"} {
 		expr, err := plan.ParseExpression(query)
 		if err != nil {
 			t.Fatal(err)
@@ -377,7 +465,7 @@ func TestBuildPlanWithContextCreatesNativeRangeFunctionPlanInRangeModeForDirectS
 }
 
 func TestBuildPlanWithContextCreatesNativeRangeFunctionPlanInRangeModeForSubquery(t *testing.T) {
-	for _, query := range []string{"sum_over_time(sum(up)[5m:1m])", "rate(sum(up)[5m:1m])", "increase(sum(up)[5m:1m])", "changes(sum(up)[5m:1m])", "resets(sum(up)[5m:1m])"} {
+	for _, query := range []string{"sum_over_time(sum(up)[5m:1m])", "rate(sum(up)[5m:1m])", "increase(sum(up)[5m:1m])", "changes(sum(up)[5m:1m])", "resets(sum(up)[5m:1m])", "quantile_over_time(0.95, sum(up)[5m:1m])", "first_over_time(sum(up)[5m:1m])", "ts_of_first_over_time(sum(up)[5m:1m])", "ts_of_last_over_time(sum(up)[5m:1m])", "ts_of_max_over_time(sum(up)[5m:1m])", "ts_of_min_over_time(sum(up)[5m:1m])"} {
 		expr, err := plan.ParseExpression(query)
 		if err != nil {
 			t.Fatal(err)
@@ -410,12 +498,12 @@ func TestBuildPlanCreatesVectorPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected vector plan, got error: %v", err)
 	}
-	vectorPlan, ok := execPlan.(*localVectorPlan)
+	nativePlan, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localVectorPlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if _, ok := vectorPlan.Child.(*scalarLiteralPlan); !ok {
-		t.Fatalf("expected scalar child for vector(), got %T", vectorPlan.Child)
+	if nativePlan.Fragment == nil || nativePlan.Kind != "vector" {
+		t.Fatalf("expected native vector plan, got %#v", nativePlan)
 	}
 }
 
@@ -429,9 +517,15 @@ func TestBuildPlanCreatesRoundPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected round plan, got error: %v", err)
 	}
+	if nativePlan, ok := execPlan.(*nativeSubtreePlan); ok {
+		if nativePlan.Fragment == nil || nativePlan.Fragment.Kind != nativeplan.FragmentKindValueTransform {
+			t.Fatalf("expected value-transform native round fragment, got %#v", nativePlan)
+		}
+		return
+	}
 	roundPlan, ok := execPlan.(*localRoundPlan)
 	if !ok {
-		t.Fatalf("expected localRoundPlan, got %T", execPlan)
+		t.Fatalf("expected round plan, got %T", execPlan)
 	}
 	if roundPlan.Decimals != nil {
 		t.Fatalf("expected nil decimals for round(up), got %#v", roundPlan.Decimals)
@@ -606,15 +700,18 @@ func TestBuildPlanCreatesQuantileOverTimePlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected quantile_over_time plan, got error: %v", err)
 	}
-	quantilePlan, ok := execPlan.(*localQuantileOverTimePlan)
+	rangeFn, ok := execPlan.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected localQuantileOverTimePlan, got %T", execPlan)
+		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if quantilePlan.Quantile != 0.95 {
-		t.Fatalf("expected quantile 0.95, got %#v", quantilePlan.Quantile)
+	if rangeFn.Fragment == nil || rangeFn.Fragment.RangeFunction == nil || rangeFn.Fragment.RangeFunction.Func != "quantile_over_time" {
+		t.Fatalf("expected native quantile_over_time fragment, got %#v", rangeFn)
 	}
-	if _, ok := quantilePlan.Child.(*localSubqueryPlan); !ok {
-		t.Fatalf("expected localSubquery child, got %T", quantilePlan.Child)
+	if rangeFn.Fragment.RangeFunction.ParamNumber == nil || *rangeFn.Fragment.RangeFunction.ParamNumber != 0.95 {
+		t.Fatalf("expected quantile parameter on native fragment, got %#v", rangeFn.Fragment.RangeFunction)
+	}
+	if rangeFn.Fragment.RangeFunction.Child == nil || rangeFn.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native quantile_over_time subquery child, got %#v", rangeFn.Fragment.RangeFunction)
 	}
 }
 
@@ -877,7 +974,73 @@ func TestBuildPlanWithContextCreatesNativePlanForInfo(t *testing.T) {
 	}
 }
 
-func TestBuildPlanWithContextAvoidsNativeRangePlanForAnchoredPointwiseFunction(t *testing.T) {
+func TestBuildPlanWithContextCreatesNativePlanForInfoRegexMetricSelector(t *testing.T) {
+	expr, err := plan.ParseExpression("info(up, {__name__=~\".+_info\"})")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native regex info() plan, got error: %v", err)
+	}
+	native, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
+	}
+	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindInfoJoin || native.Fragment.InfoJoin == nil {
+		t.Fatalf("expected info join fragment, got %#v", native)
+	}
+	if native.Fragment.InfoJoin.InfoMetricName != "" {
+		t.Fatalf("expected matcher-driven info selector without fixed metric name, got %#v", native.Fragment.InfoJoin)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativePlanForRootSubqueryInRangeMode(t *testing.T) {
+	expr, err := plan.ParseExpression(`sum(up)[5m:1m]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native root-subquery plan, got error: %v", err)
+	}
+	native, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
+	}
+	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindSubquery || native.Fragment.Subquery == nil {
+		t.Fatalf("expected root subquery fragment, got %#v", native)
+	}
+	if native.Fragment.Subquery.Child == nil || native.Fragment.Subquery.Child.Kind != nativeplan.FragmentKindAggregation {
+		t.Fatalf("expected native aggregation child under root subquery, got %#v", native.Fragment.Subquery.Child)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativePlanForLabelJoinRootSubquery(t *testing.T) {
+	expr, err := plan.ParseExpression(`label_join(up, "joined", "/", "job", "namespace")[5m:1m]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeInstant, EvaluationTime: time.Unix(300, 0).UTC(), NativeLoweringMode: NativeLoweringModePrefer})
+	if err != nil {
+		t.Fatalf("expected native root-subquery plan, got error: %v", err)
+	}
+	native, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
+	}
+	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindSubquery || native.Fragment.Subquery == nil || native.Fragment.Subquery.Child == nil {
+		t.Fatalf("expected subquery fragment, got %#v", native)
+	}
+	if native.Fragment.Subquery.Child.Kind != nativeplan.FragmentKindLabelTransform {
+		t.Fatalf("expected native label transform child under root subquery, got %#v", native.Fragment.Subquery.Child)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeRangePlanForAnchoredPointwiseFunction(t *testing.T) {
 	expr, err := plan.ParseExpression("abs(up @ 1710000000)")
 	if err != nil {
 		t.Fatal(err)
@@ -885,10 +1048,14 @@ func TestBuildPlanWithContextAvoidsNativeRangePlanForAnchoredPointwiseFunction(t
 
 	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModePrefer})
 	if err != nil {
-		t.Fatalf("expected non-native anchored pointwise plan without hard failure, got error: %v", err)
+		t.Fatalf("expected native anchored pointwise plan, got error: %v", err)
 	}
-	if _, ok := built.(*nativeSubtreePlan); ok {
-		t.Fatalf("expected anchored range pointwise plan to avoid native subtree, got %#v", built)
+	native, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
+	}
+	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindUnarySourceExpr {
+		t.Fatalf("expected anchored unary native fragment, got %#v", native)
 	}
 }
 
@@ -911,26 +1078,26 @@ func TestBuildPlanWithContextCreatesNativePlanForPointwiseFunction(t *testing.T)
 	}
 }
 
-func TestBuildPlanWithContextAvoidsNativeRangeAggregationForAnchoredSelector(t *testing.T) {
+func TestBuildPlanWithContextCreatesNativeRangeAggregationForAnchoredSelector(t *testing.T) {
 	expr, err := plan.ParseExpression("sum by (job) (up @ 1710000000)")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModePrefer})
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
 	if err != nil {
-		t.Fatalf("expected non-native anchored aggregation plan without hard failure, got error: %v", err)
+		t.Fatalf("expected native-capable anchored aggregation plan, got error: %v", err)
 	}
-	agg, ok := built.(*localAggregationPlan)
+	nativeRoot, ok := built.(*nativeSubtreePlan)
 	if !ok {
-		t.Fatalf("expected local aggregation plan, got %T", built)
+		t.Fatalf("expected nativeSubtreePlan root, got %T", built)
 	}
-	if _, ok := agg.Child.(*nativeSubtreePlan); ok {
-		t.Fatalf("expected anchored range aggregation child to avoid native subtree, got %#v", agg.Child)
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindAggregation || nativeRoot.Fragment.Aggregation == nil {
+		t.Fatalf("expected native aggregation root, got %#v", nativeRoot)
 	}
 }
 
-func TestBuildPlanWithContextAvoidsNativeRangeAggregationForStartEndAnchors(t *testing.T) {
+func TestBuildPlanWithContextCreatesNativeRangeAggregationForStartEndAnchors(t *testing.T) {
 	testCases := []string{
 		"sum by (job) (up @ start())",
 		"sum by (job) (up @ end())",
@@ -942,16 +1109,16 @@ func TestBuildPlanWithContextAvoidsNativeRangeAggregationForStartEndAnchors(t *t
 				t.Fatal(err)
 			}
 
-			built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModePrefer})
+			built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
 			if err != nil {
-				t.Fatalf("expected non-native anchored aggregation plan without hard failure, got error: %v", err)
+				t.Fatalf("expected native-capable anchored aggregation plan, got error: %v", err)
 			}
-			agg, ok := built.(*localAggregationPlan)
+			nativeRoot, ok := built.(*nativeSubtreePlan)
 			if !ok {
-				t.Fatalf("expected local aggregation plan, got %T", built)
+				t.Fatalf("expected nativeSubtreePlan root, got %T", built)
 			}
-			if _, ok := agg.Child.(*nativeSubtreePlan); ok {
-				t.Fatalf("expected anchored range aggregation child to avoid native subtree, got %#v", agg.Child)
+			if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindAggregation || nativeRoot.Fragment.Aggregation == nil {
+				t.Fatalf("expected native aggregation root, got %#v", nativeRoot)
 			}
 		})
 	}
@@ -1096,6 +1263,44 @@ func TestBuildPlanWithContextCreatesNativePlanForSyntheticDateFunction(t *testin
 	}
 }
 
+func TestBuildPlanWithContextCreatesNativePlanForSortByLabel(t *testing.T) {
+	expr, err := plan.ParseExpression("sort_by_label(up, \"instance\", \"job\")")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native sort_by_label() plan, got error: %v", err)
+	}
+	native, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
+	}
+	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindSortTransform || native.Fragment.SortTransform == nil || len(native.Fragment.SortTransform.Labels) != 2 {
+		t.Fatalf("expected sort transform fragment, got %#v", native)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativePlanForClampWithScalarParameterChild(t *testing.T) {
+	expr, err := plan.ParseExpression("clamp_min(up, scalar(sum(up)))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: 30 * time.Second, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native clamp_min() plan, got error: %v", err)
+	}
+	native, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
+	}
+	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindClampTransform || native.Fragment.ClampTransform == nil || native.Fragment.ClampTransform.Min == nil {
+		t.Fatalf("expected clamp transform fragment, got %#v", native)
+	}
+}
+
 func TestBuildPlanWithContextCreatesNativePlanForScalarBuiltin(t *testing.T) {
 	expr, err := plan.ParseExpression("time()")
 	if err != nil {
@@ -1115,7 +1320,7 @@ func TestBuildPlanWithContextCreatesNativePlanForScalarBuiltin(t *testing.T) {
 	}
 }
 
-func TestDecideNativeAggregationPushdownRejectsNonPushdownSafeChild(t *testing.T) {
+func TestDecideNativeAggregationPushdownAllowsLabelMutationChild(t *testing.T) {
 	logical, err := BuildLogicalPlan(mustParseExpr(t, `sum by (job) (label_join(up, "joined", "/", "job", "namespace"))`))
 	if err != nil {
 		t.Fatal(err)
@@ -1126,11 +1331,11 @@ func TestDecideNativeAggregationPushdownRejectsNonPushdownSafeChild(t *testing.T
 	}
 
 	decision := decideNativeAggregationPushdown(agg, PlanContext{PreferNativeAggregationPushdown: true})
-	if decision.Eligible {
-		t.Fatalf("expected non-eligible pushdown, got %#v", decision)
+	if !decision.Eligible {
+		t.Fatalf("expected eligible pushdown, got %#v", decision)
 	}
-	if !strings.Contains(decision.Reason, "pushdown-safe") {
-		t.Fatalf("expected explicit fallback reason, got %#v", decision)
+	if decision.Source.PromQLLeaf == nil || decision.Source.PromQLLeaf.String() != "up" {
+		t.Fatalf("expected delegated-safe leaf source metadata, got %#v", decision)
 	}
 }
 
@@ -1149,13 +1354,13 @@ func TestDecideNativeAggregationPushdownRejectsWhenDisabled(t *testing.T) {
 	}
 }
 
-func TestBuildPlanWithContextFallsBackToLocalAggregationForNonLeafChild(t *testing.T) {
+func TestBuildPlanWithContextCreatesNativeAggregationForLabelMutationChild(t *testing.T) {
 	expr, err := plan.ParseExpression(`sum by (job) (label_join(up, "joined", "/", "job", "namespace"))`)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	plan, err := buildPlanWithContext(expr, PlanContext{
+	built, err := buildPlanWithContext(expr, PlanContext{
 		Mode:                            EvalModeRange,
 		Start:                           time.Unix(0, 0).UTC(),
 		End:                             time.Unix(300, 0).UTC(),
@@ -1163,10 +1368,17 @@ func TestBuildPlanWithContextFallsBackToLocalAggregationForNonLeafChild(t *testi
 		PreferNativeAggregationPushdown: true,
 	})
 	if err != nil {
-		t.Fatalf("expected local aggregation fallback, got error: %v", err)
+		t.Fatalf("expected native aggregation plan, got error: %v", err)
 	}
-	if _, ok := plan.(*localAggregationPlan); !ok {
-		t.Fatalf("expected localAggregationPlan fallback, got %T", plan)
+	nativeRoot, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindAggregation || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Source == nil {
+		t.Fatalf("expected native aggregation fragment, got %#v", nativeRoot)
+	}
+	if nativeRoot.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindLabelTransform {
+		t.Fatalf("expected label-transform aggregation source, got %#v", nativeRoot.Fragment.Aggregation.Source)
 	}
 }
 
@@ -1282,7 +1494,7 @@ func TestExplainPlanDescribesLocalAggregationFallbackReasonWhenPushdownDisabled(
 	}
 }
 
-func TestExplainPlanDescribesLocalAggregationFallbackReasonWhenChildIsNotPushdownSafe(t *testing.T) {
+func TestExplainPlanDescribesNativeAggregationStrategyForLabelMutationChild(t *testing.T) {
 	expr, err := plan.ParseExpression(`sum by (job) (label_join(up, "joined", "/", "job", "namespace"))`)
 	if err != nil {
 		t.Fatal(err)
@@ -1296,23 +1508,20 @@ func TestExplainPlanDescribesLocalAggregationFallbackReasonWhenChildIsNotPushdow
 		PreferNativeAggregationPushdown: true,
 	})
 	if err != nil {
-		t.Fatalf("expected local aggregation plan, got error: %v", err)
+		t.Fatalf("expected native aggregation plan, got error: %v", err)
 	}
 	explain := ExplainPlanWithLowering(plan, analysis.Root)
-	if explain.Strategy != "local" {
-		t.Fatalf("expected local strategy, got %#v", explain)
+	if explain.Strategy != "native_sql" || explain.SelectedStrategy != "native_sql" || explain.NativeScope != "subtree" {
+		t.Fatalf("expected native subtree strategy, got %#v", explain)
 	}
-	if explain.SelectedStrategy != "local" || explain.NativeScope != "none" {
-		t.Fatalf("expected local selected strategy metadata, got %#v", explain)
+	if explain.Lowering == nil || !explain.Lowering.AggregationPushdownEligible {
+		t.Fatalf("expected eligible aggregation lowering metadata, got %#v", explain.Lowering)
 	}
-	if !strings.Contains(explain.Reason, "pushdown-safe") || !strings.Contains(explain.FallbackReason, "pushdown-safe") {
-		t.Fatalf("expected pushdown-safe fallback reason, got %#v", explain)
+	if len(explain.Children) != 1 || explain.Children[0].Strategy != "native_sql_expression" {
+		t.Fatalf("expected native label-transform child explain, got %#v", explain.Children)
 	}
-	if explain.Lowering == nil || explain.Lowering.AggregationPushdownEligible {
-		t.Fatalf("expected non-eligible lowering metadata, got %#v", explain.Lowering)
-	}
-	if len(explain.Children) != 1 || explain.Children[0].Strategy != "local" {
-		t.Fatalf("expected local child explain for label_join fallback, got %#v", explain.Children)
+	if len(explain.Children[0].Children) != 1 || explain.Children[0].Children[0].Strategy != "delegated_promql" {
+		t.Fatalf("expected delegated leaf under native label-transform explain, got %#v", explain.Children)
 	}
 }
 
@@ -1391,9 +1600,18 @@ func TestBuildPlanCreatesSetOperatorPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected set-operator plan, got error: %v", err)
 	}
+	if nativePlan, ok := execPlan.(*nativeSubtreePlan); ok {
+		if nativePlan.Fragment == nil || nativePlan.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin || nativePlan.Fragment.BinaryJoin == nil {
+			t.Fatalf("expected native binary join fragment, got %#v", nativePlan)
+		}
+		if nativePlan.Fragment.BinaryJoin.Op != parser.LAND || nativePlan.Fragment.BinaryJoin.JoinShape != nativeplan.JoinShapeManyToMany {
+			t.Fatalf("expected many-to-many LAND native join, got %#v", nativePlan.Fragment.BinaryJoin)
+		}
+		return
+	}
 	binaryPlan, ok := execPlan.(*localBinaryPlan)
 	if !ok {
-		t.Fatalf("expected localBinaryPlan, got %T", execPlan)
+		t.Fatalf("expected set operator plan, got %T", execPlan)
 	}
 	if binaryPlan.Op != parser.LAND {
 		t.Fatalf("expected LAND operator, got %v", binaryPlan.Op)
@@ -1413,38 +1631,52 @@ func TestBuildPlanCreatesUnaryPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected unary plan, got error: %v", err)
 	}
+	if nativePlan, ok := plan.(*nativeSubtreePlan); ok {
+		if nativePlan.Fragment == nil || nativePlan.Fragment.Kind != nativeplan.FragmentKindUnarySourceExpr {
+			t.Fatalf("expected unary source native fragment, got %#v", nativePlan)
+		}
+		return
+	}
 	if _, ok := plan.(*localUnaryPlan); !ok {
-		t.Fatalf("expected localUnaryPlan, got %T", plan)
+		t.Fatalf("expected unary plan, got %T", plan)
 	}
 }
 
-func TestBuildPlanCreatesLabelReplacePlan(t *testing.T) {
+func TestBuildPlanCreatesNativeLabelReplacePlan(t *testing.T) {
 	expr, err := plan.ParseExpression(`label_replace(up, "job_copy", "$1", "job", "(.*)")`)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	plan, err := buildPlan(expr)
+	built, err := buildPlan(expr)
 	if err != nil {
 		t.Fatalf("expected label_replace plan, got error: %v", err)
 	}
-	if _, ok := plan.(*localLabelReplacePlan); !ok {
-		t.Fatalf("expected localLabelReplacePlan, got %T", plan)
+	nativeRoot, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindLabelTransform || nativeRoot.Fragment.LabelTransform == nil || nativeRoot.Fragment.LabelTransform.Func != "label_replace" {
+		t.Fatalf("expected native label_replace fragment, got %#v", nativeRoot)
 	}
 }
 
-func TestBuildPlanCreatesLabelJoinPlan(t *testing.T) {
+func TestBuildPlanCreatesNativeLabelJoinPlan(t *testing.T) {
 	expr, err := plan.ParseExpression(`label_join(up, "joined", "/", "job", "namespace")`)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	plan, err := buildPlan(expr)
+	built, err := buildPlan(expr)
 	if err != nil {
 		t.Fatalf("expected label_join plan, got error: %v", err)
 	}
-	if _, ok := plan.(*localLabelJoinPlan); !ok {
-		t.Fatalf("expected localLabelJoinPlan, got %T", plan)
+	nativeRoot, ok := built.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", built)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindLabelTransform || nativeRoot.Fragment.LabelTransform == nil || nativeRoot.Fragment.LabelTransform.Func != "label_join" {
+		t.Fatalf("expected native label_join fragment, got %#v", nativeRoot)
 	}
 }
 
@@ -1831,6 +2063,371 @@ func TestBuildPlanWithContextCreatesLocalAggregationOverIncreaseInRangeMode(t *t
 	}
 }
 
+func TestBuildPlanWithContextCreatesNativeRootAggregationOverRateUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression("sum(rate(up[5m]))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native root aggregation over rate, got error: %v", err)
+	}
+	nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindAggregation || nativeRoot.Fragment.Aggregation == nil {
+		t.Fatalf("expected native aggregation fragment, got %#v", nativeRoot)
+	}
+	if nativeRoot.Fragment.Aggregation.Source == nil || nativeRoot.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindRangeFunction {
+		t.Fatalf("expected rate child aggregation source, got %#v", nativeRoot.Fragment.Aggregation.Source)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeRootGroupedAggregationOverRateUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression("sum by(job) (rate(up[5m]))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native grouped aggregation over rate, got error: %v", err)
+	}
+	nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil {
+		t.Fatalf("expected native aggregation fragment, got %#v", nativeRoot)
+	}
+	if !sameStrings(nativeRoot.Fragment.Aggregation.Grouping, []string{"job"}) {
+		t.Fatalf("expected grouping [job], got %#v", nativeRoot.Fragment.Aggregation)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeRootAggregationOverIncreaseUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression("sum(increase(up[5m]))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native aggregation over increase, got error: %v", err)
+	}
+	nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Source == nil {
+		t.Fatalf("expected native aggregation fragment, got %#v", nativeRoot)
+	}
+	if nativeRoot.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindRangeFunction {
+		t.Fatalf("expected increase aggregation source, got %#v", nativeRoot.Fragment.Aggregation.Source)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeRootAggregationOverScaledRateUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression("sum(8 * rate(up[5m]))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native aggregation over scaled rate, got error: %v", err)
+	}
+	nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Source == nil {
+		t.Fatalf("expected native aggregation fragment, got %#v", nativeRoot)
+	}
+	if nativeRoot.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindValueTransform {
+		t.Fatalf("expected value-transform aggregation source, got %#v", nativeRoot.Fragment.Aggregation.Source)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeUnaryRootOverAggregatedRateUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression("- sum(rate(up[5m]))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native unary root over aggregated rate, got error: %v", err)
+	}
+	nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindValueTransform || nativeRoot.Fragment.ValueTransform == nil || nativeRoot.Fragment.ValueTransform.Child == nil {
+		t.Fatalf("expected value-transform unary fragment, got %#v", nativeRoot)
+	}
+	if nativeRoot.Fragment.ValueTransform.Child.Kind != nativeplan.FragmentKindAggregation {
+		t.Fatalf("expected aggregated child under unary wrapper, got %#v", nativeRoot.Fragment.ValueTransform.Child)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeComparisonRootOverAggregatedIncreaseUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression("sum by(job) (increase(up[5m])) > 0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native comparison root over aggregated increase, got error: %v", err)
+	}
+	nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindValueTransform || nativeRoot.Fragment.ValueTransform == nil || nativeRoot.Fragment.ValueTransform.Child == nil {
+		t.Fatalf("expected value-transform comparison fragment, got %#v", nativeRoot)
+	}
+	if nativeRoot.Fragment.ValueTransform.FilterExpr == "" {
+		t.Fatalf("expected comparison filter template, got %#v", nativeRoot.Fragment.ValueTransform)
+	}
+	if nativeRoot.Fragment.ValueTransform.Child.Kind != nativeplan.FragmentKindAggregation {
+		t.Fatalf("expected aggregated child under comparison wrapper, got %#v", nativeRoot.Fragment.ValueTransform.Child)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeScalarWrapperRootOverHistogramQuantileUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression("histogram_quantile(0.5, sum by(le, job) (rate(http_request_duration_seconds_bucket[5m]))) * 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native scalar wrapper over histogram_quantile, got error: %v", err)
+	}
+	nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindValueTransform || nativeRoot.Fragment.ValueTransform == nil || nativeRoot.Fragment.ValueTransform.Child == nil {
+		t.Fatalf("expected value-transform histogram wrapper, got %#v", nativeRoot)
+	}
+	if nativeRoot.Fragment.ValueTransform.Child.Kind != nativeplan.FragmentKindHistogramFunction {
+		t.Fatalf("expected histogram function child under scalar wrapper, got %#v", nativeRoot.Fragment.ValueTransform.Child)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeScalarWrapperRootOverRateRatioUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression("rate(http_request_duration_seconds_sum[5m]) / rate(http_request_duration_seconds_count[5m]) * 1e3")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native scalar wrapper over rate ratio, got error: %v", err)
+	}
+	nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindValueTransform || nativeRoot.Fragment.ValueTransform == nil || nativeRoot.Fragment.ValueTransform.Child == nil {
+		t.Fatalf("expected value-transform ratio wrapper, got %#v", nativeRoot)
+	}
+	if nativeRoot.Fragment.ValueTransform.Child.Kind != nativeplan.FragmentKindBinaryVectorJoin {
+		t.Fatalf("expected binary-join child under scalar wrapper, got %#v", nativeRoot.Fragment.ValueTransform.Child)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeRoundRootOverAggregatedRateRatioUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression("round(sum(rate(http_request_duration_seconds_sum[5m]) / rate(http_request_duration_seconds_count[5m])) by(pod))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native round root over aggregated rate ratio, got error: %v", err)
+	}
+	nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindValueTransform || nativeRoot.Fragment.ValueTransform == nil || nativeRoot.Fragment.ValueTransform.Child == nil {
+		t.Fatalf("expected value-transform round fragment, got %#v", nativeRoot)
+	}
+	if nativeRoot.Fragment.ValueTransform.Child.Kind != nativeplan.FragmentKindAggregation {
+		t.Fatalf("expected aggregated child under round wrapper, got %#v", nativeRoot.Fragment.ValueTransform.Child)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeCountValuesRootUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression(`count_values("sample_value", up)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native count_values root, got error: %v", err)
+	}
+	nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Source == nil {
+		t.Fatalf("expected native count_values aggregation fragment, got %#v", nativeRoot)
+	}
+	if nativeRoot.Fragment.Aggregation.Op != parser.COUNT_VALUES || nativeRoot.Fragment.Aggregation.ParamString != "sample_value" {
+		t.Fatalf("expected count_values aggregation metadata, got %#v", nativeRoot.Fragment.Aggregation)
+	}
+	if nativeRoot.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindLeafSource {
+		t.Fatalf("expected leaf child under count_values, got %#v", nativeRoot.Fragment.Aggregation.Source)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeLimitKRootUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression("limitk(2, up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native limitk root, got error: %v", err)
+	}
+	nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Op != parser.LIMITK {
+		t.Fatalf("expected native limitk aggregation fragment, got %#v", nativeRoot)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeLimitRatioRootUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression("limit_ratio(0.5, up)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native limit_ratio root, got error: %v", err)
+	}
+	nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Op != parser.LIMIT_RATIO {
+		t.Fatalf("expected native limit_ratio aggregation fragment, got %#v", nativeRoot)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeSetOperatorRootsUnderForceSupported(t *testing.T) {
+	for _, query := range []string{"up and on(job) up", "up or on(job) up", "up unless on(job) up"} {
+		expr, err := plan.ParseExpression(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+		if err != nil {
+			t.Fatalf("expected native set-operator root for %q, got error: %v", query, err)
+		}
+		nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+		if !ok {
+			t.Fatalf("expected nativeSubtreePlan root for %q, got %T", query, execPlan)
+		}
+		if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin || nativeRoot.Fragment.BinaryJoin == nil {
+			t.Fatalf("expected native binary join fragment for %q, got %#v", query, nativeRoot)
+		}
+		if nativeRoot.Fragment.BinaryJoin.JoinShape != nativeplan.JoinShapeManyToMany {
+			t.Fatalf("expected many-to-many join shape for %q, got %#v", query, nativeRoot.Fragment.BinaryJoin)
+		}
+		if nativeRoot.Fragment.BinaryJoin.Op.String() != mustParseExpr(t, query).(*parser.BinaryExpr).Op.String() {
+			t.Fatalf("expected matching set op for %q, got %#v", query, nativeRoot.Fragment.BinaryJoin)
+		}
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeTopKRootOverIRateUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression("topk(5, irate(up[1m]))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native topk root over irate, got error: %v", err)
+	}
+	nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Source == nil {
+		t.Fatalf("expected native topk aggregation fragment, got %#v", nativeRoot)
+	}
+	if nativeRoot.Fragment.Aggregation.Op != parser.TOPK {
+		t.Fatalf("expected topk aggregation op, got %#v", nativeRoot.Fragment.Aggregation)
+	}
+	if nativeRoot.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindRangeFunction {
+		t.Fatalf("expected irate child under topk, got %#v", nativeRoot.Fragment.Aggregation.Source)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeTopKRootOverHistogramQuantileUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression("topk(2, histogram_quantile(0.9, sum(rate(http_request_duration_seconds_bucket[5m])) by(le)))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native topk root over histogram quantile, got error: %v", err)
+	}
+	nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Source == nil {
+		t.Fatalf("expected native topk aggregation fragment, got %#v", nativeRoot)
+	}
+	if nativeRoot.Fragment.Aggregation.Op != parser.TOPK {
+		t.Fatalf("expected topk aggregation op, got %#v", nativeRoot.Fragment.Aggregation)
+	}
+	if nativeRoot.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindHistogramFunction {
+		t.Fatalf("expected histogram quantile child under topk, got %#v", nativeRoot.Fragment.Aggregation.Source)
+	}
+}
+
+func TestBuildPlanWithContextCreatesNativeSumOverOrVectorZeroUnderForceSupported(t *testing.T) {
+	expr, err := plan.ParseExpression("sum(rate(up[5m]) or vector(0))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModeForceSupported})
+	if err != nil {
+		t.Fatalf("expected native sum over or-vector-zero, got error: %v", err)
+	}
+	nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
+	}
+	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Source == nil {
+		t.Fatalf("expected native aggregation fragment, got %#v", nativeRoot)
+	}
+	if !nativeRoot.Fragment.Aggregation.EmitZeroOnEmpty {
+		t.Fatalf("expected zero-fill aggregation flag, got %#v", nativeRoot.Fragment.Aggregation)
+	}
+	if nativeRoot.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindRangeFunction {
+		t.Fatalf("expected rate child under zero-fill aggregation, got %#v", nativeRoot.Fragment.Aggregation.Source)
+	}
+}
+
 func TestLocalSubqueryPlanExecutesChildAcrossInstantWindow(t *testing.T) {
 	expr := mustParseExpr(t, "(up * 100)[2m:1m]")
 	calls := make([]time.Time, 0)
@@ -1939,6 +2536,31 @@ func TestLocalScalarConvertPlanInstantAndRange(t *testing.T) {
 	}
 }
 
+func TestLocalPointwiseFunctionPlanEvaluatesScalarParameterChildren(t *testing.T) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, _ EvalParams) (model.RuntimeValue, error) {
+		return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"__name__": "up", "job": "api"}, Timestamp: 12.5, Value: -3}}}, nil
+	}}
+	param := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+		return model.ScalarValue{Timestamp: float64(params.EvaluationTime.Unix()), Value: 2}, nil
+	}}
+	plan := &localPointwiseFunctionPlan{Expr: "clamp_min(up, scalar(sum(up)))", Func: "clamp_min", ParamChildren: []Plan{param}, Child: child}
+
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(10, 0).UTC()})
+	if err != nil {
+		t.Fatalf("expected successful clamp_min execution, got error: %v", err)
+	}
+	vector, ok := value.(model.VectorValue)
+	if !ok {
+		t.Fatalf("expected vector result, got %T", value)
+	}
+	if len(vector.Samples) != 1 || vector.Samples[0].Value != 2 {
+		t.Fatalf("unexpected clamp_min sample: %#v", vector.Samples)
+	}
+	if _, ok := vector.Samples[0].Metric["__name__"]; ok {
+		t.Fatalf("expected clamp_min() to drop metric name, got %#v", vector.Samples[0].Metric)
+	}
+}
+
 func TestLocalVectorPlanInstant(t *testing.T) {
 	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, _ EvalParams) (model.RuntimeValue, error) {
 		return model.ScalarValue{Timestamp: 12.5, Value: 4}, nil
@@ -2007,6 +2629,28 @@ func TestLocalSortPlanInstant(t *testing.T) {
 	}
 	if len(vector.Samples) != 2 || vector.Samples[0].Metric["job"] != "a" || vector.Samples[1].Metric["job"] != "b" {
 		t.Fatalf("unexpected sort vector result: %#v", vector.Samples)
+	}
+}
+
+func TestLocalSortPlanRangePassesThroughChild(t *testing.T) {
+	child := testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+		if params.Mode != EvalModeRange {
+			return nil, fmt.Errorf("expected range mode, got %s", params.Mode)
+		}
+		return model.MatrixValue{Series: []model.RangeSeries{{Metric: map[string]string{"job": "b"}, Values: []model.RangePoint{{Timestamp: 10, Value: 2}}}, {Metric: map[string]string{"job": "a"}, Values: []model.RangePoint{{Timestamp: 10, Value: 1}}}}}, nil
+	}}
+	plan := &localSortPlan{Expr: "sort(up)", Func: "sort", Child: child}
+
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeRange, Start: time.Unix(10, 0).UTC(), End: time.Unix(10, 0).UTC(), Step: time.Minute})
+	if err != nil {
+		t.Fatalf("expected successful sort range execution, got error: %v", err)
+	}
+	matrix, ok := value.(model.MatrixValue)
+	if !ok {
+		t.Fatalf("expected matrix result, got %T", value)
+	}
+	if len(matrix.Series) != 2 || matrix.Series[0].Metric["job"] != "b" || matrix.Series[1].Metric["job"] != "a" {
+		t.Fatalf("expected range sort to preserve child ordering, got %#v", matrix.Series)
 	}
 }
 
@@ -2336,16 +2980,63 @@ func TestLocalSubqueryPlanDefaultsMissingStepToOneMinute(t *testing.T) {
 	}
 }
 
-func TestLocalSubqueryPlanRejectsLocalRangeMode(t *testing.T) {
+func TestLocalSubqueryPlanExecutesLocalRangeMode(t *testing.T) {
 	expr := mustParseExpr(t, "(up * 100)[2m:1m]")
-	plan := &localSubqueryPlan{Expr: expr, Range: 2 * time.Minute, Step: time.Minute, Child: testQueryPlan{}}
+	calls := make([]int64, 0)
+	plan := &localSubqueryPlan{Expr: expr, Range: 2 * time.Minute, Step: time.Minute, Child: testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+		calls = append(calls, params.EvaluationTime.Unix())
+		return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: float64(params.EvaluationTime.Unix()), Value: 1}}}, nil
+	}}}
 
-	_, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: time.Minute})
-	if err == nil {
-		t.Fatal("expected unsupported local range-mode subquery execution")
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: time.Minute})
+	if err != nil {
+		t.Fatalf("expected local range-mode subquery execution, got error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "not implemented") {
-		t.Fatalf("expected not-implemented error, got %v", err)
+	matrix, ok := value.(model.MatrixValue)
+	if !ok {
+		t.Fatalf("expected matrix result, got %T", value)
+	}
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 5 {
+		t.Fatalf("expected one series with five points, got %#v", matrix.Series)
+	}
+	want := []int64{-60, 0, 60, 120, 180}
+	if len(calls) != len(want) {
+		t.Fatalf("expected %d child evaluations, got %d", len(want), len(calls))
+	}
+	for i := range want {
+		if calls[i] != want[i] {
+			t.Fatalf("expected child call %d at %d, got %d", i, want[i], calls[i])
+		}
+	}
+}
+
+func TestLocalSubqueryPlanExecutesAnchoredLocalRangeMode(t *testing.T) {
+	expr := mustParseExpr(t, `(up * 100)[2m:1m] @ end()`)
+	calls := make([]int64, 0)
+	plan := &localSubqueryPlan{Expr: expr, Range: 2 * time.Minute, Step: time.Minute, StartOrEnd: parser.END, Child: testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+		calls = append(calls, params.EvaluationTime.Unix())
+		return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: float64(params.EvaluationTime.Unix()), Value: 1}}}, nil
+	}}}
+
+	value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(180, 0).UTC(), Step: time.Minute})
+	if err != nil {
+		t.Fatalf("expected anchored local range-mode subquery execution, got error: %v", err)
+	}
+	matrix, ok := value.(model.MatrixValue)
+	if !ok {
+		t.Fatalf("expected matrix result, got %T", value)
+	}
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 2 {
+		t.Fatalf("expected anchored subquery to materialize one fixed window, got %#v", matrix.Series)
+	}
+	want := []int64{120, 180}
+	if len(calls) != len(want) {
+		t.Fatalf("expected %d child evaluations, got %d", len(want), len(calls))
+	}
+	for i := range want {
+		if calls[i] != want[i] {
+			t.Fatalf("expected anchored child call %d at %d, got %d", i, want[i], calls[i])
+		}
 	}
 }
 

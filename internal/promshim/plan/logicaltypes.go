@@ -166,6 +166,14 @@ type LogicalHistogramProjectionPlan struct {
 	Child LogicalPlan
 }
 
+type LogicalHistogramQuantilesPlan struct {
+	Expr          parser.Expr
+	Label         string
+	ParamNumbers  []*float64
+	ParamChildren []LogicalPlan
+	Child         LogicalPlan
+}
+
 func (*LogicalHistogramProjectionPlan) logicalPlan() {}
 func (p *LogicalHistogramProjectionPlan) valueType() parser.ValueType {
 	if p.Expr == nil {
@@ -181,6 +189,22 @@ func (p *LogicalHistogramProjectionPlan) exprString() string {
 	return p.Expr.String()
 }
 func (p *LogicalHistogramProjectionPlan) ExprString() string { return p.exprString() }
+
+func (*LogicalHistogramQuantilesPlan) logicalPlan() {}
+func (p *LogicalHistogramQuantilesPlan) valueType() parser.ValueType {
+	if p.Expr == nil {
+		return parser.ValueTypeNone
+	}
+	return p.Expr.Type()
+}
+func (p *LogicalHistogramQuantilesPlan) ValueType() parser.ValueType { return p.valueType() }
+func (p *LogicalHistogramQuantilesPlan) exprString() string {
+	if p.Expr == nil {
+		return ""
+	}
+	return p.Expr.String()
+}
+func (p *LogicalHistogramQuantilesPlan) ExprString() string { return p.exprString() }
 
 type LogicalRangeFunctionPlan struct {
 	Expr         parser.Expr
@@ -316,10 +340,11 @@ func (p *LogicalInfoPlan) exprString() string {
 func (p *LogicalInfoPlan) ExprString() string { return p.exprString() }
 
 type LogicalPointwiseFunctionPlan struct {
-	Expr         parser.Expr
-	Func         string
-	ParamNumbers []*float64
-	Child        LogicalPlan
+	Expr          parser.Expr
+	Func          string
+	ParamNumbers  []*float64
+	ParamChildren []LogicalPlan
+	Child         LogicalPlan
 }
 
 func (*LogicalPointwiseFunctionPlan) logicalPlan() {}

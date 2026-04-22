@@ -53,12 +53,7 @@ type featureSpec struct {
 
 const prometheusVersion = "v0.311.2"
 
-var partialOverrides = map[string][]string{
-	"clamp":     {"current native support is limited to literal bounds"},
-	"clamp_min": {"current native support is limited to literal bounds"},
-	"clamp_max": {"current native support is limited to literal bounds"},
-	"info":      {"current native support is limited to the single-info-metric join subset"},
-}
+var partialOverrides = map[string][]string{}
 
 func main() {
 	jsonOut := flag.String("json-out", filepath.FromSlash(".pi/path2-compliance-matrix.json"), "JSON output path")
@@ -130,7 +125,7 @@ func buildRow(spec featureSpec) (matrixRow, error) {
 		return matrixRow{}, err
 	}
 	status := compliance.ClassifyPath2Status(snapshot, spec.Query)
-	if notes, ok := partialOverrides[spec.Name]; ok && snapshot.PlanSupported {
+	if notes, ok := partialOverrides[spec.Name]; ok && status == "partial" && snapshot.PlanSupported {
 		spec.Notes = append(spec.Notes, notes...)
 	}
 	row := matrixRow{

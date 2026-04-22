@@ -3,6 +3,7 @@ package renderer
 import (
 	"fmt"
 	"math"
+	"strings"
 
 	"ch-observability/internal/promshim/native"
 	"ch-observability/internal/promshim/native/sqlb"
@@ -102,6 +103,10 @@ func classicHistogramProjectionValueExpr(buckets sqlb.Expr, fn string) (sqlb.Exp
 	sumRendered := renderSQLExprNoParams(sumExpr)
 	avgExpr := sqlb.RawLit{V: "if(isNaN(" + countRendered + ") OR (" + countRendered + ") <= 0 OR isNaN(" + sumRendered + "), nan, (" + sumRendered + ") / (" + countRendered + "))"}
 
+	meanRendered := "(" + sumRendered + ") / (" + countRendered + ")"
+	varianceExpr := sqlb.RawLit{V: "if(isNaN(" + countRendered + ") OR (" + countRendered + ") <= 0 OR isNaN(" + sumRendered + "), nan, arraySum(arrayMap((delta, midpoint) -> toFloat64(ifNull(delta * pow(midpoint - (" + meanRendered + "), 2), nan)), " + renderSQLExprNoParams(deltas) + ", " + renderSQLExprNoParams(midpoints) + ")) / (" + countRendered + "))"}
+	stddevExpr := sqlb.RawLit{V: "sqrt(" + renderSQLExprNoParams(varianceExpr) + ")"}
+
 	switch fn {
 	case "histogram_count":
 		return countExpr, nil
@@ -109,6 +114,10 @@ func classicHistogramProjectionValueExpr(buckets sqlb.Expr, fn string) (sqlb.Exp
 		return sumExpr, nil
 	case "histogram_avg":
 		return avgExpr, nil
+	case "histogram_stdvar":
+		return varianceExpr, nil
+	case "histogram_stddev":
+		return stddevExpr, nil
 	default:
 		return nil, fmt.Errorf("histogram projection function %q is not implemented yet", fn)
 	}
@@ -159,15 +168,10 @@ func classicHistogramFractionValueExpr(buckets sqlb.Expr, lower, upper float64) 
 	}
 }
 
-func classicHistogramQuantileValueExpr(buckets sqlb.Expr, quantile float64) sqlb.Expr {
-	if math.IsNaN(quantile) {
-		return sqlb.RawLit{V: "nan"}
-	}
-	if quantile < 0 {
-		return sqlb.RawLit{V: "-inf"}
-	}
-	if quantile > 1 {
-		return sqlb.RawLit{V: "inf"}
+func classicHistogramQuantileValueExprForExpr(buckets sqlb.Expr, quantileExpr string) sqlb.Expr {
+	quantileExpr = strings.TrimSpace(quantileExpr)
+	if quantileExpr == "" {
+		quantileExpr = "nan"
 	}
 	counts := bucketCountsExpr(buckets)
 	upperBounds := bucketUpperBoundsExpr(buckets)
@@ -175,12 +179,11 @@ func classicHistogramQuantileValueExpr(buckets sqlb.Expr, quantile float64) sqlb
 	normalizedCounts := bucketNormalizedCountsExpr(counts, prevCounts)
 	observations := arrayLastValue(normalizedCounts)
 
-	qLit := storage.NativeFloatLiteral(quantile)
 	observationsSQL := renderSQLExprNoParams(observations)
 	normalizedSQL := renderSQLExprNoParams(normalizedCounts)
 	upperBoundsSQL := renderSQLExprNoParams(upperBounds)
 
-	rankSQL := "(" + qLit + " * (" + observationsSQL + "))"
+	rankSQL := "((" + quantileExpr + ") * (" + observationsSQL + "))"
 	searchCountsSQL := "arraySlice(" + normalizedSQL + ", 1, length(" + normalizedSQL + ") - 1)"
 	bucketIndexSQL := "arrayFirstIndex(v -> v >= " + rankSQL + ", " + searchCountsSQL + ")"
 	bucketEndSQL := "arrayElement(" + upperBoundsSQL + ", " + bucketIndexSQL + ")"
@@ -191,6 +194,9 @@ func classicHistogramQuantileValueExpr(buckets sqlb.Expr, quantile float64) sqlb
 	lastUpperSQL := renderSQLExprNoParams(sqlb.TupleElem{X: arrayLastElement(buckets), K: 1})
 	return sqlb.MultiIf{
 		Cases: []sqlb.MultiIfArm{
+			{When: sqlb.RawLit{V: "isNaN(" + quantileExpr + ")"}, Then: sqlb.RawLit{V: "nan"}},
+			{When: sqlb.RawLit{V: "(" + quantileExpr + ") < 0"}, Then: sqlb.RawLit{V: "-inf"}},
+			{When: sqlb.RawLit{V: "(" + quantileExpr + ") > 1"}, Then: sqlb.RawLit{V: "inf"}},
 			{When: sqlb.RawLit{V: "length(buckets) < 2"}, Then: sqlb.RawLit{V: "nan"}},
 			{When: sqlb.RawLit{V: "NOT isInfinite(" + lastUpperSQL + ")"}, Then: sqlb.RawLit{V: "nan"}},
 			{When: sqlb.RawLit{V: "isNaN(" + observationsSQL + ") OR (" + observationsSQL + ") <= 0"}, Then: sqlb.RawLit{V: "nan"}},
@@ -200,6 +206,10 @@ func classicHistogramQuantileValueExpr(buckets sqlb.Expr, quantile float64) sqlb
 		},
 		Else: sqlb.RawLit{V: "(" + bucketStartSQL + ") + ((" + bucketEndSQL + ") - (" + bucketStartSQL + ")) * ((" + rankInBucketSQL + ") / (" + bucketCountSQL + "))"},
 	}
+}
+
+func classicHistogramQuantileValueExpr(buckets sqlb.Expr, quantile float64) sqlb.Expr {
+	return classicHistogramQuantileValueExprForExpr(buckets, storage.NativeFloatLiteral(quantile))
 }
 
 func renderHistogramFunctionFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
@@ -217,6 +227,8 @@ func renderHistogramFunctionFragment(cfg storage.QueryConfig, fragment *native.N
 			return renderedFragment{}, fmt.Errorf("histogram_quantile fragment requires a quantile parameter")
 		}
 		valueExpr = classicHistogramQuantileValueExpr(sqlb.Ident("buckets"), *fragment.HistogramFunction.Quantile)
+	case "histogram_quantiles":
+		return renderHistogramQuantilesFragment(cfg, fragment, params, histograms)
 	case "histogram_fraction":
 		if fragment.HistogramFunction.Lower == nil || fragment.HistogramFunction.Upper == nil {
 			return renderedFragment{}, fmt.Errorf("histogram_fraction fragment requires lower and upper parameters")
@@ -226,6 +238,65 @@ func renderHistogramFunctionFragment(cfg storage.QueryConfig, fragment *native.N
 		return renderedFragment{}, fmt.Errorf("histogram function %q is not implemented yet", fragment.HistogramFunction.Func)
 	}
 	return histogramOutputFragment(histograms, valueExpr, params.Mode, "histogram_function_steps"), nil
+}
+
+func renderHistogramQuantilesFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams, histograms renderedFragment) (renderedFragment, error) {
+	if fragment == nil || fragment.HistogramFunction == nil {
+		return renderedFragment{}, fmt.Errorf("histogram_quantiles fragment is missing metadata")
+	}
+	finalized, err := finalizeRenderedFragment(histograms)
+	if err != nil {
+		return renderedFragment{}, err
+	}
+	queries := make([]string, 0, len(fragment.HistogramFunction.Quantiles))
+	queryParams := map[string]string{}
+	mergeRenderedQueryParams(queryParams, finalized.QueryParams)
+	for i, quantile := range fragment.HistogramFunction.Quantiles {
+		alias := fmt.Sprintf("histogram_quantile_%d", i)
+		switch params.Mode {
+		case native.RenderModeInstant:
+			instantBindingSQL, instantParams, quantileValueExpr, err := renderInstantScalarBinding(cfg, quantile, params, alias)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			mergeRenderedQueryParams(queryParams, instantParams)
+			quantileLabelExpr := openMetricsFloatExpr(quantileValueExpr)
+			addedTagsExpr := "arrayPushBack(classic_histograms.tags, tuple(" + sqlStringLiteral(fragment.HistogramFunction.Label) + ", " + quantileLabelExpr + "))"
+			valueExpr := renderSQLExprNoParams(classicHistogramQuantileValueExprForExpr(sqlb.Ident("buckets"), quantileValueExpr))
+			joinSQL := ""
+			if instantBindingSQL != "" {
+				joinSQL = " CROSS JOIN (" + instantBindingSQL + ") AS " + alias
+			}
+			queries = append(queries, "SELECT "+addedTagsExpr+" AS tags, classic_histograms.timestamp AS timestamp, "+valueExpr+" AS value FROM ("+trimRenderedQuerySQL(finalized.SQL)+") AS classic_histograms"+joinSQL)
+		case native.RenderModeRange:
+			rangeBindingSQL, rangeParams, quantileValueExpr, err := renderRangeScalarBinding(cfg, quantile, params, alias)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			mergeRenderedQueryParams(queryParams, rangeParams)
+			quantileLabelExpr := openMetricsFloatExpr(quantileValueExpr)
+			addedTagsExpr := "arrayPushBack(classic_histograms.tags, tuple(" + sqlStringLiteral(fragment.HistogramFunction.Label) + ", " + quantileLabelExpr + "))"
+			valueExpr := renderSQLExprNoParams(classicHistogramQuantileValueExprForExpr(sqlb.Ident("buckets"), quantileValueExpr))
+			joinSQL := ""
+			if rangeBindingSQL != "" {
+				joinSQL = " LEFT JOIN (" + rangeBindingSQL + ") AS " + alias + " ON " + alias + ".timestamp = classic_histograms.timestamp"
+			}
+			queries = append(queries, "SELECT "+addedTagsExpr+" AS tags, classic_histograms.timestamp AS timestamp, "+valueExpr+" AS value FROM ("+trimRenderedQuerySQL(finalized.SQL)+") AS classic_histograms"+joinSQL)
+		default:
+			return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
+		}
+	}
+	unionSQL := strings.Join(queries, " UNION ALL ")
+	if params.Mode != native.RenderModeRange {
+		return renderedFragment{RawSQL: trimRenderedQuerySQL(unionSQL), ExtraParams: queryParams}, nil
+	}
+	finalSQL := "SELECT tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series FROM (" + unionSQL + ") AS histogram_quantiles_rows GROUP BY tags ORDER BY tags"
+	return renderedFragment{RawSQL: trimRenderedQuerySQL(finalSQL), ExtraParams: queryParams}, nil
+}
+
+func openMetricsFloatExpr(valueExpr string) string {
+	valueExpr = strings.TrimSpace(valueExpr)
+	return "multiIf(isNaN(" + valueExpr + "), 'NaN', isInfinite(" + valueExpr + ") AND (" + valueExpr + ") > 0, '+Inf', isInfinite(" + valueExpr + ") AND (" + valueExpr + ") < 0, '-Inf', (" + valueExpr + ") = 1, '1.0', (" + valueExpr + ") = 0, '0.0', (" + valueExpr + ") = -1, '-1.0', if(position(toString(" + valueExpr + "), '.') > 0 OR position(lower(toString(" + valueExpr + ")), 'e') > 0, toString(" + valueExpr + "), concat(toString(" + valueExpr + "), '.0')))"
 }
 
 func histogramOutputFragment(histograms renderedFragment, valueExpr sqlb.Expr, mode native.RenderMode, rangeAlias string) renderedFragment {
@@ -257,7 +328,7 @@ func histogramOutputFragment(histograms renderedFragment, valueExpr sqlb.Expr, m
 // bucketCountsExpr yields arrayMap(bucket -> toFloat64(tupleElement(bucket, 2)), buckets).
 func bucketCountsExpr(buckets sqlb.Expr) sqlb.Expr {
 	return sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{
-		sqlb.RawLit{V: "bucket -> toFloat64(tupleElement(bucket, 2))"},
+		sqlb.RawLit{V: "bucket -> toFloat64(ifNull(tupleElement(bucket, 2), nan))"},
 		buckets,
 	}}
 }
@@ -265,7 +336,7 @@ func bucketCountsExpr(buckets sqlb.Expr) sqlb.Expr {
 // bucketUpperBoundsExpr yields arrayMap(bucket -> toFloat64(tupleElement(bucket, 1)), buckets).
 func bucketUpperBoundsExpr(buckets sqlb.Expr) sqlb.Expr {
 	return sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{
-		sqlb.RawLit{V: "bucket -> toFloat64(tupleElement(bucket, 1))"},
+		sqlb.RawLit{V: "bucket -> toFloat64(ifNull(tupleElement(bucket, 1), nan))"},
 		buckets,
 	}}
 }

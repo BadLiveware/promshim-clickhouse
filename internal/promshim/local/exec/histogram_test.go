@@ -115,6 +115,48 @@ func TestApplyHistogramProjectionRuntimeValuesOnClassicBuckets(t *testing.T) {
 	assertFloatClose(t, avgVector.Samples[0].Value, 0.225)
 }
 
+func TestApplyHistogramQuantilesRuntimeValueAddsDestinationLabel(t *testing.T) {
+	value, err := ApplyHistogramQuantilesRuntimeValue("quantile", []*float64{floatPtr(0.5), floatPtr(0.9)}, model.VectorValue{Samples: []model.InstantSample{
+		{Metric: map[string]string{"__name__": "request_duration_seconds_bucket", "job": "api", "le": "0.1"}, Timestamp: 42, Value: 2},
+		{Metric: map[string]string{"__name__": "request_duration_seconds_bucket", "job": "api", "le": "0.2"}, Timestamp: 42, Value: 6},
+		{Metric: map[string]string{"__name__": "request_duration_seconds_bucket", "job": "api", "le": "0.5"}, Timestamp: 42, Value: 9},
+		{Metric: map[string]string{"__name__": "request_duration_seconds_bucket", "job": "api", "le": "+Inf"}, Timestamp: 42, Value: 10},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vector := value.(model.VectorValue)
+	if len(vector.Samples) != 2 {
+		t.Fatalf("expected two histogram_quantiles samples, got %#v", vector.Samples)
+	}
+	if vector.Samples[0].Metric["quantile"] != "0.5" || vector.Samples[1].Metric["quantile"] != "0.9" {
+		t.Fatalf("unexpected histogram_quantiles labels: %#v", vector.Samples)
+	}
+}
+
+func TestApplyHistogramStdProjectionRuntimeValuesOnClassicBuckets(t *testing.T) {
+	input := model.VectorValue{Samples: []model.InstantSample{
+		{Metric: map[string]string{"__name__": "request_duration_seconds_bucket", "job": "api", "le": "0.1"}, Timestamp: 42, Value: 2},
+		{Metric: map[string]string{"__name__": "request_duration_seconds_bucket", "job": "api", "le": "0.2"}, Timestamp: 42, Value: 6},
+		{Metric: map[string]string{"__name__": "request_duration_seconds_bucket", "job": "api", "le": "0.5"}, Timestamp: 42, Value: 9},
+		{Metric: map[string]string{"__name__": "request_duration_seconds_bucket", "job": "api", "le": "+Inf"}, Timestamp: 42, Value: 10},
+	}}
+	stddevValue, err := ApplyHistogramStdDevRuntimeValue(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdvarValue, err := ApplyHistogramStdVarRuntimeValue(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stddevVector := stddevValue.(model.VectorValue)
+	stdvarVector := stdvarValue.(model.VectorValue)
+	if len(stddevVector.Samples) != 1 || len(stdvarVector.Samples) != 1 {
+		t.Fatalf("expected one output sample from histogram std projections, got stddev=%#v stdvar=%#v", stddevVector.Samples, stdvarVector.Samples)
+	}
+	assertFloatClose(t, stddevVector.Samples[0].Value, math.Sqrt(stdvarVector.Samples[0].Value))
+}
+
 func TestApplyHistogramProjectionRuntimeValuesIgnoreNonHistogramInputs(t *testing.T) {
 	input := model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"__name__": "up", "job": "api"}, Timestamp: 42, Value: 1}}}
 

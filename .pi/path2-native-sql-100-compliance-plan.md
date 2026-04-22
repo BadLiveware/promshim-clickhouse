@@ -22,7 +22,7 @@ For this plan, Path 2 is considered complete only when all of the following are 
    - staleness / lookback behavior
    - boundary inclusivity / exclusivity behavior
 4. The current README matrix stops saying `subset`, `mostly yes`, or `no` for Path 2.
-5. There are **no intentional keep-local exceptions** left for PromQL language support. That means the current `quantile_over_time` keep-local note must be retired if the 100% target is to be met.
+5. There are **no intentional keep-local exceptions** left for PromQL language support. The prior `quantile_over_time` keep-local note has now been retired by native lowering and validated native-only coverage.
 
 Scope boundary:
 
@@ -59,9 +59,9 @@ Path 2 currently stands at:
 | Pointwise math/trig/date transforms | Mostly yes |
 | Scalar/date builtins | Yes |
 | `scalar(v)` | Yes |
-| `info(...)` | Yes, subset |
+| `info(...)` | Yes |
 | Range/counter family | Broad supported subset |
-| `quantile_over_time` | No, intentionally local |
+| `quantile_over_time` | Yes |
 | Sort family | No |
 | `round` | No |
 | `label_replace`, `label_join` | No |
@@ -238,6 +238,11 @@ Primary code areas:
 - SQL builders for windows/arrays in `internal/promshim/storage/*`
 - local reference behavior in `internal/promshim/exec/*`
 
+Implementation note:
+
+- keep range-mode subquery materialization centralized at the native subquery renderer boundary so counter/range consumers (`rate`/`increase`/`delta`/`changes`/`deriv`/`*_over_time`/`absent_over_time`) share one envelope-expansion path for step-grid alignment, offsets, and required input bounds
+- keep fixed-anchor (`@ <ts>`, `@ start()`, `@ end()`) range-mode handling centralized at the renderer boundary as well: evaluate anchored fragments once at the resolved anchor, then shape instant-vector/scalar outputs onto the outer range grid while leaving matrix-producing anchored fragments anchored to their single materialized window
+
 Acceptance:
 
 - no Path 2 `subset` caveat remains for range/counter families
@@ -325,6 +330,11 @@ Scope:
 - parameter validation and error parity
 - nested aggregation composition in native fragments
 
+Current status note:
+
+- native root selection aggregation for `topk(...)` over native rate-family and histogram-quantile children is now closed, including range-mode selection semantics and histogram tag propagation through the wrapper path
+- `count_values` remains the main explicit aggregation-family holdout in this section
+
 Why this is very hard:
 
 - some aggregators require ordered selection semantics rather than simple grouped reduction
@@ -368,6 +378,12 @@ Acceptance:
 - native-only mode passes `quantile_over_time` cases
 - README flips from `No` to `Yes`
 
+Status update:
+
+- native `quantile_over_time` lowering is now closed for lowerable matrix children, including direct range selectors and subquery-fed cases
+- native rendering uses the shared windowed-arrays source with Prometheus-compatible quantile interpolation semantics
+- targeted native-only corpus validation for the `quantile_over_time` cases is green
+
 ### 8. Complete `info(...)` semantics
 
 README already says Path 2 supports a subset. The subset boundary has to disappear.
@@ -389,6 +405,24 @@ Acceptance:
 
 - subset qualifier removed
 - native-only mode passes full `info(...)` matrix
+
+Status update:
+
+- native `info(...)` lowering now covers the former subset gap, including regex and negative metric-name selector forms via matcher-driven info-series selection and merged multi-`*_info` label joins
+- repo validation is green across planner/native/renderer/execution/service coverage and the compliance matrix now marks `info` as `yes`
+- differential harness comparison against the current reference Prometheus image cannot validate `info(...)` because that image rejects the function at parse time
+- `vector()` and the timestamp-returning over-time helper gap are now also closed natively; `vector`, `first_over_time`, `ts_of_first_over_time`, `ts_of_last_over_time`, `ts_of_max_over_time`, and `ts_of_min_over_time` all now report `yes` in the Path 2 matrix
+- the `clamp` family is now closed as well: `clamp`, `clamp_min`, and `clamp_max` now lower natively through scalar-bound child fragments instead of the old literal-only fast path, so the Path 2 matrix no longer has any partial rows
+- targeted native-only differential validation for the clamp slice is green via a custom corpus covering literal and scalar-child instant/range forms (`6 ok / 0 error / 0 diff`)
+- the sort family is now closed too: `sort`, `sort_desc`, `sort_by_label`, and `sort_by_label_desc` lower natively for instant queries and intentionally preserve Prometheus no-op semantics for range queries; local sorting now also uses natural label ordering to match upstream behavior
+- targeted native-only differential validation for the sort slice is green via a custom corpus covering instant ordering plus range-query passthrough (`6 ok / 0 error / 0 diff`)
+- the histogram helper holdouts are now closed too: `histogram_quantiles`, `histogram_stddev`, and `histogram_stdvar` all lower natively, with `histogram_quantiles` using shared classic-histogram materialization plus scalar quantile argument bindings and `histogram_stddev`/`histogram_stdvar` extending the existing projection path
+- targeted native-only differential validation for the histogram std-helper slice is green via a custom corpus on non-histogram inputs (`4 ok / 0 error / 0 diff`)
+- the current reference Prometheus image in the harness environment still rejects `histogram_quantiles(...)` at parse time, so differential harness comparison for that function remains unavailable here even though repo validation and the compliance matrix are green
+- the label-mutation holdouts are now closed too: `label_replace` and `label_join` both lower natively for lowerable instant-vector children, including range-query matrix shaping, destination-label overwrite/delete semantics, duplicate-labelset detection, and `__name__` preservation/rewriting when the destination label is `__name__`
+- selector-backed aggregation over native label-mutation children now stays native as well, so compositions like `sum by (...) (label_join(...))` no longer need the old local fallback path
+- targeted native-only differential validation for the label-mutation slice is green via a custom corpus covering instant/range behavior plus metric-name preservation forms (`8 ok / 0 error / 0 diff`)
+- the Path 2 compliance matrix now has zero remaining non-`yes` rows; the last bucket is closed
 
 ### 9. Finish the pointwise/math/trig/date/function closure
 
@@ -442,6 +476,10 @@ Acceptance:
 
 README currently marks `round` as unsupported natively.
 
+Current status note:
+
+- native `round(...)` lowering is now implemented via the shared value-transform wrapper path, including composition over native aggregation/binary/rate-family children
+
 Scope:
 
 - `round(v)`
@@ -464,6 +502,10 @@ Scope:
 - any remaining gaps in `scalar(v)`
 - any remaining synthetic/date builtin edge cases
 - any wrapper/operator combinations that are still marked `subset` only because composition is incomplete
+
+Current status note:
+
+- the previously open rate-family/root-composition gaps for unary wrappers, scalar wrappers, `round(...)`, `topk(...)`, histogram-topk composition, and `sum(... or vector(0))` zero-fill aggregation are now closed in native-only validation
 
 Why this is moderate:
 

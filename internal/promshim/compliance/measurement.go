@@ -21,13 +21,6 @@ type NativeMeasurementSnapshot struct {
 }
 
 func ClassifyPath2Status(snapshot NativeMeasurementSnapshot, query string) string {
-	name := MeasurementFunctionName(query)
-	switch name {
-	case "clamp", "clamp_min", "clamp_max":
-		return "partial"
-	case "info":
-		return "partial"
-	}
 	if snapshot.NativeLowerable {
 		return "yes"
 	}

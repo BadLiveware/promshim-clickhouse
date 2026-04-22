@@ -1,57 +1,5 @@
 {
   "prometheusVersion": "v0.311.2",
-  "unsupportedBucketSummary": [
-    {
-      "bucket": "histogram_helpers",
-      "count": 8
-    },
-    {
-      "bucket": "other",
-      "count": 5
-    },
-    {
-      "bucket": "selection_aggregations",
-      "count": 5
-    },
-    {
-      "bucket": "sort_family",
-      "count": 4
-    },
-    {
-      "bucket": "vector_matching_and_joins",
-      "count": 3
-    },
-    {
-      "bucket": "absent_family",
-      "count": 2
-    },
-    {
-      "bucket": "label_mutation",
-      "count": 2
-    },
-    {
-      "bucket": "quantile_over_time",
-      "count": 1
-    },
-    {
-      "bucket": "round_function",
-      "count": 1
-    },
-    {
-      "bucket": "vector_wrapper",
-      "count": 1
-    }
-  ],
-  "partialBucketSummary": [
-    {
-      "bucket": "clamp_family",
-      "count": 3
-    },
-    {
-      "bucket": "info_function",
-      "count": 1
-    }
-  ],
   "rows": [
     {
       "id": "aggregation:avg",
@@ -64,7 +12,7 @@
       "planSupported": true,
       "planDifficulty": "medium",
       "nativeLowerable": true,
-      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child source avoids materializing the full child result in Go",
+      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child avoids materializing the full child result in Go",
       "fragmentKind": "aggregation",
       "aggregationEligible": true
     },
@@ -73,13 +21,15 @@
       "kind": "aggregation",
       "name": "bottomk",
       "query": "bottomk(3, harness_up)",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "selection_aggregations",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "medium",
-      "nativeLowerable": false,
-      "nativeReason": "aggregation operator is not supported by native SQL pushdown"
+      "nativeLowerable": true,
+      "nativeReason": "pushing selection aggregation into native ClickHouse SQL over a lowerable child preserves the selected series without local materialization",
+      "fragmentKind": "aggregation",
+      "aggregationEligible": true
     },
     {
       "id": "aggregation:count",
@@ -92,7 +42,7 @@
       "planSupported": true,
       "planDifficulty": "medium",
       "nativeLowerable": true,
-      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child source avoids materializing the full child result in Go",
+      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child avoids materializing the full child result in Go",
       "fragmentKind": "aggregation",
       "aggregationEligible": true
     },
@@ -101,13 +51,15 @@
       "kind": "aggregation",
       "name": "count_values",
       "query": "count_values(\"sample_value\", harness_up)",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "selection_aggregations",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "medium",
-      "nativeLowerable": false,
-      "nativeReason": "aggregation operator is not supported by native SQL pushdown"
+      "nativeLowerable": true,
+      "nativeReason": "count_values can lower to native SQL by synthesizing the destination label from sample values before grouped counting",
+      "fragmentKind": "aggregation",
+      "aggregationEligible": true
     },
     {
       "id": "aggregation:group",
@@ -120,7 +72,7 @@
       "planSupported": true,
       "planDifficulty": "medium",
       "nativeLowerable": true,
-      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child source avoids materializing the full child result in Go",
+      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child avoids materializing the full child result in Go",
       "fragmentKind": "aggregation",
       "aggregationEligible": true
     },
@@ -129,13 +81,15 @@
       "kind": "aggregation",
       "name": "limit_ratio",
       "query": "limit_ratio(0.5, harness_up)",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "selection_aggregations",
       "prometheusVersion": "v0.311.2",
-      "planSupported": false,
+      "planSupported": true,
       "planDifficulty": "medium",
-      "planReason": "aggregation operator \"limit_ratio\" is not implemented yet",
-      "nativeLowerable": false,
+      "nativeLowerable": true,
+      "nativeReason": "pushing selection aggregation into native ClickHouse SQL over a lowerable child preserves the selected series without local materialization",
+      "fragmentKind": "aggregation",
+      "aggregationEligible": true,
       "notes": [
         "PromQL experimental aggregation"
       ]
@@ -145,13 +99,15 @@
       "kind": "aggregation",
       "name": "limitk",
       "query": "limitk(2, harness_up)",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "selection_aggregations",
       "prometheusVersion": "v0.311.2",
-      "planSupported": false,
+      "planSupported": true,
       "planDifficulty": "medium",
-      "planReason": "aggregation operator \"limitk\" is not implemented yet",
-      "nativeLowerable": false,
+      "nativeLowerable": true,
+      "nativeReason": "pushing selection aggregation into native ClickHouse SQL over a lowerable child preserves the selected series without local materialization",
+      "fragmentKind": "aggregation",
+      "aggregationEligible": true,
       "notes": [
         "PromQL experimental aggregation"
       ]
@@ -167,7 +123,7 @@
       "planSupported": true,
       "planDifficulty": "medium",
       "nativeLowerable": true,
-      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child source avoids materializing the full child result in Go",
+      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child avoids materializing the full child result in Go",
       "fragmentKind": "aggregation",
       "aggregationEligible": true
     },
@@ -182,7 +138,7 @@
       "planSupported": true,
       "planDifficulty": "medium",
       "nativeLowerable": true,
-      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child source avoids materializing the full child result in Go",
+      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child avoids materializing the full child result in Go",
       "fragmentKind": "aggregation",
       "aggregationEligible": true
     },
@@ -197,7 +153,7 @@
       "planSupported": true,
       "planDifficulty": "medium",
       "nativeLowerable": true,
-      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child source avoids materializing the full child result in Go",
+      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child avoids materializing the full child result in Go",
       "fragmentKind": "aggregation",
       "aggregationEligible": true
     },
@@ -212,7 +168,7 @@
       "planSupported": true,
       "planDifficulty": "medium",
       "nativeLowerable": true,
-      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child source avoids materializing the full child result in Go",
+      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child avoids materializing the full child result in Go",
       "fragmentKind": "aggregation",
       "aggregationEligible": true
     },
@@ -227,7 +183,7 @@
       "planSupported": true,
       "planDifficulty": "medium",
       "nativeLowerable": true,
-      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child source avoids materializing the full child result in Go",
+      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child avoids materializing the full child result in Go",
       "fragmentKind": "aggregation",
       "aggregationEligible": true
     },
@@ -242,7 +198,7 @@
       "planSupported": true,
       "planDifficulty": "medium",
       "nativeLowerable": true,
-      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child source avoids materializing the full child result in Go",
+      "nativeReason": "pushing aggregation into native ClickHouse SQL over a lowerable child avoids materializing the full child result in Go",
       "fragmentKind": "aggregation",
       "aggregationEligible": true
     },
@@ -251,13 +207,15 @@
       "kind": "aggregation",
       "name": "topk",
       "query": "topk(3, harness_up)",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "selection_aggregations",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "medium",
-      "nativeLowerable": false,
-      "nativeReason": "aggregation operator is not supported by native SQL pushdown"
+      "nativeLowerable": true,
+      "nativeReason": "pushing selection aggregation into native ClickHouse SQL over a lowerable child preserves the selected series without local materialization",
+      "fragmentKind": "aggregation",
+      "aggregationEligible": true
     },
     {
       "id": "binary:add",
@@ -278,13 +236,14 @@
       "kind": "binary",
       "name": "and",
       "query": "harness_up and on(job) harness_up",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "vector_matching_and_joins",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "hard",
-      "nativeLowerable": false,
-      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children"
+      "nativeLowerable": true,
+      "nativeReason": "vector-vector binary join can lower to native SQL for the supported matching subset",
+      "fragmentKind": "binary_vector_join"
     },
     {
       "id": "binary:div",
@@ -431,13 +390,14 @@
       "kind": "binary",
       "name": "or",
       "query": "harness_up or on(job) harness_up",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "vector_matching_and_joins",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "hard",
-      "nativeLowerable": false,
-      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children"
+      "nativeLowerable": true,
+      "nativeReason": "vector-vector binary join can lower to native SQL for the supported matching subset",
+      "fragmentKind": "binary_vector_join"
     },
     {
       "id": "binary:pow",
@@ -472,13 +432,14 @@
       "kind": "binary",
       "name": "unless",
       "query": "harness_up unless on(job) harness_up",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "vector_matching_and_joins",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "hard",
-      "nativeLowerable": false,
-      "nativeReason": "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children"
+      "nativeLowerable": true,
+      "nativeReason": "vector-vector binary join can lower to native SQL for the supported matching subset",
+      "fragmentKind": "binary_vector_join"
     },
     {
       "id": "function:abs",
@@ -499,26 +460,28 @@
       "kind": "function",
       "name": "absent",
       "query": "absent(nonexistent_metric{job=\"api\"})",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "absent_family",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "medium",
-      "nativeLowerable": false,
-      "nativeReason": "absent() currently stays on the local execution path"
+      "nativeLowerable": true,
+      "nativeReason": "absent() can lower to native SQL by testing whether the lowerable child instant vector returns any rows",
+      "fragmentKind": "absent"
     },
     {
       "id": "function:absent_over_time",
       "kind": "function",
       "name": "absent_over_time",
       "query": "absent_over_time(nonexistent_metric{job=\"api\"}[5m])",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "absent_family",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "hard",
-      "nativeLowerable": false,
-      "nativeReason": "absent_over_time currently stays on the local execution path"
+      "nativeLowerable": true,
+      "nativeReason": "absent_over_time can lower to native SQL by testing whether the lowerable range child window contains any samples",
+      "fragmentKind": "absent"
     },
     {
       "id": "function:acos",
@@ -651,51 +614,42 @@
       "kind": "function",
       "name": "clamp",
       "query": "clamp(harness_up, 0, 1)",
-      "path2Status": "partial",
+      "path2Status": "yes",
       "implementationBucket": "clamp_family",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "hard",
       "nativeLowerable": true,
-      "nativeReason": "clamp can lower to a native SQL source expression",
-      "fragmentKind": "unary_source_expression",
-      "notes": [
-        "current native support is limited to literal bounds"
-      ]
+      "nativeReason": "clamp can lower to native SQL by joining scalar bound fragments onto the vector child",
+      "fragmentKind": "clamp_transform"
     },
     {
       "id": "function:clamp_max",
       "kind": "function",
       "name": "clamp_max",
       "query": "clamp_max(harness_up, 1)",
-      "path2Status": "partial",
+      "path2Status": "yes",
       "implementationBucket": "clamp_family",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "hard",
       "nativeLowerable": true,
-      "nativeReason": "clamp_max can lower to a native SQL source expression",
-      "fragmentKind": "unary_source_expression",
-      "notes": [
-        "current native support is limited to literal bounds"
-      ]
+      "nativeReason": "clamp_max can lower to native SQL by joining scalar bound fragments onto the vector child",
+      "fragmentKind": "clamp_transform"
     },
     {
       "id": "function:clamp_min",
       "kind": "function",
       "name": "clamp_min",
       "query": "clamp_min(harness_up, 0)",
-      "path2Status": "partial",
+      "path2Status": "yes",
       "implementationBucket": "clamp_family",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "hard",
       "nativeLowerable": true,
-      "nativeReason": "clamp_min can lower to a native SQL source expression",
-      "fragmentKind": "unary_source_expression",
-      "notes": [
-        "current native support is limited to literal bounds"
-      ]
+      "nativeReason": "clamp_min can lower to native SQL by joining scalar bound fragments onto the vector child",
+      "fragmentKind": "clamp_transform"
     },
     {
       "id": "function:cos",
@@ -870,13 +824,14 @@
       "kind": "function",
       "name": "first_over_time",
       "query": "first_over_time(harness_queue_depth[5m])",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "other",
       "prometheusVersion": "v0.311.2",
-      "planSupported": false,
-      "planDifficulty": "medium",
-      "planReason": "function \"first_over_time\" is not implemented yet",
-      "nativeLowerable": false
+      "planSupported": true,
+      "planDifficulty": "hard",
+      "nativeLowerable": true,
+      "nativeReason": "range function \"first_over_time\" can lower to native SQL for the first aggregate-over-time subset",
+      "fragmentKind": "range_function"
     },
     {
       "id": "function:floor",
@@ -897,104 +852,112 @@
       "kind": "function",
       "name": "histogram_avg",
       "query": "histogram_avg(sum by (le) (rate(harness_request_duration_seconds_bucket[5m])))",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "histogram_helpers",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "hard",
-      "nativeLowerable": false,
-      "nativeReason": "histogram_avg currently stays on the local execution path"
+      "nativeLowerable": true,
+      "nativeReason": "histogram_avg can lower to native SQL over shared classic histogram materialization",
+      "fragmentKind": "histogram_projection"
     },
     {
       "id": "function:histogram_count",
       "kind": "function",
       "name": "histogram_count",
       "query": "histogram_count(sum by (le) (rate(harness_request_duration_seconds_bucket[5m])))",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "histogram_helpers",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "hard",
-      "nativeLowerable": false,
-      "nativeReason": "histogram_count currently stays on the local execution path"
+      "nativeLowerable": true,
+      "nativeReason": "histogram_count can lower to native SQL over shared classic histogram materialization",
+      "fragmentKind": "histogram_projection"
     },
     {
       "id": "function:histogram_fraction",
       "kind": "function",
       "name": "histogram_fraction",
       "query": "histogram_fraction(0, 1, sum by (le) (rate(harness_request_duration_seconds_bucket[5m])))",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "histogram_helpers",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "hard",
-      "nativeLowerable": false,
-      "nativeReason": "histogram_fraction currently stays on the local execution path"
+      "nativeLowerable": true,
+      "nativeReason": "histogram_fraction can lower to native SQL over shared classic histogram materialization",
+      "fragmentKind": "histogram_function"
     },
     {
       "id": "function:histogram_quantile",
       "kind": "function",
       "name": "histogram_quantile",
       "query": "histogram_quantile(0.9, sum by (le) (rate(harness_request_duration_seconds_bucket[5m])))",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "histogram_helpers",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "hard",
-      "nativeLowerable": false,
-      "nativeReason": "histogram_quantile currently stays on the local execution path"
+      "nativeLowerable": true,
+      "nativeReason": "histogram_quantile can lower to native SQL over shared classic histogram materialization",
+      "fragmentKind": "histogram_function"
     },
     {
       "id": "function:histogram_quantiles",
       "kind": "function",
       "name": "histogram_quantiles",
       "query": "histogram_quantiles(harness_up, \"job\", 1, 1)",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "histogram_helpers",
       "prometheusVersion": "v0.311.2",
-      "planSupported": false,
-      "planDifficulty": "medium",
-      "planReason": "function \"histogram_quantiles\" is not implemented yet",
-      "nativeLowerable": false
+      "planSupported": true,
+      "planDifficulty": "hard",
+      "nativeLowerable": true,
+      "nativeReason": "histogram_quantiles can lower to native SQL over shared classic histogram materialization plus scalar quantile argument bindings",
+      "fragmentKind": "histogram_function"
     },
     {
       "id": "function:histogram_stddev",
       "kind": "function",
       "name": "histogram_stddev",
       "query": "histogram_stddev(harness_up)",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "histogram_helpers",
       "prometheusVersion": "v0.311.2",
-      "planSupported": false,
-      "planDifficulty": "medium",
-      "planReason": "function \"histogram_stddev\" is not implemented yet",
-      "nativeLowerable": false
+      "planSupported": true,
+      "planDifficulty": "hard",
+      "nativeLowerable": true,
+      "nativeReason": "histogram_stddev can lower to native SQL over shared classic histogram materialization",
+      "fragmentKind": "histogram_projection"
     },
     {
       "id": "function:histogram_stdvar",
       "kind": "function",
       "name": "histogram_stdvar",
       "query": "histogram_stdvar(harness_up)",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "histogram_helpers",
       "prometheusVersion": "v0.311.2",
-      "planSupported": false,
-      "planDifficulty": "medium",
-      "planReason": "function \"histogram_stdvar\" is not implemented yet",
-      "nativeLowerable": false
+      "planSupported": true,
+      "planDifficulty": "hard",
+      "nativeLowerable": true,
+      "nativeReason": "histogram_stdvar can lower to native SQL over shared classic histogram materialization",
+      "fragmentKind": "histogram_projection"
     },
     {
       "id": "function:histogram_sum",
       "kind": "function",
       "name": "histogram_sum",
       "query": "histogram_sum(sum by (le) (rate(harness_request_duration_seconds_bucket[5m])))",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "histogram_helpers",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "hard",
-      "nativeLowerable": false,
-      "nativeReason": "histogram_sum currently stays on the local execution path"
+      "nativeLowerable": true,
+      "nativeReason": "histogram_sum can lower to native SQL over shared classic histogram materialization",
+      "fragmentKind": "histogram_projection"
     },
     {
       "id": "function:hour",
@@ -1043,17 +1006,14 @@
       "kind": "function",
       "name": "info",
       "query": "info(harness_up)",
-      "path2Status": "partial",
+      "path2Status": "yes",
       "implementationBucket": "info_function",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "hard",
       "nativeLowerable": true,
-      "nativeReason": "info() can lower to native SQL for the single-info-metric join subset",
-      "fragmentKind": "info_join",
-      "notes": [
-        "current native support is limited to the single-info-metric join subset"
-      ]
+      "nativeReason": "info() can lower to native SQL using native selector matching plus merged info-series label joins",
+      "fragmentKind": "info_join"
     },
     {
       "id": "function:irate",
@@ -1074,26 +1034,28 @@
       "kind": "function",
       "name": "label_join",
       "query": "label_join(harness_up, \"joined\", \"/\", \"job\", \"instance\")",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "label_mutation",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "medium",
-      "nativeLowerable": false,
-      "nativeReason": "label_join currently stays on the local execution path"
+      "nativeLowerable": true,
+      "nativeReason": "label_join can lower to native SQL by concatenating source label values on the child labelset while preserving sample values",
+      "fragmentKind": "label_transform"
     },
     {
       "id": "function:label_replace",
       "kind": "function",
       "name": "label_replace",
       "query": "label_replace(harness_up, \"job_copy\", \"$1\", \"job\", \"(.*)\")",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "label_mutation",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "medium",
-      "nativeLowerable": false,
-      "nativeReason": "label_replace currently stays on the local execution path"
+      "nativeLowerable": true,
+      "nativeReason": "label_replace can lower to native SQL by mutating child labelsets with RE2-compatible capture replacement while preserving sample values",
+      "fragmentKind": "label_transform"
     },
     {
       "id": "function:last_over_time",
@@ -1268,13 +1230,14 @@
       "kind": "function",
       "name": "quantile_over_time",
       "query": "quantile_over_time(0.5, harness_queue_depth[5m])",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "quantile_over_time",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "hard",
-      "nativeLowerable": false,
-      "nativeReason": "quantile_over_time intentionally stays on the local execution path; see keep-local note in .pi/native-sql-lowering-plan/13-keep-local-quantile-over-time.md"
+      "nativeLowerable": true,
+      "nativeReason": "quantile_over_time can lower to native SQL using the shared windowed-arrays source and Prometheus-compatible quantile interpolation",
+      "fragmentKind": "range_function"
     },
     {
       "id": "function:rad",
@@ -1323,13 +1286,14 @@
       "kind": "function",
       "name": "round",
       "query": "round(harness_up, 1)",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "round_function",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "hard",
-      "nativeLowerable": false,
-      "nativeReason": "round() currently stays on the local execution path"
+      "nativeLowerable": true,
+      "nativeReason": "round() can lower via a native value-transform wrapper over a native instant-vector child",
+      "fragmentKind": "value_transform"
     },
     {
       "id": "function:scalar",
@@ -1392,26 +1356,28 @@
       "kind": "function",
       "name": "sort",
       "query": "sort(harness_up)",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "sort_family",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "easy",
-      "nativeLowerable": false,
-      "nativeReason": "sort currently stays on the local execution path"
+      "nativeLowerable": true,
+      "nativeReason": "sort can lower to native SQL by ordering the instant-vector child while preserving range-mode passthrough semantics",
+      "fragmentKind": "sort_transform"
     },
     {
       "id": "function:sort_by_label",
       "kind": "function",
       "name": "sort_by_label",
       "query": "sort_by_label(harness_up, \"job\", \"instance\")",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "sort_family",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "easy",
-      "nativeLowerable": false,
-      "nativeReason": "sort_by_label currently stays on the local execution path",
+      "nativeLowerable": true,
+      "nativeReason": "sort_by_label can lower to native SQL by ordering the instant-vector child while preserving range-mode passthrough semantics",
+      "fragmentKind": "sort_transform",
       "notes": [
         "PromQL experimental sort-by-label function"
       ]
@@ -1421,13 +1387,14 @@
       "kind": "function",
       "name": "sort_by_label_desc",
       "query": "sort_by_label_desc(harness_up, \"job\", \"instance\")",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "sort_family",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "easy",
-      "nativeLowerable": false,
-      "nativeReason": "sort_by_label_desc currently stays on the local execution path",
+      "nativeLowerable": true,
+      "nativeReason": "sort_by_label_desc can lower to native SQL by ordering the instant-vector child while preserving range-mode passthrough semantics",
+      "fragmentKind": "sort_transform",
       "notes": [
         "PromQL experimental sort-by-label function"
       ]
@@ -1437,13 +1404,14 @@
       "kind": "function",
       "name": "sort_desc",
       "query": "sort_desc(harness_up)",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "sort_family",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "easy",
-      "nativeLowerable": false,
-      "nativeReason": "sort_desc currently stays on the local execution path"
+      "nativeLowerable": true,
+      "nativeReason": "sort_desc can lower to native SQL by ordering the instant-vector child while preserving range-mode passthrough semantics",
+      "fragmentKind": "sort_transform"
     },
     {
       "id": "function:sqrt",
@@ -1562,65 +1530,70 @@
       "kind": "function",
       "name": "ts_of_first_over_time",
       "query": "ts_of_first_over_time(harness_queue_depth[5m])",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "other",
       "prometheusVersion": "v0.311.2",
-      "planSupported": false,
-      "planDifficulty": "medium",
-      "planReason": "function \"ts_of_first_over_time\" is not implemented yet",
-      "nativeLowerable": false
+      "planSupported": true,
+      "planDifficulty": "hard",
+      "nativeLowerable": true,
+      "nativeReason": "range function \"ts_of_first_over_time\" can lower to native SQL for the first aggregate-over-time subset",
+      "fragmentKind": "range_function"
     },
     {
       "id": "function:ts_of_last_over_time",
       "kind": "function",
       "name": "ts_of_last_over_time",
       "query": "ts_of_last_over_time(harness_queue_depth[5m])",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "other",
       "prometheusVersion": "v0.311.2",
-      "planSupported": false,
-      "planDifficulty": "medium",
-      "planReason": "function \"ts_of_last_over_time\" is not implemented yet",
-      "nativeLowerable": false
+      "planSupported": true,
+      "planDifficulty": "hard",
+      "nativeLowerable": true,
+      "nativeReason": "range function \"ts_of_last_over_time\" can lower to native SQL for the first aggregate-over-time subset",
+      "fragmentKind": "range_function"
     },
     {
       "id": "function:ts_of_max_over_time",
       "kind": "function",
       "name": "ts_of_max_over_time",
       "query": "ts_of_max_over_time(harness_queue_depth[5m])",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "other",
       "prometheusVersion": "v0.311.2",
-      "planSupported": false,
-      "planDifficulty": "medium",
-      "planReason": "function \"ts_of_max_over_time\" is not implemented yet",
-      "nativeLowerable": false
+      "planSupported": true,
+      "planDifficulty": "hard",
+      "nativeLowerable": true,
+      "nativeReason": "range function \"ts_of_max_over_time\" can lower to native SQL for the first aggregate-over-time subset",
+      "fragmentKind": "range_function"
     },
     {
       "id": "function:ts_of_min_over_time",
       "kind": "function",
       "name": "ts_of_min_over_time",
       "query": "ts_of_min_over_time(harness_queue_depth[5m])",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "other",
       "prometheusVersion": "v0.311.2",
-      "planSupported": false,
-      "planDifficulty": "medium",
-      "planReason": "function \"ts_of_min_over_time\" is not implemented yet",
-      "nativeLowerable": false
+      "planSupported": true,
+      "planDifficulty": "hard",
+      "nativeLowerable": true,
+      "nativeReason": "range function \"ts_of_min_over_time\" can lower to native SQL for the first aggregate-over-time subset",
+      "fragmentKind": "range_function"
     },
     {
       "id": "function:vector",
       "kind": "function",
       "name": "vector",
       "query": "vector(1)",
-      "path2Status": "no",
+      "path2Status": "yes",
       "implementationBucket": "vector_wrapper",
       "prometheusVersion": "v0.311.2",
       "planSupported": true,
       "planDifficulty": "medium",
-      "nativeLowerable": false,
-      "nativeReason": "vector() currently stays on the local execution path"
+      "nativeLowerable": true,
+      "nativeReason": "vector() can lower by lifting a native scalar child into a single-series instant vector",
+      "fragmentKind": "synthetic_series"
     },
     {
       "id": "function:year",

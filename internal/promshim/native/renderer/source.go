@@ -83,7 +83,7 @@ func renderSyntheticFragment(fragment *native.NativeFragment, params RenderParam
 	emptyTags := schema.EmptyTagsArrayExpr()
 	switch params.Mode {
 	case native.RenderModeInstant:
-		valueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic.Func, "{evaluation_ms:Int64}")
+		valueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic, "{evaluation_ms:Int64}")
 		if err != nil {
 			return renderedFragment{}, err
 		}
@@ -99,7 +99,7 @@ func renderSyntheticFragment(fragment *native.NativeFragment, params RenderParam
 		if params.StepMS <= 0 {
 			return renderedFragment{}, fmt.Errorf("synthetic range render requires a positive step")
 		}
-		valueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic.Func, "ts_ms")
+		valueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic, "ts_ms")
 		if err != nil {
 			return renderedFragment{}, err
 		}
@@ -131,9 +131,17 @@ func renderSyntheticFragment(fragment *native.NativeFragment, params RenderParam
 	}
 }
 
-func syntheticSeriesValueSQL(name, tsMSExpr string) (string, error) {
+func syntheticSeriesValueSQL(fragment *native.SyntheticSeriesFragment, tsMSExpr string) (string, error) {
+	if fragment == nil {
+		return "", fmt.Errorf("synthetic series metadata is missing")
+	}
 	utcTs := "toTimeZone(fromUnixTimestamp64Milli(" + tsMSExpr + "), 'UTC')"
-	switch name {
+	switch fragment.Func {
+	case "literal":
+		if fragment.Value == nil {
+			return "", fmt.Errorf("synthetic literal fragment requires a value")
+		}
+		return storage.NativeFloatLiteral(*fragment.Value), nil
 	case "pi":
 		return "toFloat64(3.141592653589793)", nil
 	case "time":
@@ -155,7 +163,7 @@ func syntheticSeriesValueSQL(name, tsMSExpr string) (string, error) {
 	case "year":
 		return "toFloat64(toYear(" + utcTs + "))", nil
 	default:
-		return "", fmt.Errorf("synthetic series function %q is not implemented yet", name)
+		return "", fmt.Errorf("synthetic series function %q is not implemented yet", fragment.Func)
 	}
 }
 
@@ -322,6 +330,21 @@ func forceFragmentFullTags(fragment *native.NativeFragment) {
 	}
 	if fragment.HistogramProjection != nil {
 		forceFragmentFullTags(fragment.HistogramProjection.Child)
+	}
+	if fragment.HistogramFunction != nil {
+		forceFragmentFullTags(fragment.HistogramFunction.Child)
+		for _, quantile := range fragment.HistogramFunction.Quantiles {
+			forceFragmentFullTags(quantile)
+		}
+	}
+	if fragment.SortTransform != nil {
+		forceFragmentFullTags(fragment.SortTransform.Child)
+	}
+	if fragment.LabelTransform != nil {
+		forceFragmentFullTags(fragment.LabelTransform.Child)
+	}
+	if fragment.ClampTransform != nil {
+		forceFragmentFullTags(fragment.ClampTransform.Child)
 	}
 	if fragment.ValueTransform != nil {
 		forceFragmentFullTags(fragment.ValueTransform.Child)

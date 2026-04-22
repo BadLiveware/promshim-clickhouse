@@ -19,7 +19,14 @@ var localRangeOperatorInventory = []LocalRangeOperatorDescriptor{
 		File:          "internal/promshim/exec/rangefunc.go",
 		Category:      "range_vector",
 		PrometheusRef: "promql/functions.go:last_over_time",
-		SemanticRules: []string{"returns the last sample in the range window", "drops metric name in the output"},
+		SemanticRules: []string{"returns the last sample in the range window", "preserves metric name in the output"},
+	},
+	{
+		Name:          "first_over_time",
+		File:          "internal/promshim/exec/rangefunc.go",
+		Category:      "range_vector",
+		PrometheusRef: "promql/functions.go:first_over_time",
+		SemanticRules: []string{"returns the first sample in the range window", "preserves metric name in the output"},
 	},
 	{
 		Name:          "sum_over_time",
@@ -106,12 +113,39 @@ var localRangeOperatorInventory = []LocalRangeOperatorDescriptor{
 		SemanticRules: []string{"aliases double_exponential_smoothing semantics", "drops metric name in the output"},
 	},
 	{
-		Name:             "quantile_over_time",
-		File:             "internal/promshim/exec/rangefunc.go",
-		Category:         "range_vector",
-		PrometheusRef:    "promql/functions.go:quantile_over_time",
-		SemanticRules:    []string{"computes quantile over raw samples in the range window", "drops metric name in the output"},
-		KnownDivergences: []string{"explicit keep-local design note: see .pi/native-sql-lowering-plan/13-keep-local-quantile-over-time.md"},
+		Name:          "quantile_over_time",
+		File:          "internal/promshim/exec/rangefunc.go",
+		Category:      "range_vector",
+		PrometheusRef: "promql/functions.go:quantile_over_time",
+		SemanticRules: []string{"computes quantile over raw samples in the range window", "drops metric name in the output"},
+	},
+	{
+		Name:          "ts_of_first_over_time",
+		File:          "internal/promshim/exec/rangefunc.go",
+		Category:      "range_vector",
+		PrometheusRef: "promql/functions.go:ts_of_first_over_time",
+		SemanticRules: []string{"returns the timestamp of the first sample in the range window", "drops metric name in the output"},
+	},
+	{
+		Name:          "ts_of_last_over_time",
+		File:          "internal/promshim/exec/rangefunc.go",
+		Category:      "range_vector",
+		PrometheusRef: "promql/functions.go:ts_of_last_over_time",
+		SemanticRules: []string{"returns the timestamp of the last sample in the range window", "drops metric name in the output"},
+	},
+	{
+		Name:          "ts_of_max_over_time",
+		File:          "internal/promshim/exec/rangefunc.go",
+		Category:      "range_vector",
+		PrometheusRef: "promql/functions.go:ts_of_max_over_time",
+		SemanticRules: []string{"returns the timestamp of the latest maximal sample in the range window", "drops metric name in the output"},
+	},
+	{
+		Name:          "ts_of_min_over_time",
+		File:          "internal/promshim/exec/rangefunc.go",
+		Category:      "range_vector",
+		PrometheusRef: "promql/functions.go:ts_of_min_over_time",
+		SemanticRules: []string{"returns the timestamp of the latest minimal sample in the range window", "drops metric name in the output"},
 	},
 	{
 		Name:             "rate",
@@ -172,7 +206,8 @@ var localRangeOperatorInventory = []LocalRangeOperatorDescriptor{
 }
 
 var localRangeOracles = map[string]LocalRangeOracle{
-	"last_over_time": ApplyLastOverTimeInstant,
+	"last_over_time":  ApplyLastOverTimeInstant,
+	"first_over_time": ApplyFirstOverTimeInstant,
 	"sum_over_time": func(input model.RuntimeValue) (model.VectorValue, error) {
 		return ApplyRangeFunctionInstant("sum_over_time", input)
 	},
@@ -202,6 +237,18 @@ var localRangeOracles = map[string]LocalRangeOracle{
 	},
 	"resets": func(input model.RuntimeValue) (model.VectorValue, error) {
 		return ApplyRangeFunctionInstant("resets", input)
+	},
+	"ts_of_first_over_time": func(input model.RuntimeValue) (model.VectorValue, error) {
+		return ApplyRangeFunctionInstant("ts_of_first_over_time", input)
+	},
+	"ts_of_last_over_time": func(input model.RuntimeValue) (model.VectorValue, error) {
+		return ApplyRangeFunctionInstant("ts_of_last_over_time", input)
+	},
+	"ts_of_max_over_time": func(input model.RuntimeValue) (model.VectorValue, error) {
+		return ApplyRangeFunctionInstant("ts_of_max_over_time", input)
+	},
+	"ts_of_min_over_time": func(input model.RuntimeValue) (model.VectorValue, error) {
+		return ApplyRangeFunctionInstant("ts_of_min_over_time", input)
 	},
 	"double_exponential_smoothing": func(input model.RuntimeValue) (model.VectorValue, error) {
 		return ApplyDoubleExponentialSmoothing(0.5, 0.3, input)

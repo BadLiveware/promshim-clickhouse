@@ -16,7 +16,7 @@ func TestAggregateOverTimeNativeSemanticsMatchLocalOracle(t *testing.T) {
 		{Metric: map[string]string{"__name__": "up", "job": "worker"}, Values: []model.RangePoint{{Timestamp: 10, Value: 3}, {Timestamp: 20, Value: math.NaN()}, {Timestamp: 30, Value: 9}}},
 	}}
 
-	for _, name := range []string{"last_over_time", "sum_over_time", "avg_over_time", "min_over_time", "max_over_time", "count_over_time", "stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time"} {
+	for _, name := range []string{"last_over_time", "first_over_time", "sum_over_time", "avg_over_time", "min_over_time", "max_over_time", "count_over_time", "stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time", "ts_of_first_over_time", "ts_of_last_over_time", "ts_of_max_over_time", "ts_of_min_over_time"} {
 		oracle, ok := exec.LocalRangeOracleForTest(name)
 		if !ok {
 			t.Fatalf("expected local oracle for %q", name)
@@ -48,10 +48,17 @@ func applyNativeAggregateOverTimeForTest(name string, matrix model.MatrixValue) 
 			}
 		}
 		last := series.Values[len(series.Values)-1]
+		metric := model.DropMetricName(series.Metric)
+		sampleTimestamp := last.Timestamp
 		value := math.NaN()
 		switch name {
 		case "last_over_time":
+			metric = model.CloneMetric(series.Metric)
 			value = last.Value
+		case "first_over_time":
+			metric = model.CloneMetric(series.Metric)
+			sampleTimestamp = series.Values[0].Timestamp
+			value = series.Values[0].Value
 		case "sum_over_time":
 			if hasNaN {
 				value = math.NaN()
@@ -115,6 +122,24 @@ func applyNativeAggregateOverTimeForTest(name string, matrix model.MatrixValue) 
 			}
 		case "present_over_time":
 			value = 1
+		case "ts_of_first_over_time":
+			sampleTimestamp = series.Values[0].Timestamp
+			value = series.Values[0].Timestamp
+		case "ts_of_last_over_time":
+			value = last.Timestamp
+		case "ts_of_max_over_time", "ts_of_min_over_time":
+			best := series.Values[0]
+			for _, point := range series.Values[1:] {
+				if name == "ts_of_max_over_time" {
+					if point.Value >= best.Value || math.IsNaN(best.Value) {
+						best = point
+					}
+				} else if point.Value <= best.Value || math.IsNaN(best.Value) {
+					best = point
+				}
+			}
+			sampleTimestamp = best.Timestamp
+			value = best.Timestamp
 		case "mad_over_time":
 			if len(values) == 0 {
 				continue
@@ -128,9 +153,67 @@ func applyNativeAggregateOverTimeForTest(name string, matrix model.MatrixValue) 
 		default:
 			return model.VectorValue{}, nil
 		}
-		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: value})
+		out = append(out, model.InstantSample{Metric: metric, Timestamp: sampleTimestamp, Value: value})
 	}
 	return model.VectorValue{Samples: out}, nil
+}
+
+func TestQuantileOverTimeNativeSemanticsMatchLocalOracle(t *testing.T) {
+	matrix := model.MatrixValue{Series: []model.RangeSeries{
+		{Metric: map[string]string{"__name__": "up", "job": "api"}, Values: []model.RangePoint{{Timestamp: 10, Value: 3}, {Timestamp: 20, Value: 1}, {Timestamp: 30, Value: 2}}},
+		{Metric: map[string]string{"__name__": "up", "job": "worker"}, Values: []model.RangePoint{{Timestamp: 10, Value: math.NaN()}, {Timestamp: 20, Value: 5}, {Timestamp: 30, Value: 7}}},
+	}}
+	localValue, err := exec.ApplyQuantileOverTime(0.5, matrix)
+	if err != nil {
+		t.Fatalf("local oracle for quantile_over_time returned error: %v", err)
+	}
+	nativeValue, err := applyNativeQuantileOverTimeForTest(0.5, matrix)
+	if err != nil {
+		t.Fatalf("native semantic helper for quantile_over_time returned error: %v", err)
+	}
+	assertVectorEqual(t, "quantile_over_time", localValue, nativeValue)
+}
+
+func applyNativeQuantileOverTimeForTest(quantile float64, matrix model.MatrixValue) (model.VectorValue, error) {
+	out := make([]model.InstantSample, 0, len(matrix.Series))
+	for _, series := range matrix.Series {
+		if len(series.Values) == 0 {
+			continue
+		}
+		values := make([]float64, 0, len(series.Values))
+		for _, point := range series.Values {
+			values = append(values, point.Value)
+		}
+		last := series.Values[len(series.Values)-1]
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: nativeQuantileOverTime(quantile, values)})
+	}
+	return model.VectorValue{Samples: out}, nil
+}
+
+func nativeQuantileOverTime(quantile float64, values []float64) float64 {
+	if len(values) == 0 || math.IsNaN(quantile) {
+		return math.NaN()
+	}
+	if quantile < 0 {
+		return math.Inf(-1)
+	}
+	if quantile > 1 {
+		return math.Inf(+1)
+	}
+	sorted := append([]float64(nil), values...)
+	sort.Slice(sorted, func(i, j int) bool {
+		leftNaN := math.IsNaN(sorted[i])
+		rightNaN := math.IsNaN(sorted[j])
+		if leftNaN || rightNaN {
+			return leftNaN && !rightNaN
+		}
+		return sorted[i] < sorted[j]
+	})
+	rank := quantile * (float64(len(sorted)) - 1)
+	lower := math.Max(0, math.Floor(rank))
+	upper := math.Min(float64(len(sorted)-1), lower+1)
+	weight := rank - math.Floor(rank)
+	return sorted[int(lower)]*(1-weight) + sorted[int(upper)]*weight
 }
 
 func TestPredictLinearNativeSemanticsMatchLocalOracle(t *testing.T) {

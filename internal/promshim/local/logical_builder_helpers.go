@@ -13,7 +13,7 @@ func aggregatePlanParam(expr *parser.AggregateExpr) (*float64, string, error) {
 		return nil, "", nil
 	}
 	switch expr.Op {
-	case parser.TOPK, parser.BOTTOMK, parser.QUANTILE:
+	case parser.TOPK, parser.BOTTOMK, parser.QUANTILE, parser.LIMITK, parser.LIMIT_RATIO:
 		literal, ok := unwrapTransparentExpr(expr.Param).(*parser.NumberLiteral)
 		if !ok {
 			return nil, "", NewUnsupportedErrorf("aggregation operator %q currently requires a literal scalar parameter", strings.ToLower(expr.Op.String()))
@@ -42,15 +42,21 @@ func buildLogicalPointwiseFunctionPlan(name string, call *parser.Call) (logicalP
 		if err != nil {
 			return nil, WithInternalContext(err, "building logical child plan for %s %q", name, call.String())
 		}
+		paramChildren := make([]logicalPlan, 0, len(call.Args)-1)
 		for _, arg := range call.Args[1:] {
-			value, err := numberLiteralArgument(arg, name+" scalar parameter")
+			builtArg, err := BuildLogicalPlan(arg)
 			if err != nil {
-				return nil, WithInternalContext(err, "building logical %s %q", name, call.String())
+				return nil, WithInternalContext(err, "building logical %s scalar parameter for %q", name, call.String())
 			}
-			valueCopy := value
-			paramNumbers = append(paramNumbers, &valueCopy)
+			paramChildren = append(paramChildren, builtArg)
+			if literal, ok := unwrapTransparentExpr(arg).(*parser.NumberLiteral); ok {
+				valueCopy := literal.Val
+				paramNumbers = append(paramNumbers, &valueCopy)
+			} else {
+				paramNumbers = append(paramNumbers, nil)
+			}
 		}
-		return &logicalPointwiseFunctionPlan{Expr: call, Func: name, ParamNumbers: paramNumbers, Child: child}, nil
+		return &logicalPointwiseFunctionPlan{Expr: call, Func: name, ParamNumbers: paramNumbers, ParamChildren: paramChildren, Child: child}, nil
 	}
 	if len(call.Args) > 0 {
 		argOffset = 1

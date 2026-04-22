@@ -1,10 +1,10 @@
-package promshim
+package local
 
 import (
 	"context"
 	"time"
 
-	"ch-observability/internal/promshim/exec"
+	"ch-observability/internal/promshim/local/exec"
 	"ch-observability/internal/promshim/model"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -14,15 +14,15 @@ type scalarLiteralPlan struct {
 	Value float64
 }
 
-func (p *scalarLiteralPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+func (p *scalarLiteralPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 	switch params.Mode {
-	case evalModeInstant:
+	case EvalModeInstant:
 		timestamp := float64(params.EvaluationTime.UnixNano()) / float64(time.Second)
 		return model.ScalarValue{Timestamp: timestamp, Value: p.Value}, nil
-	case evalModeRange:
-		return executeRangeScalarPlan(ctx, evaluator, params, "scalar", p.execute)
+	case EvalModeRange:
+		return executeRangeScalarPlan(ctx, Evaluator, params, "scalar", p.execute)
 	default:
-		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+		return nil, NewExecutionErrorf("unknown evaluation mode %q", params.Mode)
 	}
 }
 
@@ -33,13 +33,13 @@ func (p *scalarLiteralPlan) explain() ExplainNode {
 type localUnaryPlan struct {
 	Expr  string
 	Op    parser.ItemType
-	Child queryPlan
+	Child Plan
 }
 
-func (p *localUnaryPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
-	childValue, err := p.Child.execute(ctx, evaluator, params)
+func (p *localUnaryPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+	childValue, err := p.Child.execute(ctx, Evaluator, params)
 	if err != nil {
-		return nil, withInternalContext(err, "evaluating unary expression op=%s", p.Op.String())
+		return nil, WithInternalContext(err, "evaluating unary expression op=%s", p.Op.String())
 	}
 	result, err := exec.ApplyUnaryRuntimeValue(p.Op, childValue, exec.EvalParams{
 		Mode:           toExecEvalMode(params.Mode),
@@ -49,7 +49,7 @@ func (p *localUnaryPlan) execute(ctx context.Context, evaluator *evaluator, para
 		Step:           params.Step,
 	})
 	if err != nil {
-		return nil, withInternalContext(fromExecError(err), "applying unary expression op=%s", p.Op.String())
+		return nil, WithInternalContext(FromExecError(err), "applying unary expression op=%s", p.Op.String())
 	}
 	return result, nil
 }
@@ -63,18 +63,18 @@ type localBinaryPlan struct {
 	Op             parser.ItemType
 	VectorMatching *parser.VectorMatching
 	ReturnBool     bool
-	LHS            queryPlan
-	RHS            queryPlan
+	LHS            Plan
+	RHS            Plan
 }
 
-func (p *localBinaryPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
-	lhsValue, err := p.LHS.execute(ctx, evaluator, params)
+func (p *localBinaryPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+	lhsValue, err := p.LHS.execute(ctx, Evaluator, params)
 	if err != nil {
-		return nil, withInternalContext(err, "evaluating left operand for binary op=%s", p.Op.String())
+		return nil, WithInternalContext(err, "evaluating left operand for binary op=%s", p.Op.String())
 	}
-	rhsValue, err := p.RHS.execute(ctx, evaluator, params)
+	rhsValue, err := p.RHS.execute(ctx, Evaluator, params)
 	if err != nil {
-		return nil, withInternalContext(err, "evaluating right operand for binary op=%s", p.Op.String())
+		return nil, WithInternalContext(err, "evaluating right operand for binary op=%s", p.Op.String())
 	}
 	result, err := exec.ApplyBinaryRuntimeValue(p.Op, lhsValue, rhsValue, p.VectorMatching, p.ReturnBool, exec.EvalParams{
 		Mode:           toExecEvalMode(params.Mode),
@@ -84,7 +84,7 @@ func (p *localBinaryPlan) execute(ctx context.Context, evaluator *evaluator, par
 		Step:           params.Step,
 	})
 	if err != nil {
-		return nil, withInternalContext(fromExecError(err), "applying binary expression op=%s returnBool=%t", p.Op.String(), p.ReturnBool)
+		return nil, WithInternalContext(FromExecError(err), "applying binary expression op=%s returnBool=%t", p.Op.String(), p.ReturnBool)
 	}
 	return result, nil
 }
@@ -95,25 +95,25 @@ func (p *localBinaryPlan) explain() ExplainNode {
 
 type localScalarConvertPlan struct {
 	Expr  string
-	Child queryPlan
+	Child Plan
 }
 
-func (p *localScalarConvertPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+func (p *localScalarConvertPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 	switch params.Mode {
-	case evalModeInstant:
-		childValue, err := p.Child.execute(ctx, evaluator, params)
+	case EvalModeInstant:
+		childValue, err := p.Child.execute(ctx, Evaluator, params)
 		if err != nil {
-			return nil, withInternalContext(err, "evaluating scalar child in instant mode")
+			return nil, WithInternalContext(err, "evaluating scalar child in instant mode")
 		}
 		scalar, err := exec.ApplyScalar(childValue, exec.EvalParams{Mode: toExecEvalMode(params.Mode), EvaluationTime: params.EvaluationTime, Start: params.Start, End: params.End, Step: params.Step})
 		if err != nil {
-			return nil, withInternalContext(fromExecError(err), "applying scalar()")
+			return nil, WithInternalContext(FromExecError(err), "applying scalar()")
 		}
 		return scalar, nil
-	case evalModeRange:
-		return executeRangeScalarPlan(ctx, evaluator, params, "scalar", p.execute)
+	case EvalModeRange:
+		return executeRangeScalarPlan(ctx, Evaluator, params, "scalar", p.execute)
 	default:
-		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+		return nil, NewExecutionErrorf("unknown evaluation mode %q", params.Mode)
 	}
 }
 
@@ -126,18 +126,18 @@ type scalarBuiltinPlan struct {
 	Func string
 }
 
-func (p *scalarBuiltinPlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+func (p *scalarBuiltinPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 	switch params.Mode {
-	case evalModeInstant:
+	case EvalModeInstant:
 		value, err := exec.ApplyScalarBuiltinFunction(p.Func, exec.EvalParams{Mode: toExecEvalMode(params.Mode), EvaluationTime: params.EvaluationTime, Start: params.Start, End: params.End, Step: params.Step})
 		if err != nil {
-			return nil, withInternalContext(fromExecError(err), "applying %s", p.Func)
+			return nil, WithInternalContext(FromExecError(err), "applying %s", p.Func)
 		}
 		return value, nil
-	case evalModeRange:
-		return executeRangeScalarPlan(ctx, evaluator, params, p.Func, p.execute)
+	case EvalModeRange:
+		return executeRangeScalarPlan(ctx, Evaluator, params, p.Func, p.execute)
 	default:
-		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+		return nil, NewExecutionErrorf("unknown evaluation mode %q", params.Mode)
 	}
 }
 

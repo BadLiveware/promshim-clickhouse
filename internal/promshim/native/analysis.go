@@ -178,7 +178,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 					BinaryJoin: &BinaryJoinFragment{
 						Op:             n.Op,
 						ReturnBool:     n.ReturnBool,
-						VectorMatching: cloneVectorMatching(n.VectorMatching),
+						VectorMatching: CloneVectorMatching(n.VectorMatching),
 						JoinShape:      joinShape,
 						LHS:            lhs.Fragment,
 						RHS:            rhs.Fragment,
@@ -304,7 +304,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		child := a.walk(n.Child)
 		info.NodeType = n.Func
 		info.Children = []*LoweringInfo{child}
-		preservesName := rangeFunctionPreservesMetricName(n.Func)
+		preservesName := RangeFunctionPreservesMetricName(n.Func)
 		metricNameState := LabelLineageDropped
 		if preservesName {
 			metricNameState = child.LabelLineage.MetricName
@@ -428,7 +428,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 			info.Children = []*LoweringInfo{child}
 			info.LabelLineage = withMetricNameState(passthroughLabelLineage(child.LabelLineage), LabelLineageDropped)
 			info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
-			if template, ok := nativePointwiseSourceTemplate(n.Func, n.ParamNumbers); ok && child.Fragment != nil && isSupportedAggregationSourceFragment(child.Fragment) {
+			if template, ok := NativePointwiseSourceTemplate(n.Func, n.ParamNumbers); ok && child.Fragment != nil && isSupportedAggregationSourceFragment(child.Fragment) {
 				info.NativeLowerable = true
 				info.NativeReason = fmt.Sprintf("%s can lower to a native SQL source expression", n.Func)
 				info.Fragment = &NativeFragment{Kind: FragmentKindUnarySourceExpr, OutputKind: child.Fragment.OutputKind, SourcePromQL: child.Fragment.SourcePromQL, Selector: cloneSelectorSource(child.Fragment.Selector), ValueExpr: composePointwiseSourceTemplate(template, child.Fragment.ValueExpr), TagsExpr: tagsExprForMetricDrop(true), DropsMetric: true}

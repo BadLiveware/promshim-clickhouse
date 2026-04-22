@@ -73,7 +73,7 @@ func infoJoinDropUnmatched(matchers []*labels.Matcher) bool {
 	return false
 }
 
-func nativePointwiseSourceTemplate(name string, paramNumbers []*float64) (string, bool) {
+func NativePointwiseSourceTemplate(name string, paramNumbers []*float64) (string, bool) {
 	switch name {
 	case "abs":
 		return "abs({value})", true

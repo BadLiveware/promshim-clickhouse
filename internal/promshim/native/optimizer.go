@@ -130,7 +130,7 @@ func OptimizeFragment(fragment *NativeFragment, info *LoweringInfo, ctx Optimiza
 		return nil, fmt.Errorf("native optimizer requires a fragment")
 	}
 	state := &optimizerState{
-		fragment: cloneFragment(fragment),
+		fragment: CloneFragment(fragment),
 		report: &OptimizationReport{
 			FunctionCatalog: append([]string(nil), functionRewriteCatalog...),
 		},
@@ -183,7 +183,7 @@ func applyEvaluationRangePropagation(state *optimizerState) error {
 }
 
 func applyCommonMatcherInference(state *optimizerState) error {
-	selector := baseSelectorSource(state.fragment)
+	selector := BaseSelectorSource(state.fragment)
 	if selector == nil {
 		return nil
 	}
@@ -193,7 +193,7 @@ func applyCommonMatcherInference(state *optimizerState) error {
 }
 
 func applyLabelPredicatePushdown(state *optimizerState) error {
-	selector := baseSelectorSource(state.fragment)
+	selector := BaseSelectorSource(state.fragment)
 	if selector == nil {
 		return nil
 	}
@@ -243,7 +243,7 @@ func normalizeTrivialSourceExpressions(fragment *NativeFragment) *NativeFragment
 	if fragment == nil {
 		return nil
 	}
-	normalized := cloneFragment(fragment)
+	normalized := CloneFragment(fragment)
 	if normalized.Aggregation != nil {
 		normalized.Aggregation.Source = normalizeTrivialSourceExpressions(normalized.Aggregation.Source)
 	}
@@ -269,7 +269,7 @@ func flattenRedundantWrappers(fragment *NativeFragment) *NativeFragment {
 	if fragment == nil {
 		return nil
 	}
-	flattened := cloneFragment(fragment)
+	flattened := CloneFragment(fragment)
 	if flattened.Aggregation != nil {
 		flattened.Aggregation.Source = flattenRedundantWrappers(flattened.Aggregation.Source)
 	}
@@ -301,7 +301,7 @@ func requiredInputBounds(fragment *NativeFragment, info *LoweringInfo, ctx Optim
 	}
 	lookbackMS := int64(0)
 	offsetMS := int64(0)
-	selector := baseSelectorSource(fragment)
+	selector := BaseSelectorSource(fragment)
 	if info != nil {
 		lookbackMS = info.TimeRequirements.Lookback.Milliseconds()
 		offsetMS = info.TimeRequirements.Offset.Milliseconds()
@@ -460,7 +460,7 @@ func applySelectorProjection(fragment *NativeFragment) {
 		return
 	}
 	if fragment.Aggregation != nil {
-		selector := baseSelectorSource(fragment.Aggregation.Source)
+		selector := BaseSelectorSource(fragment.Aggregation.Source)
 		if selector != nil {
 			switch {
 			case fragment.Aggregation.Without:
@@ -482,36 +482,36 @@ func applySelectorProjection(fragment *NativeFragment) {
 	}
 }
 
-func baseSelectorSource(fragment *NativeFragment) *SelectorSource {
+func BaseSelectorSource(fragment *NativeFragment) *SelectorSource {
 	if fragment == nil {
 		return nil
 	}
 	if fragment.Aggregation != nil {
-		return baseSelectorSource(fragment.Aggregation.Source)
+		return BaseSelectorSource(fragment.Aggregation.Source)
 	}
 	if fragment.RangeFunction != nil {
-		return baseSelectorSource(fragment.RangeFunction.Child)
+		return BaseSelectorSource(fragment.RangeFunction.Child)
 	}
 	if fragment.Subquery != nil {
-		return baseSelectorSource(fragment.Subquery.Child)
+		return BaseSelectorSource(fragment.Subquery.Child)
 	}
 	if fragment.ScalarConvert != nil {
-		return baseSelectorSource(fragment.ScalarConvert.Child)
+		return BaseSelectorSource(fragment.ScalarConvert.Child)
 	}
 	if fragment.InfoJoin != nil {
-		return baseSelectorSource(fragment.InfoJoin.Child)
+		return BaseSelectorSource(fragment.InfoJoin.Child)
 	}
 	if fragment.Absent != nil {
-		return baseSelectorSource(fragment.Absent.Child)
+		return BaseSelectorSource(fragment.Absent.Child)
 	}
 	if fragment.HistogramProjection != nil {
-		return baseSelectorSource(fragment.HistogramProjection.Child)
+		return BaseSelectorSource(fragment.HistogramProjection.Child)
 	}
 	if fragment.HistogramFunction != nil {
-		return baseSelectorSource(fragment.HistogramFunction.Child)
+		return BaseSelectorSource(fragment.HistogramFunction.Child)
 	}
 	if fragment.ValueTransform != nil {
-		return baseSelectorSource(fragment.ValueTransform.Child)
+		return BaseSelectorSource(fragment.ValueTransform.Child)
 	}
 	if fragment.Selector != nil {
 		return fragment.Selector

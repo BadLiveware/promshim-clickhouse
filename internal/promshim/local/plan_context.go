@@ -1,11 +1,16 @@
-package promshim
+package local
 
 import (
 	"time"
 )
 
-type planContext struct {
-	Mode                            evalMode
+const (
+	DefaultMaxRangePointsPerSeries   int64 = 50000
+	DefaultRangeChunkPointsPerSeries int64 = 5000
+)
+
+type PlanContext struct {
+	Mode                            EvalMode
 	EvaluationTime                  time.Time
 	Start                           time.Time
 	End                             time.Time
@@ -17,17 +22,17 @@ type planContext struct {
 	RangeChunkPointsPerSeries       int64
 }
 
-func (ctx planContext) allowsNativePlanning() bool {
-	return normalizeNativeLoweringMode(ctx.NativeLoweringMode).enablesNativePlanning()
+func (ctx PlanContext) AllowsNativePlanning() bool {
+	return NormalizeNativeLoweringMode(ctx.NativeLoweringMode).EnablesNativePlanning()
 }
 
-func defaultPlanContext(mode evalMode) planContext {
-	return planContext{
+func DefaultPlanContext(mode EvalMode) PlanContext {
+	return PlanContext{
 		Mode:                            mode,
-		ClickHouseVersion:               normalizeClickHouseVersion(""),
+		ClickHouseVersion:               NormalizeClickHouseVersion(""),
 		NativeLoweringMode:              NativeLoweringModePrefer,
 		PreferNativeAggregationPushdown: false,
-		MaxRangePointsPerSeries:         defaultMaxRangePointsPerSeries,
-		RangeChunkPointsPerSeries:       defaultRangeChunkPointsPerSeries,
+		MaxRangePointsPerSeries:         DefaultMaxRangePointsPerSeries,
+		RangeChunkPointsPerSeries:       DefaultRangeChunkPointsPerSeries,
 	}
 }

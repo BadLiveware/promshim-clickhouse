@@ -1,4 +1,4 @@
-package promshim
+package local
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 
 	"ch-observability/internal/promshim/model"
 	nativeplan "ch-observability/internal/promshim/native"
+	"ch-observability/internal/promshim/native/renderer"
 	"ch-observability/internal/promshim/storage"
 
 	"github.com/prometheus/prometheus/promql/parser"
@@ -30,9 +31,9 @@ type nativeSubtreePlan struct {
 	Info               *nativeplan.LoweringInfo
 }
 
-func (p *nativeSubtreePlan) execute(ctx context.Context, evaluator *evaluator, params evalParams) (model.RuntimeValue, error) {
+func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 	renderMode := nativeplan.RenderModeInstant
-	if params.Mode == evalModeRange {
+	if params.Mode == EvalModeRange {
 		renderMode = nativeplan.RenderModeRange
 	}
 	report := &nativeplan.OptimizationReport{}
@@ -54,7 +55,7 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, evaluator *evaluator, p
 			requiredEndMS = e
 		}
 	}
-	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: evaluator.opts.Database, Table: evaluator.opts.Table}, p.Fragment, nativeplan.RenderParams{
+	rendered, err := renderer.RenderFragment(storage.QueryConfig{Database: Evaluator.database, Table: Evaluator.table}, p.Fragment, renderer.RenderParams{
 		Mode:             renderMode,
 		EvaluationTimeMS: params.EvaluationTime.UnixMilli(),
 		StartMS:          params.Start.UnixMilli(),
@@ -67,48 +68,48 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, evaluator *evaluator, p
 		},
 	})
 	if err != nil {
-		return nil, withInternalContext(err, "rendering native subtree SQL for %q", p.Expr)
+		return nil, WithInternalContext(err, "rendering native subtree SQL for %q", p.Expr)
 	}
-	response, err := evaluator.client.Execute(ctx, rendered.SQL, rendered.QueryParams)
+	response, err := Evaluator.client.Execute(ctx, rendered.SQL, rendered.QueryParams)
 	if err != nil {
-		return nil, withInternalContext(normalizeInternalError(err), "executing native subtree query for %q", p.Expr)
+		return nil, WithInternalContext(NormalizeInternalError(err), "executing native subtree query for %q", p.Expr)
 	}
 	defer response.Body.Close()
 
 	switch {
-	case params.Mode == evalModeInstant && p.Fragment != nil && p.Fragment.OutputKind == nativeplan.OutputKindRangeMatrix:
-		series, err := decodeRangeSeries(response.Body)
+	case params.Mode == EvalModeInstant && p.Fragment != nil && p.Fragment.OutputKind == nativeplan.OutputKindRangeMatrix:
+		series, err := DecodeRangeSeries(response.Body)
 		if err != nil {
-			return nil, withInternalContext(err, "decoding native subtree instant matrix result for %q", p.Expr)
+			return nil, WithInternalContext(err, "decoding native subtree instant matrix result for %q", p.Expr)
 		}
 		return model.MatrixValue{Series: series}, nil
-	case params.Mode == evalModeInstant && p.Fragment != nil && p.Fragment.OutputKind == nativeplan.OutputKindScalar:
-		samples, err := decodeInstantSamples(response.Body)
+	case params.Mode == EvalModeInstant && p.Fragment != nil && p.Fragment.OutputKind == nativeplan.OutputKindScalar:
+		samples, err := DecodeInstantSamples(response.Body)
 		if err != nil {
-			return nil, withInternalContext(err, "decoding native subtree instant scalar result for %q", p.Expr)
+			return nil, WithInternalContext(err, "decoding native subtree instant scalar result for %q", p.Expr)
 		}
 		if len(samples) != 1 {
-			return nil, newExecutionErrorf("native subtree scalar result for %q returned %d samples, expected exactly 1", p.Expr, len(samples))
+			return nil, NewExecutionErrorf("native subtree scalar result for %q returned %d samples, expected exactly 1", p.Expr, len(samples))
 		}
 		return model.ScalarValue{Timestamp: samples[0].Timestamp, Value: samples[0].Value}, nil
-	case params.Mode == evalModeInstant:
-		samples, err := decodeInstantSamples(response.Body)
+	case params.Mode == EvalModeInstant:
+		samples, err := DecodeInstantSamples(response.Body)
 		if err != nil {
-			return nil, withInternalContext(err, "decoding native subtree instant result for %q", p.Expr)
+			return nil, WithInternalContext(err, "decoding native subtree instant result for %q", p.Expr)
 		}
 		evalTimestamp := float64(params.EvaluationTime.UnixNano()) / float64(time.Second)
 		for i := range samples {
 			samples[i].Timestamp = evalTimestamp
 		}
 		return model.VectorValue{Samples: samples}, nil
-	case params.Mode == evalModeRange:
-		series, err := decodeRangeSeries(response.Body)
+	case params.Mode == EvalModeRange:
+		series, err := DecodeRangeSeries(response.Body)
 		if err != nil {
-			return nil, withInternalContext(err, "decoding native subtree range result for %q", p.Expr)
+			return nil, WithInternalContext(err, "decoding native subtree range result for %q", p.Expr)
 		}
 		return model.MatrixValue{Series: series}, nil
 	default:
-		return nil, newExecutionErrorf("unknown evaluation mode %q", params.Mode)
+		return nil, NewExecutionErrorf("unknown evaluation mode %q", params.Mode)
 	}
 }
 
@@ -142,8 +143,8 @@ func (p *nativeSubtreePlan) explain() ExplainNode {
 	return explain
 }
 
-func renderModeForPlanContext(ctx planContext) nativeplan.RenderMode {
-	if ctx.Mode == evalModeRange {
+func renderModeForPlanContext(ctx PlanContext) nativeplan.RenderMode {
+	if ctx.Mode == EvalModeRange {
 		return nativeplan.RenderModeRange
 	}
 	return nativeplan.RenderModeInstant

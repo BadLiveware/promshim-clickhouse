@@ -2,7 +2,7 @@ package native
 
 import "github.com/prometheus/prometheus/promql/parser"
 
-func cloneVectorMatching(vectorMatching *parser.VectorMatching) *parser.VectorMatching {
+func CloneVectorMatching(vectorMatching *parser.VectorMatching) *parser.VectorMatching {
 	if vectorMatching == nil {
 		return nil
 	}
@@ -27,5 +27,5 @@ func normalizeVectorMatching(vectorMatching *parser.VectorMatching) *parser.Vect
 	if vectorMatching == nil {
 		return &parser.VectorMatching{Card: parser.CardOneToOne}
 	}
-	return cloneVectorMatching(vectorMatching)
+	return CloneVectorMatching(vectorMatching)
 }

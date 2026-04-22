@@ -1,23 +1,17 @@
-package native
+package renderer
 
 import (
 	"fmt"
 	"strings"
 
+	"ch-observability/internal/promshim/native"
 	"ch-observability/internal/promshim/storage"
 
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-type RenderMode string
-
-const (
-	RenderModeInstant RenderMode = "instant"
-	RenderModeRange   RenderMode = "range"
-)
-
 type RenderParams struct {
-	Mode                RenderMode
+	Mode                native.RenderMode
 	EvaluationTimeMS    int64
 	StartMS             int64
 	EndMS               int64
@@ -32,34 +26,34 @@ type RenderedQuery struct {
 	QueryParams map[string]string
 }
 
-func RenderFragment(cfg storage.QueryConfig, fragment *NativeFragment, params RenderParams) (RenderedQuery, error) {
+func RenderFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
 	if fragment == nil {
 		return RenderedQuery{}, fmt.Errorf("native fragment render requires a fragment")
 	}
 	switch fragment.Kind {
-	case FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr:
+	case native.FragmentKindLeafSource, native.FragmentKindUnarySourceExpr, native.FragmentKindBinaryScalarSourceExpr:
 		return renderSourceFragment(cfg, fragment, params)
-	case FragmentKindSyntheticSeries:
+	case native.FragmentKindSyntheticSeries:
 		return renderSyntheticFragment(fragment, params)
-	case FragmentKindScalarConvert:
+	case native.FragmentKindScalarConvert:
 		return renderScalarConvertFragment(cfg, fragment, params)
-	case FragmentKindInfoJoin:
+	case native.FragmentKindInfoJoin:
 		return renderInfoJoinFragment(cfg, fragment, params)
-	case FragmentKindAbsent:
+	case native.FragmentKindAbsent:
 		return renderAbsentFragment(cfg, fragment, params)
-	case FragmentKindHistogramProjection:
+	case native.FragmentKindHistogramProjection:
 		return renderHistogramProjectionFragment(cfg, fragment, params)
-	case FragmentKindHistogramFunction:
+	case native.FragmentKindHistogramFunction:
 		return renderHistogramFunctionFragment(cfg, fragment, params)
-	case FragmentKindSubquery:
+	case native.FragmentKindSubquery:
 		return renderSubqueryFragment(cfg, fragment, params)
-	case FragmentKindRangeFunction:
+	case native.FragmentKindRangeFunction:
 		return renderRangeFunctionFragment(cfg, fragment, params)
-	case FragmentKindBinaryVectorJoin:
+	case native.FragmentKindBinaryVectorJoin:
 		return renderBinaryJoinFragment(cfg, fragment, params)
-	case FragmentKindAggregation:
+	case native.FragmentKindAggregation:
 		return renderAggregationFragment(cfg, fragment, params)
-	case FragmentKindValueTransform:
+	case native.FragmentKindValueTransform:
 		return renderValueTransformFragment(cfg, fragment, params)
 	default:
 		return RenderedQuery{}, fmt.Errorf("native SQL rendering for fragment kind %q is not implemented yet", fragment.Kind)

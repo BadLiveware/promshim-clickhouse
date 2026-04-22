@@ -1,4 +1,4 @@
-package promshim
+package local
 
 import nativeplan "ch-observability/internal/promshim/native"
 
@@ -30,14 +30,14 @@ type ExplainNode struct {
 	Children            []ExplainNode           `json:"children,omitempty"`
 }
 
-func estimateRangePointsPerSeries(ctx planContext) int64 {
-	if ctx.Mode != evalModeRange || ctx.Step <= 0 || ctx.End.Before(ctx.Start) {
+func estimateRangePointsPerSeries(ctx PlanContext) int64 {
+	if ctx.Mode != EvalModeRange || ctx.Step <= 0 || ctx.End.Before(ctx.Start) {
 		return 0
 	}
 	return int64(ctx.End.Sub(ctx.Start)/ctx.Step) + 1
 }
 
-func estimateRangePlan(ctx planContext) *planEstimate {
+func estimateRangePlan(ctx PlanContext) *planEstimate {
 	pointsPerSeries := estimateRangePointsPerSeries(ctx)
 	if pointsPerSeries == 0 {
 		return nil
@@ -49,7 +49,7 @@ func estimateRangePlan(ctx planContext) *planEstimate {
 	}
 }
 
-func explainPlan(plan queryPlan) ExplainNode {
+func ExplainPlan(plan Plan) ExplainNode {
 	if plan == nil {
 		return ExplainNode{}
 	}
@@ -58,8 +58,8 @@ func explainPlan(plan queryPlan) ExplainNode {
 	return explain
 }
 
-func explainPlanWithLowering(plan queryPlan, lowering *nativeplan.LoweringInfo) ExplainNode {
-	explain := explainPlan(plan)
+func ExplainPlanWithLowering(plan Plan, lowering *nativeplan.LoweringInfo) ExplainNode {
+	explain := ExplainPlan(plan)
 	annotateExplainNode(&explain, lowering)
 	return explain
 }

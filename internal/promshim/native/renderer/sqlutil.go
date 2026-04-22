@@ -1,6 +1,7 @@
-package native
+package renderer
 
 import (
+	"ch-observability/internal/promshim/native"
 	"fmt"
 	"sort"
 	"strings"
@@ -33,7 +34,7 @@ func sqlStringLiteral(value string) string {
 	return "'" + escaped + "'"
 }
 
-func sourceWrapperIsIdentity(fragment *NativeFragment) bool {
+func sourceWrapperIsIdentity(fragment *native.NativeFragment) bool {
 	return fragment != nil && fragment.ValueExpr == "{value}" && fragment.TagsExpr == "{tags}" && !fragment.DropsMetric
 }
 
@@ -115,19 +116,19 @@ func wrapRangeSourceQuery(sourceSQL, valueExpr, tagsExpr string) (string, error)
 	return buildNativeWrapperSQL(query)
 }
 
-func selectorEffectiveMatchers(selector *SelectorSource) []*labels.Matcher {
+func selectorEffectiveMatchers(selector *native.SelectorSource) []*labels.Matcher {
 	if selector == nil {
 		return nil
 	}
 	if len(selector.PushedMatchers) > 0 {
-		return cloneMatchers(selector.PushedMatchers)
+		return native.CloneMatchers(selector.PushedMatchers)
 	}
-	matchers := cloneMatchers(selector.Matchers)
-	matchers = append(matchers, cloneMatchers(selector.InferredMatchers)...)
+	matchers := native.CloneMatchers(selector.Matchers)
+	matchers = append(matchers, native.CloneMatchers(selector.InferredMatchers)...)
 	return matchers
 }
 
-func selectorNeedsTags(selector *SelectorSource) bool {
+func selectorNeedsTags(selector *native.SelectorSource) bool {
 	if selector == nil {
 		return true
 	}
@@ -145,8 +146,8 @@ func alignSubqueryStepStart(windowStartMS, stepMS int64) int64 {
 	return aligned
 }
 
-func rangeRequiredBoundsForChild(fragment *NativeFragment, startMS, endMS int64) (int64, int64) {
-	selector := baseSelectorSource(fragment)
+func rangeRequiredBoundsForChild(fragment *native.NativeFragment, startMS, endMS int64) (int64, int64) {
+	selector := native.BaseSelectorSource(fragment)
 	if selector == nil {
 		return startMS, endMS
 	}
@@ -155,7 +156,7 @@ func rangeRequiredBoundsForChild(fragment *NativeFragment, startMS, endMS int64)
 	return startMS - offsetMS - lookbackMS, endMS - offsetMS
 }
 
-func renderFragmentSubquery(cfg storage.QueryConfig, fragment *NativeFragment, params RenderParams, prefix string) (string, map[string]string, error) {
+func renderFragmentSubquery(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams, prefix string) (string, map[string]string, error) {
 	rendered, err := RenderFragment(cfg, fragment, params)
 	if err != nil {
 		return "", nil, err

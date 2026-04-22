@@ -1,4 +1,4 @@
-package promshim
+package local
 
 import (
 	"context"
@@ -39,7 +39,7 @@ func TestNativeSubtreePlanNormalizesInstantVectorTimestampToEvaluationTime(t *te
 	}
 
 	evalTime := time.Unix(1234, 0).UTC()
-	value, err := plan.execute(context.Background(), &evaluator{opts: Options{Database: "observability", Table: "prometheus"}, client: client}, evalParams{Mode: evalModeInstant, EvaluationTime: evalTime})
+	value, err := plan.execute(context.Background(), &Evaluator{database: "observability", table: "prometheus", client: client}, EvalParams{Mode: EvalModeInstant, EvaluationTime: evalTime})
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}

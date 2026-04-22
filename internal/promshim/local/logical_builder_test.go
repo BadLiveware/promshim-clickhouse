@@ -1,4 +1,4 @@
-package promshim
+package local
 
 import (
 	"testing"
@@ -14,7 +14,7 @@ func TestBuildLogicalPlanCreatesDelegatedLeafPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plan, err := buildLogicalPlan(expr)
+	plan, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical leaf plan, got error: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestBuildLogicalPlanCreatesAggregationPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plan, err := buildLogicalPlan(expr)
+	plan, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical aggregation plan, got error: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestBuildLogicalPlanPreservesTimeModifierLeafExpression(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical leaf plan, got error: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestBuildLogicalPlanCreatesTopKPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical topk plan, got error: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestBuildLogicalPlanCreatesTier1AdditionalAggregationPlans(t *testing.T) {
 		{query: "quantile(0.9, up)", op: parser.QUANTILE, param: floatPtr(0.9)},
 	}
 	for _, tc := range queries {
-		logical, err := buildLogicalPlan(mustParseExpr(t, tc.query))
+		logical, err := BuildLogicalPlan(mustParseExpr(t, tc.query))
 		if err != nil {
 			t.Fatalf("expected logical aggregation plan for %q, got error: %v", tc.query, err)
 		}
@@ -138,7 +138,7 @@ func TestBuildLogicalPlanCreatesHistogramQuantilePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical histogram_quantile plan, got error: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestBuildLogicalPlanCreatesHistogramProjectionPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical histogram projection plan, got error: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestBuildLogicalPlanCreatesHistogramFractionPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical histogram fraction plan, got error: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestBuildLogicalPlanCreatesHistogramFractionPlan(t *testing.T) {
 
 func TestBuildLogicalPlanCreatesTier1AdditionalRangeFunctionPlans(t *testing.T) {
 	for _, fn := range []string{"stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time", "resets"} {
-		logical, err := buildLogicalPlan(mustParseExpr(t, fn+"(up[5m])"))
+		logical, err := BuildLogicalPlan(mustParseExpr(t, fn+"(up[5m])"))
 		if err != nil {
 			t.Fatalf("expected logical %s plan, got error: %v", fn, err)
 		}
@@ -232,7 +232,7 @@ func TestBuildLogicalPlanCreatesIncreasePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical increase plan, got error: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestBuildLogicalPlanCreatesIncreasePlanForSubqueryArg(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical increase plan, got error: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestBuildLogicalPlanCreatesRatePlanForDirectSelectorArg(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		logical, err := buildLogicalPlan(expr)
+		logical, err := BuildLogicalPlan(expr)
 		if err != nil {
 			t.Fatalf("expected logical %s plan, got error: %v", fn, err)
 		}
@@ -294,7 +294,7 @@ func TestBuildLogicalPlanCreatesRatePlanForSubqueryArg(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical rate plan, got error: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestBuildLogicalPlanCreatesIratePlanForSubqueryArg(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical irate plan, got error: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestBuildLogicalPlanCreatesCounterPlansForDirectSelectorArgs(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		logical, err := buildLogicalPlan(expr)
+		logical, err := BuildLogicalPlan(expr)
 		if err != nil {
 			t.Fatalf("expected logical plan for %q, got error: %v", tc.query, err)
 		}
@@ -386,7 +386,7 @@ func TestBuildLogicalPlanCreatesDeltaPlanForSubqueryArg(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical delta plan, got error: %v", err)
 	}
@@ -408,7 +408,7 @@ func TestBuildLogicalPlanCreatesIDeltaPlanForSubqueryArg(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical idelta plan, got error: %v", err)
 	}
@@ -430,7 +430,7 @@ func TestBuildLogicalPlanCreatesChangesPlanForSubqueryArg(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical changes plan, got error: %v", err)
 	}
@@ -449,7 +449,7 @@ func TestBuildLogicalPlanCreatesDerivPlanForSubqueryArg(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical deriv plan, got error: %v", err)
 	}
@@ -468,7 +468,7 @@ func TestBuildLogicalPlanCreatesVectorPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical vector plan, got error: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestBuildLogicalPlanCreatesRoundPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical round plan, got error: %v", err)
 	}
@@ -504,7 +504,7 @@ func TestBuildLogicalPlanCreatesRoundPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesPointwiseFunctionPlan(t *testing.T) {
-	logical, err := buildLogicalPlan(mustParseExpr(t, "abs(up)"))
+	logical, err := BuildLogicalPlan(mustParseExpr(t, "abs(up)"))
 	if err != nil {
 		t.Fatalf("expected logical pointwise plan, got error: %v", err)
 	}
@@ -521,7 +521,7 @@ func TestBuildLogicalPlanCreatesPointwiseFunctionPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesPointwiseFunctionPlanWithoutChildForDateDefault(t *testing.T) {
-	logical, err := buildLogicalPlan(mustParseExpr(t, "minute()"))
+	logical, err := BuildLogicalPlan(mustParseExpr(t, "minute()"))
 	if err != nil {
 		t.Fatalf("expected logical pointwise plan, got error: %v", err)
 	}
@@ -535,7 +535,7 @@ func TestBuildLogicalPlanCreatesPointwiseFunctionPlanWithoutChildForDateDefault(
 }
 
 func TestBuildLogicalPlanCreatesSortPlan(t *testing.T) {
-	logical, err := buildLogicalPlan(mustParseExpr(t, "sort_by_label(up, \"job\", \"instance\")"))
+	logical, err := BuildLogicalPlan(mustParseExpr(t, "sort_by_label(up, \"job\", \"instance\")"))
 	if err != nil {
 		t.Fatalf("expected logical sort plan, got error: %v", err)
 	}
@@ -549,7 +549,7 @@ func TestBuildLogicalPlanCreatesSortPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesScalarBuiltinPlan(t *testing.T) {
-	logical, err := buildLogicalPlan(mustParseExpr(t, "time()"))
+	logical, err := BuildLogicalPlan(mustParseExpr(t, "time()"))
 	if err != nil {
 		t.Fatalf("expected logical scalar builtin plan, got error: %v", err)
 	}
@@ -563,7 +563,7 @@ func TestBuildLogicalPlanCreatesScalarBuiltinPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesScalarConvertPlan(t *testing.T) {
-	logical, err := buildLogicalPlan(mustParseExpr(t, "scalar(up)"))
+	logical, err := BuildLogicalPlan(mustParseExpr(t, "scalar(up)"))
 	if err != nil {
 		t.Fatalf("expected logical scalar convert plan, got error: %v", err)
 	}
@@ -577,7 +577,7 @@ func TestBuildLogicalPlanCreatesScalarConvertPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesPredictLinearPlan(t *testing.T) {
-	logical, err := buildLogicalPlan(mustParseExpr(t, "predict_linear(up[5m], 60)"))
+	logical, err := BuildLogicalPlan(mustParseExpr(t, "predict_linear(up[5m], 60)"))
 	if err != nil {
 		t.Fatalf("expected logical predict_linear plan, got error: %v", err)
 	}
@@ -594,7 +594,7 @@ func TestBuildLogicalPlanCreatesPredictLinearPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesDoubleExponentialSmoothingPlan(t *testing.T) {
-	logical, err := buildLogicalPlan(mustParseExpr(t, "double_exponential_smoothing(up[5m], 0.5, 0.3)"))
+	logical, err := BuildLogicalPlan(mustParseExpr(t, "double_exponential_smoothing(up[5m], 0.5, 0.3)"))
 	if err != nil {
 		t.Fatalf("expected logical smoothing plan, got error: %v", err)
 	}
@@ -608,7 +608,7 @@ func TestBuildLogicalPlanCreatesDoubleExponentialSmoothingPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesInfoPlan(t *testing.T) {
-	logical, err := buildLogicalPlan(mustParseExpr(t, "info(up, {k8s_cluster_name=\"prod\"})"))
+	logical, err := BuildLogicalPlan(mustParseExpr(t, "info(up, {k8s_cluster_name=\"prod\"})"))
 	if err != nil {
 		t.Fatalf("expected logical info plan, got error: %v", err)
 	}
@@ -625,7 +625,7 @@ func TestBuildLogicalPlanCreatesInfoPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesPiBuiltinPlan(t *testing.T) {
-	logical, err := buildLogicalPlan(mustParseExpr(t, "pi()"))
+	logical, err := BuildLogicalPlan(mustParseExpr(t, "pi()"))
 	if err != nil {
 		t.Fatalf("expected logical scalar builtin plan, got error: %v", err)
 	}
@@ -644,7 +644,7 @@ func TestBuildLogicalPlanCreatesNestedAggregationPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical nested aggregation plan, got error: %v", err)
 	}
@@ -666,7 +666,7 @@ func TestBuildLogicalPlanCreatesLastOverTimePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical last_over_time plan, got error: %v", err)
 	}
@@ -685,7 +685,7 @@ func TestBuildLogicalPlanCreatesSumOverTimePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical sum_over_time plan, got error: %v", err)
 	}
@@ -704,7 +704,7 @@ func TestBuildLogicalPlanCreatesAvgOverTimePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical avg_over_time plan, got error: %v", err)
 	}
@@ -723,7 +723,7 @@ func TestBuildLogicalPlanCreatesMaxOverTimePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical max_over_time plan, got error: %v", err)
 	}
@@ -742,7 +742,7 @@ func TestBuildLogicalPlanCreatesMinOverTimePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical min_over_time plan, got error: %v", err)
 	}
@@ -761,7 +761,7 @@ func TestBuildLogicalPlanCreatesCountOverTimePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical count_over_time plan, got error: %v", err)
 	}
@@ -780,7 +780,7 @@ func TestBuildLogicalPlanCreatesQuantileOverTimePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical quantile_over_time plan, got error: %v", err)
 	}
@@ -799,7 +799,7 @@ func TestBuildLogicalPlanCreatesAbsentPlanWithDerivedLabels(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical absent plan, got error: %v", err)
 	}
@@ -818,7 +818,7 @@ func TestBuildLogicalPlanCreatesAbsentOverTimePlanWithEmptyDerivedLabelsForCompl
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical absent_over_time plan, got error: %v", err)
 	}
@@ -837,7 +837,7 @@ func TestBuildLogicalPlanCreatesNestedSubqueryRangeFunctionPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected nested logical range-function/subquery plan, got error: %v", err)
 	}
@@ -856,7 +856,7 @@ func TestBuildLogicalPlanCreatesNestedMatrixFunctionBinaryPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected nested matrix binary plan, got error: %v", err)
 	}
@@ -871,7 +871,7 @@ func TestBuildLogicalPlanCreatesSetOperatorPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical set-operator plan, got error: %v", err)
 	}
@@ -893,7 +893,7 @@ func TestBuildLogicalPlanCreatesSubqueryPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical subquery plan, got error: %v", err)
 	}
@@ -915,7 +915,7 @@ func TestBuildLogicalPlanCreatesSubqueryWithLocalAggregationChildPlan(t *testing
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical subquery plan, got error: %v", err)
 	}
@@ -934,7 +934,7 @@ func TestBuildLogicalPlanCreatesVectorMatchingBinaryPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logical, err := buildLogicalPlan(expr)
+	logical, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical vector matching binary plan, got error: %v", err)
 	}
@@ -959,7 +959,7 @@ func TestBuildLogicalPlanCreatesLabelReplacePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plan, err := buildLogicalPlan(expr)
+	plan, err := BuildLogicalPlan(expr)
 	if err != nil {
 		t.Fatalf("expected logical label_replace plan, got error: %v", err)
 	}

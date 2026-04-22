@@ -1,4 +1,4 @@
-package promshim
+package local
 
 import (
 	"strings"
@@ -24,7 +24,7 @@ func TestClassifyEntireQueryDelegationAcceptsAllowedRoots(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			result := classifyEntireQueryDelegation(expr, "26.3")
+			result := ClassifyEntireQueryDelegation(expr, "26.3")
 			if !result.Eligible {
 				t.Fatalf("expected query %q to be delegation-eligible, got %#v", tc.query, result)
 			}
@@ -60,7 +60,7 @@ func TestClassifyEntireQueryDelegationRejectsUnverifiedConstructs(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			result := classifyEntireQueryDelegation(expr, "26.3")
+			result := ClassifyEntireQueryDelegation(expr, "26.3")
 			if result.Eligible {
 				t.Fatalf("expected query %q to be rejected, got %#v", tc.query, result)
 			}

@@ -20,10 +20,10 @@ func BuildFragment(node planpkg.LogicalPlan, analysis *Analysis) (*NativeFragmen
 	if info.Fragment == nil {
 		return nil, fmt.Errorf("logical node %T is not lowerable to a native fragment", node)
 	}
-	return cloneFragment(info.Fragment), nil
+	return CloneFragment(info.Fragment), nil
 }
 
-func cloneFragment(fragment *NativeFragment) *NativeFragment {
+func CloneFragment(fragment *NativeFragment) *NativeFragment {
 	if fragment == nil {
 		return nil
 	}
@@ -40,17 +40,17 @@ func cloneFragment(fragment *NativeFragment) *NativeFragment {
 		cloned.BinaryJoin = &BinaryJoinFragment{
 			Op:             fragment.BinaryJoin.Op,
 			ReturnBool:     fragment.BinaryJoin.ReturnBool,
-			VectorMatching: cloneVectorMatching(fragment.BinaryJoin.VectorMatching),
+			VectorMatching: CloneVectorMatching(fragment.BinaryJoin.VectorMatching),
 			JoinShape:      fragment.BinaryJoin.JoinShape,
-			LHS:            cloneFragment(fragment.BinaryJoin.LHS),
-			RHS:            cloneFragment(fragment.BinaryJoin.RHS),
+			LHS:            CloneFragment(fragment.BinaryJoin.LHS),
+			RHS:            CloneFragment(fragment.BinaryJoin.RHS),
 		}
 	}
 	if fragment.RangeFunction != nil {
-		cloned.RangeFunction = &RangeFunctionFragment{Func: fragment.RangeFunction.Func, ParamNumber: cloneFloat64Pointer(fragment.RangeFunction.ParamNumber), ParamNumbers: cloneFloat64Pointers(fragment.RangeFunction.ParamNumbers), Child: cloneFragment(fragment.RangeFunction.Child)}
+		cloned.RangeFunction = &RangeFunctionFragment{Func: fragment.RangeFunction.Func, ParamNumber: cloneFloat64Pointer(fragment.RangeFunction.ParamNumber), ParamNumbers: cloneFloat64Pointers(fragment.RangeFunction.ParamNumbers), Child: CloneFragment(fragment.RangeFunction.Child)}
 	}
 	if fragment.Subquery != nil {
-		cloned.Subquery = &SubqueryFragment{Range: fragment.Subquery.Range, Step: fragment.Subquery.Step, Offset: fragment.Subquery.Offset, Timestamp: cloneInt64Pointer(fragment.Subquery.Timestamp), StartOrEnd: fragment.Subquery.StartOrEnd, Child: cloneFragment(fragment.Subquery.Child)}
+		cloned.Subquery = &SubqueryFragment{Range: fragment.Subquery.Range, Step: fragment.Subquery.Step, Offset: fragment.Subquery.Offset, Timestamp: cloneInt64Pointer(fragment.Subquery.Timestamp), StartOrEnd: fragment.Subquery.StartOrEnd, Child: CloneFragment(fragment.Subquery.Child)}
 	}
 	if fragment.Aggregation != nil {
 		cloned.Aggregation = &AggregationFragment{
@@ -58,30 +58,30 @@ func cloneFragment(fragment *NativeFragment) *NativeFragment {
 			Grouping:    append([]string(nil), fragment.Aggregation.Grouping...),
 			Without:     fragment.Aggregation.Without,
 			ParamNumber: cloneFloat64Pointer(fragment.Aggregation.ParamNumber),
-			Source:      cloneFragment(fragment.Aggregation.Source),
+			Source:      CloneFragment(fragment.Aggregation.Source),
 		}
 	}
 	if fragment.Synthetic != nil {
 		cloned.Synthetic = &SyntheticSeriesFragment{Func: fragment.Synthetic.Func}
 	}
 	if fragment.ScalarConvert != nil {
-		cloned.ScalarConvert = &ScalarConvertFragment{Child: cloneFragment(fragment.ScalarConvert.Child)}
+		cloned.ScalarConvert = &ScalarConvertFragment{Child: CloneFragment(fragment.ScalarConvert.Child)}
 	}
 	if fragment.InfoJoin != nil {
-		cloned.InfoJoin = &InfoJoinFragment{Child: cloneFragment(fragment.InfoJoin.Child), InfoMetricName: fragment.InfoJoin.InfoMetricName, SelectorMatchers: cloneMatchers(fragment.InfoJoin.SelectorMatchers), CopyLabelNames: append([]string(nil), fragment.InfoJoin.CopyLabelNames...), DropUnmatched: fragment.InfoJoin.DropUnmatched}
+		cloned.InfoJoin = &InfoJoinFragment{Child: CloneFragment(fragment.InfoJoin.Child), InfoMetricName: fragment.InfoJoin.InfoMetricName, SelectorMatchers: CloneMatchers(fragment.InfoJoin.SelectorMatchers), CopyLabelNames: append([]string(nil), fragment.InfoJoin.CopyLabelNames...), DropUnmatched: fragment.InfoJoin.DropUnmatched}
 	}
 	if fragment.Absent != nil {
-		cloned.Absent = &AbsentFragment{Func: fragment.Absent.Func, OutputMetric: cloneStringMap(fragment.Absent.OutputMetric), Child: cloneFragment(fragment.Absent.Child)}
+		cloned.Absent = &AbsentFragment{Func: fragment.Absent.Func, OutputMetric: cloneStringMap(fragment.Absent.OutputMetric), Child: CloneFragment(fragment.Absent.Child)}
 	}
 	if fragment.HistogramProjection != nil {
-		cloned.HistogramProjection = &HistogramProjectionFragment{Func: fragment.HistogramProjection.Func, Child: cloneFragment(fragment.HistogramProjection.Child)}
+		cloned.HistogramProjection = &HistogramProjectionFragment{Func: fragment.HistogramProjection.Func, Child: CloneFragment(fragment.HistogramProjection.Child)}
 	}
 	if fragment.HistogramFunction != nil {
-		cloned.HistogramFunction = &HistogramFunctionFragment{Func: fragment.HistogramFunction.Func, Quantile: cloneFloat64Pointer(fragment.HistogramFunction.Quantile), Lower: cloneFloat64Pointer(fragment.HistogramFunction.Lower), Upper: cloneFloat64Pointer(fragment.HistogramFunction.Upper), Child: cloneFragment(fragment.HistogramFunction.Child)}
+		cloned.HistogramFunction = &HistogramFunctionFragment{Func: fragment.HistogramFunction.Func, Quantile: cloneFloat64Pointer(fragment.HistogramFunction.Quantile), Lower: cloneFloat64Pointer(fragment.HistogramFunction.Lower), Upper: cloneFloat64Pointer(fragment.HistogramFunction.Upper), Child: CloneFragment(fragment.HistogramFunction.Child)}
 	}
 	if fragment.ValueTransform != nil {
 		cloned.ValueTransform = &ValueTransformFragment{
-			Child:       cloneFragment(fragment.ValueTransform.Child),
+			Child:       CloneFragment(fragment.ValueTransform.Child),
 			ValueExpr:   fragment.ValueTransform.ValueExpr,
 			FilterExpr:  fragment.ValueTransform.FilterExpr,
 			DropsMetric: fragment.ValueTransform.DropsMetric,

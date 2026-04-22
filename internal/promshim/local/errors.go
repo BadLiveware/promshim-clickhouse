@@ -1,11 +1,11 @@
-package promshim
+package local
 
 import (
 	"errors"
 	"fmt"
 	"net/http"
 
-	"ch-observability/internal/promshim/exec"
+	"ch-observability/internal/promshim/local/exec"
 	httpapi "ch-observability/internal/promshim/httpapi"
 	"ch-observability/internal/promshim/plan"
 	"ch-observability/internal/promshim/storage"
@@ -56,23 +56,23 @@ func (e *contextualInternalError) Unwrap() error {
 	return e.cause
 }
 
-func newBadDataErrorf(format string, args ...any) error {
+func NewBadDataErrorf(format string, args ...any) error {
 	return &promshimError{kind: internalErrorKindBadData, message: fmt.Sprintf(format, args...)}
 }
 
-func newUnsupportedErrorf(format string, args ...any) error {
+func NewUnsupportedErrorf(format string, args ...any) error {
 	return &promshimError{kind: internalErrorKindUnsupported, message: fmt.Sprintf(format, args...)}
 }
 
-func newExecutionErrorf(format string, args ...any) error {
+func NewExecutionErrorf(format string, args ...any) error {
 	return &promshimError{kind: internalErrorKindExecution, message: fmt.Sprintf(format, args...)}
 }
 
-func withInternalContext(err error, format string, args ...any) error {
+func WithInternalContext(err error, format string, args ...any) error {
 	if err == nil {
 		return nil
 	}
-	err = normalizeInternalError(err)
+	err = NormalizeInternalError(err)
 	return &contextualInternalError{
 		kind:    internalErrorKindOf(err),
 		context: fmt.Sprintf(format, args...),
@@ -80,13 +80,13 @@ func withInternalContext(err error, format string, args ...any) error {
 	}
 }
 
-type planBuildError struct {
+type PlanBuildError struct {
 	Support plan.SupportResult
 	Expr    parser.Expr
 	Stage   string
 }
 
-func (e *planBuildError) Error() string {
+func (e *PlanBuildError) Error() string {
 	base := e.UserMessage()
 	if e.Expr == nil && e.Stage == "" {
 		return fmt.Sprintf("planner cannot build plan: %s", base)
@@ -100,19 +100,19 @@ func (e *planBuildError) Error() string {
 	return fmt.Sprintf("planner cannot build plan during %s for %T %q: %s", e.Stage, e.Expr, e.Expr.String(), base)
 }
 
-func (e *planBuildError) UserMessage() string {
+func (e *PlanBuildError) UserMessage() string {
 	return fmt.Sprintf("unsupported PromQL (difficulty=%s): %s", e.Support.Difficulty, e.Support.Reason)
 }
 
-func (e *planBuildError) Kind() internalErrorKind {
+func (e *PlanBuildError) Kind() internalErrorKind {
 	return internalErrorKindUnsupported
 }
 
-func newPlanBuildError(expr parser.Expr, support plan.SupportResult, stage string) error {
-	return &planBuildError{Support: support, Expr: expr, Stage: stage}
+func NewPlanBuildError(expr parser.Expr, support plan.SupportResult, stage string) error {
+	return &PlanBuildError{Support: support, Expr: expr, Stage: stage}
 }
 
-func normalizeInternalError(err error) error {
+func NormalizeInternalError(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -145,31 +145,35 @@ func internalErrorKindOf(err error) internalErrorKind {
 	return internalErrorKindExecution
 }
 
-func fromExecError(err error) error {
+func IsBadDataError(err error) bool {
+	return internalErrorKindOf(err) == internalErrorKindBadData
+}
+
+func FromExecError(err error) error {
 	if err == nil {
 		return nil
 	}
 	if execErr, ok := err.(*exec.Error); ok {
 		switch execErr.Kind {
 		case exec.ErrorKindBadData:
-			return newBadDataErrorf("%s", execErr.Message)
+			return NewBadDataErrorf("%s", execErr.Message)
 		case exec.ErrorKindUnsupported:
-			return newUnsupportedErrorf("%s", execErr.Message)
+			return NewUnsupportedErrorf("%s", execErr.Message)
 		default:
-			return newExecutionErrorf("%s", execErr.Message)
+			return NewExecutionErrorf("%s", execErr.Message)
 		}
 	}
-	return newExecutionErrorf("%s", err.Error())
+	return NewExecutionErrorf("%s", err.Error())
 }
 
-type apiError struct {
+type APIError struct {
 	StatusCode int    `json:"-"`
 	ErrorType  string `json:"errorType"`
 	Error      string `json:"error"`
 }
 
-func apiErrorFromInternal(err error) apiError {
-	err = normalizeInternalError(err)
+func apiErrorFromInternal(err error) APIError {
+	err = NormalizeInternalError(err)
 	kind := internalErrorKindOf(err)
 	statusCode := http.StatusBadGateway
 	switch kind {
@@ -180,15 +184,15 @@ func apiErrorFromInternal(err error) apiError {
 	case internalErrorKindExecution:
 		statusCode = http.StatusBadGateway
 	}
-	return apiError{StatusCode: statusCode, ErrorType: string(kind), Error: userFacingErrorMessage(err)}
+	return APIError{StatusCode: statusCode, ErrorType: string(kind), Error: userFacingErrorMessage(err)}
 }
 
 func userFacingErrorMessage(err error) string {
-	err = normalizeInternalError(err)
+	err = NormalizeInternalError(err)
 	if internalErrorKindOf(err) == internalErrorKindExecution {
 		return err.Error()
 	}
-	var buildErr *planBuildError
+	var buildErr *PlanBuildError
 	if errors.As(err, &buildErr) {
 		return buildErr.UserMessage()
 	}
@@ -211,18 +215,18 @@ func asQueryError(err error, target **storage.QueryError) bool {
 	return ok
 }
 
-func apiErrorToHTTP(err error) *httpapi.APIError {
-	return apiErrorPtr(toHTTPAPIError(apiErrorFromInternal(err)))
+func ApiErrorToHTTP(err error) *httpapi.APIError {
+	return ApiErrorPtr(ToHTTPAPIError(apiErrorFromInternal(err)))
 }
 
-func toHTTPAPIError(err apiError) httpapi.APIError {
+func ToHTTPAPIError(err APIError) httpapi.APIError {
 	return httpapi.APIError{StatusCode: err.StatusCode, ErrorType: err.ErrorType, Error: err.Error}
 }
 
-func badRequestHTTPError(message string) *httpapi.APIError {
+func BadRequestHTTPError(message string) *httpapi.APIError {
 	return &httpapi.APIError{StatusCode: http.StatusBadRequest, ErrorType: "bad_data", Error: message}
 }
 
-func apiErrorPtr(err httpapi.APIError) *httpapi.APIError {
+func ApiErrorPtr(err httpapi.APIError) *httpapi.APIError {
 	return &err
 }

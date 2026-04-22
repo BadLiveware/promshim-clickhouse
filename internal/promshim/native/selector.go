@@ -8,7 +8,7 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-const defaultInstantSelectorLookback = 5 * time.Minute
+const DefaultInstantSelectorLookback = 5 * time.Minute
 
 type SelectorKind string
 
@@ -37,9 +37,9 @@ func buildSelectorSource(expr parser.Expr) (*SelectorSource, error) {
 		return &SelectorSource{
 			Kind:            SelectorKindInstantVector,
 			MetricName:      node.Name,
-			Matchers:        cloneMatchers(node.LabelMatchers),
+			Matchers:        CloneMatchers(node.LabelMatchers),
 			RequireFullTags: true,
-			Lookback:        defaultInstantSelectorLookback,
+			Lookback:        DefaultInstantSelectorLookback,
 			Offset:          absoluteDuration(node.OriginalOffset),
 			Timestamp:       cloneInt64Pointer(node.Timestamp),
 			StartOrEnd:      node.StartOrEnd,
@@ -52,7 +52,7 @@ func buildSelectorSource(expr parser.Expr) (*SelectorSource, error) {
 		return &SelectorSource{
 			Kind:            SelectorKindRangeVector,
 			MetricName:      vectorSelector.Name,
-			Matchers:        cloneMatchers(vectorSelector.LabelMatchers),
+			Matchers:        CloneMatchers(vectorSelector.LabelMatchers),
 			RequireFullTags: true,
 			Lookback:        node.Range,
 			Offset:          absoluteDuration(vectorSelector.OriginalOffset),
@@ -71,9 +71,9 @@ func cloneSelectorSource(selector *SelectorSource) *SelectorSource {
 	return &SelectorSource{
 		Kind:              selector.Kind,
 		MetricName:        selector.MetricName,
-		Matchers:          cloneMatchers(selector.Matchers),
-		InferredMatchers:  cloneMatchers(selector.InferredMatchers),
-		PushedMatchers:    cloneMatchers(selector.PushedMatchers),
+		Matchers:          CloneMatchers(selector.Matchers),
+		InferredMatchers:  CloneMatchers(selector.InferredMatchers),
+		PushedMatchers:    CloneMatchers(selector.PushedMatchers),
 		RequireFullTags:   selector.RequireFullTags,
 		RequiredTagLabels: append([]string(nil), selector.RequiredTagLabels...),
 		Lookback:          selector.Lookback,
@@ -83,7 +83,7 @@ func cloneSelectorSource(selector *SelectorSource) *SelectorSource {
 	}
 }
 
-func cloneMatchers(matchers []*labels.Matcher) []*labels.Matcher {
+func CloneMatchers(matchers []*labels.Matcher) []*labels.Matcher {
 	if len(matchers) == 0 {
 		return nil
 	}

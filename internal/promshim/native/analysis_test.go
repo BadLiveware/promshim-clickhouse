@@ -130,7 +130,7 @@ func TestAnalyzeInfoStaysLocalForUnsupportedMetricNameMatcher(t *testing.T) {
 		t.Fatalf("expected call expr, got %T", callExpr)
 	}
 	selector := call.Args[1].(*parser.VectorSelector)
-	logical := &planpkg.LogicalInfoPlan{Expr: call, SelectorMatchers: cloneMatchers(selector.LabelMatchers), Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+	logical := &planpkg.LogicalInfoPlan{Expr: call, SelectorMatchers: CloneMatchers(selector.LabelMatchers), Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil {
 		t.Fatal("expected lowering info")

@@ -17,6 +17,13 @@ const (
 	OutputKindRangeMatrix   OutputKind = "range_matrix"
 )
 
+type RenderMode string
+
+const (
+	RenderModeInstant RenderMode = "instant"
+	RenderModeRange   RenderMode = "range"
+)
+
 type FragmentKind string
 
 const (

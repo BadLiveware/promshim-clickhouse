@@ -42,7 +42,7 @@ func TestSQLBuilderAudit_MigratedFilesAvoidFormattedQueryTemplates(t *testing.T)
 	root := repoRootFromThisFile(t)
 	files := []string{
 		"internal/promshim/storage/join_sql.go",
-		"internal/promshim/native/renderer.go",
+		"internal/promshim/native/renderer/renderer.go",
 		"internal/promshim/storage/selector_sql.go",
 		"internal/promshim/storage/sql.go",
 	}
@@ -64,7 +64,7 @@ func TestSQLBuilderAudit_MigratedFilesAvoidFmtSprintfEntirely(t *testing.T) {
 	root := repoRootFromThisFile(t)
 	files := []string{
 		"internal/promshim/storage/join_sql.go",
-		"internal/promshim/native/renderer.go",
+		"internal/promshim/native/renderer/renderer.go",
 		"internal/promshim/storage/selector_sql.go",
 		"internal/promshim/storage/sql.go",
 	}

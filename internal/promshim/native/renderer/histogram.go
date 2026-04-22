@@ -1,13 +1,14 @@
-package native
+package renderer
 
 import (
+	"ch-observability/internal/promshim/native"
 	"fmt"
 	"math"
 
 	"ch-observability/internal/promshim/storage"
 )
 
-func renderHistogramProjectionFragment(cfg storage.QueryConfig, fragment *NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderHistogramProjectionFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
 	if fragment == nil || fragment.HistogramProjection == nil || fragment.HistogramProjection.Child == nil {
 		return RenderedQuery{}, fmt.Errorf("histogram projection fragment is missing child metadata")
 	}
@@ -40,7 +41,7 @@ func renderHistogramProjectionFragment(cfg storage.QueryConfig, fragment *Native
 		return RenderedQuery{}, fmt.Errorf("histogram projection function %q is not implemented yet", fragment.HistogramProjection.Func)
 	}
 	query := "SELECT tags AS tags, timestamp AS timestamp, " + valueExpr + " AS value FROM (" + trimRenderedQuerySQL(histograms.SQL) + ") AS classic_histograms\nFORMAT JSONEachRow\n"
-	if params.Mode == RenderModeRange {
+	if params.Mode == native.RenderModeRange {
 		query = "SELECT tags AS tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series FROM (SELECT tags AS tags, timestamp AS timestamp, " + valueExpr + " AS value FROM (" + trimRenderedQuerySQL(histograms.SQL) + ") AS classic_histograms ORDER BY tags, timestamp) AS histogram_projection_steps GROUP BY tags ORDER BY tags\nFORMAT JSONEachRow\n"
 	}
 	return RenderedQuery{SQL: query, QueryParams: histograms.QueryParams}, nil
@@ -100,7 +101,7 @@ func classicHistogramQuantileValueExpr(bucketsExpr string, quantile float64) str
 	return "multiIf(length(" + bucketsExpr + ") < 2, nan, NOT isInfinite(tupleElement(arrayElement(" + bucketsExpr + ", length(" + bucketsExpr + ")), 1)), nan, isNaN(" + observationsExpr + ") OR (" + observationsExpr + ") <= 0, nan, (" + bucketIndexExpr + ") = 0, arrayElement(" + upperBoundsExpr + ", length(" + upperBoundsExpr + ") - 1), (" + bucketIndexExpr + ") = 1 AND arrayElement(" + upperBoundsExpr + ", 1) <= 0, arrayElement(" + upperBoundsExpr + ", 1), isNaN(" + bucketCountExpr + ") OR (" + bucketCountExpr + ") <= 0, nan, (" + bucketStartExpr + ") + ((" + bucketEndExpr + ") - (" + bucketStartExpr + ")) * ((" + rankInBucketExpr + ") / (" + bucketCountExpr + ")))"
 }
 
-func renderHistogramFunctionFragment(cfg storage.QueryConfig, fragment *NativeFragment, params RenderParams) (RenderedQuery, error) {
+func renderHistogramFunctionFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
 	if fragment == nil || fragment.HistogramFunction == nil || fragment.HistogramFunction.Child == nil {
 		return RenderedQuery{}, fmt.Errorf("histogram function fragment is missing child metadata")
 	}
@@ -124,7 +125,7 @@ func renderHistogramFunctionFragment(cfg storage.QueryConfig, fragment *NativeFr
 		return RenderedQuery{}, fmt.Errorf("histogram function %q is not implemented yet", fragment.HistogramFunction.Func)
 	}
 	query := "SELECT tags AS tags, timestamp AS timestamp, " + valueExpr + " AS value FROM (" + trimRenderedQuerySQL(histograms.SQL) + ") AS classic_histograms\nFORMAT JSONEachRow\n"
-	if params.Mode == RenderModeRange {
+	if params.Mode == native.RenderModeRange {
 		query = "SELECT tags AS tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series FROM (SELECT tags AS tags, timestamp AS timestamp, " + valueExpr + " AS value FROM (" + trimRenderedQuerySQL(histograms.SQL) + ") AS classic_histograms ORDER BY tags, timestamp) AS histogram_function_steps GROUP BY tags ORDER BY tags\nFORMAT JSONEachRow\n"
 	}
 	return RenderedQuery{SQL: query, QueryParams: histograms.QueryParams}, nil
@@ -134,7 +135,7 @@ func renderHistogramFunctionFragment(cfg storage.QueryConfig, fragment *NativeFr
 // one grouped row per histogram identity and timestamp. It removes __name__ and le
 // from the output tags, parses le into a numeric upper bound, and coalesces repeated
 // bucket boundaries before later projection helpers consume the grouped bucket array.
-func renderClassicHistogramGroupsQuery(cfg storage.QueryConfig, child *NativeFragment, params RenderParams, prefix string) (RenderedQuery, error) {
+func renderClassicHistogramGroupsQuery(cfg storage.QueryConfig, child *native.NativeFragment, params RenderParams, prefix string) (RenderedQuery, error) {
 	if child == nil {
 		return RenderedQuery{}, fmt.Errorf("classic histogram materialization requires a child fragment")
 	}
@@ -144,9 +145,9 @@ func renderClassicHistogramGroupsQuery(cfg storage.QueryConfig, child *NativeFra
 	}
 	var flattenedSQL string
 	switch params.Mode {
-	case RenderModeInstant:
+	case native.RenderModeInstant:
 		flattenedSQL = "SELECT arrayFilter(tag -> tag.1 != 'le' AND tag.1 != '__name__', tags) AS histogram_tags, timestamp AS timestamp, multiIf(le_raw IN ['+Inf', 'Inf', '+inf', 'inf'], inf, le_raw IN ['-Inf', '-inf'], -inf, toFloat64OrNull(le_raw)) AS upper_bound, ifNull(toFloat64(value), nan) AS cumulative_count FROM (SELECT tags AS tags, timestamp AS timestamp, value AS value, tupleElement(arrayFirst(tag -> tag.1 = 'le', tags), 2) AS le_raw FROM (" + childSQL + ") AS histogram_child) AS histogram_points WHERE le_raw != '' AND upper_bound IS NOT NULL"
-	case RenderModeRange:
+	case native.RenderModeRange:
 		flattenedSQL = "SELECT arrayFilter(tag -> tag.1 != 'le' AND tag.1 != '__name__', tags) AS histogram_tags, point.1 AS timestamp, multiIf(le_raw IN ['+Inf', 'Inf', '+inf', 'inf'], inf, le_raw IN ['-Inf', '-inf'], -inf, toFloat64OrNull(le_raw)) AS upper_bound, ifNull(toFloat64(point.2), nan) AS cumulative_count FROM (SELECT tags AS tags, time_series AS time_series, tupleElement(arrayFirst(tag -> tag.1 = 'le', tags), 2) AS le_raw FROM (" + childSQL + ") AS histogram_child) AS histogram_series ARRAY JOIN histogram_series.time_series AS point WHERE le_raw != '' AND upper_bound IS NOT NULL"
 	default:
 		return RenderedQuery{}, fmt.Errorf("unknown render mode %q", params.Mode)

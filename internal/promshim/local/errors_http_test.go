@@ -1,4 +1,4 @@
-package promshim
+package local
 
 import (
 	"testing"
@@ -8,7 +8,7 @@ import (
 )
 
 func TestAPIErrorFromInternalStripsContextFromBadDataError(t *testing.T) {
-	err := withInternalContext(withInternalContext(newBadDataErrorf("%s", model.ErrDuplicateLabelsetTimestamps.Error()), "applying binary expression op=* returnBool=false"), "evaluating query plan in instant mode")
+	err := WithInternalContext(WithInternalContext(NewBadDataErrorf("%s", model.ErrDuplicateLabelsetTimestamps.Error()), "applying binary expression op=* returnBool=false"), "evaluating query plan in instant mode")
 	apiErr := apiErrorFromInternal(err)
 	if apiErr.ErrorType != "bad_data" {
 		t.Fatalf("expected bad_data error type, got %#v", apiErr)
@@ -23,7 +23,7 @@ func TestAPIErrorFromInternalUsesUserFacingPlanBuildErrorMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	apiErr := apiErrorFromInternal(newPlanBuildError(expr, plan.SupportResult{Supported: false, Difficulty: plan.DifficultyHard, Reason: `function "rate" with subquery arguments is not implemented yet`}, "call planning"))
+	apiErr := apiErrorFromInternal(NewPlanBuildError(expr, plan.SupportResult{Supported: false, Difficulty: plan.DifficultyHard, Reason: `function "rate" with subquery arguments is not implemented yet`}, "call planning"))
 	if apiErr.ErrorType != "unsupported" {
 		t.Fatalf("expected unsupported error type, got %#v", apiErr)
 	}

@@ -1,14 +1,15 @@
-package promshim
+package local
 
 import (
 	nativeplan "ch-observability/internal/promshim/native"
+	"ch-observability/internal/promshim/native/renderer"
 	"ch-observability/internal/promshim/storage"
 
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-func maybeBuildNativeLeafPlan(node *logicalLeafExprPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
-	if ctx.Mode != evalModeInstant && ctx.Mode != evalModeRange {
+func maybeBuildNativeLeafPlan(node *logicalLeafExprPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+	if ctx.Mode != EvalModeInstant && ctx.Mode != EvalModeRange {
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
@@ -23,8 +24,8 @@ func maybeBuildNativeLeafPlan(node *logicalLeafExprPlan, ctx planContext, analys
 		return nil, false, nil
 	}
 	renderMode := renderModeForPlanContext(ctx)
-	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
-		return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+	rendered, err := renderer.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, renderer.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
+		return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
 	}})
 	if err != nil {
 		return nil, false, err
@@ -35,8 +36,8 @@ func maybeBuildNativeLeafPlan(node *logicalLeafExprPlan, ctx planContext, analys
 	return &nativeSubtreePlan{Kind: "leaf", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info}, true, nil
 }
 
-func maybeBuildNativeSourcePlan(node *logicalPointwiseFunctionPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
-	if ctx.Mode != evalModeInstant && ctx.Mode != evalModeRange {
+func maybeBuildNativeSourcePlan(node *logicalPointwiseFunctionPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+	if ctx.Mode != EvalModeInstant && ctx.Mode != EvalModeRange {
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
@@ -56,8 +57,8 @@ func maybeBuildNativeSourcePlan(node *logicalPointwiseFunctionPlan, ctx planCont
 		return nil, false, nil
 	}
 	renderMode := renderModeForPlanContext(ctx)
-	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
-		return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+	rendered, err := renderer.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, renderer.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
+		return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
 	}})
 	if err != nil {
 		return nil, false, err
@@ -75,8 +76,8 @@ func maybeBuildNativeSourcePlan(node *logicalPointwiseFunctionPlan, ctx planCont
 	return &nativeSubtreePlan{Kind: node.Func, Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info}, true, nil
 }
 
-func maybeBuildNativeInfoPlan(node *logicalInfoPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
-	if ctx.Mode != evalModeInstant && ctx.Mode != evalModeRange {
+func maybeBuildNativeInfoPlan(node *logicalInfoPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+	if ctx.Mode != EvalModeInstant && ctx.Mode != EvalModeRange {
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
@@ -91,8 +92,8 @@ func maybeBuildNativeInfoPlan(node *logicalInfoPlan, ctx planContext, analysis *
 		return nil, false, nil
 	}
 	renderMode := renderModeForPlanContext(ctx)
-	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
-		return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+	rendered, err := renderer.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, renderer.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
+		return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
 	}})
 	if err != nil {
 		return nil, false, err
@@ -110,8 +111,8 @@ func maybeBuildNativeInfoPlan(node *logicalInfoPlan, ctx planContext, analysis *
 	return &nativeSubtreePlan{Kind: "info", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info}, true, nil
 }
 
-func maybeBuildNativeScalarConvertPlan(node *logicalScalarConvertPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
-	if ctx.Mode != evalModeInstant && ctx.Mode != evalModeRange {
+func maybeBuildNativeScalarConvertPlan(node *logicalScalarConvertPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+	if ctx.Mode != EvalModeInstant && ctx.Mode != EvalModeRange {
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
@@ -126,8 +127,8 @@ func maybeBuildNativeScalarConvertPlan(node *logicalScalarConvertPlan, ctx planC
 		return nil, false, nil
 	}
 	renderMode := renderModeForPlanContext(ctx)
-	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
-		return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+	rendered, err := renderer.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, renderer.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
+		return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
 	}})
 	if err != nil {
 		return nil, false, err
@@ -145,8 +146,8 @@ func maybeBuildNativeScalarConvertPlan(node *logicalScalarConvertPlan, ctx planC
 	return &nativeSubtreePlan{Kind: "scalar", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info}, true, nil
 }
 
-func maybeBuildNativeHistogramFractionPlan(node *logicalHistogramFractionPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
-	if ctx.Mode != evalModeInstant && ctx.Mode != evalModeRange {
+func maybeBuildNativeHistogramFractionPlan(node *logicalHistogramFractionPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+	if ctx.Mode != EvalModeInstant && ctx.Mode != EvalModeRange {
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
@@ -161,8 +162,8 @@ func maybeBuildNativeHistogramFractionPlan(node *logicalHistogramFractionPlan, c
 		return nil, false, nil
 	}
 	renderMode := renderModeForPlanContext(ctx)
-	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
-		return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+	rendered, err := renderer.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, renderer.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
+		return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
 	}})
 	if err != nil {
 		return nil, false, err
@@ -180,8 +181,8 @@ func maybeBuildNativeHistogramFractionPlan(node *logicalHistogramFractionPlan, c
 	return &nativeSubtreePlan{Kind: "histogram_fraction", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report}, true, nil
 }
 
-func maybeBuildNativeHistogramQuantilePlan(node *logicalHistogramQuantilePlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
-	if ctx.Mode != evalModeInstant && ctx.Mode != evalModeRange {
+func maybeBuildNativeHistogramQuantilePlan(node *logicalHistogramQuantilePlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+	if ctx.Mode != EvalModeInstant && ctx.Mode != EvalModeRange {
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
@@ -196,8 +197,8 @@ func maybeBuildNativeHistogramQuantilePlan(node *logicalHistogramQuantilePlan, c
 		return nil, false, nil
 	}
 	renderMode := renderModeForPlanContext(ctx)
-	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
-		return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+	rendered, err := renderer.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, renderer.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
+		return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
 	}})
 	if err != nil {
 		return nil, false, err
@@ -215,8 +216,8 @@ func maybeBuildNativeHistogramQuantilePlan(node *logicalHistogramQuantilePlan, c
 	return &nativeSubtreePlan{Kind: "histogram_quantile", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report}, true, nil
 }
 
-func maybeBuildNativeHistogramProjectionPlan(node *logicalHistogramProjectionPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
-	if ctx.Mode != evalModeInstant && ctx.Mode != evalModeRange {
+func maybeBuildNativeHistogramProjectionPlan(node *logicalHistogramProjectionPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+	if ctx.Mode != EvalModeInstant && ctx.Mode != EvalModeRange {
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
@@ -231,8 +232,8 @@ func maybeBuildNativeHistogramProjectionPlan(node *logicalHistogramProjectionPla
 		return nil, false, nil
 	}
 	renderMode := renderModeForPlanContext(ctx)
-	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
-		return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+	rendered, err := renderer.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, renderer.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
+		return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
 	}})
 	if err != nil {
 		return nil, false, err
@@ -250,8 +251,8 @@ func maybeBuildNativeHistogramProjectionPlan(node *logicalHistogramProjectionPla
 	return &nativeSubtreePlan{Kind: node.Func, Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report}, true, nil
 }
 
-func maybeBuildNativeScalarBuiltinPlan(node *logicalScalarBuiltinPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
-	if ctx.Mode != evalModeInstant && ctx.Mode != evalModeRange {
+func maybeBuildNativeScalarBuiltinPlan(node *logicalScalarBuiltinPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+	if ctx.Mode != EvalModeInstant && ctx.Mode != EvalModeRange {
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
@@ -266,8 +267,8 @@ func maybeBuildNativeScalarBuiltinPlan(node *logicalScalarBuiltinPlan, ctx planC
 		return nil, false, nil
 	}
 	renderMode := renderModeForPlanContext(ctx)
-	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
-		return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+	rendered, err := renderer.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, renderer.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
+		return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
 	}})
 	if err != nil {
 		return nil, false, err
@@ -278,7 +279,7 @@ func maybeBuildNativeScalarBuiltinPlan(node *logicalScalarBuiltinPlan, ctx planC
 	return &nativeSubtreePlan{Kind: node.Func, Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info}, true, nil
 }
 
-func maybeBuildNativeBinaryPlan(node *logicalBinaryPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+func maybeBuildNativeBinaryPlan(node *logicalBinaryPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
 	info := analysis.InfoFor(node)
 	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin {
 		return nil, false, nil
@@ -297,7 +298,7 @@ func maybeBuildNativeBinaryPlan(node *logicalBinaryPlan, ctx planContext, analys
 		return nil, false, nil
 	}
 	renderMode := renderModeForPlanContext(ctx)
-	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{
+	rendered, err := renderer.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, renderer.RenderParams{
 		Mode:             renderMode,
 		EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(),
 		StartMS:          ctx.Start.UnixMilli(),
@@ -306,7 +307,7 @@ func maybeBuildNativeBinaryPlan(node *logicalBinaryPlan, ctx planContext, analys
 		RequiredStartMS:  optimized.Report.RequiredInputStartMS,
 		RequiredEndMS:    optimized.Report.RequiredInputEndMS,
 		ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
-			return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+			return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
 		},
 	})
 	if err != nil {
@@ -334,7 +335,7 @@ func maybeBuildNativeBinaryPlan(node *logicalBinaryPlan, ctx planContext, analys
 	}, true, nil
 }
 
-func maybeBuildNativeAggregationPlan(node *logicalAggregationPlan, ctx planContext, analysis *nativeplan.Analysis) (queryPlan, bool, error) {
+func maybeBuildNativeAggregationPlan(node *logicalAggregationPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
 	decision := decideNativeAggregationPushdownFromAnalysis(node, analysis, ctx)
 	if !decision.Eligible {
 		return nil, false, nil
@@ -353,10 +354,10 @@ func maybeBuildNativeAggregationPlan(node *logicalAggregationPlan, ctx planConte
 		return nil, false, nil
 	}
 	renderMode := nativeplan.RenderModeInstant
-	if ctx.Mode == evalModeRange {
+	if ctx.Mode == EvalModeRange {
 		renderMode = nativeplan.RenderModeRange
 	}
-	rendered, err := nativeplan.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, nativeplan.RenderParams{
+	rendered, err := renderer.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, renderer.RenderParams{
 		Mode:             renderMode,
 		EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(),
 		StartMS:          ctx.Start.UnixMilli(),
@@ -365,7 +366,7 @@ func maybeBuildNativeAggregationPlan(node *logicalAggregationPlan, ctx planConte
 		RequiredStartMS:  optimized.Report.RequiredInputStartMS,
 		RequiredEndMS:    optimized.Report.RequiredInputEndMS,
 		ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
-			return resolveDelegatedPromQL(expr, evalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+			return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
 		},
 	})
 	if err != nil {

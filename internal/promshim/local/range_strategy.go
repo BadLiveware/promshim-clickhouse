@@ -1,7 +1,7 @@
-package promshim
+package local
 
-func applyRangeExecutionStrategy(plan queryPlan, ctx planContext) (queryPlan, error) {
-	if ctx.Mode != evalModeRange {
+func applyRangeExecutionStrategy(plan Plan, ctx PlanContext) (Plan, error) {
+	if ctx.Mode != EvalModeRange {
 		return plan, nil
 	}
 	estimate := estimateRangePlan(ctx)
@@ -9,7 +9,7 @@ func applyRangeExecutionStrategy(plan queryPlan, ctx planContext) (queryPlan, er
 		return plan, nil
 	}
 	if ctx.MaxRangePointsPerSeries > 0 && estimate.PointsPerSeries > ctx.MaxRangePointsPerSeries {
-		return nil, newBadDataErrorf("range query would evaluate %d points per series, exceeding configured limit %d; reduce the time range or increase the step", estimate.PointsPerSeries, ctx.MaxRangePointsPerSeries)
+		return nil, NewBadDataErrorf("range query would evaluate %d points per series, exceeding configured limit %d; reduce the time range or increase the step", estimate.PointsPerSeries, ctx.MaxRangePointsPerSeries)
 	}
 	if ctx.RangeChunkPointsPerSeries > 0 && estimate.PointsPerSeries > ctx.RangeChunkPointsPerSeries && shouldChunkRangePlan(plan) {
 		return &chunkedRangePlan{
@@ -22,7 +22,7 @@ func applyRangeExecutionStrategy(plan queryPlan, ctx planContext) (queryPlan, er
 	return plan, nil
 }
 
-func shouldChunkRangePlan(plan queryPlan) bool {
+func shouldChunkRangePlan(plan Plan) bool {
 	switch plan.(type) {
 	case *localAggregationPlan, *localUnaryPlan, *localBinaryPlan, *localLabelReplacePlan, *localLabelJoinPlan:
 		return true

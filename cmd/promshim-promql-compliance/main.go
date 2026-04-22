@@ -10,7 +10,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/compliance"
 	"go.yaml.in/yaml/v2"
 )
 
@@ -124,9 +124,9 @@ func buildReport(source string, maxExamples int) (complianceReport, error) {
 		if tc.ShouldFail {
 			report.ShouldFailQueries++
 		}
-		snapshot, err := promshim.MeasureNativeSupport(tc.Query)
+		snapshot, err := compliance.MeasureNativeSupport(tc.Query)
 		if err != nil {
-			row := reportRow{Query: tc.Query, ShouldFail: tc.ShouldFail, Path2Status: "no", ImplementationBucket: promshim.ClassifyImplementationBucket(tc.Query, promshim.NativeMeasurementSnapshot{}, true), Notes: []string{err.Error()}}
+			row := reportRow{Query: tc.Query, ShouldFail: tc.ShouldFail, Path2Status: "no", ImplementationBucket: compliance.ClassifyImplementationBucket(tc.Query, compliance.NativeMeasurementSnapshot{}, true), Notes: []string{err.Error()}}
 			statusCounts[row.Path2Status]++
 			unsupportedBucketCounts[row.ImplementationBucket]++
 			if len(unsupported) < maxExamples {
@@ -146,8 +146,8 @@ func buildReport(source string, maxExamples int) (complianceReport, error) {
 			AggregationEligible: snapshot.AggregationEligible,
 			OutputKind:          snapshot.OutputKind,
 		}
-		row.Path2Status = promshim.ClassifyPath2Status(snapshot, tc.Query)
-		row.ImplementationBucket = promshim.ClassifyImplementationBucket(tc.Query, snapshot, tc.ShouldFail)
+		row.Path2Status = compliance.ClassifyPath2Status(snapshot, tc.Query)
+		row.ImplementationBucket = compliance.ClassifyImplementationBucket(tc.Query, snapshot, tc.ShouldFail)
 		statusCounts[row.Path2Status]++
 		switch row.Path2Status {
 		case "no":

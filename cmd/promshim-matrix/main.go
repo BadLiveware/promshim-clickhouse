@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/compliance"
 	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -125,11 +125,11 @@ func buildRows() ([]matrixRow, error) {
 }
 
 func buildRow(spec featureSpec) (matrixRow, error) {
-	snapshot, err := promshim.MeasureNativeSupport(spec.Query)
+	snapshot, err := compliance.MeasureNativeSupport(spec.Query)
 	if err != nil {
 		return matrixRow{}, err
 	}
-	status := promshim.ClassifyPath2Status(snapshot, spec.Query)
+	status := compliance.ClassifyPath2Status(snapshot, spec.Query)
 	if notes, ok := partialOverrides[spec.Name]; ok && snapshot.PlanSupported {
 		spec.Notes = append(spec.Notes, notes...)
 	}
@@ -139,7 +139,7 @@ func buildRow(spec featureSpec) (matrixRow, error) {
 		Name:                 spec.Name,
 		Query:                spec.Query,
 		Path2Status:          status,
-		ImplementationBucket: promshim.ClassifyImplementationBucket(spec.Query, snapshot, false),
+		ImplementationBucket: compliance.ClassifyImplementationBucket(spec.Query, snapshot, false),
 		PrometheusVersion:    prometheusVersion,
 		PlanSupported:        snapshot.PlanSupported,
 		PlanDifficulty:       snapshot.PlanDifficulty,

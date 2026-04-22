@@ -70,16 +70,50 @@ func BuildRangeWindowSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, 
 	return BuildRangeWindowSelectorQuerySQLWithFinalTags(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, windowValueExpr, "", minimumSeriesLength)
 }
 
+func BuildRangeWindowSelectorRowsQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, windowValueExpr, finalTagsSQL string, minimumSeriesLength int) (string, map[string]string, error) {
+	perStep, params, _, err := buildRangeWindowSelectorPerStepQuery(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, windowValueExpr, finalTagsSQL, minimumSeriesLength)
+	if err != nil {
+		return "", nil, err
+	}
+	rows := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}},
+		From:    sqlb.SubSelect{S: perStep},
+	}
+	sql, _, err := rows.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql + schema.QuerySuffix, params, nil
+}
+
 func BuildRangeWindowSelectorQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, windowValueExpr, finalTagsSQL string, minimumSeriesLength int) (string, map[string]string, error) {
+	perStep, params, orderBy, err := buildRangeWindowSelectorPerStepQuery(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, windowValueExpr, finalTagsSQL, minimumSeriesLength)
+	if err != nil {
+		return "", nil, err
+	}
+	outer := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"}},
+		From:    sqlb.SubSelect{S: perStep},
+		GroupBy: []sqlb.Expr{sqlb.Ident("final_tags")},
+		OrderBy: orderBy,
+	}
+	sql, _, err := outer.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql + schema.QuerySuffix, params, nil
+}
+
+func buildRangeWindowSelectorPerStepQuery(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, windowValueExpr, finalTagsSQL string, minimumSeriesLength int) (*sqlb.Select, map[string]string, []sqlb.OrderExpr, error) {
 	if selector.Kind != SelectorKindRangeVector {
-		return "", nil, fmt.Errorf("range-window selector SQL requires a range-vector selector, got %q", selector.Kind)
+		return nil, nil, nil, fmt.Errorf("range-window selector SQL requires a range-vector selector, got %q", selector.Kind)
 	}
 	if stepMS <= 0 {
-		return "", nil, fmt.Errorf("range-window selector SQL requires a positive step")
+		return nil, nil, nil, fmt.Errorf("range-window selector SQL requires a positive step")
 	}
 	matchedSeriesSQL, params, err := buildMatchedSeriesSQL(cfg, selector, "range_window", requiredStartMS, requiredEndMS, true)
 	if err != nil {
-		return "", nil, err
+		return nil, nil, nil, err
 	}
 	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
 	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
@@ -128,17 +162,7 @@ func BuildRangeWindowSelectorQuerySQLWithFinalTags(cfg QueryConfig, selector Sel
 		From:    sqlb.SubSelect{S: windowed},
 		Where:   sqlb.RawLit{V: "length(window_series) > " + strconv.Itoa(minimumSeriesLength)},
 	}
-	outer := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"}},
-		From:    sqlb.SubSelect{S: perStep},
-		GroupBy: []sqlb.Expr{sqlb.Ident("final_tags")},
-		OrderBy: orderBy,
-	}
-	sql, _, err := outer.Build()
-	if err != nil {
-		return "", nil, err
-	}
-	return sql + schema.QuerySuffix, params, nil
+	return perStep, params, orderBy, nil
 }
 
 func buildInstantSourceQuerySQL(cfg QueryConfig, source AggregationSource, evaluationTimeMS, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {

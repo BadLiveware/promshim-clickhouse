@@ -3,7 +3,7 @@ package compliance
 import (
 	"strings"
 
-	"ch-observability/internal/promshim"
+	"ch-observability/internal/promshim/local"
 	nativeplan "ch-observability/internal/promshim/native"
 	planpkg "ch-observability/internal/promshim/plan"
 )
@@ -128,7 +128,7 @@ func MeasureNativeSupport(query string) (NativeMeasurementSnapshot, error) {
 		return snapshot, nil
 	}
 
-	logical, err := promshim.BuildLogicalPlan(expr)
+	logical, err := local.BuildLogicalPlan(expr)
 	if err != nil {
 		return snapshot, err
 	}

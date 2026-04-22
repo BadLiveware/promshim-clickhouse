@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	httpapi "ch-observability/internal/promshim/httpapi"
+	"ch-observability/internal/promshim/local"
 )
 
 func metadataHTTPRequest(ctx context.Context, req httpapi.MetadataRequest) (*http.Request, *httpapi.APIError) {
@@ -21,7 +22,7 @@ func metadataHTTPRequest(ctx context.Context, req httpapi.MetadataRequest) (*htt
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, "/?"+values.Encode(), nil)
 	if err != nil {
-		return nil, apiErrorToHTTP(newExecutionErrorf("building metadata request: %v", err))
+		return nil, local.ApiErrorToHTTP(local.NewExecutionErrorf("building metadata request: %v", err))
 	}
 	return httpReq, nil
 }

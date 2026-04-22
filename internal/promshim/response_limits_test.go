@@ -3,6 +3,7 @@ package promshim
 import (
 	"testing"
 
+	"ch-observability/internal/promshim/local"
 	"ch-observability/internal/promshim/model"
 )
 
@@ -15,7 +16,7 @@ func TestEnforceResponseLimitsRejectsExcessPoints(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected response point limit error")
 	}
-	if internalErrorKindOf(err) != internalErrorKindBadData {
-		t.Fatalf("expected bad_data error kind, got %v (%v)", internalErrorKindOf(err), err)
+	if !local.IsBadDataError(err) {
+		t.Fatalf("expected bad_data error kind, got %v", err)
 	}
 }

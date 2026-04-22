@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"ch-observability/internal/promshim/exec"
+	"ch-observability/internal/promshim/local/exec"
 	"ch-observability/internal/promshim/model"
 )
 

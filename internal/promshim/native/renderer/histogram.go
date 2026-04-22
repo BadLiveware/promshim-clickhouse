@@ -168,48 +168,56 @@ func classicHistogramFractionValueExpr(buckets sqlb.Expr, lower, upper float64) 
 	}
 }
 
-func classicHistogramQuantileValueExprForExpr(buckets sqlb.Expr, quantileExpr string) sqlb.Expr {
+// renderPreparedClassicHistogramQuery stages the classic histogram bucket arrays into
+// named intermediate columns so later quantile lowering can reuse them instead of
+// inlining the same arrayMap/arrayCumSum chains many times.
+func renderPreparedClassicHistogramQuery(histograms renderedFragment, alias string) (RenderedQuery, error) {
+	finalized, err := finalizeRenderedFragment(histograms)
+	if err != nil {
+		return RenderedQuery{}, err
+	}
+	baseSQL := trimRenderedQuerySQL(finalized.SQL)
+	countsExpr := renderSQLExprNoParams(bucketCountsExpr(sqlb.Ident("buckets")))
+	upperBoundsExpr := renderSQLExprNoParams(bucketUpperBoundsExpr(sqlb.Ident("buckets")))
+	prevCountsExpr := renderSQLExprNoParams(prependZeroPopBack(sqlb.Ident("counts")))
+	normalizedCountsExpr := renderSQLExprNoParams(bucketNormalizedCountsExpr(sqlb.Ident("counts"), prependZeroPopBack(sqlb.Ident("counts"))))
+
+	arraysSQL := "SELECT tags AS tags, timestamp AS timestamp, buckets AS buckets, " + countsExpr + " AS counts, " + upperBoundsExpr + " AS upper_bounds FROM (" + baseSQL + ") AS " + alias + "_grouped"
+	countsSQL := "SELECT tags AS tags, timestamp AS timestamp, buckets AS buckets, upper_bounds AS upper_bounds, " + prevCountsExpr + " AS prev_counts, " + normalizedCountsExpr + " AS normalized_counts FROM (" + arraysSQL + ") AS " + alias + "_arrays"
+	preparedSQL := "SELECT tags AS tags, timestamp AS timestamp, upper_bounds AS upper_bounds, normalized_counts AS normalized_counts, arrayElement(normalized_counts, length(normalized_counts)) AS observations, length(normalized_counts) AS bucket_len, arrayElement(upper_bounds, length(upper_bounds)) AS last_upper, arrayElement(upper_bounds, length(upper_bounds) - 1) AS last_finite_upper, arrayElement(upper_bounds, 1) AS first_upper FROM (" + countsSQL + ") AS " + alias + "_counts"
+	return RenderedQuery{SQL: preparedSQL + schema.QuerySuffix, QueryParams: finalized.QueryParams}, nil
+}
+
+// renderClassicHistogramQuantileInputsSQL computes the quantile-specific rank and
+// bucket interpolation inputs from the staged histogram columns above. Keeping this
+// as a separate subquery dramatically shrinks the final emitted SQL while preserving
+// the existing classic histogram semantics.
+func renderClassicHistogramQuantileInputsSQL(preparedSQL, quantileExpr, joinSQL, prefix string) string {
 	quantileExpr = strings.TrimSpace(quantileExpr)
 	if quantileExpr == "" {
 		quantileExpr = "nan"
 	}
-	counts := bucketCountsExpr(buckets)
-	upperBounds := bucketUpperBoundsExpr(buckets)
-	prevCounts := prependZeroPopBack(counts)
-	normalizedCounts := bucketNormalizedCountsExpr(counts, prevCounts)
-	observations := arrayLastValue(normalizedCounts)
-
-	observationsSQL := renderSQLExprNoParams(observations)
-	normalizedSQL := renderSQLExprNoParams(normalizedCounts)
-	upperBoundsSQL := renderSQLExprNoParams(upperBounds)
-
-	rankSQL := "((" + quantileExpr + ") * (" + observationsSQL + "))"
-	searchCountsSQL := "arraySlice(" + normalizedSQL + ", 1, length(" + normalizedSQL + ") - 1)"
-	bucketIndexSQL := "arrayFirstIndex(v -> v >= " + rankSQL + ", " + searchCountsSQL + ")"
-	bucketEndSQL := "arrayElement(" + upperBoundsSQL + ", " + bucketIndexSQL + ")"
-	bucketStartSQL := "if((" + bucketIndexSQL + ") > 1, arrayElement(" + upperBoundsSQL + ", (" + bucketIndexSQL + ") - 1), toFloat64(0))"
-	bucketCountSQL := "if((" + bucketIndexSQL + ") > 1, arrayElement(" + normalizedSQL + ", " + bucketIndexSQL + ") - arrayElement(" + normalizedSQL + ", (" + bucketIndexSQL + ") - 1), arrayElement(" + normalizedSQL + ", " + bucketIndexSQL + "))"
-	rankInBucketSQL := "if((" + bucketIndexSQL + ") > 1, " + rankSQL + " - arrayElement(" + normalizedSQL + ", (" + bucketIndexSQL + ") - 1), " + rankSQL + ")"
-
-	lastUpperSQL := renderSQLExprNoParams(sqlb.TupleElem{X: arrayLastElement(buckets), K: 1})
-	return sqlb.MultiIf{
-		Cases: []sqlb.MultiIfArm{
-			{When: sqlb.RawLit{V: "isNaN(" + quantileExpr + ")"}, Then: sqlb.RawLit{V: "nan"}},
-			{When: sqlb.RawLit{V: "(" + quantileExpr + ") < 0"}, Then: sqlb.RawLit{V: "-inf"}},
-			{When: sqlb.RawLit{V: "(" + quantileExpr + ") > 1"}, Then: sqlb.RawLit{V: "inf"}},
-			{When: sqlb.RawLit{V: "length(buckets) < 2"}, Then: sqlb.RawLit{V: "nan"}},
-			{When: sqlb.RawLit{V: "NOT isInfinite(" + lastUpperSQL + ")"}, Then: sqlb.RawLit{V: "nan"}},
-			{When: sqlb.RawLit{V: "isNaN(" + observationsSQL + ") OR (" + observationsSQL + ") <= 0"}, Then: sqlb.RawLit{V: "nan"}},
-			{When: sqlb.RawLit{V: "(" + bucketIndexSQL + ") = 0"}, Then: sqlb.RawLit{V: "arrayElement(" + upperBoundsSQL + ", length(" + upperBoundsSQL + ") - 1)"}},
-			{When: sqlb.RawLit{V: "(" + bucketIndexSQL + ") = 1 AND arrayElement(" + upperBoundsSQL + ", 1) <= 0"}, Then: sqlb.RawLit{V: "arrayElement(" + upperBoundsSQL + ", 1)"}},
-			{When: sqlb.RawLit{V: "isNaN(" + bucketCountSQL + ") OR (" + bucketCountSQL + ") <= 0"}, Then: sqlb.RawLit{V: "nan"}},
-		},
-		Else: sqlb.RawLit{V: "(" + bucketStartSQL + ") + ((" + bucketEndSQL + ") - (" + bucketStartSQL + ")) * ((" + rankInBucketSQL + ") / (" + bucketCountSQL + "))"},
-	}
+	rankSQL := "((" + quantileExpr + ") * observations)"
+	searchCountsSQL := "arraySlice(normalized_counts, 1, length(normalized_counts) - 1)"
+	rankedSQL := "SELECT prepared_histograms.tags AS tags, prepared_histograms.timestamp AS timestamp, (" + quantileExpr + ") AS q, prepared_histograms.bucket_len AS bucket_len, prepared_histograms.last_upper AS last_upper, prepared_histograms.last_finite_upper AS last_finite_upper, prepared_histograms.first_upper AS first_upper, prepared_histograms.upper_bounds AS upper_bounds, prepared_histograms.normalized_counts AS normalized_counts, prepared_histograms.observations AS observations, " + rankSQL + " AS rank, " + searchCountsSQL + " AS search_counts, arrayFirstIndex(v -> v >= " + rankSQL + ", " + searchCountsSQL + ") AS bucket_index FROM (" + preparedSQL + ") AS prepared_histograms" + joinSQL
+	return "SELECT tags AS tags, timestamp AS timestamp, q AS q, bucket_len AS bucket_len, last_upper AS last_upper, last_finite_upper AS last_finite_upper, first_upper AS first_upper, observations AS observations, bucket_index AS bucket_index, if(bucket_index > 1, arrayElement(upper_bounds, bucket_index - 1), toFloat64(0)) AS bucket_start, if(bucket_index > 0, arrayElement(upper_bounds, bucket_index), toFloat64(0)) AS bucket_end, if(bucket_index > 1, arrayElement(normalized_counts, bucket_index) - arrayElement(normalized_counts, bucket_index - 1), if(bucket_index = 1, arrayElement(normalized_counts, bucket_index), toFloat64(0))) AS bucket_count, if(bucket_index > 1, rank - arrayElement(normalized_counts, bucket_index - 1), rank) AS rank_in_bucket FROM (" + rankedSQL + ") AS " + prefix + "_ranked"
 }
 
-func classicHistogramQuantileValueExpr(buckets sqlb.Expr, quantile float64) sqlb.Expr {
-	return classicHistogramQuantileValueExprForExpr(buckets, storage.NativeFloatLiteral(quantile))
+func classicHistogramQuantileFinalExprFromInputs() string {
+	return "multiIf(isNaN(q), nan, q < 0, -inf, q > 1, inf, bucket_len < 2, nan, NOT isInfinite(last_upper), nan, isNaN(observations) OR observations <= 0, nan, bucket_index = 0, last_finite_upper, bucket_index = 1 AND first_upper <= 0, first_upper, isNaN(bucket_count) OR bucket_count <= 0, nan, bucket_start + (bucket_end - bucket_start) * (rank_in_bucket / bucket_count))"
+}
+
+func renderHistogramQuantileRowsSQL(preparedSQL, quantileExpr, joinSQL, prefix string) string {
+	inputsSQL := renderClassicHistogramQuantileInputsSQL(preparedSQL, quantileExpr, joinSQL, prefix)
+	return "SELECT tags AS tags, timestamp AS timestamp, " + classicHistogramQuantileFinalExprFromInputs() + " AS value FROM (" + inputsSQL + ") AS " + prefix + "_inputs"
+}
+
+func wrapHistogramRowsForMode(rowsSQL string, mode native.RenderMode, alias string) string {
+	rowsSQL = trimRenderedQuerySQL(rowsSQL)
+	if mode != native.RenderModeRange {
+		return rowsSQL
+	}
+	return "SELECT tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series FROM (" + rowsSQL + ") AS " + alias + " GROUP BY tags ORDER BY tags"
 }
 
 func renderHistogramFunctionFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
@@ -220,78 +228,76 @@ func renderHistogramFunctionFragment(cfg storage.QueryConfig, fragment *native.N
 	if err != nil {
 		return renderedFragment{}, err
 	}
-	var valueExpr sqlb.Expr
 	switch fragment.HistogramFunction.Func {
 	case "histogram_quantile":
 		if fragment.HistogramFunction.Quantile == nil {
 			return renderedFragment{}, fmt.Errorf("histogram_quantile fragment requires a quantile parameter")
 		}
-		valueExpr = classicHistogramQuantileValueExpr(sqlb.Ident("buckets"), *fragment.HistogramFunction.Quantile)
+		prepared, err := renderPreparedClassicHistogramQuery(histograms, "histogram_quantile_prepared")
+		if err != nil {
+			return renderedFragment{}, err
+		}
+		rowsSQL := renderHistogramQuantileRowsSQL(trimRenderedQuerySQL(prepared.SQL), storage.NativeFloatLiteral(*fragment.HistogramFunction.Quantile), "", "histogram_quantile")
+		return renderedFragment{RawSQL: trimRenderedQuerySQL(wrapHistogramRowsForMode(rowsSQL, params.Mode, "histogram_quantile_rows")), ExtraParams: prepared.QueryParams}, nil
 	case "histogram_quantiles":
-		return renderHistogramQuantilesFragment(cfg, fragment, params, histograms)
+		prepared, err := renderPreparedClassicHistogramQuery(histograms, "histogram_quantiles_prepared")
+		if err != nil {
+			return renderedFragment{}, err
+		}
+		return renderHistogramQuantilesFragment(cfg, fragment, params, prepared)
 	case "histogram_fraction":
 		if fragment.HistogramFunction.Lower == nil || fragment.HistogramFunction.Upper == nil {
 			return renderedFragment{}, fmt.Errorf("histogram_fraction fragment requires lower and upper parameters")
 		}
-		valueExpr = classicHistogramFractionValueExpr(sqlb.Ident("buckets"), *fragment.HistogramFunction.Lower, *fragment.HistogramFunction.Upper)
+		valueExpr := classicHistogramFractionValueExpr(sqlb.Ident("buckets"), *fragment.HistogramFunction.Lower, *fragment.HistogramFunction.Upper)
+		return histogramOutputFragment(histograms, valueExpr, params.Mode, "histogram_function_steps"), nil
 	default:
 		return renderedFragment{}, fmt.Errorf("histogram function %q is not implemented yet", fragment.HistogramFunction.Func)
 	}
-	return histogramOutputFragment(histograms, valueExpr, params.Mode, "histogram_function_steps"), nil
 }
 
-func renderHistogramQuantilesFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams, histograms renderedFragment) (renderedFragment, error) {
+func renderHistogramQuantilesFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams, prepared RenderedQuery) (renderedFragment, error) {
 	if fragment == nil || fragment.HistogramFunction == nil {
 		return renderedFragment{}, fmt.Errorf("histogram_quantiles fragment is missing metadata")
 	}
-	finalized, err := finalizeRenderedFragment(histograms)
-	if err != nil {
-		return renderedFragment{}, err
-	}
+	preparedSQL := trimRenderedQuerySQL(prepared.SQL)
 	queries := make([]string, 0, len(fragment.HistogramFunction.Quantiles))
 	queryParams := map[string]string{}
-	mergeRenderedQueryParams(queryParams, finalized.QueryParams)
+	mergeRenderedQueryParams(queryParams, prepared.QueryParams)
 	for i, quantile := range fragment.HistogramFunction.Quantiles {
 		alias := fmt.Sprintf("histogram_quantile_%d", i)
+		var joinSQL string
+		var quantileValueExpr string
 		switch params.Mode {
 		case native.RenderModeInstant:
-			instantBindingSQL, instantParams, quantileValueExpr, err := renderInstantScalarBinding(cfg, quantile, params, alias)
+			instantBindingSQL, instantParams, valueExpr, err := renderInstantScalarBinding(cfg, quantile, params, alias)
 			if err != nil {
 				return renderedFragment{}, err
 			}
 			mergeRenderedQueryParams(queryParams, instantParams)
-			quantileLabelExpr := openMetricsFloatExpr(quantileValueExpr)
-			addedTagsExpr := "arrayPushBack(classic_histograms.tags, tuple(" + sqlStringLiteral(fragment.HistogramFunction.Label) + ", " + quantileLabelExpr + "))"
-			valueExpr := renderSQLExprNoParams(classicHistogramQuantileValueExprForExpr(sqlb.Ident("buckets"), quantileValueExpr))
-			joinSQL := ""
+			quantileValueExpr = valueExpr
 			if instantBindingSQL != "" {
 				joinSQL = " CROSS JOIN (" + instantBindingSQL + ") AS " + alias
 			}
-			queries = append(queries, "SELECT "+addedTagsExpr+" AS tags, classic_histograms.timestamp AS timestamp, "+valueExpr+" AS value FROM ("+trimRenderedQuerySQL(finalized.SQL)+") AS classic_histograms"+joinSQL)
 		case native.RenderModeRange:
-			rangeBindingSQL, rangeParams, quantileValueExpr, err := renderRangeScalarBinding(cfg, quantile, params, alias)
+			rangeBindingSQL, rangeParams, valueExpr, err := renderRangeScalarBinding(cfg, quantile, params, alias)
 			if err != nil {
 				return renderedFragment{}, err
 			}
 			mergeRenderedQueryParams(queryParams, rangeParams)
-			quantileLabelExpr := openMetricsFloatExpr(quantileValueExpr)
-			addedTagsExpr := "arrayPushBack(classic_histograms.tags, tuple(" + sqlStringLiteral(fragment.HistogramFunction.Label) + ", " + quantileLabelExpr + "))"
-			valueExpr := renderSQLExprNoParams(classicHistogramQuantileValueExprForExpr(sqlb.Ident("buckets"), quantileValueExpr))
-			joinSQL := ""
+			quantileValueExpr = valueExpr
 			if rangeBindingSQL != "" {
-				joinSQL = " LEFT JOIN (" + rangeBindingSQL + ") AS " + alias + " ON " + alias + ".timestamp = classic_histograms.timestamp"
+				joinSQL = " LEFT JOIN (" + rangeBindingSQL + ") AS " + alias + " ON " + alias + ".timestamp = prepared_histograms.timestamp"
 			}
-			queries = append(queries, "SELECT "+addedTagsExpr+" AS tags, classic_histograms.timestamp AS timestamp, "+valueExpr+" AS value FROM ("+trimRenderedQuerySQL(finalized.SQL)+") AS classic_histograms"+joinSQL)
 		default:
 			return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
 		}
+		quantileLabelExpr := openMetricsFloatExpr(quantileValueExpr)
+		rowsSQL := renderHistogramQuantileRowsSQL(preparedSQL, quantileValueExpr, joinSQL, alias)
+		queries = append(queries, "SELECT arrayPushBack(tags, tuple("+sqlStringLiteral(fragment.HistogramFunction.Label)+", "+quantileLabelExpr+")) AS tags, timestamp AS timestamp, value AS value FROM ("+rowsSQL+") AS "+alias+"_rows")
 	}
 	unionSQL := strings.Join(queries, " UNION ALL ")
-	if params.Mode != native.RenderModeRange {
-		return renderedFragment{RawSQL: trimRenderedQuerySQL(unionSQL), ExtraParams: queryParams}, nil
-	}
-	finalSQL := "SELECT tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series FROM (" + unionSQL + ") AS histogram_quantiles_rows GROUP BY tags ORDER BY tags"
-	return renderedFragment{RawSQL: trimRenderedQuerySQL(finalSQL), ExtraParams: queryParams}, nil
+	return renderedFragment{RawSQL: trimRenderedQuerySQL(wrapHistogramRowsForMode(unionSQL, params.Mode, "histogram_quantiles_rows")), ExtraParams: queryParams}, nil
 }
 
 func openMetricsFloatExpr(valueExpr string) string {

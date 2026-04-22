@@ -1262,7 +1262,7 @@ func TestRenderFragmentBuildsHistogramQuantilesSQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected histogram quantiles SQL, got error: %v", err)
 	}
-	checks := []string{"UNION ALL", "tuple('quantile'", "0.5", "0.9", "groupArray((timestamp, value))"}
+	checks := []string{"UNION ALL", "tuple('quantile'", "0.5", "0.9", "groupArray((timestamp, value))", "histogram_quantile_0_ranked", "bucket_index AS bucket_index"}
 	for _, check := range checks {
 		if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(check)) {
 			t.Fatalf("expected histogram_quantiles SQL to contain %q, got %q", check, rendered.SQL)
@@ -1278,11 +1278,14 @@ func TestRenderFragmentBuildsHistogramQuantileSQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected histogram quantile SQL, got error: %v", err)
 	}
-	checks := []string{"arrayCumSum", "arrayFirstIndex", "tupleElement(arrayElement(buckets, length(buckets)), 1)", "histogram_bucket_materialization_boundary"}
-	for _, check := range checks[:3] {
+	checks := []string{"histogram_quantile_prepared_counts", "histogram_quantile_ranked", "bucket_index AS bucket_index", "last_upper AS last_upper", "histogram_bucket_materialization_boundary"}
+	for _, check := range checks[:4] {
 		if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(check)) {
 			t.Fatalf("expected histogram_quantile SQL to contain %q, got %q", check, rendered.SQL)
 		}
+	}
+	if got, max := len(rendered.SQL), 10000; got >= max {
+		t.Fatalf("expected staged histogram_quantile SQL to stay under %d chars, got %d", max, got)
 	}
 }
 

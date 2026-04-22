@@ -112,6 +112,7 @@ func BuildRangeWindowSelectorQuerySQLWithFinalTags(cfg QueryConfig, selector Sel
 			{Expr: sqlb.Ident("grid.eval_ts"), Alias: "eval_ts"},
 			{Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((d.timestamp, d.value)))"}, Alias: "window_series"},
 			{Expr: sqlb.RawLit{V: "arrayMap(point -> tupleElement(point, 1), window_series)"}, Alias: "window_timestamps"},
+			{Expr: sqlb.RawLit{V: "arrayElement(window_timestamps, length(window_series)) - arrayElement(window_timestamps, 1)"}, Alias: "window_duration_ms"},
 			{Expr: sqlb.RawLit{V: "arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series)"}, Alias: "window_values"},
 			{Expr: sqlb.RawLit{V: "arrayPopBack(window_values)"}, Alias: "window_values_prev"},
 			{Expr: sqlb.RawLit{V: "arrayPopFront(window_values)"}, Alias: "window_values_cur"},

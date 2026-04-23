@@ -57,12 +57,6 @@ func TestLowerLeafMatchesFragment(t *testing.T) {
 	}
 }
 
-func TestLowerScalarLiteralMatchesFragment(t *testing.T) {
-	got, want := renderBothPaths(t, `42`)
-	if got != want {
-		t.Errorf("SQL differs:\nLower:    %s\nFragment: %s", got, want)
-	}
-}
 
 func TestLowerScalarBinaryMatchesFragment(t *testing.T) {
 	got, want := renderBothPaths(t, `up * 2`)

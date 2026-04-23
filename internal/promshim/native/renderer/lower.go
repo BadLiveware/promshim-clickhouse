@@ -117,16 +117,6 @@ func lowerLeaf(ctx LoweringCtx, n *logicalpkg.LeafExprPlan) (RenderedQuery, erro
 	return RenderFragment(ctx.Config, fragment, ctx.Params)
 }
 
-// lowerScalarLiteral handles a ScalarLiteralPlan by delegating to the
-// existing Fragment render. See lowerLeaf for the Phase 1 rationale.
-func lowerScalarLiteral(ctx LoweringCtx, n *logicalpkg.ScalarLiteralPlan) (RenderedQuery, error) {
-	fragment, err := native.BuildFragment(n, ctx.NativeAnalysis)
-	if err != nil {
-		return RenderedQuery{}, err
-	}
-	return RenderFragment(ctx.Config, fragment, ctx.Params)
-}
-
 // lowerBinary handles BinaryPlan in two branches:
 //   - Scalar-involving (at least one side is DomainScalar): delegates to the
 //     existing BuildFragment + RenderFragment pipeline, unchanged from Phase 1.

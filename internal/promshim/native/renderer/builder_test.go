@@ -644,9 +644,10 @@ func TestRenderFragmentBuildsRangeAvgOverTimeSQLForDirectSelectorUsingDirectWind
 				Kind:       native.FragmentKindLeafSource,
 				OutputKind: native.OutputKindRangeMatrix,
 				Selector: &native.SelectorSource{
-					Kind:       native.SelectorKindRangeVector,
-					MetricName: "demo_memory_usage_bytes",
-					Lookback:   5 * time.Minute,
+					Kind:            native.SelectorKindRangeVector,
+					MetricName:      "demo_memory_usage_bytes",
+					RequireFullTags: true,
+					Lookback:        5 * time.Minute,
 				},
 				ValueExpr: "{value}",
 				TagsExpr:  "{tags}",
@@ -674,7 +675,10 @@ func TestRenderFragmentBuildsRangeAvgOverTimeSQLForDirectSelectorUsingDirectWind
 	if !strings.Contains(rendered.SQL, "if(nan_count > 0 OR finite_count = 0, nan, avg_value) AS value") {
 		t.Fatalf("expected avg_over_time direct-window aggregate value expression in SQL, got %q", rendered.SQL)
 	}
-	for _, unwanted := range []string{"window_series", "window_timestamps", "window_values", "CROSS JOIN"} {
+	if !strings.Contains(rendered.SQL, "windowed.id = series.id") {
+		t.Fatalf("expected avg_over_time direct-window aggregate path to attach tags after the grouped aggregate, got %q", rendered.SQL)
+	}
+	for _, unwanted := range []string{"window_series", "window_timestamps", "window_values", "CROSS JOIN", "GROUP BY grid.id, grid.tags, grid.eval_ts"} {
 		if strings.Contains(rendered.SQL, unwanted) {
 			t.Fatalf("expected avg_over_time direct-window aggregate path to avoid %q, got %q", unwanted, rendered.SQL)
 		}

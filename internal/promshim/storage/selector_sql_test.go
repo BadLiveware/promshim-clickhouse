@@ -187,12 +187,12 @@ func TestBuildRangeWindowSelectorDirectAggregateQuerySQLUsesGroupedAvgAliases(t 
 	if err != nil {
 		t.Fatalf("expected direct aggregate range window selector SQL, got error: %v", err)
 	}
-	for _, expected := range []string{"count() AS sample_count", "countIf(isNaN(ifNull(toFloat64(d.value), nan))) AS nan_count", "countIf(NOT isNaN(ifNull(toFloat64(d.value), nan))) AS finite_count", "avgIf(ifNull(toFloat64(d.value), nan), NOT isNaN(ifNull(toFloat64(d.value), nan))) AS avg_value", "if(nan_count > 0 OR finite_count = 0, nan, avg_value) AS value", "GROUP BY grid.id, grid.tags, grid.eval_ts"} {
+	for _, expected := range []string{"count() AS sample_count", "countIf(isNaN(ifNull(toFloat64(d.value), nan))) AS nan_count", "countIf(NOT isNaN(ifNull(toFloat64(d.value), nan))) AS finite_count", "avgIf(ifNull(toFloat64(d.value), nan), NOT isNaN(ifNull(toFloat64(d.value), nan))) AS avg_value", "if(nan_count > 0 OR finite_count = 0, nan, avg_value) AS value", "GROUP BY grid.id, grid.eval_ts", "windowed.id = series.id", "tuple('__name__', src.metric_name)"} {
 		if !strings.Contains(sql, expected) {
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)
 		}
 	}
-	for _, unwanted := range []string{"window_series", "window_values", "CROSS JOIN"} {
+	for _, unwanted := range []string{"window_series", "window_values", "CROSS JOIN", "GROUP BY grid.id, grid.tags, grid.eval_ts"} {
 		if strings.Contains(sql, unwanted) {
 			t.Fatalf("expected direct aggregate SQL to avoid %q, got %q", unwanted, sql)
 		}
@@ -206,12 +206,12 @@ func TestBuildRangeWindowSelectorDirectAggregateRowsQuerySQLUsesGroupedRateAlias
 	if err != nil {
 		t.Fatalf("expected direct aggregate rows SQL for rate, got error: %v", err)
 	}
-	for _, expected := range []string{"count() AS sample_count", "countIf(isNaN(ifNull(toFloat64(d.value), nan))) AS nan_count", "max(d.timestamp) - min(d.timestamp) AS window_duration_ms", "deltaSumTimestamp(ifNull(toFloat64(d.value), nan), toUnixTimestamp64Milli(d.timestamp)) AS counter_delta_sum", "if(nan_count > 0 OR sample_count <= 1 OR window_duration_ms <= 0, nan, counter_delta_sum / window_duration_ms) AS value"} {
+	for _, expected := range []string{"count() AS sample_count", "countIf(isNaN(ifNull(toFloat64(d.value), nan))) AS nan_count", "max(d.timestamp) - min(d.timestamp) AS window_duration_ms", "deltaSumTimestamp(ifNull(toFloat64(d.value), nan), toUnixTimestamp64Milli(d.timestamp)) AS counter_delta_sum", "if(nan_count > 0 OR sample_count <= 1 OR window_duration_ms <= 0, nan, counter_delta_sum / window_duration_ms) AS value", "windowed.id = series.id", "GROUP BY grid.id, grid.eval_ts"} {
 		if !strings.Contains(sql, expected) {
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)
 		}
 	}
-	for _, unwanted := range []string{"window_series", "window_values", "arrayPopBack(", "arrayPopFront("} {
+	for _, unwanted := range []string{"window_series", "window_values", "arrayPopBack(", "arrayPopFront(", "GROUP BY grid.id, grid.tags, grid.eval_ts"} {
 		if strings.Contains(sql, unwanted) {
 			t.Fatalf("expected direct aggregate rows SQL to avoid %q, got %q", unwanted, sql)
 		}

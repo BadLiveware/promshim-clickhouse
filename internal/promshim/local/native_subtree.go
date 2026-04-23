@@ -5,6 +5,7 @@ import (
 	"math"
 	"time"
 
+	logicalpkg "ch-observability/internal/promshim/logical"
 	"ch-observability/internal/promshim/model"
 	nativeplan "ch-observability/internal/promshim/native"
 	"ch-observability/internal/promshim/native/renderer"
@@ -30,6 +31,14 @@ type nativeSubtreePlan struct {
 	Fragment           *nativeplan.NativeFragment
 	OptimizationReport *nativeplan.OptimizationReport
 	Info               *nativeplan.LoweringInfo
+	// LogicalRoot and LogicalAnalysis are populated only for the
+	// whole-query tier-2 plan. When set, execute() attempts
+	// renderer.Lower(ctx, LogicalRoot) first and falls back to
+	// renderer.RenderFragment on the errUnsupportedLowerNode sentinel.
+	// Subtree-pushdown construction sites (tier 3a) leave these nil
+	// and stay on the Fragment path unconditionally.
+	LogicalRoot     logicalpkg.Node
+	LogicalAnalysis *logicalpkg.Analysis
 }
 
 func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
@@ -56,7 +65,8 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 			requiredEndMS = e
 		}
 	}
-	rendered, err := renderer.RenderFragment(storage.QueryConfig{Database: Evaluator.database, Table: Evaluator.table}, p.Fragment, renderer.RenderParams{
+	cfg := storage.QueryConfig{Database: Evaluator.database, Table: Evaluator.table}
+	renderParams := renderer.RenderParams{
 		Mode:             renderMode,
 		EvaluationTimeMS: params.EvaluationTime.UnixMilli(),
 		StartMS:          params.Start.UnixMilli(),
@@ -67,9 +77,10 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 		ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
 			return resolveDelegatedPromQL(expr, params)
 		},
-	})
+	}
+	rendered, err := p.renderSQL(cfg, renderParams)
 	if err != nil {
-		return nil, WithInternalContext(err, "rendering native subtree SQL for %q", p.Expr)
+		return nil, err
 	}
 	response, err := Evaluator.client.Execute(ctx, rendered.SQL, rendered.QueryParams)
 	if err != nil {
@@ -120,6 +131,37 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 	default:
 		return nil, NewExecutionErrorf("unknown evaluation mode %q", params.Mode)
 	}
+}
+
+// renderSQL picks between the new renderer.Lower dispatcher and the
+// existing Fragment renderer. Hierarchical split: a single query
+// never mixes the two paths. Only the whole-query tier-2
+// construction populates LogicalRoot/LogicalAnalysis; without them,
+// this falls through to the Fragment path unconditionally.
+func (p *nativeSubtreePlan) renderSQL(cfg storage.QueryConfig, renderParams renderer.RenderParams) (renderer.RenderedQuery, error) {
+	if p.LogicalRoot != nil && p.LogicalAnalysis != nil {
+		nativeAnalysis := nativeplan.Analyze(p.LogicalRoot)
+		lowerCtx := renderer.LoweringCtx{
+			Config:         cfg,
+			Analysis:       p.LogicalAnalysis,
+			NativeAnalysis: nativeAnalysis,
+			Params:         renderParams,
+		}
+		rq, err := renderer.Lower(lowerCtx, p.LogicalRoot)
+		if err == nil {
+			return rq, nil
+		}
+		if !renderer.IsUnsupportedByLower(err) {
+			return renderer.RenderedQuery{}, WithInternalContext(err, "lowering native subtree for %q", p.Expr)
+		}
+		// Fallthrough: Lower can't handle this node kind yet — use
+		// Fragment dispatch for the whole query.
+	}
+	rq, err := renderer.RenderFragment(cfg, p.Fragment, renderParams)
+	if err != nil {
+		return renderer.RenderedQuery{}, WithInternalContext(err, "rendering native subtree SQL for %q", p.Expr)
+	}
+	return rq, nil
 }
 
 func (p *nativeSubtreePlan) explain() ExplainNode {

@@ -50,6 +50,8 @@ func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 		return lowerBinary(ctx, n)
 	case *logicalpkg.PointwiseFunctionPlan:
 		return lowerPointwiseFunction(ctx, n)
+	case *logicalpkg.ScalarConvertPlan:
+		return lowerScalarConvert(ctx, n)
 	default:
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}

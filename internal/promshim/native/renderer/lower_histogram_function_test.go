@@ -1,0 +1,144 @@
+package renderer
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"ch-observability/internal/promshim/native"
+)
+
+// histogramFunctionCases covers all three histogram-function plan kinds
+// (HistogramQuantilePlan, HistogramFractionPlan, HistogramQuantilesPlan)
+// across the canonical queries listed in the Surface 10 spec.
+var histogramFunctionCases = []struct {
+	name  string
+	query string
+}{
+	// HistogramQuantilePlan — simple instant form
+	{
+		name:  "quantile_simple",
+		query: `histogram_quantile(0.95, http_request_duration_seconds_bucket)`,
+	},
+	// HistogramQuantilePlan — rate-wrapped range form
+	{
+		name:  "quantile_rate",
+		query: `histogram_quantile(0.5, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))`,
+	},
+	// HistogramFractionPlan — simple instant form
+	{
+		name:  "fraction_simple",
+		query: `histogram_fraction(0, 0.2, http_request_duration_seconds_bucket)`,
+	},
+	// HistogramQuantilesPlan — multi-quantile instant form
+	// Prometheus parser signature: histogram_quantiles(bucket_expr, label, q1, q2, ...)
+	{
+		name:  "quantiles_multi",
+		query: `histogram_quantiles(http_request_duration_seconds_bucket, "quantile", 0.5, 0.95)`,
+	},
+}
+
+// TestLowerHistogramFunctionMatchesFragment is the byte-identical
+// differential guard: for every case × mode, lower through renderer.Lower
+// and through native.BuildFragment + RenderFragment, then fail on any diff.
+func TestLowerHistogramFunctionMatchesFragment(t *testing.T) {
+	for _, tc := range histogramFunctionCases {
+		for _, mode := range []struct {
+			name   string
+			params RenderParams
+		}{
+			{name: "instant", params: testRenderParamsInstant()},
+			{name: "range", params: testRenderParamsRange()},
+		} {
+			t.Run(tc.name+"_"+mode.name, func(t *testing.T) {
+				root, analysis, nativeAnalysis := buildLowerInputs(t, tc.query)
+				lowerCtx := LoweringCtx{
+					Config:         testRenderConfig(),
+					Analysis:       analysis,
+					NativeAnalysis: nativeAnalysis,
+					Params:         mode.params,
+				}
+				lowerRQ, err := Lower(lowerCtx, root)
+				if err != nil {
+					t.Fatalf("Lower: %v", err)
+				}
+				fragment, err := native.BuildFragment(root, nativeAnalysis)
+				if err != nil {
+					t.Fatalf("BuildFragment: %v", err)
+				}
+				fragmentRQ, err := RenderFragment(testRenderConfig(), fragment, mode.params)
+				if err != nil {
+					t.Fatalf("RenderFragment: %v", err)
+				}
+				if lowerRQ.SQL != fragmentRQ.SQL {
+					t.Errorf("SQL differs:\nLower:    %s\nFragment: %s", lowerRQ.SQL, fragmentRQ.SQL)
+				}
+				if len(lowerRQ.QueryParams) != len(fragmentRQ.QueryParams) {
+					t.Errorf("QueryParams len differs: Lower=%v Fragment=%v", lowerRQ.QueryParams, fragmentRQ.QueryParams)
+				}
+				for k, v := range fragmentRQ.QueryParams {
+					if lowerRQ.QueryParams[k] != v {
+						t.Errorf("QueryParams[%q] differs: Lower=%q Fragment=%q", k, lowerRQ.QueryParams[k], v)
+					}
+				}
+			})
+		}
+	}
+}
+
+// TestLowerHistogramFunctionGolden locks in the exact SQL for all cases
+// in both instant and range modes. Run with -update to regenerate golden files.
+func TestLowerHistogramFunctionGolden(t *testing.T) {
+	for _, tc := range histogramFunctionCases {
+		for _, mode := range []struct {
+			name   string
+			params RenderParams
+		}{
+			{name: "instant", params: testRenderParamsInstant()},
+			{name: "range", params: testRenderParamsRange()},
+		} {
+			t.Run(tc.name+"_"+mode.name, func(t *testing.T) {
+				root, analysis, nativeAnalysis := buildLowerInputs(t, tc.query)
+				rq, err := Lower(LoweringCtx{
+					Config:         testRenderConfig(),
+					Analysis:       analysis,
+					NativeAnalysis: nativeAnalysis,
+					Params:         mode.params,
+				}, root)
+				if err != nil {
+					t.Fatalf("Lower: %v", err)
+				}
+				goldenPath := filepath.Join("testdata", "lower_histogram_function", tc.name+"_"+mode.name+".sql")
+				if *updateLowerGolden {
+					if err := os.MkdirAll(filepath.Dir(goldenPath), 0o755); err != nil {
+						t.Fatalf("mkdir testdata: %v", err)
+					}
+					if err := os.WriteFile(goldenPath, []byte(rq.SQL), 0o644); err != nil {
+						t.Fatalf("write golden: %v", err)
+					}
+					return
+				}
+				want, err := os.ReadFile(goldenPath)
+				if err != nil {
+					t.Fatalf("read golden (run with -update to create): %v", err)
+				}
+				if string(want) != rq.SQL {
+					t.Errorf("SQL differs from golden %s\nwant:\n%s\ngot:\n%s", goldenPath, want, rq.SQL)
+				}
+			})
+		}
+	}
+}
+
+// TestLowerHistogramFunctionNilErrors exercises the defensive nil guard in
+// lowerHistogramFunction. A nil node must return a non-sentinel error.
+func TestLowerHistogramFunctionNilErrors(t *testing.T) {
+	_, err := lowerHistogramFunction(LoweringCtx{}, nil)
+	if err == nil {
+		t.Fatalf("expected error for nil node")
+	}
+	if errors.Is(err, errUnsupportedLowerNode) {
+		t.Fatalf("expected non-sentinel error for nil node, got sentinel")
+	}
+}

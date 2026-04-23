@@ -126,6 +126,7 @@ func MeasureNativeSupport(query string) (NativeMeasurementSnapshot, error) {
 		return snapshot, err
 	}
 	analysis := nativeplan.Analyze(logical)
+	_ = logicalpkg.Analyze(logical) // Task 3 warm-up: exercise the new enrichment walk.
 	if analysis == nil || analysis.Root == nil {
 		return snapshot, nil
 	}

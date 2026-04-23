@@ -1,6 +1,9 @@
 package local
 
-import nativeplan "ch-observability/internal/promshim/native"
+import (
+	logicalpkg "ch-observability/internal/promshim/logical"
+	nativeplan "ch-observability/internal/promshim/native"
+)
 
 type nativeAggregationEligibility struct {
 	Eligible bool
@@ -9,6 +12,7 @@ type nativeAggregationEligibility struct {
 }
 
 func decideNativeAggregationPushdown(node *logicalAggregationPlan, ctx PlanContext) nativeAggregationEligibility {
+	_ = logicalpkg.Analyze(node) // Task 3 warm-up: exercise the new enrichment walk.
 	return decideNativeAggregationPushdownFromAnalysis(node, nativeplan.Analyze(node), ctx)
 }
 

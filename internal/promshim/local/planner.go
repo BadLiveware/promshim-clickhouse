@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"ch-observability/internal/promshim/local/exec"
+	logicalpkg "ch-observability/internal/promshim/logical"
 	"ch-observability/internal/promshim/model"
 	nativeplan "ch-observability/internal/promshim/native"
 	"ch-observability/internal/promshim/storage"
@@ -160,6 +161,7 @@ func BuildEntireQueryDelegatedPlan(expr parser.Expr) (Plan, *nativeplan.Analysis
 		return nil, nil, err
 	}
 	analysis := nativeplan.Analyze(logical)
+	_ = logicalpkg.Analyze(logical) // Task 3 warm-up: exercise the new enrichment walk.
 	return annotateQueryPlan(&delegatedExprPlan{Expr: expr}, analysis.Root), analysis, nil
 }
 
@@ -169,6 +171,7 @@ func BuildPlanWithContextAndAnalysis(expr parser.Expr, ctx PlanContext) (Plan, *
 		return nil, nil, err
 	}
 	analysis := nativeplan.Analyze(logical)
+	_ = logicalpkg.Analyze(logical) // Task 3 warm-up: exercise the new enrichment walk.
 	plan, err := buildExecPlanWithAnalysis(logical, ctx, analysis)
 	if err != nil {
 		return nil, nil, err
@@ -182,11 +185,13 @@ func BuildPlanWithContextAndAnalysis(expr parser.Expr, ctx PlanContext) (Plan, *
 
 func buildExecPlan(plan logicalPlan) (Plan, error) {
 	analysis := nativeplan.Analyze(plan)
+	_ = logicalpkg.Analyze(plan) // Task 3 warm-up: exercise the new enrichment walk.
 	return buildExecPlanWithAnalysis(plan, DefaultPlanContext(EvalModeInstant), analysis)
 }
 
 func buildExecPlanWithContext(plan logicalPlan, ctx PlanContext) (Plan, error) {
 	analysis := nativeplan.Analyze(plan)
+	_ = logicalpkg.Analyze(plan) // Task 3 warm-up: exercise the new enrichment walk.
 	return buildExecPlanWithAnalysis(plan, ctx, analysis)
 }
 

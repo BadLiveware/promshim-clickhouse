@@ -60,6 +60,20 @@ func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 		return lowerLabelTransform(ctx, n)
 	case *logicalpkg.LabelJoinPlan:
 		return lowerLabelTransform(ctx, n)
+	case *logicalpkg.RangeFunctionPlan:
+		return lowerRangeFunction(ctx, n)
+	case *logicalpkg.RatePlan:
+		return lowerRangeFunction(ctx, n)
+	case *logicalpkg.IncreasePlan:
+		return lowerRangeFunction(ctx, n)
+	case *logicalpkg.DeltaPlan:
+		return lowerRangeFunction(ctx, n)
+	case *logicalpkg.ChangesPlan:
+		return lowerRangeFunction(ctx, n)
+	case *logicalpkg.DerivPlan:
+		return lowerRangeFunction(ctx, n)
+	case *logicalpkg.QuantileOverTimePlan:
+		return lowerRangeFunction(ctx, n)
 	default:
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}

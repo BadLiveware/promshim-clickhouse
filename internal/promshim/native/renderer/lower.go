@@ -76,6 +76,8 @@ func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 		return lowerRangeFunction(ctx, n)
 	case *logicalpkg.QuantileOverTimePlan:
 		return lowerRangeFunction(ctx, n)
+	case *logicalpkg.HistogramProjectionPlan:
+		return lowerHistogramProjection(ctx, n)
 	default:
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}

@@ -121,23 +121,32 @@ func lowerScalarLiteral(ctx LoweringCtx, n *logicalpkg.ScalarLiteralPlan) (Rende
 	return RenderFragment(ctx.Config, fragment, ctx.Params)
 }
 
-// lowerBinary handles the scalar-involving forms of BinaryPlan. Any
-// other shape (vector-vector) returns the fallback sentinel so the
-// caller can re-render through the Fragment path.
+// lowerBinary handles BinaryPlan in two branches:
+//   - Scalar-involving (at least one side is DomainScalar): delegates to the
+//     existing BuildFragment + RenderFragment pipeline, unchanged from Phase 1.
+//   - Vector-vector (both sides are non-scalar): delegates to
+//     lowerBinaryVectorJoin, which bridges to renderBinaryJoinFragment via the
+//     pre-computed NativeAnalysis Fragment (Surface 13, Approach A).
 func lowerBinary(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQuery, error) {
+	if n == nil {
+		return RenderedQuery{}, fmt.Errorf("renderer: lowerBinary called with nil")
+	}
+	if ctx.Analysis == nil {
+		return RenderedQuery{}, fmt.Errorf("renderer: binary missing logical analysis")
+	}
 	lhsInfo := ctx.Analysis.InfoFor(n.LHS)
 	rhsInfo := ctx.Analysis.InfoFor(n.RHS)
 	if lhsInfo == nil || rhsInfo == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: binary node missing analysis")
 	}
-	// Phase 1 scope: at least one side must be a scalar. Vector-vector
-	// binaries fall back to Fragment rendering.
-	if lhsInfo.TimeDomain != logicalpkg.DomainScalar && rhsInfo.TimeDomain != logicalpkg.DomainScalar {
-		return RenderedQuery{}, errUnsupportedLowerNode
+	// Scalar-involving path (existing behavior — keep bridging to BuildFragment + RenderFragment).
+	if lhsInfo.TimeDomain == logicalpkg.DomainScalar || rhsInfo.TimeDomain == logicalpkg.DomainScalar {
+		fragment, err := native.BuildFragment(n, ctx.NativeAnalysis)
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		return RenderFragment(ctx.Config, fragment, ctx.Params)
 	}
-	fragment, err := native.BuildFragment(n, ctx.NativeAnalysis)
-	if err != nil {
-		return RenderedQuery{}, err
-	}
-	return RenderFragment(ctx.Config, fragment, ctx.Params)
+	// Vector-vector path: Surface 13 (Approach A).
+	return lowerBinaryVectorJoin(ctx, n)
 }

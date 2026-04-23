@@ -1,0 +1,181 @@
+package renderer
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"ch-observability/internal/promshim/native"
+)
+
+// binaryVectorJoinCases covers the full matching-shape matrix for Surface 13:
+//
+//   - Arithmetic ops (*, +, -, /, %, ^): one-to-one, no modifier
+//   - Arithmetic with on(...): label-restricted join
+//   - Arithmetic with ignoring(...): label-excluded join
+//   - Arithmetic group_left: many-to-one cardinality
+//   - Arithmetic group_right: one-to-many cardinality
+//   - Comparison with bool (==, !=): drops metric name
+//   - Set ops: and (instant only), or (instant + range), unless (instant)
+//   - Range-function children: rate(...) / ignoring(...) group_left() rate(...)
+//
+// For each case, the differential guard (TestLowerBinaryVectorJoinMatchesFragment)
+// verifies that Lower produces byte-identical SQL to the Fragment path.
+// TestLowerBinaryVectorJoinGolden locks a representative subset into .sql files.
+var binaryVectorJoinCases = []struct {
+	name  string
+	query string
+}{
+	// — arithmetic, one-to-one, no modifier —
+	{name: "mul_up_up", query: `up * up`},
+	// — arithmetic, on(instance) label match —
+	{name: "add_on_instance", query: `up{job="api"} + on(instance) up{job="db"}`},
+	// — arithmetic, ignoring(env) label exclusion —
+	{name: "add_ignoring_env", query: `up + ignoring(env) up`},
+	// — arithmetic, group_left (many-to-one) —
+	{name: "mul_group_left_job", query: `up * ignoring(instance) group_left(job) up`},
+	// — arithmetic, group_right (one-to-many) —
+	{name: "mul_group_right_job", query: `up * ignoring(instance) group_right(job) up`},
+	// — comparison with bool (vector-vector, drops metric name) —
+	{name: "eq_bool", query: `up == bool up`},
+	// — comparison with bool, != —
+	{name: "neq_bool", query: `up != bool up`},
+	// — set op: and —
+	{name: "and_up", query: `up and up`},
+	// — set op: or —
+	{name: "or_up", query: `up or up{job="new"}`},
+	// — set op: unless —
+	{name: "unless_up", query: `up unless up{status="down"}`},
+	// — range-function children: rate / ignoring group_left —
+	{name: "rate_div_group_left", query: `rate(http_requests_total[5m]) / ignoring(code) group_left() rate(http_requests_total[5m])`},
+	// — arithmetic sub —
+	{name: "sub_up_up", query: `up - up`},
+}
+
+// goldenBinaryVectorJoinCases selects the subset of binaryVectorJoinCases
+// that receive golden files: the first six canonical shapes plus the rate
+// group_left case.
+var goldenBinaryVectorJoinCases = []int{0, 1, 2, 3, 5, 7, 8, 10}
+
+// TestLowerBinaryVectorJoinMatchesFragment is the byte-identical differential
+// guard for Surface 13: for every case in every render mode, lower the plan
+// twice — once through renderer.Lower, once through native.BuildFragment +
+// RenderFragment — and fail on any diff.
+func TestLowerBinaryVectorJoinMatchesFragment(t *testing.T) {
+	for _, tc := range binaryVectorJoinCases {
+		for _, mode := range []struct {
+			name   string
+			params RenderParams
+		}{
+			{name: "instant", params: testRenderParamsInstant()},
+			{name: "range", params: testRenderParamsRange()},
+		} {
+			t.Run(tc.name+"_"+mode.name, func(t *testing.T) {
+				root, analysis, nativeAnalysis := buildLowerInputs(t, tc.query)
+				lowerCtx := LoweringCtx{
+					Config:         testRenderConfig(),
+					Analysis:       analysis,
+					NativeAnalysis: nativeAnalysis,
+					Params:         mode.params,
+				}
+				lowerRQ, err := Lower(lowerCtx, root)
+				if err != nil {
+					t.Fatalf("Lower: %v", err)
+				}
+				fragment, err := native.BuildFragment(root, nativeAnalysis)
+				if err != nil {
+					t.Fatalf("BuildFragment: %v", err)
+				}
+				fragmentRQ, err := RenderFragment(testRenderConfig(), fragment, mode.params)
+				if err != nil {
+					t.Fatalf("RenderFragment: %v", err)
+				}
+				if lowerRQ.SQL != fragmentRQ.SQL {
+					t.Errorf("SQL differs:\nLower:    %s\nFragment: %s", lowerRQ.SQL, fragmentRQ.SQL)
+				}
+				if len(lowerRQ.QueryParams) != len(fragmentRQ.QueryParams) {
+					t.Errorf("QueryParams len differs: Lower=%v Fragment=%v", lowerRQ.QueryParams, fragmentRQ.QueryParams)
+				}
+				for k, v := range fragmentRQ.QueryParams {
+					if lowerRQ.QueryParams[k] != v {
+						t.Errorf("QueryParams[%q] differs: Lower=%q Fragment=%q", k, lowerRQ.QueryParams[k], v)
+					}
+				}
+			})
+		}
+	}
+}
+
+// TestLowerBinaryVectorJoinGolden locks in the exact SQL for the golden
+// subset in both instant and range modes. Run with -update to regenerate.
+func TestLowerBinaryVectorJoinGolden(t *testing.T) {
+	for _, idx := range goldenBinaryVectorJoinCases {
+		tc := binaryVectorJoinCases[idx]
+		for _, mode := range []struct {
+			name   string
+			params RenderParams
+		}{
+			{name: "instant", params: testRenderParamsInstant()},
+			{name: "range", params: testRenderParamsRange()},
+		} {
+			t.Run(tc.name+"_"+mode.name, func(t *testing.T) {
+				root, analysis, nativeAnalysis := buildLowerInputs(t, tc.query)
+				rq, err := Lower(LoweringCtx{
+					Config:         testRenderConfig(),
+					Analysis:       analysis,
+					NativeAnalysis: nativeAnalysis,
+					Params:         mode.params,
+				}, root)
+				if err != nil {
+					t.Fatalf("Lower: %v", err)
+				}
+				goldenPath := filepath.Join("testdata", "lower_binary_vector_join", tc.name+"_"+mode.name+".sql")
+				if *updateLowerGolden {
+					if err := os.MkdirAll(filepath.Dir(goldenPath), 0o755); err != nil {
+						t.Fatalf("mkdir testdata: %v", err)
+					}
+					if err := os.WriteFile(goldenPath, []byte(rq.SQL), 0o644); err != nil {
+						t.Fatalf("write golden: %v", err)
+					}
+					return
+				}
+				want, err := os.ReadFile(goldenPath)
+				if err != nil {
+					t.Fatalf("read golden (run with -update to create): %v", err)
+				}
+				if string(want) != rq.SQL {
+					t.Errorf("SQL differs from golden %s\nwant:\n%s\ngot:\n%s", goldenPath, want, rq.SQL)
+				}
+			})
+		}
+	}
+}
+
+// TestLowerBinaryVectorJoinNilErrors exercises the defensive nil guard in
+// lowerBinaryVectorJoin. A nil node must return a non-sentinel error.
+func TestLowerBinaryVectorJoinNilErrors(t *testing.T) {
+	_, err := lowerBinaryVectorJoin(LoweringCtx{}, nil)
+	if err == nil {
+		t.Fatalf("expected error for nil BinaryPlan")
+	}
+	if errors.Is(err, errUnsupportedLowerNode) {
+		t.Fatalf("expected non-sentinel error for nil node, got sentinel")
+	}
+}
+
+// TestLowerBinaryVectorJoinNilNativeAnalysisReturnsUnsupported verifies that
+// a nil NativeAnalysis returns errUnsupportedLowerNode (so the caller falls
+// back to the Fragment path) rather than panicking or returning a hard error.
+func TestLowerBinaryVectorJoinNilNativeAnalysisReturnsUnsupported(t *testing.T) {
+	root, analysis, _ := buildLowerInputs(t, `up and up`)
+	_, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nil, // intentionally nil
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if !errors.Is(err, errUnsupportedLowerNode) {
+		t.Errorf("expected errUnsupportedLowerNode when NativeAnalysis is nil, got %v", err)
+	}
+}

@@ -1312,7 +1312,7 @@ func TestRenderFragmentBuildsSyntheticRangeSeriesSQL(t *testing.T) {
 	for _, name := range testCases {
 		t.Run(name, func(t *testing.T) {
 			fragment := &native.NativeFragment{Kind: native.FragmentKindSyntheticSeries, OutputKind: native.OutputKindInstantVector, Synthetic: &native.SyntheticSeriesFragment{Func: name}}
-			expectedValueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic, "ts_ms")
+			expectedValueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic.Func, "ts_ms")
 			if err != nil {
 				t.Fatalf("expected synthetic value SQL, got error: %v", err)
 			}

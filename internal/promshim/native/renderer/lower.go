@@ -60,6 +60,8 @@ func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 		return lowerLabelTransform(ctx, n)
 	case *logicalpkg.LabelJoinPlan:
 		return lowerLabelTransform(ctx, n)
+	case *logicalpkg.AggregationPlan:
+		return lowerAggregation(ctx, n)
 	case *logicalpkg.RangeFunctionPlan:
 		return lowerRangeFunction(ctx, n)
 	case *logicalpkg.RatePlan:

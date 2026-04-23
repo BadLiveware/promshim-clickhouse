@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	logicalpkg "ch-observability/internal/promshim/logical"
 	"ch-observability/internal/promshim/native"
 )
 
@@ -136,18 +137,40 @@ func TestLowerRoundNilErrors(t *testing.T) {
 	}
 }
 
-// TestLowerRoundNilNativeAnalysisReturnsUnsupported verifies that a nil
-// NativeAnalysis returns errUnsupportedLowerNode so the caller falls back to
-// the Fragment path rather than panicking or returning a hard error.
-func TestLowerRoundNilNativeAnalysisReturnsUnsupported(t *testing.T) {
-	root, analysis, _ := buildLowerInputs(t, `round(up)`)
-	_, err := Lower(LoweringCtx{
-		Config:         testRenderConfig(),
-		Analysis:       analysis,
-		NativeAnalysis: nil,
-		Params:         testRenderParamsInstant(),
-	}, root)
-	if !errors.Is(err, errUnsupportedLowerNode) {
-		t.Errorf("expected errUnsupportedLowerNode when NativeAnalysis is nil, got %v", err)
+// TestBuildRoundValueExprMatchesApply locks byte-identity between
+// buildRoundValueExpr (reads the logical node's Decimals directly) and the
+// ValueExpr template constructed inside applyRoundValueTransform (reachable
+// here via native.BuildFragment on a RoundPlan). The direct-render path uses
+// the former; the Fragment path uses the latter. Any drift would break the
+// byte-identical SQL guarantee between the two paths.
+func TestBuildRoundValueExprMatchesApply(t *testing.T) {
+	for _, tc := range roundCases {
+		t.Run(tc.name, func(t *testing.T) {
+			root, _, nativeAnalysis := buildLowerInputs(t, tc.query)
+			fragment, err := native.BuildFragment(root, nativeAnalysis)
+			if err != nil {
+				t.Fatalf("BuildFragment: %v", err)
+			}
+			if fragment.ValueTransform == nil {
+				t.Fatalf("fragment has no ValueTransform spec")
+			}
+			fragmentExpr := fragment.ValueTransform.ValueExpr
+			// Recover toNearest from the logical RoundPlan: default 1.0 when Decimals nil.
+			round, ok := root.(*logicalpkg.RoundPlan)
+			if !ok {
+				t.Fatalf("expected *RoundPlan, got %T", root)
+			}
+			toNearest := 1.0
+			if round.Decimals != nil {
+				toNearest = *round.Decimals
+			}
+			directExpr, ok := buildRoundValueExpr(toNearest)
+			if !ok {
+				t.Fatalf("buildRoundValueExpr returned ok=false for toNearest=%v", toNearest)
+			}
+			if fragmentExpr != directExpr {
+				t.Errorf("value expressions differ\nFragment: %s\nDirect:   %s", fragmentExpr, directExpr)
+			}
+		})
 	}
 }

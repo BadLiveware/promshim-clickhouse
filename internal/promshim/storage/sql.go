@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"ch-observability/internal/promshim/emit"
 	modelpkg "ch-observability/internal/promshim/model"
 	"ch-observability/internal/promshim/native/sqlb"
 	"ch-observability/internal/promshim/storage/schema"
@@ -167,7 +168,7 @@ func BuildRangeAggregationOverSubquerySQL(source AggregationSource, sourceSQL st
 		GroupBy: []sqlb.Expr{sqlb.Ident("grouping_tags"), sqlb.Ident("timestamp")},
 	}
 	outer := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"}},
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"}},
 		From:    sqlb.SubSelect{S: grouped},
 		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}},
@@ -541,7 +542,7 @@ func buildRangeCountValuesAggregationOverSubquerySQL(source AggregationSource, s
 		GroupBy: []sqlb.Expr{sqlb.Ident("grouping_tags"), sqlb.Ident("timestamp")},
 	}
 	outer := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"}},
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"}},
 		From:    sqlb.SubSelect{S: grouped},
 		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}},
@@ -681,7 +682,7 @@ func buildRangeSelectionAggregationOverSubquerySQL(source AggregationSource, sou
 		return "", nil, fmt.Errorf("native SQL selection aggregation for operator %q is not implemented yet", op.String())
 	}
 	outer := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"}},
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"}},
 		From:    sqlb.SubSelect{S: selected},
 		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}},
@@ -710,7 +711,7 @@ func buildAggregationTagsExpr(column sqlb.Expr, grouping []string, without bool)
 		}}
 	}
 	if len(grouping) == 0 {
-		return schema.EmptyTagsArrayExpr()
+		return emit.EmptyTagsArray()
 	}
 	filtered := sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{
 		sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(grouping) + ", tag.1)"},

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"ch-observability/internal/promshim/emit"
 	"ch-observability/internal/promshim/native/sqlb"
 	"ch-observability/internal/promshim/storage/schema"
 	"github.com/prometheus/prometheus/model/labels"
@@ -65,7 +66,7 @@ func buildInfoJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL string,
 	mergeParams(params, lhsInfoMetricParams)
 	if rangeMode {
 		groupedSQL := "SELECT result_tags, timestamp, any(value) AS value FROM (" + finalRowsSQL + ") AS joined_result_rows GROUP BY result_tags, timestamp"
-		outerSQL := "SELECT result_tags AS tags, " + renderStorageExprNoParams(schema.SortedTimeSeriesGroupArrayExpr()) + " AS time_series FROM (" + groupedSQL + ") AS grouped_rows GROUP BY result_tags ORDER BY result_tags"
+		outerSQL := "SELECT result_tags AS tags, " + renderStorageExprNoParams(emit.SortedTimeSeriesGroupArray()) + " AS time_series FROM (" + groupedSQL + ") AS grouped_rows GROUP BY result_tags ORDER BY result_tags"
 		return outerSQL + schema.QuerySuffix, params, nil
 	}
 	outerSQL := "SELECT result_tags AS tags, any(timestamp) AS timestamp, any(value) AS value FROM (" + finalRowsSQL + ") AS joined_result_rows GROUP BY result_tags ORDER BY result_tags"

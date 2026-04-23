@@ -80,10 +80,20 @@ func renderSyntheticFragment(fragment *native.NativeFragment, params RenderParam
 	if fragment == nil || fragment.Synthetic == nil {
 		return renderedFragment{}, fmt.Errorf("synthetic series fragment is missing synthetic metadata")
 	}
+	// The "literal" case carries a float value in fragment.Synthetic.Value;
+	// it cannot be handled by syntheticSeriesValueSQL (which takes only a
+	// func name). Delegate to renderScalarLiteralFragment so the scalar-literal
+	// code path is the single source of SQL truth for literal values.
+	if fragment.Synthetic.Func == "literal" {
+		if fragment.Synthetic.Value == nil {
+			return renderedFragment{}, fmt.Errorf("synthetic literal fragment requires a value")
+		}
+		return renderScalarLiteralFragment(*fragment.Synthetic.Value, params)
+	}
 	emptyTags := emit.EmptyTagsArray()
 	switch params.Mode {
 	case native.RenderModeInstant:
-		valueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic, "{evaluation_ms:Int64}")
+		valueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic.Func, "{evaluation_ms:Int64}")
 		if err != nil {
 			return renderedFragment{}, err
 		}
@@ -99,7 +109,7 @@ func renderSyntheticFragment(fragment *native.NativeFragment, params RenderParam
 		if params.StepMS <= 0 {
 			return renderedFragment{}, fmt.Errorf("synthetic range render requires a positive step")
 		}
-		valueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic, "ts_ms")
+		valueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic.Func, "ts_ms")
 		if err != nil {
 			return renderedFragment{}, err
 		}
@@ -131,17 +141,26 @@ func renderSyntheticFragment(fragment *native.NativeFragment, params RenderParam
 	}
 }
 
-func syntheticSeriesValueSQL(fragment *native.SyntheticSeriesFragment, tsMSExpr string) (string, error) {
-	if fragment == nil {
-		return "", fmt.Errorf("synthetic series metadata is missing")
-	}
+// syntheticSeriesValueSQL returns the SQL expression that computes the
+// per-sample value for a named synthetic function. tsMSExpr is the SQL
+// expression that evaluates to the sample timestamp in milliseconds (e.g.
+// "ts_ms" for range mode or "{evaluation_ms:Int64}" for instant mode).
+//
+// The "literal" case is retained here for the Fragment path — vector(1)
+// still flows through renderSyntheticFragment which passes a
+// SyntheticSeriesFragment{Func:"literal", Value:&v}. The direct
+// scalar-literal path (lowerScalarLiteral / renderScalarLiteralFragment)
+// does NOT call this helper. When the VectorPlan surface is migrated in a
+// later phase-2 commit, the "literal" branch can be removed.
+func syntheticSeriesValueSQL(funcName string, tsMSExpr string) (string, error) {
 	utcTs := "toTimeZone(fromUnixTimestamp64Milli(" + tsMSExpr + "), 'UTC')"
-	switch fragment.Func {
+	switch funcName {
 	case "literal":
-		if fragment.Value == nil {
-			return "", fmt.Errorf("synthetic literal fragment requires a value")
-		}
-		return storage.NativeFloatLiteral(*fragment.Value), nil
+		// Literals carry a float value that funcName alone cannot encode.
+		// renderSyntheticFragment handles "literal" before calling this
+		// helper (via renderScalarLiteralFragment); callers that pass
+		// "literal" here have a bug.
+		return "", fmt.Errorf("synthetic series function %q must be handled via renderScalarLiteralFragment, not syntheticSeriesValueSQL", funcName)
 	case "pi":
 		return "toFloat64(3.141592653589793)", nil
 	case "time":
@@ -163,7 +182,7 @@ func syntheticSeriesValueSQL(fragment *native.SyntheticSeriesFragment, tsMSExpr 
 	case "year":
 		return "toFloat64(toYear(" + utcTs + "))", nil
 	default:
-		return "", fmt.Errorf("synthetic series function %q is not implemented yet", fragment.Func)
+		return "", fmt.Errorf("synthetic series function %q is not implemented yet", funcName)
 	}
 }
 

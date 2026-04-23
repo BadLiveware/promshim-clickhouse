@@ -1,0 +1,153 @@
+package renderer
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
+)
+
+// vectorCases covers the VectorPlan shapes that lower natively:
+//
+//   - "vector(1)"              — instant + range (SyntheticSeries scalar literal lifted to vector)
+//   - "vector(time())"         — instant + range (SyntheticSeries time scalar lifted to vector)
+//   - "vector(scalar(sum(up)))" — instant (ScalarConvert child: scalar() aggregation lifted to vector)
+//
+// The differential guard (TestLowerVectorMatchesFragment) verifies that Lower
+// produces byte-identical SQL to the Fragment path for every case × mode.
+// TestLowerVectorGolden locks a representative subset into .sql files.
+var vectorCases = []struct {
+	name  string
+	query string
+}{
+	{name: "vector_1", query: `vector(1)`},
+	{name: "vector_time", query: `vector(time())`},
+	{name: "vector_scalar_sum_up", query: `vector(scalar(sum(up)))`},
+}
+
+// goldenVectorCases selects the subset that receive golden files.
+var goldenVectorCases = []int{0, 1, 2}
+
+// TestLowerVectorMatchesFragment is the byte-identical differential guard for
+// Surface 14 (VectorPlan): for every case in every render mode, lower the plan
+// twice — once through renderer.Lower, once through native.BuildFragment +
+// RenderFragment — and fail on any diff.
+func TestLowerVectorMatchesFragment(t *testing.T) {
+	for _, tc := range vectorCases {
+		for _, mode := range []struct {
+			name   string
+			params RenderParams
+		}{
+			{name: "instant", params: testRenderParamsInstant()},
+			{name: "range", params: testRenderParamsRange()},
+		} {
+			t.Run(tc.name+"_"+mode.name, func(t *testing.T) {
+				root, analysis, nativeAnalysis := buildLowerInputs(t, tc.query)
+				lowerCtx := LoweringCtx{
+					Config:         testRenderConfig(),
+					Analysis:       analysis,
+					NativeAnalysis: nativeAnalysis,
+					Params:         mode.params,
+				}
+				lowerRQ, err := Lower(lowerCtx, root)
+				if err != nil {
+					t.Fatalf("Lower: %v", err)
+				}
+				fragment, err := native.BuildFragment(root, nativeAnalysis)
+				if err != nil {
+					t.Fatalf("BuildFragment: %v", err)
+				}
+				fragmentRQ, err := RenderFragment(testRenderConfig(), fragment, mode.params)
+				if err != nil {
+					t.Fatalf("RenderFragment: %v", err)
+				}
+				if lowerRQ.SQL != fragmentRQ.SQL {
+					t.Errorf("SQL differs:\nLower:    %s\nFragment: %s", lowerRQ.SQL, fragmentRQ.SQL)
+				}
+				if len(lowerRQ.QueryParams) != len(fragmentRQ.QueryParams) {
+					t.Errorf("QueryParams len differs: Lower=%v Fragment=%v", lowerRQ.QueryParams, fragmentRQ.QueryParams)
+				}
+				for k, v := range fragmentRQ.QueryParams {
+					if lowerRQ.QueryParams[k] != v {
+						t.Errorf("QueryParams[%q] differs: Lower=%q Fragment=%q", k, lowerRQ.QueryParams[k], v)
+					}
+				}
+			})
+		}
+	}
+}
+
+// TestLowerVectorGolden locks in the exact SQL for the golden subset in both
+// instant and range modes. Run with -update to regenerate.
+func TestLowerVectorGolden(t *testing.T) {
+	for _, idx := range goldenVectorCases {
+		tc := vectorCases[idx]
+		for _, mode := range []struct {
+			name   string
+			params RenderParams
+		}{
+			{name: "instant", params: testRenderParamsInstant()},
+			{name: "range", params: testRenderParamsRange()},
+		} {
+			t.Run(tc.name+"_"+mode.name, func(t *testing.T) {
+				root, analysis, nativeAnalysis := buildLowerInputs(t, tc.query)
+				rq, err := Lower(LoweringCtx{
+					Config:         testRenderConfig(),
+					Analysis:       analysis,
+					NativeAnalysis: nativeAnalysis,
+					Params:         mode.params,
+				}, root)
+				if err != nil {
+					t.Fatalf("Lower: %v", err)
+				}
+				goldenPath := filepath.Join("testdata", "lower_vector", tc.name+"_"+mode.name+".sql")
+				if *updateLowerGolden {
+					if err := os.MkdirAll(filepath.Dir(goldenPath), 0o755); err != nil {
+						t.Fatalf("mkdir testdata: %v", err)
+					}
+					if err := os.WriteFile(goldenPath, []byte(rq.SQL), 0o644); err != nil {
+						t.Fatalf("write golden: %v", err)
+					}
+					return
+				}
+				want, err := os.ReadFile(goldenPath)
+				if err != nil {
+					t.Fatalf("read golden (run with -update to create): %v", err)
+				}
+				if string(want) != rq.SQL {
+					t.Errorf("SQL differs from golden %s\nwant:\n%s\ngot:\n%s", goldenPath, want, rq.SQL)
+				}
+			})
+		}
+	}
+}
+
+// TestLowerVectorNilErrors exercises the defensive nil guard in lowerVector. A
+// nil node must return a non-sentinel error.
+func TestLowerVectorNilErrors(t *testing.T) {
+	_, err := lowerVector(LoweringCtx{}, nil)
+	if err == nil {
+		t.Fatalf("expected error for nil VectorPlan")
+	}
+	if errors.Is(err, errUnsupportedLowerNode) {
+		t.Fatalf("expected non-sentinel error for nil node, got sentinel")
+	}
+}
+
+// TestLowerVectorNilNativeAnalysisReturnsUnsupported verifies that a nil
+// NativeAnalysis returns errUnsupportedLowerNode so the caller falls back to
+// the Fragment path rather than panicking or returning a hard error.
+func TestLowerVectorNilNativeAnalysisReturnsUnsupported(t *testing.T) {
+	root, analysis, _ := buildLowerInputs(t, `vector(1)`)
+	_, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nil,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if !errors.Is(err, errUnsupportedLowerNode) {
+		t.Errorf("expected errUnsupportedLowerNode when NativeAnalysis is nil, got %v", err)
+	}
+}

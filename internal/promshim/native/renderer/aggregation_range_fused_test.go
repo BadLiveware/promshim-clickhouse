@@ -71,3 +71,61 @@ func TestRenderFragmentFusesRangeSumRateAggregation(t *testing.T) {
 		t.Fatalf("expected fused range sum(rate) SQL to reuse already metric-name-free selector tags, got %q", rendered.SQL)
 	}
 }
+
+func TestRenderFragmentFusesLongStepRangeSumRateAggregationUsingDirectRateRows(t *testing.T) {
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindAggregation,
+		OutputKind: native.OutputKindRangeMatrix,
+		Aggregation: &native.AggregationFragment{
+			Op:       parser.SUM,
+			Grouping: []string{"job"},
+			Source: &native.NativeFragment{
+				Kind:       native.FragmentKindRangeFunction,
+				OutputKind: native.OutputKindInstantVector,
+				RangeFunction: &native.RangeFunctionFragment{
+					Func: "rate",
+					Child: &native.NativeFragment{
+						Kind:       native.FragmentKindLeafSource,
+						OutputKind: native.OutputKindRangeMatrix,
+						Selector: &native.SelectorSource{
+							Kind:              native.SelectorKindRangeVector,
+							MetricName:        "demo_cpu_usage_seconds_total",
+							RequireFullTags:   false,
+							RequiredTagLabels: []string{"job"},
+							Lookback:          time.Hour,
+						},
+						ValueExpr: "{value}",
+						TagsExpr:  "{tags}",
+					},
+				},
+			},
+		},
+	}
+
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
+		Mode:            native.RenderModeRange,
+		StartMS:         0,
+		EndMS:           2592000000,
+		StepMS:          14400000,
+		RequiredStartMS: -3600000,
+		RequiredEndMS:   2592000000,
+	})
+	if err != nil {
+		t.Fatalf("expected rendered SQL, got error: %v", err)
+	}
+	for _, expected := range []string{
+		"deltaSumTimestamp(ifNull(toFloat64(d.value), nan), toUnixTimestamp64Milli(d.timestamp)) AS counter_delta_sum",
+		"max(d.timestamp) - min(d.timestamp) AS window_duration_ms",
+		"sum(value)",
+		"GROUP BY tags, timestamp",
+	} {
+		if !strings.Contains(rendered.SQL, expected) {
+			t.Fatalf("expected %q in SQL, got %q", expected, rendered.SQL)
+		}
+	}
+	for _, unwanted := range []string{"window_series", "window_values", "arrayPopBack(", "arrayPopFront("} {
+		if strings.Contains(rendered.SQL, unwanted) {
+			t.Fatalf("expected long-step fused range sum(rate) SQL to avoid %q, got %q", unwanted, rendered.SQL)
+		}
+	}
+}

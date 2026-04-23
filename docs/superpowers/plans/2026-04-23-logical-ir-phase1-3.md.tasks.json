@@ -1,0 +1,54 @@
+{
+  "planPath": "docs/superpowers/plans/2026-04-23-logical-ir-phase1-3.md",
+  "tasks": [
+    {
+      "id": 0,
+      "subject": "Task 0: Capture pre-work baselines",
+      "status": "pending",
+      "description": "**Goal:** Freeze compliance and bench numbers before any refactor.\n\n**Files:**\n- Create: `.tmp/baselines/2026-04-23-prework.md` (local, gitignored)\n\n**Verify:** `cat .tmp/baselines/2026-04-23-prework.md` shows 538/539 + bench matrix\n\n```json:metadata\n{\"files\": [\".tmp/baselines/2026-04-23-prework.md\"], \"verifyCommand\": \"scripts/run-compliance.sh && scripts/run-bench.sh --matrix\", \"acceptanceCriteria\": [\"Compliance 538/539 baseline recorded\", \"Bench matrix + long-range baseline captured\", \"Snapshot file committed with git ref\"]}\n```"
+    },
+    {
+      "id": 1,
+      "subject": "Task 1: Rename plan/ to logical/ and drop Logical prefix",
+      "status": "pending",
+      "blockedBy": [0],
+      "description": "**Goal:** Rename `internal/promshim/plan/` → `internal/promshim/logical/`; rename 28 Logical*Plan types to drop the prefix; update every import site.\n\n**Files:**\n- Rename: `internal/promshim/plan/*.go` → `internal/promshim/logical/*.go`\n- Modify: ~24 files importing the old path (see plan §Task 1)\n\n**Verify:** `go build ./... && go test ./internal/promshim/... && scripts/run-compliance.sh`\n\n```json:metadata\n{\"files\": [\"internal/promshim/logical/\", \"internal/promshim/local/logical_builder.go\", \"internal/promshim/native/\"], \"verifyCommand\": \"go build ./... && go test ./internal/promshim/... && scripts/run-compliance.sh\", \"acceptanceCriteria\": [\"Package declaration is 'package logical' in all moved files\", \"No `plan.Logical` or `planpkg.Logical` identifiers remain in code\", \"`logicalPlan()` marker renamed to `logicalNode()`\", \"Build + tests pass\", \"Compliance 538/539\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: Extract logical.ToLogical entry point",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** Move `local.BuildLogicalPlan` body into `logical.ToLogical`; keep `local.BuildLogicalPlan` as a deprecated forwarding shim.\n\n**Files:**\n- Create: `internal/promshim/logical/build.go`\n- Modify: `internal/promshim/local/logical_builder.go`, `local/logical_builder_helpers.go`\n\n**Verify:** `go test ./internal/promshim/... && scripts/run-compliance.sh`\n\n```json:metadata\n{\"files\": [\"internal/promshim/logical/build.go\", \"internal/promshim/local/logical_builder.go\"], \"verifyCommand\": \"go test ./internal/promshim/logical/ -run TestToLogical && go test ./internal/promshim/local/ && scripts/run-compliance.sh\", \"acceptanceCriteria\": [\"logical.ToLogical is the canonical entry point\", \"local.BuildLogicalPlan is a deprecated forwarding shim\", \"Existing local/logical_builder_test.go still passes unchanged\", \"Compliance 538/539\"]}\n```"
+    },
+    {
+      "id": 3,
+      "subject": "Task 3: Introduce logical.Analyze and NodeInfo side-map",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** Add `logical.Analyze(root)` returning `*Analysis{Root, Info}` with per-node `NodeInfo` (Schema two-valued, TimeDomain, GroupingKey, LabelLineage, DropsMetric, TimeRequirements). Predicates deferred. Coexist with `native.Analyze`.\n\n**Files:**\n- Create: `internal/promshim/logical/nodeinfo.go`, `logical/analyze.go`, `logical/analyze_test.go`\n- Modify: `local/planner.go`, `local/aggregation_pushdown.go`, `compliance/measurement.go` (add parallel `logical.Analyze(root)` call alongside existing native.Analyze)\n\n**Verify:** `go test ./internal/promshim/logical/ -run TestAnalyze -v && scripts/run-compliance.sh`\n\n```json:metadata\n{\"files\": [\"internal/promshim/logical/nodeinfo.go\", \"internal/promshim/logical/analyze.go\", \"internal/promshim/logical/analyze_test.go\"], \"verifyCommand\": \"go test ./internal/promshim/logical/ -run TestAnalyze -v && scripts/run-compliance.sh && scripts/run-bench.sh --matrix\", \"acceptanceCriteria\": [\"Schema two-valued: Guaranteed ⊆ Possible\", \"TimeDomain enum (Instant/Range/PointLookup/Scalar)\", \"Analyze is a single bottom-up walk\", \"Unit tests cover leaf/scalar/unary/binary/aggregation-by/aggregation-without/range/subquery/label_replace/count_values/histogram_quantile\", \"Compliance 538/539; bench ±3% of baseline\"]}\n```"
+    },
+    {
+      "id": 4,
+      "subject": "Task 4: Add renderer.Lower dispatch for core subset",
+      "status": "pending",
+      "blockedBy": [2, 3],
+      "description": "**Goal:** Introduce `renderer.Lower(ctx LoweringCtx, node logical.Node) → (RenderedQuery, error)` with type-switch. Phase 1 dispatches LeafExprPlan, ScalarLiteralPlan, and BinaryPlan (scalar-only) through the new path. Unsupported kinds return errUnsupportedLowerNode; service.go falls back hierarchically (whole-query) to Fragment.\n\n**Files:**\n- Create: `internal/promshim/native/renderer/lower.go`, `renderer/lower_test.go`\n- Modify: `internal/promshim/native/renderer/source.go`, `internal/promshim/service.go`\n\n**Verify:** `go test ./internal/promshim/native/renderer/ -run TestLower && scripts/run-compliance.sh && scripts/run-bench.sh --matrix`\n\n```json:metadata\n{\"files\": [\"internal/promshim/native/renderer/lower.go\", \"internal/promshim/native/renderer/lower_test.go\", \"internal/promshim/service.go\"], \"verifyCommand\": \"go test ./internal/promshim/native/renderer/ -run TestLower && scripts/run-compliance.sh && scripts/run-bench.sh --matrix\", \"acceptanceCriteria\": [\"Lower dispatches via type switch\", \"Per-kind lowering functions are pure given ctx\", \"Hierarchical split: Lower or Fragment for whole query, never mixed\", \"Byte-identical SQL for the three supported kinds\", \"Unsupported-kind test asserts sentinel + fallback\", \"Compliance 538/539; bench ±3%\"]}\n```"
+    },
+    {
+      "id": 5,
+      "subject": "Task 5: Pass infrastructure + constant-fold-unary pass + httpapi wiring",
+      "status": "pending",
+      "blockedBy": [4],
+      "description": "**Goal:** Create `internal/promshim/logical/opt/` with `Pass` interface, `Optimize` fixpoint runner (cap 8, re-Analyze between passes, pure), and one concrete pass (constant-fold-unary-negation). Wire Optimize between ToLogical and render.\n\n**Files:**\n- Create: `internal/promshim/logical/opt/pass.go`, `logical/opt/pass_test.go`, `logical/opt/constant_fold_unary.go`, `logical/opt/constant_fold_unary_test.go`\n- Modify: `internal/promshim/httpapi/router.go` or `service.go`\n\n**Verify:** `go test ./internal/promshim/logical/opt/... -v && scripts/run-compliance.sh`\n\n```json:metadata\n{\"files\": [\"internal/promshim/logical/opt/pass.go\", \"internal/promshim/logical/opt/constant_fold_unary.go\", \"internal/promshim/service.go\"], \"verifyCommand\": \"go test ./internal/promshim/logical/opt/... -v && scripts/run-compliance.sh && scripts/run-bench.sh --matrix\", \"acceptanceCriteria\": [\"Pass interface: Name(), Apply(root, analysis) → (newRoot, changed, err)\", \"Optimize re-analyzes after each rewriting pass; caps at 8 iterations\", \"DefaultPasses is an exported ordered slice\", \"Passes are pure (no in-place mutation)\", \"Constant-fold-unary pass demonstrably fires on a corpus query\", \"Compliance 538/539; bench unchanged materially\"]}\n```"
+    },
+    {
+      "id": 6,
+      "subject": "Task 6: Port remaining renderer surfaces; retire NativeFragment",
+      "status": "pending",
+      "blockedBy": [5],
+      "description": "**Goal:** Port every remaining PromQL surface from RenderFragment to Lower dispatch, one surface per commit. Each commit: replace lowering body with direct emit/ + storage/ calls, migrate substring tests → golden-SQL, delete the Fragment-producing analysis branch. When every surface is ported, delete NativeFragment, BuildFragment, native.Analyze, and all Fragment types.\n\n**Surface order (one commit per):** SyntheticSeries, ScalarConvert, Subquery, SortTransform, LabelTransform, ClampTransform, RangeFunction, Aggregation, HistogramProjection, HistogramFunction, Absent, InfoJoin, BinaryVectorJoin, ValueTransform. Final commit deletes NativeFragment.\n\n**Files (final commit):**\n- Delete: `internal/promshim/native/builder.go`, `native/analysis*.go`, `native/types.go` Fragment types\n- Keep/move: `native/sqlb/`, `native/renderer/*` (reorganized by node kind)\n\n**Verify:** `go test ./internal/promshim/... && scripts/run-compliance.sh && scripts/run-bench.sh --matrix --long-range all && ! grep -r 'NativeFragment\\|sqlb.RawLit' internal/promshim/native/renderer/ --include='*.go'`\n\n```json:metadata\n{\"files\": [\"internal/promshim/native/renderer/lower_*.go\", \"internal/promshim/native/renderer/testdata/\", \"internal/promshim/native/\"], \"verifyCommand\": \"go test ./internal/promshim/... && scripts/run-compliance.sh && scripts/run-bench.sh --matrix\", \"acceptanceCriteria\": [\"No NativeFragment references in non-test code\", \"No sqlb.RawLit in native/renderer/\", \"Every lowering dispatches on logical.Node + reads logical.Analysis\", \"Golden-SQL tests cover every PromQL shape\", \"Compliance 538/539\", \"Bench ±5% per-query, no systematic regression\", \"Long-range bench (7d/30d/1y) green\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-04-23T00:00:00Z"
+}

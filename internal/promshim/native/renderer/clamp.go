@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 )
@@ -20,68 +21,94 @@ func renderClampTransformFragment(cfg storage.QueryConfig, fragment *native.Nati
 		return renderedFragment{}, err
 	}
 	mergeRenderedQueryParams(queryParams, childParams)
-	minValueExpr := storage.NativeFloatLiteral(math.Inf(-1))
-	instantMinJoin := ""
-	rangeMinJoin := ""
-	if spec.Min != nil {
-		joinSQL, instantParams, valueExpr, err := renderInstantScalarBinding(cfg, spec.Min, params, "clamp_min")
-		if err != nil {
-			return renderedFragment{}, err
-		}
-		mergeRenderedQueryParams(queryParams, instantParams)
-		if joinSQL != "" {
-			instantMinJoin = " CROSS JOIN (" + joinSQL + ") AS clamp_min"
-		}
-		minValueExpr = valueExpr
-		rangeBindingSQL, bindingParams, rangeValueExpr, err := renderRangeScalarBinding(cfg, spec.Min, params, "clamp_min")
-		if err != nil {
-			return renderedFragment{}, err
-		}
-		mergeRenderedQueryParams(queryParams, bindingParams)
-		if rangeBindingSQL != "" {
-			rangeMinJoin = " LEFT JOIN (" + rangeBindingSQL + ") AS clamp_min ON clamp_min.timestamp = base.timestamp"
-		}
-		if rangeValueExpr != "" {
-			minValueExpr = rangeValueExpr
-		}
+	minBinding, err := renderClampBoundBindingFragment(cfg, spec.Min, params, "clamp_min", math.Inf(-1))
+	if err != nil {
+		return renderedFragment{}, err
 	}
-	maxValueExpr := storage.NativeFloatLiteral(math.Inf(1))
-	instantMaxJoin := ""
-	rangeMaxJoin := ""
-	if spec.Max != nil {
-		joinSQL, instantParams, valueExpr, err := renderInstantScalarBinding(cfg, spec.Max, params, "clamp_max")
-		if err != nil {
-			return renderedFragment{}, err
-		}
-		mergeRenderedQueryParams(queryParams, instantParams)
-		if joinSQL != "" {
-			instantMaxJoin = " CROSS JOIN (" + joinSQL + ") AS clamp_max"
-		}
-		maxValueExpr = valueExpr
-		rangeBindingSQL, bindingParams, rangeValueExpr, err := renderRangeScalarBinding(cfg, spec.Max, params, "clamp_max")
-		if err != nil {
-			return renderedFragment{}, err
-		}
-		mergeRenderedQueryParams(queryParams, bindingParams)
-		if rangeBindingSQL != "" {
-			rangeMaxJoin = " LEFT JOIN (" + rangeBindingSQL + ") AS clamp_max ON clamp_max.timestamp = base.timestamp"
-		}
-		if rangeValueExpr != "" {
-			maxValueExpr = rangeValueExpr
-		}
+	mergeClampBoundBindingParams(queryParams, minBinding)
+	maxBinding, err := renderClampBoundBindingFragment(cfg, spec.Max, params, "clamp_max", math.Inf(1))
+	if err != nil {
+		return renderedFragment{}, err
 	}
+	mergeClampBoundBindingParams(queryParams, maxBinding)
+	return assembleClampSQL(spec.Func, childSQL, queryParams, minBinding, maxBinding, params)
+}
+
+// clampBoundBinding collects the per-bound (min or max) SQL pieces and the
+// namespaced parameters produced by rendering a scalar bound. The SQL pieces
+// are consumed by assembleClampSQL; the params are accumulated into the shared
+// queryParams map via mergeClampBoundBindingParams so the Fragment and direct
+// paths produce identical parameter sets.
+type clampBoundBinding struct {
+	ValueExpr       string
+	InstantJoin     string
+	InstantJoinSQL  string
+	RangeJoin       string
+	RangeBindingSQL string
+	InstantParams   map[string]string
+	BindingParams   map[string]string
+}
+
+// renderClampBoundBindingFragment renders a Fragment-path scalar bound. When
+// spec is nil the helper returns the neutral binding (±Inf) with no joins. The
+// defaultValue argument is the literal to use for the absent side of a
+// clamp_min / clamp_max call where only one bound is present.
+func renderClampBoundBindingFragment(cfg storage.QueryConfig, spec *native.NativeFragment, params RenderParams, prefix string, defaultValue float64) (clampBoundBinding, error) {
+	binding := clampBoundBinding{ValueExpr: storage.NativeFloatLiteral(defaultValue)}
+	if spec == nil {
+		return binding, nil
+	}
+	joinSQL, instantParams, valueExpr, err := renderInstantScalarBinding(cfg, spec, params, prefix)
+	if err != nil {
+		return clampBoundBinding{}, err
+	}
+	binding.InstantParams = instantParams
+	if joinSQL != "" {
+		binding.InstantJoin = " CROSS JOIN (" + joinSQL + ") AS " + prefix
+		binding.InstantJoinSQL = joinSQL
+	}
+	binding.ValueExpr = valueExpr
+	rangeBindingSQL, bindingParams, rangeValueExpr, err := renderRangeScalarBinding(cfg, spec, params, prefix)
+	if err != nil {
+		return clampBoundBinding{}, err
+	}
+	binding.BindingParams = bindingParams
+	if rangeBindingSQL != "" {
+		binding.RangeJoin = " LEFT JOIN (" + rangeBindingSQL + ") AS " + prefix + " ON " + prefix + ".timestamp = base.timestamp"
+		binding.RangeBindingSQL = rangeBindingSQL
+	}
+	if rangeValueExpr != "" {
+		binding.ValueExpr = rangeValueExpr
+	}
+	return binding, nil
+}
+
+// mergeClampBoundBindingParams merges a bound's namespaced params into the
+// shared queryParams map in the same order as the pre-extraction code: instant
+// params first, then range binding params.
+func mergeClampBoundBindingParams(queryParams map[string]string, binding clampBoundBinding) {
+	mergeRenderedQueryParams(queryParams, binding.InstantParams)
+	mergeRenderedQueryParams(queryParams, binding.BindingParams)
+}
+
+// assembleClampSQL builds the final clamp wrapper SQL. Shared between the
+// Fragment path (renderClampTransformFragment) and the direct-render path
+// (lowerClampDirect) so both emit byte-identical SQL. childSQL must already be
+// namespaced under the "clamp_child" alias and queryParams must already contain
+// the child's and both bounds' rendered params.
+func assembleClampSQL(funcName, childSQL string, queryParams map[string]string, minBinding, maxBinding clampBoundBinding, params RenderParams) (renderedFragment, error) {
 	tagsExpr := "arrayFilter(tag -> tag.1 != '__name__', base.tags)"
 	instantTagsExpr := strings.ReplaceAll(tagsExpr, "base.", "clamp_child.")
-	valueExpr := clampValueExpr(spec.Func, "clamp_child.value", minValueExpr, maxValueExpr)
-	rangeValueExpr := clampValueExpr(spec.Func, "base.value", minValueExpr, maxValueExpr)
-	whereClause := clampInvalidBoundsWhere(spec.Func, minValueExpr, maxValueExpr)
+	valueExpr := clampValueExpr(funcName, "clamp_child.value", minBinding.ValueExpr, maxBinding.ValueExpr)
+	rangeValueExpr := clampValueExpr(funcName, "base.value", minBinding.ValueExpr, maxBinding.ValueExpr)
+	whereClause := clampInvalidBoundsWhere(funcName, minBinding.ValueExpr, maxBinding.ValueExpr)
 	switch params.Mode {
 	case native.RenderModeInstant:
-		sql := "SELECT " + instantTagsExpr + " AS tags, clamp_child.timestamp AS timestamp, " + valueExpr + " AS value FROM (" + childSQL + ") AS clamp_child" + instantMinJoin + instantMaxJoin + whereClause
+		sql := "SELECT " + instantTagsExpr + " AS tags, clamp_child.timestamp AS timestamp, " + valueExpr + " AS value FROM (" + childSQL + ") AS clamp_child" + minBinding.InstantJoin + maxBinding.InstantJoin + whereClause
 		return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 	case native.RenderModeRange:
 		baseSQL := "SELECT clamp_child.tags AS tags, point.1 AS timestamp, point.2 AS value FROM (" + childSQL + ") AS clamp_child ARRAY JOIN clamp_child.time_series AS point"
-		rowSQL := "SELECT " + tagsExpr + " AS tags, base.timestamp AS timestamp, " + rangeValueExpr + " AS value FROM (" + baseSQL + ") AS base" + rangeMinJoin + rangeMaxJoin + whereClause
+		rowSQL := "SELECT " + tagsExpr + " AS tags, base.timestamp AS timestamp, " + rangeValueExpr + " AS value FROM (" + baseSQL + ") AS base" + minBinding.RangeJoin + maxBinding.RangeJoin + whereClause
 		finalSQL := "SELECT tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series FROM (" + rowSQL + ") AS clamp_rows GROUP BY tags"
 		return renderedFragment{RawSQL: trimRenderedQuerySQL(finalSQL), ExtraParams: queryParams}, nil
 	default:
@@ -116,6 +143,85 @@ func renderRangeScalarBinding(cfg storage.QueryConfig, fragment *native.NativeFr
 	}
 	bindingSQL := "SELECT point.1 AS timestamp, if(count() = 1, any(point.2), nan) AS value FROM (" + sql + ") AS " + prefix + " ARRAY JOIN " + prefix + ".time_series AS point GROUP BY point.1"
 	return bindingSQL, queryParams, prefix + ".value", nil
+}
+
+// renderInstantScalarBindingFromLogical is the logical-node counterpart of
+// renderInstantScalarBinding. It short-circuits scalar literals to an inline
+// float literal (matching the Fragment fast path) and falls through to Lower
+// for any other shape, bubbling errUnsupportedLowerNode from there so the
+// whole query falls back hierarchically.
+func renderInstantScalarBindingFromLogical(ctx LoweringCtx, node logicalpkg.Node, prefix string) (string, map[string]string, string, error) {
+	if node == nil {
+		return "", nil, "", nil
+	}
+	if literal, ok := node.(*logicalpkg.ScalarLiteralPlan); ok {
+		return "", nil, storage.NativeFloatLiteral(literal.Value), nil
+	}
+	rq, err := Lower(ctx, node)
+	if err != nil {
+		return "", nil, "", err
+	}
+	sql, queryParams, err := namespaceRenderedQuery(trimRenderedQuerySQL(rq.SQL), rq.QueryParams, prefix)
+	if err != nil {
+		return "", nil, "", err
+	}
+	return "SELECT if(count() = 1, any(value), nan) AS value FROM (" + sql + ") AS " + prefix, queryParams, prefix + ".value", nil
+}
+
+// renderRangeScalarBindingFromLogical is the logical-node counterpart of
+// renderRangeScalarBinding. Literals short-circuit to inline floats; other
+// shapes lower via Lower so SQL stays byte-identical to the Fragment path.
+func renderRangeScalarBindingFromLogical(ctx LoweringCtx, node logicalpkg.Node, prefix string) (string, map[string]string, string, error) {
+	if node == nil {
+		return "", nil, "", nil
+	}
+	if literal, ok := node.(*logicalpkg.ScalarLiteralPlan); ok {
+		return "", nil, storage.NativeFloatLiteral(literal.Value), nil
+	}
+	rq, err := Lower(ctx, node)
+	if err != nil {
+		return "", nil, "", err
+	}
+	sql, queryParams, err := namespaceRenderedQuery(trimRenderedQuerySQL(rq.SQL), rq.QueryParams, prefix)
+	if err != nil {
+		return "", nil, "", err
+	}
+	bindingSQL := "SELECT point.1 AS timestamp, if(count() = 1, any(point.2), nan) AS value FROM (" + sql + ") AS " + prefix + " ARRAY JOIN " + prefix + ".time_series AS point GROUP BY point.1"
+	return bindingSQL, queryParams, prefix + ".value", nil
+}
+
+// renderClampBoundBindingLogical mirrors renderClampBoundBindingFragment but
+// drives off a logical.Node scalar bound. Nil node yields the neutral binding
+// (±Inf). Non-literal nodes lower through Lower; errUnsupportedLowerNode
+// bubbles up so the whole-query fallback takes over.
+func renderClampBoundBindingLogical(ctx LoweringCtx, node logicalpkg.Node, prefix string, defaultValue float64) (clampBoundBinding, error) {
+	binding := clampBoundBinding{ValueExpr: storage.NativeFloatLiteral(defaultValue)}
+	if node == nil {
+		return binding, nil
+	}
+	joinSQL, instantParams, valueExpr, err := renderInstantScalarBindingFromLogical(ctx, node, prefix)
+	if err != nil {
+		return clampBoundBinding{}, err
+	}
+	binding.InstantParams = instantParams
+	if joinSQL != "" {
+		binding.InstantJoin = " CROSS JOIN (" + joinSQL + ") AS " + prefix
+		binding.InstantJoinSQL = joinSQL
+	}
+	binding.ValueExpr = valueExpr
+	rangeBindingSQL, bindingParams, rangeValueExpr, err := renderRangeScalarBindingFromLogical(ctx, node, prefix)
+	if err != nil {
+		return clampBoundBinding{}, err
+	}
+	binding.BindingParams = bindingParams
+	if rangeBindingSQL != "" {
+		binding.RangeJoin = " LEFT JOIN (" + rangeBindingSQL + ") AS " + prefix + " ON " + prefix + ".timestamp = base.timestamp"
+		binding.RangeBindingSQL = rangeBindingSQL
+	}
+	if rangeValueExpr != "" {
+		binding.ValueExpr = rangeValueExpr
+	}
+	return binding, nil
 }
 
 func clampValueExpr(name, valueExpr, minValueExpr, maxValueExpr string) string {

@@ -215,15 +215,28 @@ func renderValueTransformFragment(cfg storage.QueryConfig, fragment *native.Nati
 		return renderedFragment{}, fmt.Errorf("value transform fragment is missing child metadata")
 	}
 	spec := fragment.ValueTransform
-	if strings.TrimSpace(spec.ValueExpr) == "" {
-		return renderedFragment{}, fmt.Errorf("value transform fragment requires a value expression")
-	}
 	childRendered, err := RenderFragment(cfg, spec.Child, params)
 	if err != nil {
 		return renderedFragment{}, err
 	}
+	return renderValueTransformFromSource(trimRenderedQuerySQL(childRendered.SQL), childRendered.QueryParams, spec.ValueExpr, spec.FilterExpr, spec.DropsMetric, params)
+}
+
+// renderValueTransformFromSource wraps a pre-rendered child source in the
+// value-transform outer SELECT (instant or range mode). Shared by the
+// Fragment path (renderValueTransformFragment) and the direct path
+// (lowerRound, and future lowerUnary / lowerClamp / scalar-BinaryPlan
+// conversions) so SQL stays byte-identical.
+//
+// childSQL is the trimmed child SQL body embedded verbatim as the FROM source;
+// childParams are the child's QueryParams passed through to ExtraParams without
+// namespacing (matching current Fragment-path behavior).
+func renderValueTransformFromSource(childSQL string, childParams map[string]string, valueExpr, filterExpr string, dropsMetric bool, params RenderParams) (renderedFragment, error) {
+	if strings.TrimSpace(valueExpr) == "" {
+		return renderedFragment{}, fmt.Errorf("value transform requires a value expression")
+	}
 	tagsTemplate := "{tags}"
-	if spec.DropsMetric {
+	if dropsMetric {
 		tagsTemplate = "arrayFilter(tag -> tag.1 != '__name__', {tags})"
 	}
 	switch params.Mode {
@@ -232,36 +245,36 @@ func renderValueTransformFragment(cfg storage.QueryConfig, fragment *native.Nati
 		if err != nil {
 			return renderedFragment{}, err
 		}
-		valueExpr, err := storage.CompileSourceValueTemplate(spec.ValueExpr, sqlb.Ident("value"), sqlb.Ident("timestamp"))
+		valueCompiled, err := storage.CompileSourceValueTemplate(valueExpr, sqlb.Ident("value"), sqlb.Ident("timestamp"))
 		if err != nil {
 			return renderedFragment{}, err
 		}
 		query := &sqlb.Select{
-			Columns: []sqlb.ColExpr{{Expr: tagsExpr, Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: valueExpr, Alias: "value"}},
-			From:    rawRenderedSubquerySource(trimRenderedQuerySQL(childRendered.SQL)),
+			Columns: []sqlb.ColExpr{{Expr: tagsExpr, Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: valueCompiled, Alias: "value"}},
+			From:    rawRenderedSubquerySource(childSQL),
 		}
-		if strings.TrimSpace(spec.FilterExpr) != "" {
-			filterExpr, err := storage.CompileSourceValueTemplate(spec.FilterExpr, sqlb.Ident("value"), sqlb.Ident("timestamp"))
+		if strings.TrimSpace(filterExpr) != "" {
+			filterCompiled, err := storage.CompileSourceValueTemplate(filterExpr, sqlb.Ident("value"), sqlb.Ident("timestamp"))
 			if err != nil {
 				return renderedFragment{}, err
 			}
-			query.Where = filterExpr
+			query.Where = filterCompiled
 		}
 		sql, err := buildNativeWrapperSQL(query)
 		if err != nil {
 			return renderedFragment{}, err
 		}
-		return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childRendered.QueryParams}, nil
+		return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childParams}, nil
 	case native.RenderModeRange:
 		tagsExpr, err := storage.CompileSourceTagsTemplate(tagsTemplate, sqlb.Ident("tags"))
 		if err != nil {
 			return renderedFragment{}, err
 		}
-		valueExpr, err := storage.CompileSourceValueTemplate(spec.ValueExpr, sqlb.RawLit{V: "point.2"}, sqlb.RawLit{V: "point.1"})
+		valueCompiled, err := storage.CompileSourceValueTemplate(valueExpr, sqlb.RawLit{V: "point.2"}, sqlb.RawLit{V: "point.1"})
 		if err != nil {
 			return renderedFragment{}, err
 		}
-		valueSQL, valueParams, err := sqlb.BuildExpr(valueExpr)
+		valueSQL, valueParams, err := sqlb.BuildExpr(valueCompiled)
 		if err != nil {
 			return renderedFragment{}, err
 		}
@@ -269,12 +282,12 @@ func renderValueTransformFragment(cfg storage.QueryConfig, fragment *native.Nati
 			return renderedFragment{}, fmt.Errorf("value transform range value template unexpectedly produced params: %#v", valueParams)
 		}
 		seriesExpr := "time_series"
-		if strings.TrimSpace(spec.FilterExpr) != "" {
-			filterExpr, err := storage.CompileSourceValueTemplate(spec.FilterExpr, sqlb.RawLit{V: "point.2"}, sqlb.RawLit{V: "point.1"})
+		if strings.TrimSpace(filterExpr) != "" {
+			filterCompiled, err := storage.CompileSourceValueTemplate(filterExpr, sqlb.RawLit{V: "point.2"}, sqlb.RawLit{V: "point.1"})
 			if err != nil {
 				return renderedFragment{}, err
 			}
-			filterSQL, filterParams, err := sqlb.BuildExpr(filterExpr)
+			filterSQL, filterParams, err := sqlb.BuildExpr(filterCompiled)
 			if err != nil {
 				return renderedFragment{}, err
 			}
@@ -288,16 +301,16 @@ func renderValueTransformFragment(cfg storage.QueryConfig, fragment *native.Nati
 				{Expr: tagsExpr, Alias: "tags"},
 				{Expr: sqlb.RawLit{V: "arrayMap(point -> (point.1, " + valueSQL + "), " + seriesExpr + ")"}, Alias: "time_series"},
 			},
-			From: rawRenderedSubquerySource(trimRenderedQuerySQL(childRendered.SQL)),
+			From: rawRenderedSubquerySource(childSQL),
 		}
-		if strings.TrimSpace(spec.FilterExpr) != "" {
+		if strings.TrimSpace(filterExpr) != "" {
 			query.Where = sqlb.RawLit{V: "length(" + seriesExpr + ") > 0"}
 		}
 		sql, err := buildNativeWrapperSQL(query)
 		if err != nil {
 			return renderedFragment{}, err
 		}
-		return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childRendered.QueryParams}, nil
+		return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childParams}, nil
 	default:
 		return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
 	}

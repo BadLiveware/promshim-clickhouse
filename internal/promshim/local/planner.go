@@ -171,7 +171,7 @@ func BuildPlanWithContextAndAnalysis(expr parser.Expr, ctx PlanContext) (Plan, *
 		return nil, nil, err
 	}
 	analysis := nativeplan.Analyze(logical)
-	_ = logicalpkg.Analyze(logical) // Task 3 warm-up: exercise the new enrichment walk.
+	logicalAnalysis := logicalpkg.Analyze(logical)
 	plan, err := buildExecPlanWithAnalysis(logical, ctx, analysis)
 	if err != nil {
 		return nil, nil, err
@@ -180,7 +180,23 @@ func BuildPlanWithContextAndAnalysis(expr parser.Expr, ctx PlanContext) (Plan, *
 	if err != nil {
 		return nil, nil, WithInternalContext(err, "applying range execution strategy for %q", expr.String())
 	}
+	// Tier-2 whole-query router wiring: if the root plan is a
+	// nativeSubtreePlan, thread the logical root + analysis in so
+	// execute() can attempt renderer.Lower before falling back to
+	// renderer.RenderFragment. Subtree-pushdown sites (tier 3a) leave
+	// these nil and stay on the Fragment path.
+	attachLogicalRootForLower(plan, logical, logicalAnalysis)
 	return plan, analysis, nil
+}
+
+// attachLogicalRootForLower populates the LogicalRoot/LogicalAnalysis
+// fields on a top-level nativeSubtreePlan so execute() can route
+// through renderer.Lower. No-op if plan isn't a nativeSubtreePlan.
+func attachLogicalRootForLower(plan Plan, logical logicalPlan, logicalAnalysis *logicalpkg.Analysis) {
+	if native, ok := plan.(*nativeSubtreePlan); ok {
+		native.LogicalRoot = logical
+		native.LogicalAnalysis = logicalAnalysis
+	}
 }
 
 func buildExecPlan(plan logicalPlan) (Plan, error) {

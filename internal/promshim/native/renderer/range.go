@@ -78,6 +78,22 @@ func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *native.Nativ
 	}
 	switch params.Mode {
 	case native.RenderModeInstant:
+		if selectorFragment := fragment.RangeFunction.Child; selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector && sourceWrapperIsIdentity(selectorFragment) && canUseInstantRangeFunctionRowsFastPath(fragment.RangeFunction.Func) {
+			source, err := renderAggregationSource(selectorFragment, params)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			rowsSQL, rowParams, err := storage.BuildRangeMatrixSelectorRowsQuerySQL(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			tagsExpr := rangeFunctionTagsExprFromInput(fragment.RangeFunction.Func, selectorOutputHasMetricName(selectorFragment.Selector))
+			sql, err := buildInstantRangeFunctionOverRowsSQL(trimRenderedQuerySQL(rowsSQL), fragment.RangeFunction.Func, tagsExpr, params.EvaluationTimeMS)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: rowParams}, nil
+		}
 		if subqueryFragment := fragment.RangeFunction.Child; subqueryFragment != nil && subqueryFragment.Kind == native.FragmentKindSubquery && subqueryFragment.Subquery != nil && subqueryFragment.Subquery.Child != nil && canUseInstantRangeFunctionRowsFastPath(fragment.RangeFunction.Func) {
 			if childRowsSQL, childParams, ok, err := tryRenderSubqueryRowsSource(cfg, subqueryFragment.Subquery, params); err != nil {
 				return renderedFragment{}, err
@@ -104,6 +120,23 @@ func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *native.Nativ
 		return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childRendered.QueryParams}, nil
 	case native.RenderModeRange:
 		selectorFragment := fragment.RangeFunction.Child
+		if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector && sourceWrapperIsIdentity(selectorFragment) && canUseRangeFunctionRowsFastPath(fragment.RangeFunction.Func) {
+			childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment, params.StartMS, params.EndMS)
+			source, err := renderAggregationSource(selectorFragment, params)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			rowsSQL, rowParams, err := storage.BuildRangeMatrixSelectorRowsQuerySQL(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			tagsExpr := rangeFunctionTagsExprFromInput(fragment.RangeFunction.Func, selectorOutputHasMetricName(selectorFragment.Selector))
+			sql, err := buildRangeFunctionOverRowsSQL(trimRenderedQuerySQL(rowsSQL), fragment.RangeFunction.Func, tagsExpr, params.StartMS, params.EndMS, params.StepMS, selectorFragment.Selector.Lookback.Milliseconds(), selectorFragment.Selector.Offset.Milliseconds())
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: rowParams}, nil
+		}
 		if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector && sourceWrapperIsIdentity(selectorFragment) && preferDirectSelectorWindowJoin(selectorFragment.Selector.Lookback.Milliseconds(), params.StepMS) {
 			childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment, params.StartMS, params.EndMS)
 			source, err := renderAggregationSource(selectorFragment, params)
@@ -335,12 +368,17 @@ func buildRangeFunctionOverWindowedSourceSQL(windowedSourceSQL, fn, finalTagsExp
 }
 
 func canUseInstantRangeFunctionRowsFastPath(fn string) bool {
-	return canUseRangeFunctionRowsFastPath(fn)
+	switch fn {
+	case "sum_over_time", "avg_over_time", "max_over_time":
+		return true
+	default:
+		return false
+	}
 }
 
 func canUseRangeFunctionRowsFastPath(fn string) bool {
 	switch fn {
-	case "max_over_time":
+	case "sum_over_time", "max_over_time":
 		return true
 	default:
 		return false
@@ -352,12 +390,15 @@ func buildInstantRangeFunctionOverRowsSQL(sourceRowsSQL, fn, finalTagsExpr strin
 	if err != nil {
 		return "", fmt.Errorf("instant row fast path for %s is not implemented yet", fn)
 	}
-	finalTags := sqlb.RawLit{V: finalTagsExpr}
-	outer := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: finalTags, Alias: "tags"}, {Expr: sqlb.RawLit{V: "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"}, Alias: "timestamp"}, {Expr: valueExpr, Alias: "value"}},
+	prepared := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: finalTagsExpr}, Alias: "final_tags"}, {Expr: sqlb.Ident("value"), Alias: "value"}},
 		From:    rawRenderedSubquerySource(trimRenderedQuerySQL(sourceRowsSQL)),
-		GroupBy: []sqlb.Expr{finalTags},
-		OrderBy: []sqlb.OrderExpr{{Expr: finalTags}},
+	}
+	outer := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: sqlb.RawLit{V: "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"}, Alias: "timestamp"}, {Expr: valueExpr, Alias: "value"}},
+		From:    sqlb.SubSelect{S: prepared},
+		GroupBy: []sqlb.Expr{sqlb.Ident("final_tags")},
+		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("final_tags")}},
 	}
 	return buildNativeWrapperSQL(outer)
 }
@@ -389,6 +430,10 @@ func buildRangeFunctionOverRowsSQL(sourceRowsSQL, fn, finalTagsExpr string, star
 
 func rangeFunctionRowsFastPathValueExpr(fn, valueIdent string) (sqlb.Expr, error) {
 	switch fn {
+	case "sum_over_time":
+		return sqlb.RawLit{V: "if(countIf(isNaN(" + valueIdent + ")) > 0, nan, sumIf(" + valueIdent + ", NOT isNaN(" + valueIdent + ")))"}, nil
+	case "avg_over_time":
+		return sqlb.RawLit{V: "if(countIf(isNaN(" + valueIdent + ")) > 0 OR countIf(NOT isNaN(" + valueIdent + ")) = 0, nan, avgIf(" + valueIdent + ", NOT isNaN(" + valueIdent + ")))"}, nil
 	case "max_over_time":
 		return sqlb.RawLit{V: "if(countIf(isNaN(" + valueIdent + ")) > 0 OR countIf(NOT isNaN(" + valueIdent + ")) = 0, nan, maxIf(" + valueIdent + ", NOT isNaN(" + valueIdent + ")))"}, nil
 	default:

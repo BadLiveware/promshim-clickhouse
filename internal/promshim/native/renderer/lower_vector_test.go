@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
 )
 
@@ -136,18 +137,17 @@ func TestLowerVectorNilErrors(t *testing.T) {
 	}
 }
 
-// TestLowerVectorNilNativeAnalysisReturnsUnsupported verifies that a nil
-// NativeAnalysis returns errUnsupportedLowerNode so the caller falls back to
-// the Fragment path rather than panicking or returning a hard error.
-func TestLowerVectorNilNativeAnalysisReturnsUnsupported(t *testing.T) {
-	root, analysis, _ := buildLowerInputs(t, `vector(1)`)
-	_, err := Lower(LoweringCtx{
-		Config:         testRenderConfig(),
-		Analysis:       analysis,
-		NativeAnalysis: nil,
-		Params:         testRenderParamsInstant(),
-	}, root)
-	if !errors.Is(err, errUnsupportedLowerNode) {
-		t.Errorf("expected errUnsupportedLowerNode when NativeAnalysis is nil, got %v", err)
+// TestLowerVectorNilChildErrors ensures a VectorPlan with a nil Child
+// returns an explicit non-sentinel error rather than recursing into
+// Lower with nil. The sentinel path is reserved for child kinds that
+// aren't yet direct-lowered; a structurally invalid plan is a hard
+// failure.
+func TestLowerVectorNilChildErrors(t *testing.T) {
+	_, err := lowerVector(LoweringCtx{}, &logicalpkg.VectorPlan{Child: nil})
+	if err == nil {
+		t.Fatalf("expected error for VectorPlan with nil Child")
+	}
+	if errors.Is(err, errUnsupportedLowerNode) {
+		t.Fatalf("expected non-sentinel error for nil child, got sentinel")
 	}
 }

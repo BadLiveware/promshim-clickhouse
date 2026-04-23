@@ -6,39 +6,33 @@ import (
 	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 )
 
-// lowerVector lowers a VectorPlan to a RenderedQuery via the existing
-// Fragment renderer internals.
+// lowerVector delegates to Lower on the scalar child because vector()
+// only flips OutputKind (a decode-time flag, not a SQL-text
+// difference). VectorPlan promotes a scalar-producing child into an
+// instant-vector output with a single series and no tags; the emitted
+// SQL is byte-identical to whatever the child renders to. Locking that
+// equivalence through recursion avoids constructing an intermediate
+// NativeFragment and keeps the lowerer trivial.
 //
-// Surface 14 uses the "Approach A" dispatch port: rather than rewriting
-// the renderer body, the lowerer reads the pre-computed Fragment from
-// ctx.NativeAnalysis.InfoFor(n).Fragment, then delegates to renderFragment
-// so SQL stays byte-identical to the Fragment path.
+// Hierarchical fallback: if the child isn't a direct-render surface
+// yet, Lower returns errUnsupportedLowerNode and the caller falls back
+// to the Fragment path for the whole query. Correctness is preserved
+// because the sentinel bubbles up unchanged.
 //
-// VectorPlan clones the child's Fragment kind, so the resulting Fragment
-// may be FragmentKindSyntheticSeries (when child is a scalar literal or
-// synthetic scalar function like time()) or FragmentKindScalarConvert
-// (when child is scalar(…)). We do NOT hard-code a Kind check; we
-// accept whatever Fragment native.Analyze computed. If no Fragment is
-// present (node not natively lowerable, e.g. child is not a scalar),
-// errUnsupportedLowerNode is returned so the caller falls back to the
-// Fragment rendering path for the whole query.
+// Children currently direct-lowered through this recursion:
+//
+//   - *logicalpkg.ScalarLiteralPlan  (e.g. vector(1))
+//   - *logicalpkg.ScalarBuiltinPlan  (e.g. vector(time()), vector(pi()))
+//   - *logicalpkg.ScalarConvertPlan  (e.g. vector(scalar(sum(up))))
+//
+// Any other scalar child kind (e.g. scalar BinaryPlan) returns the
+// sentinel from Lower and lands on the Fragment path.
 func lowerVector(ctx LoweringCtx, n *logicalpkg.VectorPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerVector called with nil")
 	}
-	if ctx.Analysis == nil || ctx.Analysis.InfoFor(n) == nil {
-		return RenderedQuery{}, fmt.Errorf("renderer: vector missing logical analysis")
+	if n.Child == nil {
+		return RenderedQuery{}, fmt.Errorf("renderer: vector missing child")
 	}
-	if ctx.NativeAnalysis == nil {
-		return RenderedQuery{}, errUnsupportedLowerNode
-	}
-	nativeInfo := ctx.NativeAnalysis.InfoFor(n)
-	if nativeInfo == nil || nativeInfo.Fragment == nil {
-		return RenderedQuery{}, errUnsupportedLowerNode
-	}
-	rendered, err := renderFragment(ctx.Config, nativeInfo.Fragment, ctx.Params)
-	if err != nil {
-		return RenderedQuery{}, err
-	}
-	return finalizeRenderedFragment(rendered)
+	return Lower(ctx, n.Child)
 }

@@ -54,6 +54,8 @@ func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 		return lowerScalarConvert(ctx, n)
 	case *logicalpkg.SubqueryPlan:
 		return lowerSubquery(ctx, n)
+	case *logicalpkg.SortPlan:
+		return lowerSortTransform(ctx, n)
 	default:
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}

@@ -328,21 +328,7 @@ func renderAbsentFragment(cfg storage.QueryConfig, fragment *native.NativeFragme
 		if err != nil {
 			return renderedFragment{}, err
 		}
-		mergeRenderedQueryParams(queryParams, childParams)
-		switch params.Mode {
-		case native.RenderModeInstant:
-			queryParams["param_evaluation_ms"] = strconv.FormatInt(params.EvaluationTimeMS, 10)
-			sql := "SELECT " + tagsSQL + " AS tags, fromUnixTimestamp64Milli({evaluation_ms:Int64}) AS timestamp, toFloat64(1) AS value FROM (SELECT count() AS sample_count FROM (" + childSQL + ") AS absent_child) AS probe WHERE probe.sample_count = 0"
-			return renderedFragment{RawSQL: sql, ExtraParams: queryParams}, nil
-		case native.RenderModeRange:
-			queryParams["param_start_ms"] = strconv.FormatInt(params.StartMS, 10)
-			queryParams["param_end_ms"] = strconv.FormatInt(params.EndMS, 10)
-			queryParams["param_step_ms"] = strconv.FormatInt(params.StepMS, 10)
-			presenceSQL := "SELECT point.1 AS timestamp, count() AS sample_count FROM (" + childSQL + ") AS absent_child ARRAY JOIN absent_child.time_series AS point GROUP BY point.1"
-			return renderedFragment{RawSQL: trimRenderedQuerySQL(buildRangeAbsentSeriesSQL(tagsSQL, presenceSQL)), ExtraParams: queryParams}, nil
-		default:
-			return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
-		}
+		return renderAbsentFromNamespacedChild(tagsSQL, childSQL, childParams, params)
 	case "absent_over_time":
 		switch params.Mode {
 		case native.RenderModeInstant:
@@ -370,6 +356,29 @@ func renderAbsentFragment(cfg storage.QueryConfig, fragment *native.NativeFragme
 		}
 	default:
 		return renderedFragment{}, fmt.Errorf("absent fragment function %q is not implemented yet", fragment.Absent.Func)
+	}
+}
+
+// renderAbsentFromNamespacedChild builds the absent() body for both instant
+// and range modes given a child already namespaced under the "absent_child"
+// alias. Shared between the Fragment path and the direct-render AbsentPlan
+// lowerer so both produce byte-identical SQL.
+func renderAbsentFromNamespacedChild(tagsSQL, childSQL string, childParams map[string]string, params RenderParams) (renderedFragment, error) {
+	queryParams := map[string]string{}
+	mergeRenderedQueryParams(queryParams, childParams)
+	switch params.Mode {
+	case native.RenderModeInstant:
+		queryParams["param_evaluation_ms"] = strconv.FormatInt(params.EvaluationTimeMS, 10)
+		sql := "SELECT " + tagsSQL + " AS tags, fromUnixTimestamp64Milli({evaluation_ms:Int64}) AS timestamp, toFloat64(1) AS value FROM (SELECT count() AS sample_count FROM (" + childSQL + ") AS absent_child) AS probe WHERE probe.sample_count = 0"
+		return renderedFragment{RawSQL: sql, ExtraParams: queryParams}, nil
+	case native.RenderModeRange:
+		queryParams["param_start_ms"] = strconv.FormatInt(params.StartMS, 10)
+		queryParams["param_end_ms"] = strconv.FormatInt(params.EndMS, 10)
+		queryParams["param_step_ms"] = strconv.FormatInt(params.StepMS, 10)
+		presenceSQL := "SELECT point.1 AS timestamp, count() AS sample_count FROM (" + childSQL + ") AS absent_child ARRAY JOIN absent_child.time_series AS point GROUP BY point.1"
+		return renderedFragment{RawSQL: trimRenderedQuerySQL(buildRangeAbsentSeriesSQL(tagsSQL, presenceSQL)), ExtraParams: queryParams}, nil
+	default:
+		return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
 	}
 }
 

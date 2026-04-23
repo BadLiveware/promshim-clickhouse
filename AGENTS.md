@@ -138,7 +138,7 @@ via `native_lowering_mode=...`:
 - `cmd/promshim-bench`, `cmd/promshim-matrix`,
   `cmd/promshim-promql-compliance`, `cmd/promharness-compare`,
   `cmd/promharness-seed` — Go drivers behind the above scripts.
-- `.claude/skills/running-compliance/SKILL.md` — compact runbook for
+- `.pi/skills/running-compliance/SKILL.md` — compact runbook for
   running the compliance suite, the "gaps stay visible" policy, the
   three-category allowlist rule, and native-gap triage. Read it before
   running compliance or editing `expected-failures.json`.

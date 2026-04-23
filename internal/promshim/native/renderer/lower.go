@@ -106,15 +106,20 @@ func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 // rendering path instead.
 func IsUnsupportedByLower(err error) bool { return errors.Is(err, errUnsupportedLowerNode) }
 
-// lowerLeaf handles a LeafExprPlan by reusing the existing
-// Fragment-rendering pipeline. Task 6 will replace the body with
-// direct emit/ calls; Phase 1 is scaffolding.
+// lowerLeaf handles a top-level LeafExprPlan by rendering SQL directly
+// from the logical plan, without constructing an intermediate NativeFragment.
+// renderLeafLogical replicates the non-folded LeafSource branch of
+// renderSourceFragment, reusing buildSelectorSource and the
+// storage.Build*QuerySQL helpers to lock byte-identity with the Fragment path.
 func lowerLeaf(ctx LoweringCtx, n *logicalpkg.LeafExprPlan) (RenderedQuery, error) {
-	fragment, err := native.BuildFragment(n, ctx.NativeAnalysis)
+	if n == nil {
+		return RenderedQuery{}, fmt.Errorf("renderer: lowerLeaf called with nil")
+	}
+	rf, err := renderLeafLogical(ctx.Config, n, ctx.Params)
 	if err != nil {
 		return RenderedQuery{}, err
 	}
-	return RenderFragment(ctx.Config, fragment, ctx.Params)
+	return finalizeRenderedFragment(rf)
 }
 
 // lowerBinary handles BinaryPlan in two branches:

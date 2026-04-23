@@ -4,6 +4,7 @@
 
 # Go
 /promshim
+/promshim-bench
 *.test
 coverage.out
 
@@ -19,6 +20,7 @@ otel/
 sql/
 
 scratch/**/*
+.tmp/
 
 # Harness artifacts
 harness/artifacts/*

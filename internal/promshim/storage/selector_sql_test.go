@@ -199,6 +199,25 @@ func TestBuildRangeWindowSelectorDirectAggregateQuerySQLUsesGroupedAvgAliases(t 
 	}
 }
 
+func TestBuildRangeWindowSelectorDirectAggregateRowsQuerySQLUsesGroupedRateAliases(t *testing.T) {
+	selector := selectorSourceFromMatchers("demo_cpu_usage_seconds_total", nil, time.Hour, 0, SelectorKindRangeVector)
+
+	sql, _, err := BuildRangeWindowSelectorDirectAggregateRowsQuerySQLWithFinalTags(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -3600000, 3600000, 0, 3600000, 14400000, "rate", "", 1)
+	if err != nil {
+		t.Fatalf("expected direct aggregate rows SQL for rate, got error: %v", err)
+	}
+	for _, expected := range []string{"count() AS sample_count", "countIf(isNaN(ifNull(toFloat64(d.value), nan))) AS nan_count", "max(d.timestamp) - min(d.timestamp) AS window_duration_ms", "deltaSumTimestamp(ifNull(toFloat64(d.value), nan), toUnixTimestamp64Milli(d.timestamp)) AS counter_delta_sum", "if(nan_count > 0 OR sample_count <= 1 OR window_duration_ms <= 0, nan, counter_delta_sum / window_duration_ms) AS value"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected %q in SQL, got %q", expected, sql)
+		}
+	}
+	for _, unwanted := range []string{"window_series", "window_values", "arrayPopBack(", "arrayPopFront("} {
+		if strings.Contains(sql, unwanted) {
+			t.Fatalf("expected direct aggregate rows SQL to avoid %q, got %q", unwanted, sql)
+		}
+	}
+}
+
 func TestBuildRangeSelectorQuerySQLUsesStepGridLookbackAndOffset(t *testing.T) {
 	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, time.Minute, SelectorKindInstantVector)
 

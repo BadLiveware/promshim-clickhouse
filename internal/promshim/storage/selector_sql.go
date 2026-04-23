@@ -133,6 +133,22 @@ func BuildRangeWindowSelectorDirectAggregateQuerySQLWithFinalTags(cfg QueryConfi
 	return sql + schema.QuerySuffix, params, nil
 }
 
+func BuildRangeWindowSelectorDirectAggregateRowsQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, finalTagsSQL string, minimumSeriesLength int) (string, map[string]string, error) {
+	perStep, params, _, err := buildRangeWindowSelectorDirectAggregatePerStepQuery(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, fn, finalTagsSQL, minimumSeriesLength)
+	if err != nil {
+		return "", nil, err
+	}
+	rows := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}},
+		From:    sqlb.SubSelect{S: perStep},
+	}
+	sql, _, err := rows.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql + schema.QuerySuffix, params, nil
+}
+
 func buildRangeWindowSelectorPerStepQuery(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, windowValueExpr, finalTagsSQL string, minimumSeriesLength int) (*sqlb.Select, map[string]string, []sqlb.OrderExpr, error) {
 	if selector.Kind != SelectorKindRangeVector {
 		return nil, nil, nil, fmt.Errorf("range-window selector SQL requires a range-vector selector, got %q", selector.Kind)
@@ -279,6 +295,12 @@ func directRangeWindowAggregateSpec(fn string) ([]sqlb.ColExpr, string, error) {
 			{Expr: sqlb.RawLit{V: "countIf(NOT isNaN(" + valueExpr + "))"}, Alias: "finite_count"},
 			{Expr: sqlb.RawLit{V: "avgIf(" + valueExpr + ", NOT isNaN(" + valueExpr + "))"}, Alias: "avg_value"},
 		}, "if(nan_count > 0 OR finite_count = 0, nan, avg_value)", nil
+	case "rate":
+		return []sqlb.ColExpr{
+			{Expr: sqlb.RawLit{V: "countIf(isNaN(" + valueExpr + "))"}, Alias: "nan_count"},
+			{Expr: sqlb.RawLit{V: "max(d.timestamp) - min(d.timestamp)"}, Alias: "window_duration_ms"},
+			{Expr: sqlb.RawLit{V: "deltaSumTimestamp(" + valueExpr + ", toUnixTimestamp64Milli(d.timestamp))"}, Alias: "counter_delta_sum"},
+		}, "if(nan_count > 0 OR sample_count <= 1 OR window_duration_ms <= 0, nan, counter_delta_sum / window_duration_ms)", nil
 	default:
 		return nil, "", fmt.Errorf("direct aggregate range-window selector SQL does not support %q", fn)
 	}

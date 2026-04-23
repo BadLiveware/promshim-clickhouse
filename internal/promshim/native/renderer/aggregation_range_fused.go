@@ -68,6 +68,15 @@ func renderRangeFunctionRowsSQL(cfg storage.QueryConfig, fragment *native.Native
 		return "", nil, fmt.Errorf("range function row rendering requires range metadata")
 	}
 	selectorFragment := fragment.RangeFunction.Child
+	if selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector && sourceWrapperIsIdentity(selectorFragment) && fragment.RangeFunction.Func == "rate" && preferDirectSelectorWindowJoin(selectorFragment.Selector.Lookback.Milliseconds(), params.StepMS) {
+		childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment, params.StartMS, params.EndMS)
+		source, err := renderAggregationSource(selectorFragment, params)
+		if err != nil {
+			return "", nil, err
+		}
+		tagsExpr := rangeFunctionTagsExprFromInput(fragment.RangeFunction.Func, selectorOutputHasMetricName(selectorFragment.Selector))
+		return storage.BuildRangeWindowSelectorDirectAggregateRowsQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, fragment.RangeFunction.Func, tagsExpr, minimumSeriesLengthForRangeFunction(fragment.RangeFunction.Func))
+	}
 	if selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector && sourceWrapperIsIdentity(selectorFragment) && preferDirectSelectorWindowJoin(selectorFragment.Selector.Lookback.Milliseconds(), params.StepMS) {
 		childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment, params.StartMS, params.EndMS)
 		source, err := renderAggregationSource(selectorFragment, params)

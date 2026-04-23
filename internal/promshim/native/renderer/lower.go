@@ -48,6 +48,8 @@ func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 		return lowerScalarLiteral(ctx, n)
 	case *logicalpkg.BinaryPlan:
 		return lowerBinary(ctx, n)
+	case *logicalpkg.PointwiseFunctionPlan:
+		return lowerPointwiseFunction(ctx, n)
 	default:
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}

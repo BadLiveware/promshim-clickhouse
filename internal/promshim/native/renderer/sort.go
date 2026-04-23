@@ -20,7 +20,15 @@ func renderSortTransformFragment(cfg storage.QueryConfig, fragment *native.Nativ
 	if err != nil {
 		return renderedFragment{}, err
 	}
-	orderBy := buildSortOrderBy(spec.Func, spec.Labels, "sort_child")
+	return renderSortTransformInstantFromSource(childSQL, childParams, spec.Func, spec.Labels)
+}
+
+// renderSortTransformInstantFromSource wraps a pre-rendered child instant-vector
+// SQL in the SORT outer SELECT. Shared by the Fragment path
+// (renderSortTransformFragment) and the direct path (lowerSortTransform) so SQL
+// stays byte-identical.
+func renderSortTransformInstantFromSource(childSQL string, childParams map[string]string, funcName string, labels []string) (renderedFragment, error) {
+	orderBy := buildSortOrderBy(funcName, labels, "sort_child")
 	sql := "SELECT tags, timestamp, value FROM (" + childSQL + ") AS sort_child ORDER BY " + orderBy
 	return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childParams}, nil
 }

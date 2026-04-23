@@ -72,18 +72,31 @@ func TestLowerScalarBinaryMatchesFragment(t *testing.T) {
 }
 
 
-func TestLowerVectorVectorBinaryFallsBack(t *testing.T) {
-	// Vector-vector binaries aren't in Phase 1 Lower scope — must return
-	// the sentinel so the caller falls back to Fragment rendering.
+func TestLowerVectorVectorBinaryMatchesFragment(t *testing.T) {
+	// Surface 13: vector-vector binaries are now handled by Lower via the
+	// BinaryVectorJoin path.  The result must be byte-identical to the
+	// Fragment path.
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `up and up`)
-	_, err := Lower(LoweringCtx{
+	lowerCtx := LoweringCtx{
 		Config:         testRenderConfig(),
 		Analysis:       analysis,
 		NativeAnalysis: nativeAnalysis,
 		Params:         testRenderParams(),
-	}, root)
-	if !IsUnsupportedByLower(err) {
-		t.Errorf("expected errUnsupportedLowerNode, got %v", err)
+	}
+	lowerRQ, err := Lower(lowerCtx, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	fragment, err := native.BuildFragment(root, nativeAnalysis)
+	if err != nil {
+		t.Fatalf("BuildFragment: %v", err)
+	}
+	fragmentRQ, err := RenderFragment(testRenderConfig(), fragment, testRenderParams())
+	if err != nil {
+		t.Fatalf("RenderFragment: %v", err)
+	}
+	if lowerRQ.SQL != fragmentRQ.SQL {
+		t.Errorf("SQL differs:\nLower:    %s\nFragment: %s", lowerRQ.SQL, fragmentRQ.SQL)
 	}
 }
 

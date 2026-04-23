@@ -101,7 +101,7 @@ func (h *Handler) handleReady(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(r.Context())
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), r.Header.Get("X-Promshim-Log-Comment")))
 	resp, apiErr := h.service.InstantQuery(ctx, InstantQueryRequest{
 		Query:              r.URL.Query().Get("query"),
 		Time:               r.URL.Query().Get("time"),
@@ -112,7 +112,7 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleQueryRange(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(r.Context())
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), r.Header.Get("X-Promshim-Log-Comment")))
 	resp, apiErr := h.service.RangeQuery(ctx, RangeQueryRequest{
 		Query:              r.URL.Query().Get("query"),
 		Start:              r.URL.Query().Get("start"),
@@ -125,7 +125,7 @@ func (h *Handler) handleQueryRange(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleQueryExplain(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(r.Context())
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), r.Header.Get("X-Promshim-Log-Comment")))
 	resp, apiErr := h.service.ExplainInstant(ctx, InstantQueryRequest{
 		Query:              r.URL.Query().Get("query"),
 		Time:               r.URL.Query().Get("time"),
@@ -136,7 +136,7 @@ func (h *Handler) handleQueryExplain(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleQueryRangeExplain(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(r.Context())
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), r.Header.Get("X-Promshim-Log-Comment")))
 	resp, apiErr := h.service.ExplainRange(ctx, RangeQueryRequest{
 		Query:              r.URL.Query().Get("query"),
 		Start:              r.URL.Query().Get("start"),
@@ -149,7 +149,7 @@ func (h *Handler) handleQueryRangeExplain(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) handleLabels(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(r.Context())
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), r.Header.Get("X-Promshim-Log-Comment")))
 	resp, apiErr := h.service.Labels(ctx, MetadataRequest{
 		Matchers: readMatchers(r),
 		Start:    r.URL.Query().Get("start"),
@@ -159,7 +159,7 @@ func (h *Handler) handleLabels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleLabelValues(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(r.Context())
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), r.Header.Get("X-Promshim-Log-Comment")))
 	resp, apiErr := h.service.LabelValues(ctx, LabelValuesRequest{
 		Name: r.PathValue("name"),
 		MetadataRequest: MetadataRequest{
@@ -172,7 +172,7 @@ func (h *Handler) handleLabelValues(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleSeries(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(r.Context())
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), r.Header.Get("X-Promshim-Log-Comment")))
 	resp, apiErr := h.service.Series(ctx, MetadataRequest{
 		Matchers: readMatchers(r),
 		Start:    r.URL.Query().Get("start"),

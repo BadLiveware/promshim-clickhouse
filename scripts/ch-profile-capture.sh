@@ -17,6 +17,10 @@
 set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=lib/run-lock.sh
+source "${REPO_ROOT}/scripts/lib/run-lock.sh"
+acquire_run_lock "ch-profile-capture"
+
 CH_URL="${CH_URL:-http://localhost:28123}"
 CH_USER="${CH_USER:-default}"
 CH_PASS="${CH_PASS:-otel}"
@@ -57,6 +61,7 @@ ch_query "SYSTEM FLUSH LOGS" >/dev/null
 # cost rather than latency noise.
 AGG_SQL=$(cat <<SQL
 SELECT
+  log_comment                                    AS log_comment,
   normalizeQuery(query)                          AS normalized_query,
   any(query)                                     AS example_query,
   count()                                        AS runs,
@@ -80,7 +85,7 @@ WHERE event_time_microseconds >= fromUnixTimestamp64Micro(${T0})
   AND query NOT ILIKE 'EXPLAIN%'
   AND query NOT ILIKE 'SYSTEM %'
   AND has(databases, 'observability')
-GROUP BY normalized_query
+GROUP BY log_comment, normalized_query
 ORDER BY p50_ms DESC
 FORMAT JSONEachRow
 SQL

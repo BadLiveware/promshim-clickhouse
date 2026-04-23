@@ -26,9 +26,11 @@ func TestRenderFragmentFusesRangeSumRateAggregation(t *testing.T) {
 						Kind:       native.FragmentKindLeafSource,
 						OutputKind: native.OutputKindRangeMatrix,
 						Selector: &native.SelectorSource{
-							Kind:       native.SelectorKindRangeVector,
-							MetricName: "demo_cpu_usage_seconds_total",
-							Lookback:   5 * time.Minute,
+							Kind:              native.SelectorKindRangeVector,
+							MetricName:        "demo_cpu_usage_seconds_total",
+							RequireFullTags:   false,
+							RequiredTagLabels: []string{"job"},
+							Lookback:          5 * time.Minute,
 						},
 						ValueExpr: "{value}",
 						TagsExpr:  "{tags}",
@@ -53,13 +55,19 @@ func TestRenderFragmentFusesRangeSumRateAggregation(t *testing.T) {
 		"arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series",
 		"counter_delta_sum",
 		"sum(value)",
-		"arraySort(tag -> tag.1, arrayFilter(tag -> has(['job'], tag.1), tags)) AS grouping_tags",
+		"arrayFilter(tag -> has(['job'], tag.1), tags) AS tags",
 	} {
 		if !strings.Contains(rendered.SQL, expected) {
 			t.Fatalf("expected %q in SQL, got %q", expected, rendered.SQL)
 		}
 	}
+	if got := strings.Count(rendered.SQL, "GROUP BY tags, timestamp"); got != 1 {
+		t.Fatalf("expected fused range sum(rate) SQL to aggregate by tags,timestamp exactly once, got count=%d sql=%q", got, rendered.SQL)
+	}
 	if strings.Contains(rendered.SQL, "ARRAY JOIN time_series AS point") {
 		t.Fatalf("expected fused range sum(rate) SQL to avoid time_series ARRAY JOIN, got %q", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, "arrayFilter(tag -> tag.1 != '__name__', tags)") {
+		t.Fatalf("expected fused range sum(rate) SQL to reuse already metric-name-free selector tags, got %q", rendered.SQL)
 	}
 }

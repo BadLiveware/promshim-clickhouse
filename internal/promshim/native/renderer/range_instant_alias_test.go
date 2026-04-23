@@ -81,19 +81,22 @@ func TestRenderFragmentBuildsInstantRateSQLWithRangeRateAliases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected rendered SQL, got error: %v", err)
 	}
-	for _, expected := range []string{
+	for _, unwanted := range []string{
 		"arrayMap(point -> tupleElement(point, 1), time_series) AS range_timestamps",
 		"arrayPopBack(range_values) AS range_values_prev",
 		"arrayPopFront(range_values) AS range_values_cur",
-		"arraySum(arrayMap((p, c) -> if(c < p, c, c - p), range_values_prev, range_values_cur)) AS range_counter_delta_sum",
-		"arrayElement(range_timestamps, length(time_series)) - arrayElement(range_timestamps, 1) AS range_duration_ms",
+	} {
+		if strings.Contains(rendered.SQL, unwanted) {
+			t.Fatalf("expected instant rate SQL to avoid %q, got %q", unwanted, rendered.SQL)
+		}
+	}
+	for _, expected := range []string{
+		"arraySum(arrayMap((p, c) -> if(c < p, c, c - p), arrayPopBack(range_values), arrayPopFront(range_values))) AS range_counter_delta_sum",
+		"tupleElement(arrayElement(time_series, length(time_series)), 1) - tupleElement(arrayElement(time_series, 1), 1) AS range_duration_ms",
 		"(range_counter_delta_sum) / (range_duration_ms)",
 	} {
 		if !strings.Contains(rendered.SQL, expected) {
 			t.Fatalf("expected %q in SQL, got %q", expected, rendered.SQL)
 		}
-	}
-	if strings.Contains(rendered.SQL, "arrayPopBack(arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), time_series))") {
-		t.Fatalf("expected instant rate SQL to reuse range_values_prev alias, got %q", rendered.SQL)
 	}
 }

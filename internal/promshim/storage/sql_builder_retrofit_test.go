@@ -62,7 +62,7 @@ func TestBuildInstantAggregationQuerySQLWithBoundsCompilesSourceTemplatesWithout
 	}
 	checks := []string{
 		"arrayFilter(tag -> tag.1 != '__name__', tags) AS tags",
-		"arraySort(tag -> tag.1, arrayFilter(tag -> has(['job'], tag.1), tags)) AS grouping_tags",
+		"arrayFilter(tag -> has(['job'], tag.1), tags) AS tags",
 		"(value) * 100",
 		"if(countIf(isNaN(value)) > 0, CAST(NULL, 'Nullable(Float64)'), sum(value)) AS value",
 	}
@@ -73,6 +73,9 @@ func TestBuildInstantAggregationQuerySQLWithBoundsCompilesSourceTemplatesWithout
 	}
 	if params["param_instant_matcher_0_value"] != "up" {
 		t.Fatalf("expected existing selector param naming, got %#v", params)
+	}
+	if strings.Contains(sqlb.NormalizeSQL(sql), sqlb.NormalizeSQL("SELECT tags AS tags, timestamp AS timestamp, value AS value FROM (")) {
+		t.Fatalf("expected instant aggregation SQL to avoid the identity source wrapper subquery, got %s", sqlb.NormalizeSQL(sql))
 	}
 }
 
@@ -91,7 +94,7 @@ func TestBuildRangeAggregationQuerySQLWithBoundsCompilesSourceTemplatesWithoutPl
 	}
 	checks := []string{
 		"arrayFilter(tag -> tag.1 != '__name__', tags) AS tags",
-		"arraySort(tag -> tag.1, arrayFilter(tag -> has(['job'], tag.1), tags)) AS grouping_tags",
+		"arrayFilter(tag -> has(['job'], tag.1), tags) AS grouping_tags",
 		"arrayMap(point -> (point.1, (point.2) * 100), time_series) AS time_series",
 		"arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series",
 	}
@@ -140,6 +143,9 @@ func TestBuildInstantAggregationQuerySQLWithBoundsSupportsTier1Reducers(t *testi
 	if !strings.Contains(sqlb.NormalizeSQL(groupSQL), sqlb.NormalizeSQL("toFloat64(1) AS value")) {
 		t.Fatalf("expected group SQL, got %s", sqlb.NormalizeSQL(groupSQL))
 	}
+	if !strings.Contains(sqlb.NormalizeSQL(groupSQL), sqlb.NormalizeSQL("ORDER BY arrayFilter(tag -> has(['job'], tag.1), tags)")) {
+		t.Fatalf("expected instant group SQL to preserve deterministic ordering by the grouping expression, got %s", sqlb.NormalizeSQL(groupSQL))
+	}
 	topk := 3.0
 	topkSQL, _, err := BuildInstantAggregationQuerySQLWithBounds(QueryConfig{Database: "observability", Table: "prometheus"}, source, 2000, 1000, 2000, parser.TOPK, []string{"job"}, false, &topk, "")
 	if err != nil {
@@ -158,6 +164,15 @@ func TestBuildInstantAggregationQuerySQLWithBoundsSupportsTier1Reducers(t *testi
 		if !strings.Contains(sqlb.NormalizeSQL(countValuesSQL), sqlb.NormalizeSQL(check)) {
 			t.Fatalf("expected count_values SQL to contain %q, got %s", check, sqlb.NormalizeSQL(countValuesSQL))
 		}
+	}
+	if !strings.Contains(sqlb.NormalizeSQL(countValuesSQL), sqlb.NormalizeSQL("fromUnixTimestamp64Milli(2000) AS timestamp")) {
+		t.Fatalf("expected count_values SQL to stamp the evaluation time directly, got %s", sqlb.NormalizeSQL(countValuesSQL))
+	}
+	if strings.Contains(sqlb.NormalizeSQL(countValuesSQL), sqlb.NormalizeSQL("max(timestamp) AS timestamp")) {
+		t.Fatalf("expected count_values SQL to avoid redundant max(timestamp), got %s", sqlb.NormalizeSQL(countValuesSQL))
+	}
+	if !strings.Contains(sqlb.NormalizeSQL(countValuesSQL), sqlb.NormalizeSQL("ORDER BY grouping_tags")) {
+		t.Fatalf("expected instant count_values SQL to preserve deterministic ordering, got %s", sqlb.NormalizeSQL(countValuesSQL))
 	}
 }
 

@@ -40,14 +40,16 @@ func TestRenderFragmentBuildsRangeRateSQLWithWindowDurationAliases(t *testing.T)
 	if err != nil {
 		t.Fatalf("expected rendered SQL, got error: %v", err)
 	}
-	for _, expected := range []string{
-		"arrayElement(window_timestamps, length(window_series)) - arrayElement(window_timestamps, 1) AS window_duration_ms",
-	} {
-		if !strings.Contains(rendered.SQL, expected) {
-			t.Fatalf("expected %q in SQL, got %q", expected, rendered.SQL)
-		}
+	if !strings.Contains(rendered.SQL, "tupleElement(arrayElement(window_series, length(window_series)), 1) - tupleElement(arrayElement(window_series, 1), 1) AS window_duration_ms") {
+		t.Fatalf("expected rate SQL to compute window_duration_ms directly from window_series, got %q", rendered.SQL)
 	}
-	if got := strings.Count(rendered.SQL, "arrayElement(window_timestamps, length(window_series)) - arrayElement(window_timestamps, 1)"); got != 1 {
+	if strings.Contains(rendered.SQL, "window_timestamps") {
+		t.Fatalf("expected rate SQL to skip unused window_timestamps alias on the matrix-window path, got %q", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, "changes_count") {
+		t.Fatalf("expected rate SQL to skip unused changes_count alias on the matrix-window path, got %q", rendered.SQL)
+	}
+	if got := strings.Count(rendered.SQL, "tupleElement(arrayElement(window_series, length(window_series)), 1) - tupleElement(arrayElement(window_series, 1), 1)"); got != 1 {
 		t.Fatalf("expected rate SQL to emit the raw duration expression once via the window_duration_ms alias, got count=%d sql=%q", got, rendered.SQL)
 	}
 	if !strings.Contains(rendered.SQL, "(counter_delta_sum) / (window_duration_ms)") {

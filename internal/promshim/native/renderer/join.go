@@ -107,7 +107,7 @@ func renderAggregationFragment(cfg storage.QueryConfig, fragment *native.NativeF
 	source := storage.AggregationSource{ValueExpr: "{value}", TagsExpr: "{tags}"}
 	switch params.Mode {
 	case native.RenderModeInstant:
-		sql, queryParams, err := storage.BuildInstantAggregationOverSubquerySQL(source, childSQL, childParams, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber, fragment.Aggregation.ParamString)
+		sql, queryParams, err := storage.BuildInstantAggregationOverSubquerySQL(source, childSQL, childParams, params.EvaluationTimeMS, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber, fragment.Aggregation.ParamString)
 		if err != nil {
 			return renderedFragment{}, err
 		}
@@ -374,7 +374,7 @@ func renderAbsentOverTimeWindowedSource(cfg storage.QueryConfig, child *native.N
 		if err != nil {
 			return "", nil, err
 		}
-		windowedSQL, err := buildWindowedArraysSourceSQL(namespacedSQL, params.StartMS, params.EndMS, params.StepMS, child.Selector.Lookback.Milliseconds(), child.Selector.Offset.Milliseconds())
+		windowedSQL, err := buildWindowedArraysSourceSQL(namespacedSQL, "absent_over_time", params.StartMS, params.EndMS, params.StepMS, child.Selector.Lookback.Milliseconds(), child.Selector.Offset.Milliseconds())
 		if err != nil {
 			return "", nil, err
 		}
@@ -389,7 +389,7 @@ func renderAbsentOverTimeWindowedSource(cfg storage.QueryConfig, child *native.N
 		if err != nil {
 			return "", nil, err
 		}
-		windowedSQL, err := buildWindowedArraysSourceSQL(namespacedSQL, params.StartMS, params.EndMS, params.StepMS, child.Subquery.Range.Milliseconds(), child.Subquery.Offset.Milliseconds())
+		windowedSQL, err := buildWindowedArraysSourceSQL(namespacedSQL, "absent_over_time", params.StartMS, params.EndMS, params.StepMS, child.Subquery.Range.Milliseconds(), child.Subquery.Offset.Milliseconds())
 		if err != nil {
 			return "", nil, err
 		}

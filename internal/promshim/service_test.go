@@ -411,6 +411,52 @@ func TestQueryExplainBuildsRateAndIratePlansForSubquerySelectors(t *testing.T) {
 	}
 }
 
+func TestQueryExplainBuildsInstantMaxOverTimeSubqueryRowsFastPath(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=max_over_time(sum%20by%20(job)%20(rate(demo_cpu_usage_seconds_total%5B1m%5D))%5B5m%3A30s%5D)", nil)
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "success" {
+		t.Fatalf("expected success response, got %#v", body)
+	}
+	if body.Data.Plan.Strategy != "native_sql" {
+		t.Fatalf("expected native_sql plan, got %#v", body.Data.Plan)
+	}
+	if !strings.Contains(body.Data.Plan.RenderedSQL, "maxIf(value, NOT isNaN(value))") {
+		t.Fatalf("expected instant max_over_time subquery explain to use row fast path, got %q", body.Data.Plan.RenderedSQL)
+	}
+	if !strings.Contains(body.Data.Plan.RenderedSQL, "fromUnixTimestamp64Milli(") || !strings.Contains(body.Data.Plan.RenderedSQL, " AS timestamp") {
+		t.Fatalf("expected instant max_over_time subquery explain to stamp the evaluation time directly, got %q", body.Data.Plan.RenderedSQL)
+	}
+	if strings.Contains(body.Data.Plan.RenderedSQL, "max(timestamp) AS timestamp") {
+		t.Fatalf("expected instant max_over_time subquery explain to avoid redundant max(timestamp) aggregation, got %q", body.Data.Plan.RenderedSQL)
+	}
+	if strings.Contains(body.Data.Plan.RenderedSQL, "SELECT tags AS final_tags, timestamp AS timestamp, value AS value FROM (") {
+		t.Fatalf("expected instant max_over_time subquery explain to aggregate directly over source rows without an extra prepared subquery, got %q", body.Data.Plan.RenderedSQL)
+	}
+	if strings.Contains(body.Data.Plan.RenderedSQL, "groupArray((timestamp, value))) AS time_series") {
+		t.Fatalf("expected instant max_over_time subquery explain to avoid time_series materialization, got %q", body.Data.Plan.RenderedSQL)
+	}
+}
+
 func TestQueryRejectsMalformedHistogramFractionAsBadData(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {

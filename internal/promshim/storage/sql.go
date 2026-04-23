@@ -89,34 +89,34 @@ func BuildInstantAggregationQuerySQLWithBounds(cfg QueryConfig, source Aggregati
 	if err != nil {
 		return "", nil, err
 	}
-	return BuildInstantAggregationOverSubquerySQL(source, sourceSQL, params, op, grouping, without, paramNumber, paramString)
+	return BuildInstantAggregationOverSubquerySQL(source, sourceSQL, params, evaluationTimeMS, op, grouping, without, paramNumber, paramString)
 }
 
-func BuildInstantAggregationOverSubquerySQL(source AggregationSource, sourceSQL string, params map[string]string, op parser.ItemType, grouping []string, without bool, paramNumber *float64, paramString string) (string, map[string]string, error) {
+func BuildInstantAggregationOverSubquerySQL(source AggregationSource, sourceSQL string, params map[string]string, evaluationTimeMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64, paramString string) (string, map[string]string, error) {
 	if IsSelectionAggregation(op) {
 		return buildInstantSelectionAggregationOverSubquerySQL(source, sourceSQL, params, op, grouping, without, paramNumber)
 	}
 	if op == parser.COUNT_VALUES {
-		return buildInstantCountValuesAggregationOverSubquerySQL(source, sourceSQL, params, grouping, without, paramString)
+		return buildInstantCountValuesAggregationOverSubquerySQL(source, sourceSQL, params, evaluationTimeMS, grouping, without, paramString)
 	}
 	aggExpr, err := buildAggregationValueExpr(op, sqlb.Ident("value"), paramNumber)
 	if err != nil {
 		return "", nil, err
 	}
 	tagsExpr := buildAggregationTagsExpr(sqlb.Ident("tags"), grouping, without)
-	sourceSubquery, err := renderAggregationInstantSourceSubquery(source, sourceSQL)
-	if err != nil {
-		return "", nil, err
-	}
-	middle := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: tagsExpr, Alias: "grouping_tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}},
-		From:    sqlb.SubSelect{S: sourceSubquery},
+	fromSource := sqlb.Source(sqlb.RawSource{SQL: rawSubquerySQL(sourceSQL)})
+	if !aggregationSourceIsIdentity(source) {
+		sourceSubquery, err := renderAggregationInstantSourceSubquery(source, sourceSQL)
+		if err != nil {
+			return "", nil, err
+		}
+		fromSource = sqlb.SubSelect{S: sourceSubquery}
 	}
 	outer := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("grouping_tags"), Alias: "tags"}, {Expr: sqlb.Call{Name: "max", Args: []sqlb.Expr{sqlb.Ident("timestamp")}}, Alias: "timestamp"}, {Expr: aggExpr, Alias: "value"}},
-		From:    sqlb.SubSelect{S: middle},
-		GroupBy: []sqlb.Expr{sqlb.Ident("grouping_tags")},
-		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("grouping_tags")}},
+		Columns: []sqlb.ColExpr{{Expr: tagsExpr, Alias: "tags"}, {Expr: sqlb.RawLit{V: "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"}, Alias: "timestamp"}, {Expr: aggExpr, Alias: "value"}},
+		From:    fromSource,
+		GroupBy: []sqlb.Expr{tagsExpr},
+		OrderBy: []sqlb.OrderExpr{{Expr: tagsExpr}},
 	}
 	sql, _, err := outer.Build()
 	if err != nil {
@@ -248,6 +248,10 @@ func BuildSeriesQuery(cfg QueryConfig, request *http.Request) (string, map[strin
 
 func baseParams(cfg QueryConfig) map[string]string {
 	return map[string]string{"param_database": cfg.Database, "param_table": cfg.Table}
+}
+
+func aggregationSourceIsIdentity(source AggregationSource) bool {
+	return strings.TrimSpace(source.ValueExpr) == "{value}" && (strings.TrimSpace(source.TagsExpr) == "" || strings.TrimSpace(source.TagsExpr) == "{tags}")
 }
 
 func renderAggregationInstantSourceSubquery(source AggregationSource, sourceSQL string) (*sqlb.Select, error) {
@@ -478,7 +482,7 @@ func buildCountValuesMutatedTagsExpr(tagsRef, valueRef sqlb.Expr, valueLabel str
 	return sqlb.RawLit{V: "arrayConcat(arrayFilter(tag -> tag.1 != '__name__' AND tag.1 != '" + valueLabel + "', " + tagsSQL + "), [tuple('" + valueLabel + "', " + valueStringSQL + ")])"}, nil
 }
 
-func buildInstantCountValuesAggregationOverSubquerySQL(source AggregationSource, sourceSQL string, params map[string]string, grouping []string, without bool, paramString string) (string, map[string]string, error) {
+func buildInstantCountValuesAggregationOverSubquerySQL(source AggregationSource, sourceSQL string, params map[string]string, evaluationTimeMS int64, grouping []string, without bool, paramString string) (string, map[string]string, error) {
 	if strings.TrimSpace(paramString) == "" {
 		return "", nil, fmt.Errorf("native SQL aggregation for operator %q requires a string label parameter", "count_values")
 	}
@@ -497,7 +501,7 @@ func buildInstantCountValuesAggregationOverSubquerySQL(source AggregationSource,
 		From:    sqlb.SubSelect{S: sourceSubquery},
 	}
 	outer := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("grouping_tags"), Alias: "tags"}, {Expr: sqlb.Call{Name: "max", Args: []sqlb.Expr{sqlb.Ident("timestamp")}}, Alias: "timestamp"}, {Expr: sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{sqlb.Call{Name: "count"}}}, Alias: "value"}},
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("grouping_tags"), Alias: "tags"}, {Expr: sqlb.RawLit{V: "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"}, Alias: "timestamp"}, {Expr: sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{sqlb.Call{Name: "count"}}}, Alias: "value"}},
 		From:    sqlb.SubSelect{S: middle},
 		GroupBy: []sqlb.Expr{sqlb.Ident("grouping_tags")},
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("grouping_tags")}},
@@ -708,12 +712,16 @@ func buildAggregationTagsExpr(column sqlb.Expr, grouping []string, without bool)
 	if len(grouping) == 0 {
 		return schema.EmptyTagsArrayExpr()
 	}
+	filtered := sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{
+		sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(grouping) + ", tag.1)"},
+		sqlb.RawLit{V: columnSQL},
+	}}
+	if len(grouping) == 1 {
+		return filtered
+	}
 	return sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
 		sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},
-		sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{
-			sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(grouping) + ", tag.1)"},
-			sqlb.RawLit{V: columnSQL},
-		}},
+		filtered,
 	}}
 }
 

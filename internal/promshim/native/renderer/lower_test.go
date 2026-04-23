@@ -71,20 +71,6 @@ func TestLowerScalarBinaryMatchesFragment(t *testing.T) {
 	}
 }
 
-func TestLowerUnsupportedAggregationFallsBack(t *testing.T) {
-	// Aggregation isn't in Phase 1 Lower scope — must return the sentinel
-	// so callers fall back to Fragment rendering.
-	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (up)`)
-	_, err := Lower(LoweringCtx{
-		Config:         testRenderConfig(),
-		Analysis:       analysis,
-		NativeAnalysis: nativeAnalysis,
-		Params:         testRenderParams(),
-	}, root)
-	if !IsUnsupportedByLower(err) {
-		t.Errorf("expected errUnsupportedLowerNode, got %v", err)
-	}
-}
 
 func TestLowerVectorVectorBinaryFallsBack(t *testing.T) {
 	// Vector-vector binaries aren't in Phase 1 Lower scope — must return

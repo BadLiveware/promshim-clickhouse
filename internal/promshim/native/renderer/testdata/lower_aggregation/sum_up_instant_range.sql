@@ -1,0 +1,9 @@
+SELECT tags AS tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series FROM (SELECT grouping_tags AS tags, point.1 AS timestamp, if(countIf(isNaN(point.2)) > 0, CAST(NULL, 'Nullable(Float64)'), sum(point.2)) AS value FROM (SELECT CAST([], 'Array(Tuple(String, String))') AS grouping_tags, arrayJoin(time_series) AS point FROM (SELECT tags AS tags, arrayMap(point -> (point.1, point.2), time_series) AS time_series FROM (
+    SELECT tags AS tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series FROM (
+        SELECT grid.tags AS tags, grid.eval_ts AS timestamp, argMax(d.value, d.timestamp) AS value FROM (SELECT series.id AS id, series.tags AS tags, arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts FROM (
+            SELECT src.id, arrayConcat([tuple('__name__', src.metric_name)], arrayMap((k, v) -> tuple(k, v), mapKeys(src.tags), mapValues(src.tags))) AS tags FROM timeSeriesTags(`observability`.`prometheus`) AS src WHERE src.metric_name = {range_instant_matcher_0_value:String} AND src.max_time >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND src.min_time <= fromUnixTimestamp64Milli({required_end_ms:Int64})
+        ) AS series) AS grid INNER JOIN timeSeriesData(`observability`.`prometheus`) AS d ON d.id = grid.id WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64}) AND d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64}) GROUP BY grid.id, grid.tags, grid.eval_ts HAVING NOT isNaN(value)
+    ) GROUP BY tags ORDER BY tags
+))) GROUP BY grouping_tags, timestamp) GROUP BY tags ORDER BY tags
+SETTINGS allow_experimental_time_series_table = 1
+FORMAT JSONEachRow

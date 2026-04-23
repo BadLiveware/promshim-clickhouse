@@ -6,6 +6,7 @@ import (
 
 	"ch-observability/internal/promshim/local/exec"
 	logicalpkg "ch-observability/internal/promshim/logical"
+	logicalopt "ch-observability/internal/promshim/logical/opt"
 	"ch-observability/internal/promshim/model"
 	nativeplan "ch-observability/internal/promshim/native"
 	"ch-observability/internal/promshim/storage"
@@ -156,23 +157,29 @@ func buildPlanWithContext(expr parser.Expr, ctx PlanContext) (Plan, error) {
 }
 
 func BuildEntireQueryDelegatedPlan(expr parser.Expr) (Plan, *nativeplan.Analysis, error) {
-	logical, err := BuildLogicalPlan(expr)
+	logicalRoot, err := BuildLogicalPlan(expr)
 	if err != nil {
 		return nil, nil, err
 	}
-	analysis := nativeplan.Analyze(logical)
-	_ = logicalpkg.Analyze(logical) // Task 3 warm-up: exercise the new enrichment walk.
+	logicalRoot, _, err = logicalopt.Optimize(logicalRoot, logicalopt.DefaultPasses)
+	if err != nil {
+		return nil, nil, err
+	}
+	analysis := nativeplan.Analyze(logicalRoot)
 	return annotateQueryPlan(&delegatedExprPlan{Expr: expr}, analysis.Root), analysis, nil
 }
 
 func BuildPlanWithContextAndAnalysis(expr parser.Expr, ctx PlanContext) (Plan, *nativeplan.Analysis, error) {
-	logical, err := BuildLogicalPlan(expr)
+	logicalRoot, err := BuildLogicalPlan(expr)
 	if err != nil {
 		return nil, nil, err
 	}
-	analysis := nativeplan.Analyze(logical)
-	logicalAnalysis := logicalpkg.Analyze(logical)
-	plan, err := buildExecPlanWithAnalysis(logical, ctx, analysis)
+	logicalRoot, logicalAnalysis, err := logicalopt.Optimize(logicalRoot, logicalopt.DefaultPasses)
+	if err != nil {
+		return nil, nil, err
+	}
+	analysis := nativeplan.Analyze(logicalRoot)
+	plan, err := buildExecPlanWithAnalysis(logicalRoot, ctx, analysis)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -185,7 +192,7 @@ func BuildPlanWithContextAndAnalysis(expr parser.Expr, ctx PlanContext) (Plan, *
 	// execute() can attempt renderer.Lower before falling back to
 	// renderer.RenderFragment. Subtree-pushdown sites (tier 3a) leave
 	// these nil and stay on the Fragment path.
-	attachLogicalRootForLower(plan, logical, logicalAnalysis)
+	attachLogicalRootForLower(plan, logicalRoot, logicalAnalysis)
 	return plan, analysis, nil
 }
 
@@ -200,15 +207,21 @@ func attachLogicalRootForLower(plan Plan, logical logicalPlan, logicalAnalysis *
 }
 
 func buildExecPlan(plan logicalPlan) (Plan, error) {
-	analysis := nativeplan.Analyze(plan)
-	_ = logicalpkg.Analyze(plan) // Task 3 warm-up: exercise the new enrichment walk.
-	return buildExecPlanWithAnalysis(plan, DefaultPlanContext(EvalModeInstant), analysis)
+	optimized, _, err := logicalopt.Optimize(plan, logicalopt.DefaultPasses)
+	if err != nil {
+		return nil, err
+	}
+	analysis := nativeplan.Analyze(optimized)
+	return buildExecPlanWithAnalysis(optimized, DefaultPlanContext(EvalModeInstant), analysis)
 }
 
 func buildExecPlanWithContext(plan logicalPlan, ctx PlanContext) (Plan, error) {
-	analysis := nativeplan.Analyze(plan)
-	_ = logicalpkg.Analyze(plan) // Task 3 warm-up: exercise the new enrichment walk.
-	return buildExecPlanWithAnalysis(plan, ctx, analysis)
+	optimized, _, err := logicalopt.Optimize(plan, logicalopt.DefaultPasses)
+	if err != nil {
+		return nil, err
+	}
+	analysis := nativeplan.Analyze(optimized)
+	return buildExecPlanWithAnalysis(optimized, ctx, analysis)
 }
 
 func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, error) {

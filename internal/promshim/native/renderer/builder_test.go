@@ -1616,6 +1616,24 @@ func TestRenderFragmentBuildsHistogramQuantileSQL(t *testing.T) {
 	}
 }
 
+func TestRenderFragmentBuildsHistogramQuantileSQLUsingInstantRateRowFastPath(t *testing.T) {
+	quantile := 0.9
+	fragment := &native.NativeFragment{Kind: native.FragmentKindHistogramFunction, OutputKind: native.OutputKindInstantVector, HistogramFunction: &native.HistogramFunctionFragment{Func: "histogram_quantile", Quantile: &quantile, Child: &native.NativeFragment{Kind: native.FragmentKindAggregation, OutputKind: native.OutputKindInstantVector, Aggregation: &native.AggregationFragment{Op: parser.SUM, Grouping: []string{"le"}, Source: &native.NativeFragment{Kind: native.FragmentKindRangeFunction, OutputKind: native.OutputKindInstantVector, RangeFunction: &native.RangeFunctionFragment{Func: "rate", Child: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindRangeMatrix, Selector: &native.SelectorSource{Kind: native.SelectorKindRangeVector, MetricName: "http_request_duration_seconds_bucket", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}}}}}
+
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 300000, RequiredStartMS: 0, RequiredEndMS: 300000})
+	if err != nil {
+		t.Fatalf("expected histogram quantile SQL, got error: %v", err)
+	}
+	if !strings.Contains(rendered.SQL, "lagInFrame(value, 1, nan) OVER (PARTITION BY final_tags ORDER BY timestamp)") {
+		t.Fatalf("expected histogram_quantile child rate SQL to use the instant row fast path, got %q", rendered.SQL)
+	}
+	for _, unwanted := range []string{"arrayPopBack(range_values)", "arrayPopFront(range_values)", "time_series AS time_series, tags AS tags"} {
+		if strings.Contains(rendered.SQL, unwanted) {
+			t.Fatalf("expected histogram_quantile child rate SQL to avoid %q, got %q", unwanted, rendered.SQL)
+		}
+	}
+}
+
 func TestRenderFragmentBuildsRangeTopKOverHistogramQuantileWithTaggedHistogramSource(t *testing.T) {
 	quantile := 0.9
 	fragment := &native.NativeFragment{Kind: native.FragmentKindAggregation, OutputKind: native.OutputKindInstantVector, Aggregation: &native.AggregationFragment{Op: parser.TOPK, ParamNumber: func() *float64 { v := 2.0; return &v }(), Source: &native.NativeFragment{Kind: native.FragmentKindHistogramFunction, OutputKind: native.OutputKindInstantVector, HistogramFunction: &native.HistogramFunctionFragment{Func: "histogram_quantile", Quantile: &quantile, Child: &native.NativeFragment{Kind: native.FragmentKindAggregation, OutputKind: native.OutputKindInstantVector, Aggregation: &native.AggregationFragment{Op: parser.SUM, Grouping: []string{"le"}, Source: &native.NativeFragment{Kind: native.FragmentKindRangeFunction, OutputKind: native.OutputKindInstantVector, RangeFunction: &native.RangeFunctionFragment{Func: "rate", Child: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindRangeMatrix, Selector: &native.SelectorSource{Kind: native.SelectorKindRangeVector, MetricName: "http_request_duration_seconds_bucket", Lookback: time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}}}}}}}

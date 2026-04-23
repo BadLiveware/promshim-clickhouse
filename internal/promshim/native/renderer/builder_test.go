@@ -634,7 +634,7 @@ func TestRenderFragmentBuildsInstantSumOverTimeSQLForDirectSelectorUsingRows(t *
 	}
 }
 
-func TestRenderFragmentBuildsRangeAvgOverTimeSQLForDirectSelectorUsingWindowedArrays(t *testing.T) {
+func TestRenderFragmentBuildsRangeAvgOverTimeSQLForDirectSelectorUsingDirectWindowAggregate(t *testing.T) {
 	fragment := &native.NativeFragment{
 		Kind:       native.FragmentKindRangeFunction,
 		OutputKind: native.OutputKindInstantVector,
@@ -658,21 +658,29 @@ func TestRenderFragmentBuildsRangeAvgOverTimeSQLForDirectSelectorUsingWindowedAr
 		Mode:            native.RenderModeRange,
 		StartMS:         0,
 		EndMS:           300000,
-		StepMS:          30000,
+		StepMS:          300000,
 		RequiredStartMS: -300000,
 		RequiredEndMS:   300000,
 	})
 	if err != nil {
 		t.Fatalf("expected rendered SQL, got error: %v", err)
 	}
-	if !strings.Contains(rendered.SQL, "arrayFilter(point -> tupleElement(point, 1) <= grid.eval_ts") {
-		t.Fatalf("expected range avg_over_time to keep the windowed-array path, got %q", rendered.SQL)
+	if !strings.Contains(rendered.SQL, "arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series") {
+		t.Fatalf("expected range result shaping in SQL, got %q", rendered.SQL)
 	}
-	if !strings.Contains(rendered.SQL, "arrayAvg(arrayFilter(v -> NOT isNaN(v), window_values))") {
-		t.Fatalf("expected range avg_over_time expression over window_values, got %q", rendered.SQL)
+	if !strings.Contains(rendered.SQL, "avgIf(ifNull(toFloat64(d.value), nan), NOT isNaN(ifNull(toFloat64(d.value), nan))) AS avg_value") {
+		t.Fatalf("expected avg_over_time direct-window aggregate path in SQL, got %q", rendered.SQL)
 	}
-	if strings.Contains(rendered.SQL, "avgIf(source.value, NOT isNaN(source.value))") {
-		t.Fatalf("expected range avg_over_time to avoid the row fast path until the timeout is fixed, got %q", rendered.SQL)
+	if !strings.Contains(rendered.SQL, "if(nan_count > 0 OR finite_count = 0, nan, avg_value) AS value") {
+		t.Fatalf("expected avg_over_time direct-window aggregate value expression in SQL, got %q", rendered.SQL)
+	}
+	for _, unwanted := range []string{"window_series", "window_timestamps", "window_values", "CROSS JOIN"} {
+		if strings.Contains(rendered.SQL, unwanted) {
+			t.Fatalf("expected avg_over_time direct-window aggregate path to avoid %q, got %q", unwanted, rendered.SQL)
+		}
+	}
+	if !strings.Contains(rendered.SQL, "GROUP BY grid.id, grid.eval_ts") {
+		t.Fatalf("expected direct-window aggregate path to keep the per-series step grouping, got %q", rendered.SQL)
 	}
 }
 

@@ -180,6 +180,25 @@ func TestBuildRangeWindowSelectorQuerySQLSkipsUnusedRateAliases(t *testing.T) {
 	}
 }
 
+func TestBuildRangeWindowSelectorDirectAggregateQuerySQLUsesGroupedAvgAliases(t *testing.T) {
+	selector := selectorSourceFromMatchers("demo_memory_usage_bytes", nil, 5*time.Minute, 0, SelectorKindRangeVector)
+
+	sql, _, err := BuildRangeWindowSelectorDirectAggregateQuerySQLWithFinalTags(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -300000, 300000, 0, 300000, 30000, "avg_over_time", "", 0)
+	if err != nil {
+		t.Fatalf("expected direct aggregate range window selector SQL, got error: %v", err)
+	}
+	for _, expected := range []string{"count() AS sample_count", "countIf(isNaN(ifNull(toFloat64(d.value), nan))) AS nan_count", "countIf(NOT isNaN(ifNull(toFloat64(d.value), nan))) AS finite_count", "avgIf(ifNull(toFloat64(d.value), nan), NOT isNaN(ifNull(toFloat64(d.value), nan))) AS avg_value", "if(nan_count > 0 OR finite_count = 0, nan, avg_value) AS value", "GROUP BY grid.id, grid.tags, grid.eval_ts"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected %q in SQL, got %q", expected, sql)
+		}
+	}
+	for _, unwanted := range []string{"window_series", "window_values", "CROSS JOIN"} {
+		if strings.Contains(sql, unwanted) {
+			t.Fatalf("expected direct aggregate SQL to avoid %q, got %q", unwanted, sql)
+		}
+	}
+}
+
 func TestBuildRangeSelectorQuerySQLUsesStepGridLookbackAndOffset(t *testing.T) {
 	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, time.Minute, SelectorKindInstantVector)
 

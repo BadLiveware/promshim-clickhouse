@@ -137,6 +137,22 @@ func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *native.Nativ
 			}
 			return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: rowParams}, nil
 		}
+		// Keep the selector-scoped grid→data join that benchmarks well on long-range
+		// windows, but skip per-step window_series/window_values materialization for
+		// direct avg_over_time selectors by aggregating inside that grouped join.
+		if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector && sourceWrapperIsIdentity(selectorFragment) && fragment.RangeFunction.Func == "avg_over_time" && preferDirectSelectorWindowJoin(selectorFragment.Selector.Lookback.Milliseconds(), params.StepMS) {
+			childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment, params.StartMS, params.EndMS)
+			source, err := renderAggregationSource(selectorFragment, params)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			tagsExpr := rangeFunctionTagsExprFromInput(fragment.RangeFunction.Func, selectorOutputHasMetricName(selectorFragment.Selector))
+			sql, queryParams, err := storage.BuildRangeWindowSelectorDirectAggregateQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, fragment.RangeFunction.Func, tagsExpr, minimumSeriesLengthForRangeFunction(fragment.RangeFunction.Func))
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
+		}
 		if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector && sourceWrapperIsIdentity(selectorFragment) && preferDirectSelectorWindowJoin(selectorFragment.Selector.Lookback.Milliseconds(), params.StepMS) {
 			childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment, params.StartMS, params.EndMS)
 			source, err := renderAggregationSource(selectorFragment, params)

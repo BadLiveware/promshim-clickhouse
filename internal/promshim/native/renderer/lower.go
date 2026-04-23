@@ -56,6 +56,10 @@ func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 		return lowerSubquery(ctx, n)
 	case *logicalpkg.SortPlan:
 		return lowerSortTransform(ctx, n)
+	case *logicalpkg.LabelReplacePlan:
+		return lowerLabelTransform(ctx, n)
+	case *logicalpkg.LabelJoinPlan:
+		return lowerLabelTransform(ctx, n)
 	default:
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}

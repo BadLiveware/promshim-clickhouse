@@ -36,6 +36,7 @@ type BenchRow struct {
 	Name                string  `json:"name"`
 	Query               string  `json:"query"`
 	Endpoint            string  `json:"endpoint"`
+	Category            string  `json:"category,omitempty"`
 	Strategy            string  `json:"strategy"`
 	FallbackReason      string  `json:"fallbackReason,omitempty"`
 	CHRoundtrips        int     `json:"chRoundtrips"`
@@ -117,7 +118,7 @@ func RunBench(cfg BenchConfig) (BenchReport, error) {
 }
 
 func benchOneQuery(client *http.Client, cfg BenchConfig, spec QuerySpec) BenchRow {
-	row := BenchRow{Name: spec.Name, Query: spec.Query, Endpoint: spec.Endpoint}
+	row := BenchRow{Name: spec.Name, Query: spec.Query, Endpoint: spec.Endpoint, Category: spec.Category}
 
 	// Prom baseline: no native lowering knob.
 	promSpec := spec
@@ -199,8 +200,15 @@ func timedRequest(client *http.Client, baseURL string, manifest Manifest, spec Q
 	if err != nil {
 		return 0, nil, err
 	}
+	request, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, nil, err
+	}
+	if spec.Name != "" {
+		request.Header.Set("X-Promshim-Log-Comment", "bench:"+spec.Name)
+	}
 	start := time.Now()
-	response, err := client.Get(endpoint)
+	response, err := client.Do(request)
 	if err != nil {
 		return 0, nil, err
 	}

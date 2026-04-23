@@ -22,4 +22,7 @@ remote_write:
 
 storage:
   tsdb:
-    out_of_order_time_window: 6h
+    # Wide enough that scripts/seed-long-range.sh --profile 1y stays
+    # in-window regardless of wall-clock drift; matches the stack's
+    # retention.time=10y so nothing gets dropped silently.
+    out_of_order_time_window: 10y

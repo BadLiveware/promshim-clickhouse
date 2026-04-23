@@ -3,18 +3,21 @@
     "name": "plain_selector_instant_long",
     "endpoint": "query",
     "query": "demo_cpu_usage_seconds_total",
+    "category": "selector_plain",
     "timeOffsetSeconds": 0
   },
   {
     "name": "selector_regex_instant_long",
     "endpoint": "query",
     "query": "demo_memory_usage_bytes{instance=~\"demo.promlabs.com:.*\"}",
+    "category": "selector_regex",
     "timeOffsetSeconds": 0
   },
   {
     "name": "rate_1h_instant",
     "endpoint": "query",
     "query": "rate(demo_cpu_usage_seconds_total[1h])",
+    "category": "instant_rate_short",
     "timeOffsetSeconds": 0,
     "compareMode": "structural"
   },
@@ -22,6 +25,7 @@
     "name": "rate_6h_instant",
     "endpoint": "query",
     "query": "rate(demo_cpu_usage_seconds_total[6h])",
+    "category": "instant_rate_short",
     "timeOffsetSeconds": 0,
     "compareMode": "structural"
   },
@@ -29,6 +33,7 @@
     "name": "rate_1d_instant",
     "endpoint": "query",
     "query": "rate(demo_cpu_usage_seconds_total[1d])",
+    "category": "instant_rate_long",
     "timeOffsetSeconds": 0,
     "compareMode": "structural"
   },
@@ -36,6 +41,7 @@
     "name": "avg_over_time_1d_instant",
     "endpoint": "query",
     "query": "avg_over_time(demo_memory_usage_bytes[1d])",
+    "category": "instant_avg_over_time",
     "timeOffsetSeconds": 0,
     "compareMode": "structural"
   },
@@ -43,6 +49,7 @@
     "name": "sum_rate_by_job_6h_instant",
     "endpoint": "query",
     "query": "sum by (job) (rate(demo_cpu_usage_seconds_total[6h]))",
+    "category": "instant_sum_rate",
     "timeOffsetSeconds": 0,
     "compareMode": "structural"
   },
@@ -50,6 +57,7 @@
     "name": "histogram_quantile_1h_instant",
     "endpoint": "query",
     "query": "histogram_quantile(0.95, sum by (le) (rate(demo_api_request_duration_seconds_bucket[1h])))",
+    "category": "instant_histogram_quantile",
     "timeOffsetSeconds": 0,
     "compareMode": "structural"
   },
@@ -57,6 +65,7 @@
     "name": "rate_5m_range_1d",
     "endpoint": "query_range",
     "query": "rate(demo_cpu_usage_seconds_total[5m])",
+    "category": "range_rate",
     "startOffsetSeconds": -86400,
     "endOffsetSeconds": 0,
     "stepSeconds": 300,
@@ -66,6 +75,7 @@
     "name": "sum_rate_by_job_range_7d",
     "endpoint": "query_range",
     "query": "sum by (job) (rate(demo_cpu_usage_seconds_total[1h]))",
+    "category": "range_sum_rate",
     "startOffsetSeconds": -604800,
     "endOffsetSeconds": 0,
     "stepSeconds": 3600,

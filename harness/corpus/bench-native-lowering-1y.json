@@ -3,12 +3,14 @@
     "name": "plain_selector_instant_1y",
     "endpoint": "query",
     "query": "demo_cpu_usage_seconds_total",
+    "category": "selector_plain",
     "timeOffsetSeconds": 0
   },
   {
     "name": "rate_1d_instant_1y",
     "endpoint": "query",
     "query": "rate(demo_cpu_usage_seconds_total[1d])",
+    "category": "instant_rate_long",
     "timeOffsetSeconds": 0,
     "compareMode": "structural"
   },
@@ -16,6 +18,7 @@
     "name": "rate_7d_instant_1y",
     "endpoint": "query",
     "query": "rate(demo_cpu_usage_seconds_total[7d])",
+    "category": "instant_rate_long",
     "timeOffsetSeconds": 0,
     "compareMode": "structural"
   },
@@ -23,6 +26,7 @@
     "name": "rate_30d_instant_1y",
     "endpoint": "query",
     "query": "rate(demo_cpu_usage_seconds_total[30d])",
+    "category": "instant_rate_long",
     "timeOffsetSeconds": 0,
     "compareMode": "structural"
   },
@@ -30,6 +34,7 @@
     "name": "avg_over_time_30d_instant_1y",
     "endpoint": "query",
     "query": "avg_over_time(demo_memory_usage_bytes[30d])",
+    "category": "instant_avg_over_time",
     "timeOffsetSeconds": 0,
     "compareMode": "structural"
   },
@@ -37,6 +42,7 @@
     "name": "sum_rate_by_job_7d_instant_1y",
     "endpoint": "query",
     "query": "sum by (job) (rate(demo_cpu_usage_seconds_total[7d]))",
+    "category": "instant_sum_rate",
     "timeOffsetSeconds": 0,
     "compareMode": "structural"
   },
@@ -44,6 +50,7 @@
     "name": "histogram_quantile_1d_instant_1y",
     "endpoint": "query",
     "query": "histogram_quantile(0.95, sum by (le) (rate(demo_api_request_duration_seconds_bucket[1d])))",
+    "category": "instant_histogram_quantile",
     "timeOffsetSeconds": 0,
     "compareMode": "structural"
   },
@@ -51,6 +58,7 @@
     "name": "rate_1d_range_1y",
     "endpoint": "query_range",
     "query": "rate(demo_cpu_usage_seconds_total[1d])",
+    "category": "range_rate",
     "startOffsetSeconds": -31536000,
     "endOffsetSeconds": 0,
     "stepSeconds": 86400,
@@ -60,6 +68,7 @@
     "name": "sum_rate_by_job_range_1y",
     "endpoint": "query_range",
     "query": "sum by (job) (rate(demo_cpu_usage_seconds_total[1d]))",
+    "category": "range_sum_rate",
     "startOffsetSeconds": -31536000,
     "endOffsetSeconds": 0,
     "stepSeconds": 172800,
@@ -69,6 +78,7 @@
     "name": "avg_over_time_1d_range_1y",
     "endpoint": "query_range",
     "query": "avg_over_time(demo_memory_usage_bytes[1d])",
+    "category": "range_avg_over_time",
     "startOffsetSeconds": -31536000,
     "endOffsetSeconds": 0,
     "stepSeconds": 86400,

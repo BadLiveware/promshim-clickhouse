@@ -1,17 +1,4 @@
 {
-  "nextId": 296,
-  "tasks": [
-    {
-      "id": "295",
-      "subject": "Benchmark current promshim matrix",
-      "description": "Run the project benchmark matrix via scripts/run-bench.sh --matrix, capture the current worst-performing or highest-value benchmark target, and use that data to choose an optimization target.",
-      "status": "pending",
-      "activeForm": "Running benchmark matrix",
-      "metadata": {},
-      "blocks": [],
-      "blockedBy": [],
-      "createdAt": 1776886796963,
-      "updatedAt": 1776886796963
-    }
-  ]
+  "nextId": 324,
+  "tasks": []
 }

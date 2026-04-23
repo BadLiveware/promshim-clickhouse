@@ -40,15 +40,11 @@ func TestRenderFragmentBuildsRangeRateSQLWithCounterDeltaAliasesForMaterializedW
 	if err != nil {
 		t.Fatalf("expected rendered SQL, got error: %v", err)
 	}
-	for _, expected := range []string{
-		"arrayPopBack(window_values) AS window_values_prev",
-		"arrayPopFront(window_values) AS window_values_cur",
-		"arraySum(arrayMap((p, c) -> if(c < p, c, c - p), window_values_prev, window_values_cur)) AS counter_delta_sum",
-		"toFloat64(arraySum(arrayMap((p, c) -> if(c != p, 1, 0), window_values_prev, window_values_cur))) AS changes_count",
-	} {
-		if !strings.Contains(rendered.SQL, expected) {
-			t.Fatalf("expected %q in SQL, got %q", expected, rendered.SQL)
-		}
+	if strings.Contains(rendered.SQL, "window_values_prev") || strings.Contains(rendered.SQL, "window_values_cur") {
+		t.Fatalf("expected rate SQL to avoid separate pairwise-neighbor aliases, got %q", rendered.SQL)
+	}
+	if !strings.Contains(rendered.SQL, "arraySum(arrayMap((p, c) -> if(c < p, c, c - p), arrayPopBack(window_values), arrayPopFront(window_values))) AS counter_delta_sum") {
+		t.Fatalf("expected rate SQL to inline counter_delta_sum from window_values, got %q", rendered.SQL)
 	}
 	if strings.Contains(rendered.SQL, "arraySlice(window_values") {
 		t.Fatalf("expected rate SQL to avoid arraySlice(window_values, ...), got %q", rendered.SQL)

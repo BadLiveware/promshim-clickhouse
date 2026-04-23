@@ -177,7 +177,11 @@ func TestRenderFragmentBuildsInstantIncreaseSQLForDirectRangeSelector(t *testing
 	if !strings.Contains(rendered.SQL, "WHERE length(time_series) > 1") {
 		t.Fatalf("expected minimum sample filter in SQL, got %q", rendered.SQL)
 	}
-	if got := rendered.QueryParams["param_range_matrix_matcher_0_value"]; got != "up" {
+	got := rendered.QueryParams["param_range_matrix_matcher_0_value"]
+	if got == "" {
+		got = rendered.QueryParams["param_range_window_matcher_0_value"]
+	}
+	if got != "up" {
 		t.Fatalf("expected metric-name selector param, got %q with params=%#v", got, rendered.QueryParams)
 	}
 }
@@ -331,8 +335,8 @@ func TestRenderFragmentBuildsRangeSumOverTimeSQLForDirectSelector(t *testing.T) 
 	if strings.Contains(rendered.SQL, "CROSS JOIN") {
 		t.Fatalf("expected direct-selector fast path to avoid cross joining pre-materialized series, got %q", rendered.SQL)
 	}
-	if !strings.Contains(rendered.SQL, "arrayMap(point -> tupleElement(point, 1), window_series) AS window_timestamps") {
-		t.Fatalf("expected shared window timestamps array in SQL, got %q", rendered.SQL)
+	if strings.Contains(rendered.SQL, "window_timestamps") {
+		t.Fatalf("expected sum_over_time direct-selector SQL to skip unused window_timestamps alias, got %q", rendered.SQL)
 	}
 	if !strings.Contains(rendered.SQL, "arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series) AS window_values") {
 		t.Fatalf("expected shared window values array in SQL, got %q", rendered.SQL)
@@ -393,8 +397,8 @@ func TestRenderFragmentBuildsRangeSumOverTimeSQLForSubquery(t *testing.T) {
 	if !strings.Contains(rendered.SQL, "CROSS JOIN") {
 		t.Fatalf("expected eval grid cross join in SQL, got %q", rendered.SQL)
 	}
-	if !strings.Contains(rendered.SQL, "arrayMap(point -> tupleElement(point, 1), window_series) AS window_timestamps") {
-		t.Fatalf("expected shared window timestamps array in SQL, got %q", rendered.SQL)
+	if strings.Contains(rendered.SQL, "window_timestamps") {
+		t.Fatalf("expected sum_over_time subquery SQL to skip unused window_timestamps alias, got %q", rendered.SQL)
 	}
 	if !strings.Contains(rendered.SQL, "arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series) AS window_values") {
 		t.Fatalf("expected shared window values array in SQL, got %q", rendered.SQL)
@@ -485,6 +489,146 @@ func TestRenderFragmentBuildsRangeRateSQLForSubquery(t *testing.T) {
 	}
 	if !strings.Contains(rendered.SQL, "arrayFilter(point -> tupleElement(point, 1) <= grid.eval_ts") {
 		t.Fatalf("expected subquery window filtering in SQL, got %q", rendered.SQL)
+	}
+}
+
+func TestRenderFragmentBuildsInstantMaxOverTimeSQLForFusedSubqueryUsingRows(t *testing.T) {
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindRangeFunction,
+		OutputKind: native.OutputKindInstantVector,
+		RangeFunction: &native.RangeFunctionFragment{
+			Func: "max_over_time",
+			Child: &native.NativeFragment{
+				Kind:       native.FragmentKindSubquery,
+				OutputKind: native.OutputKindRangeMatrix,
+				Subquery: &native.SubqueryFragment{
+					Range: 5 * time.Minute,
+					Step:  30 * time.Second,
+					Child: &native.NativeFragment{
+						Kind:       native.FragmentKindAggregation,
+						OutputKind: native.OutputKindInstantVector,
+						Aggregation: &native.AggregationFragment{
+							Op:       parser.SUM,
+							Grouping: []string{"job"},
+							Source: &native.NativeFragment{
+								Kind:       native.FragmentKindRangeFunction,
+								OutputKind: native.OutputKindInstantVector,
+								RangeFunction: &native.RangeFunctionFragment{
+									Func: "rate",
+									Child: &native.NativeFragment{
+										Kind:       native.FragmentKindLeafSource,
+										OutputKind: native.OutputKindRangeMatrix,
+										Selector: &native.SelectorSource{
+											Kind:       native.SelectorKindRangeVector,
+											MetricName: "demo_cpu_usage_seconds_total",
+											Lookback:   time.Minute,
+										},
+										ValueExpr: "{value}",
+										TagsExpr:  "{tags}",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
+		Mode:             native.RenderModeInstant,
+		EvaluationTimeMS: 300000,
+		RequiredStartMS:  -300000,
+		RequiredEndMS:    300000,
+	})
+	if err != nil {
+		t.Fatalf("expected rendered SQL, got error: %v", err)
+	}
+	if !strings.Contains(rendered.SQL, "maxIf(value, NOT isNaN(value))") {
+		t.Fatalf("expected instant max_over_time row fast path to aggregate directly over rows, got %q", rendered.SQL)
+	}
+	if !strings.Contains(rendered.SQL, "fromUnixTimestamp64Milli(300000) AS timestamp") {
+		t.Fatalf("expected instant max_over_time row fast path to stamp the evaluation time directly, got %q", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, "max(timestamp) AS timestamp") {
+		t.Fatalf("expected instant max_over_time row fast path to avoid redundant max(timestamp) aggregation, got %q", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, "SELECT tags AS final_tags, timestamp AS timestamp, value AS value FROM (") {
+		t.Fatalf("expected instant max_over_time row fast path to aggregate directly over source rows without an extra prepared subquery, got %q", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, "time_series AS time_series") || strings.Contains(rendered.SQL, "groupArray((timestamp, value))) AS time_series") {
+		t.Fatalf("expected instant max_over_time row fast path to avoid time_series materialization, got %q", rendered.SQL)
+	}
+}
+
+func TestRenderFragmentBuildsRangeMaxOverTimeSQLForFusedSubqueryUsingRows(t *testing.T) {
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindRangeFunction,
+		OutputKind: native.OutputKindInstantVector,
+		RangeFunction: &native.RangeFunctionFragment{
+			Func: "max_over_time",
+			Child: &native.NativeFragment{
+				Kind:       native.FragmentKindSubquery,
+				OutputKind: native.OutputKindRangeMatrix,
+				Subquery: &native.SubqueryFragment{
+					Range: 5 * time.Minute,
+					Step:  30 * time.Second,
+					Child: &native.NativeFragment{
+						Kind:       native.FragmentKindAggregation,
+						OutputKind: native.OutputKindInstantVector,
+						Aggregation: &native.AggregationFragment{
+							Op:       parser.SUM,
+							Grouping: []string{"job"},
+							Source: &native.NativeFragment{
+								Kind:       native.FragmentKindRangeFunction,
+								OutputKind: native.OutputKindInstantVector,
+								RangeFunction: &native.RangeFunctionFragment{
+									Func: "rate",
+									Child: &native.NativeFragment{
+										Kind:       native.FragmentKindLeafSource,
+										OutputKind: native.OutputKindRangeMatrix,
+										Selector: &native.SelectorSource{
+											Kind:       native.SelectorKindRangeVector,
+											MetricName: "demo_cpu_usage_seconds_total",
+											Lookback:   time.Minute,
+										},
+										ValueExpr: "{value}",
+										TagsExpr:  "{tags}",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
+		Mode:            native.RenderModeRange,
+		StartMS:         0,
+		EndMS:           300000,
+		StepMS:          30000,
+		RequiredStartMS: -300000,
+		RequiredEndMS:   300000,
+	})
+	if err != nil {
+		t.Fatalf("expected rendered SQL, got error: %v", err)
+	}
+	if !strings.Contains(rendered.SQL, "maxIf(source.value, NOT isNaN(source.value))") {
+		t.Fatalf("expected fused subquery max_over_time SQL to aggregate outer windows directly over row values, got %q", rendered.SQL)
+	}
+	if !strings.Contains(rendered.SQL, "SELECT tags AS final_tags, grid.eval_ts AS timestamp,") {
+		t.Fatalf("expected fused subquery max_over_time SQL to reuse child tags when metric name is already absent, got %q", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, "groupArray((source.timestamp, source.value))) AS window_series") {
+		t.Fatalf("expected fused subquery max_over_time SQL to avoid outer row window materialization, got %q", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, "source.time_series") {
+		t.Fatalf("expected fused subquery max_over_time SQL to avoid outer source.time_series materialization, got %q", rendered.SQL)
+	}
+	if got := strings.Count(rendered.SQL, "groupArray((timestamp, value))) AS time_series"); got != 1 {
+		t.Fatalf("expected only the final range result to materialize time_series once, got count=%d sql=%q", got, rendered.SQL)
 	}
 }
 
@@ -1217,6 +1361,31 @@ func TestRenderClassicHistogramGroupsQueryBuildsRangeMaterializationSQL(t *testi
 	}
 }
 
+func TestRenderClassicHistogramGroupsQueryBuildsRangeRowChildSQLForFusedAggregation(t *testing.T) {
+	fragment, err := renderClassicHistogramGroupsQuery(storage.QueryConfig{Database: "observability", Table: "prometheus"}, &native.NativeFragment{Kind: native.FragmentKindAggregation, OutputKind: native.OutputKindRangeMatrix, Aggregation: &native.AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &native.NativeFragment{Kind: native.FragmentKindRangeFunction, OutputKind: native.OutputKindInstantVector, RangeFunction: &native.RangeFunctionFragment{Func: "rate", Child: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindRangeMatrix, Selector: &native.SelectorSource{Kind: native.SelectorKindRangeVector, MetricName: "http_request_duration_seconds_bucket", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}}}, RenderParams{Mode: native.RenderModeRange, StartMS: 0, EndMS: 120000, StepMS: 60000, RequiredStartMS: -300000, RequiredEndMS: 120000}, "hist")
+	if err != nil {
+		t.Fatalf("expected fused classic histogram range SQL, got error: %v", err)
+	}
+	rendered, err := finalizeRenderedFragment(fragment)
+	if err != nil {
+		t.Fatalf("expected finalized fused classic histogram range SQL, got error: %v", err)
+	}
+	checks := []string{
+		"histogram_child_rows",
+		"timestamp AS timestamp",
+		"ifNull(toFloat64(value), nan) AS cumulative_count",
+		"GROUP BY histogram_tags, timestamp, upper_bound",
+	}
+	for _, check := range checks {
+		if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(check)) {
+			t.Fatalf("expected fused classic histogram range SQL to contain %q, got %q", check, rendered.SQL)
+		}
+	}
+	if strings.Contains(rendered.SQL, "ARRAY JOIN histogram_series.time_series AS point") {
+		t.Fatalf("expected fused classic histogram range SQL to avoid histogram child ARRAY JOIN, got %q", rendered.SQL)
+	}
+}
+
 func TestRenderFragmentBuildsHistogramProjectionSQL(t *testing.T) {
 	testCases := []struct {
 		name        string
@@ -1247,7 +1416,7 @@ func TestRenderFragmentBuildsHistogramProjectionSQL(t *testing.T) {
 			if err != nil {
 				t.Fatalf("expected histogram projection range SQL, got error: %v", err)
 			}
-			rangeChecks := []string{"arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series", "GROUP BY tags ORDER BY tags"}
+			rangeChecks := []string{"arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series", "GROUP BY tags"}
 			for _, check := range rangeChecks {
 				if !strings.Contains(sqlb.NormalizeSQL(rangeRendered.SQL), sqlb.NormalizeSQL(check)) {
 					t.Fatalf("expected histogram projection range SQL to contain %q, got %q", check, rangeRendered.SQL)
@@ -1273,6 +1442,30 @@ func TestRenderFragmentBuildsHistogramQuantilesSQL(t *testing.T) {
 	}
 }
 
+func TestRenderFragmentBuildsRangeHistogramQuantileSQLReusesLEOnlyTags(t *testing.T) {
+	quantile := 0.9
+	fragment := &native.NativeFragment{Kind: native.FragmentKindHistogramFunction, OutputKind: native.OutputKindInstantVector, HistogramFunction: &native.HistogramFunctionFragment{Func: "histogram_quantile", Quantile: &quantile, Child: &native.NativeFragment{Kind: native.FragmentKindAggregation, OutputKind: native.OutputKindInstantVector, Aggregation: &native.AggregationFragment{Op: parser.SUM, Grouping: []string{"le"}, Source: &native.NativeFragment{Kind: native.FragmentKindRangeFunction, OutputKind: native.OutputKindInstantVector, RangeFunction: &native.RangeFunctionFragment{Func: "rate", Child: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindRangeMatrix, Selector: &native.SelectorSource{Kind: native.SelectorKindRangeVector, MetricName: "http_request_duration_seconds_bucket", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}}}}}
+
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{Mode: native.RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 60000, RequiredStartMS: 0, RequiredEndMS: 300000})
+	if err != nil {
+		t.Fatalf("expected range histogram quantile SQL, got error: %v", err)
+	}
+	for _, unwanted := range []string{"arrayFilter(tag -> has(['le'], tag.1), tags) AS tags", "arrayFilter(tag -> tag.1 != 'le' AND tag.1 != '__name__', tags) AS histogram_tags", "window_values_prev", "window_values_cur", "GROUP BY histogram_tags, timestamp, upper_bound", "GROUP BY histogram_tags, timestamp"} {
+		if strings.Contains(rendered.SQL, unwanted) {
+			t.Fatalf("expected le-only range histogram quantile SQL to avoid %q, got %q", unwanted, rendered.SQL)
+		}
+	}
+	if !strings.Contains(rendered.SQL, "CAST([], 'Array(Tuple(String, String))') AS histogram_tags") {
+		t.Fatalf("expected le-only range histogram quantile SQL to reuse empty histogram tags, got %q", rendered.SQL)
+	}
+	if !strings.Contains(rendered.SQL, "SELECT CAST([], 'Array(Tuple(String, String))') AS tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series") {
+		t.Fatalf("expected le-only range histogram quantile SQL to avoid final GROUP BY tags wrapper, got %q", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, "GROUP BY tags ORDER BY tags") {
+		t.Fatalf("expected le-only range histogram quantile SQL to avoid final constant-tag grouping, got %q", rendered.SQL)
+	}
+}
+
 func TestRenderFragmentBuildsHistogramQuantileSQL(t *testing.T) {
 	quantile := 0.9
 	fragment := &native.NativeFragment{Kind: native.FragmentKindHistogramFunction, OutputKind: native.OutputKindInstantVector, HistogramFunction: &native.HistogramFunctionFragment{Func: "histogram_quantile", Quantile: &quantile, Child: &native.NativeFragment{Kind: native.FragmentKindAggregation, OutputKind: native.OutputKindInstantVector, Aggregation: &native.AggregationFragment{Op: parser.SUM, Grouping: []string{"le", "job"}, Source: &native.NativeFragment{Kind: native.FragmentKindRangeFunction, OutputKind: native.OutputKindInstantVector, RangeFunction: &native.RangeFunctionFragment{Func: "rate", Child: &native.NativeFragment{Kind: native.FragmentKindLeafSource, OutputKind: native.OutputKindRangeMatrix, Selector: &native.SelectorSource{Kind: native.SelectorKindRangeVector, MetricName: "http_request_duration_seconds_bucket", Lookback: 5 * time.Minute}, ValueExpr: "{value}", TagsExpr: "{tags}"}}}}}}}
@@ -1281,11 +1474,19 @@ func TestRenderFragmentBuildsHistogramQuantileSQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected histogram quantile SQL, got error: %v", err)
 	}
-	checks := []string{"histogram_quantile_prepared_counts", "histogram_quantile_ranked", "bucket_index AS bucket_index", "last_upper AS last_upper", "histogram_bucket_materialization_boundary"}
+	checks := []string{"histogram_quantile_prepared_arrays", "histogram_quantile_ranked", "bucket_index AS bucket_index", "last_upper AS last_upper", "histogram_bucket_materialization_boundary"}
 	for _, check := range checks[:4] {
 		if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(check)) {
 			t.Fatalf("expected histogram_quantile SQL to contain %q, got %q", check, rendered.SQL)
 		}
+	}
+	for _, unwanted := range []string{" AS prev_counts", " AS search_counts", "histogram_quantile_prepared_counts", "GROUP BY histogram_tags, timestamp ORDER BY tags, timestamp", "GROUP BY grouping_tags ORDER BY grouping_tags", "GROUP BY tags ORDER BY tags", "groupArray((timestamp, value))) AS time_series FROM (SELECT grouping_tags AS tags, max(timestamp) AS timestamp"} {
+		if strings.Contains(rendered.SQL, unwanted) {
+			t.Fatalf("expected staged histogram_quantile SQL to avoid unused/intermediate ordering %q, got %q", unwanted, rendered.SQL)
+		}
+	}
+	if !strings.Contains(rendered.SQL, "arrayFilter(tag -> has(['le', 'job'], tag.1), arrayConcat([tuple('__name__', src.metric_name)]") {
+		t.Fatalf("expected histogram_quantile SQL to narrow selector tags to required grouping labels, got %q", rendered.SQL)
 	}
 	if got, max := len(rendered.SQL), 10000; got >= max {
 		t.Fatalf("expected staged histogram_quantile SQL to stay under %d chars, got %d", max, got)
@@ -1300,10 +1501,10 @@ func TestRenderFragmentBuildsRangeTopKOverHistogramQuantileWithTaggedHistogramSo
 	if err != nil {
 		t.Fatalf("expected topk-over-histogram range SQL, got error: %v", err)
 	}
-	if strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL("CAST([], 'Array(Tuple(String, String))') AS tags")) {
-		t.Fatalf("expected histogram source tags to be preserved for topk wrapper, got %q", rendered.SQL)
+	if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL("CAST([], 'Array(Tuple(String, String))') AS tags")) {
+		t.Fatalf("expected topk-over-histogram le-only path to collapse output tags to the empty tag set, got %q", rendered.SQL)
 	}
-	for _, check := range []string{"arrayConcat([tuple('__name__', src.metric_name)]", "series.tags AS tags", "tupleElement(arrayFirst(tag -> tag.1 = 'le', tags), 2)", "row_number() OVER (PARTITION BY grouping_tags, timestamp ORDER BY isNaN(value) ASC, value DESC, tags ASC)"} {
+	for _, check := range []string{"if(mapContains(src.tags, 'le'), [tuple('le', concat('', src.tags['le']))], CAST([], 'Array(Tuple(String, String))'))", "tupleElement(arrayFirst(tag -> tag.1 = 'le', tags), 2)", "row_number() OVER (PARTITION BY grouping_tags, timestamp ORDER BY isNaN(value) ASC, value DESC, tags ASC)"} {
 		if !strings.Contains(sqlb.NormalizeSQL(rendered.SQL), sqlb.NormalizeSQL(check)) {
 			t.Fatalf("expected topk-over-histogram SQL to contain %q, got %q", check, rendered.SQL)
 		}

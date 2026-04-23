@@ -66,12 +66,12 @@ func BuildRangeSelectorRowsQuerySQL(cfg QueryConfig, selector SelectorSource, re
 	return sql + schema.QuerySuffix, params, nil
 }
 
-func BuildRangeWindowSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, windowValueExpr string, minimumSeriesLength int) (string, map[string]string, error) {
-	return BuildRangeWindowSelectorQuerySQLWithFinalTags(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, windowValueExpr, "", minimumSeriesLength)
+func BuildRangeWindowSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, windowValueExpr string, minimumSeriesLength int) (string, map[string]string, error) {
+	return BuildRangeWindowSelectorQuerySQLWithFinalTags(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, fn, windowValueExpr, "", minimumSeriesLength)
 }
 
-func BuildRangeWindowSelectorRowsQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, windowValueExpr, finalTagsSQL string, minimumSeriesLength int) (string, map[string]string, error) {
-	perStep, params, _, err := buildRangeWindowSelectorPerStepQuery(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, windowValueExpr, finalTagsSQL, minimumSeriesLength)
+func BuildRangeWindowSelectorRowsQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, windowValueExpr, finalTagsSQL string, minimumSeriesLength int) (string, map[string]string, error) {
+	perStep, params, _, err := buildRangeWindowSelectorPerStepQuery(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, fn, windowValueExpr, finalTagsSQL, minimumSeriesLength)
 	if err != nil {
 		return "", nil, err
 	}
@@ -86,8 +86,8 @@ func BuildRangeWindowSelectorRowsQuerySQLWithFinalTags(cfg QueryConfig, selector
 	return sql + schema.QuerySuffix, params, nil
 }
 
-func BuildRangeWindowSelectorQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, windowValueExpr, finalTagsSQL string, minimumSeriesLength int) (string, map[string]string, error) {
-	perStep, params, orderBy, err := buildRangeWindowSelectorPerStepQuery(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, windowValueExpr, finalTagsSQL, minimumSeriesLength)
+func BuildRangeWindowSelectorQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, windowValueExpr, finalTagsSQL string, minimumSeriesLength int) (string, map[string]string, error) {
+	perStep, params, orderBy, err := buildRangeWindowSelectorPerStepQuery(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, fn, windowValueExpr, finalTagsSQL, minimumSeriesLength)
 	if err != nil {
 		return "", nil, err
 	}
@@ -104,7 +104,7 @@ func BuildRangeWindowSelectorQuerySQLWithFinalTags(cfg QueryConfig, selector Sel
 	return sql + schema.QuerySuffix, params, nil
 }
 
-func buildRangeWindowSelectorPerStepQuery(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, windowValueExpr, finalTagsSQL string, minimumSeriesLength int) (*sqlb.Select, map[string]string, []sqlb.OrderExpr, error) {
+func buildRangeWindowSelectorPerStepQuery(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, windowValueExpr, finalTagsSQL string, minimumSeriesLength int) (*sqlb.Select, map[string]string, []sqlb.OrderExpr, error) {
 	if selector.Kind != SelectorKindRangeVector {
 		return nil, nil, nil, fmt.Errorf("range-window selector SQL requires a range-vector selector, got %q", selector.Kind)
 	}
@@ -140,19 +140,34 @@ func buildRangeWindowSelectorPerStepQuery(cfg QueryConfig, selector SelectorSour
 		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("series.id"), Alias: "id"}, {Expr: gridTagsExpr, Alias: "tags"}, {Expr: sqlb.RawLit{V: "arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64})))"}, Alias: "eval_ts"}},
 		From:    sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},
 	}
+	windowColumns := []sqlb.ColExpr{
+		{Expr: windowTagsExpr, Alias: "tags"},
+		{Expr: sqlb.Ident("grid.eval_ts"), Alias: "eval_ts"},
+		{Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((d.timestamp, d.value)))"}, Alias: "window_series"},
+	}
+	if rangeWindowFunctionNeedsTimestamps(fn) {
+		windowColumns = append(windowColumns, sqlb.ColExpr{Expr: sqlb.RawLit{V: "arrayMap(point -> tupleElement(point, 1), window_series)"}, Alias: "window_timestamps"})
+	}
+	if rangeWindowFunctionNeedsDuration(fn) {
+		windowColumns = append(windowColumns, sqlb.ColExpr{Expr: sqlb.RawLit{V: "tupleElement(arrayElement(window_series, length(window_series)), 1) - tupleElement(arrayElement(window_series, 1), 1)"}, Alias: "window_duration_ms"})
+	}
+	if rangeWindowFunctionNeedsValues(fn) {
+		windowColumns = append(windowColumns, sqlb.ColExpr{Expr: sqlb.RawLit{V: "arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series)"}, Alias: "window_values"})
+	}
+	if rangeWindowFunctionNeedsPairwiseNeighbors(fn) {
+		windowColumns = append(windowColumns,
+			sqlb.ColExpr{Expr: sqlb.RawLit{V: "arrayPopBack(window_values)"}, Alias: "window_values_prev"},
+			sqlb.ColExpr{Expr: sqlb.RawLit{V: "arrayPopFront(window_values)"}, Alias: "window_values_cur"},
+		)
+	}
+	if rangeWindowFunctionNeedsCounterDelta(fn) {
+		windowColumns = append(windowColumns, sqlb.ColExpr{Expr: sqlb.RawLit{V: "arraySum(arrayMap((p, c) -> if(c < p, c, c - p), window_values_prev, window_values_cur))"}, Alias: "counter_delta_sum"})
+	}
+	if rangeWindowFunctionNeedsChangesCount(fn) {
+		windowColumns = append(windowColumns, sqlb.ColExpr{Expr: sqlb.RawLit{V: "toFloat64(arraySum(arrayMap((p, c) -> if(c != p, 1, 0), window_values_prev, window_values_cur)))"}, Alias: "changes_count"})
+	}
 	windowed := &sqlb.Select{
-		Columns: []sqlb.ColExpr{
-			{Expr: windowTagsExpr, Alias: "tags"},
-			{Expr: sqlb.Ident("grid.eval_ts"), Alias: "eval_ts"},
-			{Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((d.timestamp, d.value)))"}, Alias: "window_series"},
-			{Expr: sqlb.RawLit{V: "arrayMap(point -> tupleElement(point, 1), window_series)"}, Alias: "window_timestamps"},
-			{Expr: sqlb.RawLit{V: "arrayElement(window_timestamps, length(window_series)) - arrayElement(window_timestamps, 1)"}, Alias: "window_duration_ms"},
-			{Expr: sqlb.RawLit{V: "arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series)"}, Alias: "window_values"},
-			{Expr: sqlb.RawLit{V: "arrayPopBack(window_values)"}, Alias: "window_values_prev"},
-			{Expr: sqlb.RawLit{V: "arrayPopFront(window_values)"}, Alias: "window_values_cur"},
-			{Expr: sqlb.RawLit{V: "arraySum(arrayMap((p, c) -> if(c < p, c, c - p), window_values_prev, window_values_cur))"}, Alias: "counter_delta_sum"},
-			{Expr: sqlb.RawLit{V: "toFloat64(arraySum(arrayMap((p, c) -> if(c != p, 1, 0), window_values_prev, window_values_cur)))"}, Alias: "changes_count"},
-		},
+		Columns: windowColumns,
 		From:    sqlb.Join{Left: sqlb.SubSelect{S: grid, Alias: "grid"}, Right: sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"}, Kind: "INNER", On: sqlb.RawLit{V: "d.id = grid.id"}},
 		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64}) AND d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64}) AND " + staleNaNFilterSQL("d.value")},
 		GroupBy: groupByWindow,
@@ -163,6 +178,50 @@ func buildRangeWindowSelectorPerStepQuery(cfg QueryConfig, selector SelectorSour
 		Where:   sqlb.RawLit{V: "length(window_series) > " + strconv.Itoa(minimumSeriesLength)},
 	}
 	return perStep, params, orderBy, nil
+}
+
+func rangeWindowFunctionNeedsTimestamps(fn string) bool {
+	switch fn {
+	case "irate", "increase", "delta", "deriv", "predict_linear", "ts_of_first_over_time", "ts_of_last_over_time", "ts_of_max_over_time", "ts_of_min_over_time":
+		return true
+	default:
+		return false
+	}
+}
+
+func rangeWindowFunctionNeedsDuration(fn string) bool {
+	return fn == "rate"
+}
+
+func rangeWindowFunctionNeedsValues(fn string) bool {
+	switch fn {
+	case "first_over_time", "last_over_time", "count_over_time", "present_over_time", "ts_of_first_over_time", "ts_of_last_over_time":
+		return false
+	default:
+		return true
+	}
+}
+
+func rangeWindowFunctionNeedsPairwiseNeighbors(fn string) bool {
+	switch fn {
+	case "rate", "increase", "changes":
+		return true
+	default:
+		return false
+	}
+}
+
+func rangeWindowFunctionNeedsCounterDelta(fn string) bool {
+	switch fn {
+	case "rate", "increase":
+		return true
+	default:
+		return false
+	}
+}
+
+func rangeWindowFunctionNeedsChangesCount(fn string) bool {
+	return fn == "changes"
 }
 
 func buildInstantSourceQuerySQL(cfg QueryConfig, source AggregationSource, evaluationTimeMS, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
@@ -347,10 +406,8 @@ func buildRangeMatrixSelectorSourceSQL(cfg QueryConfig, selector SelectorSource,
 		return "", nil, err
 	}
 	selectTagsExpr := sqlb.Expr(sqlb.Ident("series.tags"))
-	orderBy := []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}}
 	if !selector.NeedTags {
 		selectTagsExpr = schema.EmptyTagsArrayExpr()
-		orderBy = nil
 	}
 	inner := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
@@ -373,7 +430,6 @@ func buildRangeMatrixSelectorSourceSQL(cfg QueryConfig, selector SelectorSource,
 		},
 		From:    sqlb.SubSelect{S: inner},
 		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
-		OrderBy: orderBy,
 	}
 	sql, _, err := outer.Build()
 	if err != nil {
@@ -392,12 +448,21 @@ func selectorTagsExpr(selector SelectorSource, metricColumn, tagsColumn string) 
 		}},
 	}}
 	if !selector.RequireFullTags && len(selector.RequiredTagLabels) > 0 {
+		if len(selector.RequiredTagLabels) == 1 {
+			label := selector.RequiredTagLabels[0]
+			if label == "__name__" {
+				return "[tuple('__name__', " + metricColumn + ")]"
+			}
+			labelLit := sqlStringLiteral(label)
+			return "if(mapContains(" + tagsColumn + ", " + labelLit + "), [tuple(" + labelLit + ", concat('', " + tagsColumn + "[" + labelLit + "]))], CAST([], '" + schema.TagsArrayType + "'))"
+		}
+		filtered := sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{
+			sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(selector.RequiredTagLabels) + ", tag.1)"},
+			base,
+		}}
 		return renderStorageExprNoParams(sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
 			sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},
-			sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{
-				sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(selector.RequiredTagLabels) + ", tag.1)"},
-				base,
-			}},
+			filtered,
 		}})
 	}
 	return renderStorageExprNoParams(base)

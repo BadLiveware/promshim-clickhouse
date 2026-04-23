@@ -96,6 +96,34 @@ All scripts live in `scripts/`. Run with `--help` for full flags.
 | `seed-long-range.sh --profile {7d\|30d\|1y}` | 2–15 s | Once per `docker volume rm`. Seeds a non-overlapping window into the same `observability.prometheus` table, distinct pinned eval-time. |
 | `run-bench.sh --long-range {7d\|30d\|1y\|all}` | 90 / 360 / 120 / ~570 s | Scan-work / partition-pruning signal. 7d = baseline `SelectedRows` signal, 30d = crosses `PARTITION BY toYYYYMM`, 1y = 12 partitions (use `--repeats 3 --warmup 1`). Skips Prom (backdated writes are CH-only). |
 
+## Serialize measurement runs — never parallelize conflicting tools
+
+The compliance stack has **one** promshim + **one** ClickHouse. Any two
+tools that read `system.query_log`, hit `:29091`, or rebuild/restart a
+container will contaminate or invalidate each other's output. **Always
+run these sequentially against the same stack, never in parallel:**
+
+| Conflict | Why it ruins the data |
+|---|---|
+| `ch-profile-capture.sh` + `run-compliance.sh` (rebuild/bring-up) | The rebuild restarts promshim mid-capture, often in `force_supported` mode, so the query_log the capture aggregates is a mix of pre-restart, compliance-pass, and post-restart rows. Produces "271 normalized queries" noise instead of the ~25 a bench-only run produces. |
+| Two `ch-profile-capture.sh` / `run-bench.sh` runs at once | Both write `harness/artifacts/bench-report.json` and `ch-profile.json`; last writer wins and the earlier run's samples also ended up in the same `system.query_log` window. |
+| `seed-long-range.sh` + any bench or capture | The bench sees partial data; the capture aggregates over samples from the still-running seed. Finish seeding, then measure. |
+| `ch-explain.sh` + matrix bench | Both pull SQL from `system.query_log` by marker. Concurrent runs interleave rows and the explain may grab the wrong query's SQL. |
+| `ch-explain-diff.sh` + anything | It rebuilds and restarts the shim per ref. Nothing else may be running against `:29091` while it does. |
+| `ch-profile-capture.sh --bring-up` + a separate bench step | The `--bring-up` rebuild and the downstream bench step race; the capture artifact becomes non-comparable. Either use `--bring-up` alone, or bring up first and then run a bench-only capture. |
+
+**The rule:** if a measurement artifact doesn't look right, do **not** try
+to recover it — throw it out and re-run the step sequentially from a
+quiet stack. Mixed artifacts have been repeatedly mistaken for real
+signal; discard-and-redo is faster than trying to subtract the noise.
+
+**Exceptions (safe to parallelize):**
+- Reading already-written artifacts (`jq`, `ch-profile-diff.sh` on two
+  preserved files, viewing explain dumps).
+- Running independent stacks on different ports/volumes.
+- Anything that does not touch `:29091`, `:29090`, `:28123`, the
+  compliance docker volume, or `harness/artifacts/`.
+
 ## Reading the signals
 
 | Signal shape | Verdict |
@@ -156,6 +184,9 @@ additive and persists until `docker volume rm`.
 | "The message says CSE; I'll just check the counters." | Check the *diff* first. If the patch doesn't actually do a CSE, no counter movement attributes to a CSE. Reject for the mismatch. |
 | "I ran `ch-profile-capture.sh` once, I have my before/after." | Single capture = no before. The file is overwritten each run; `cp` the baseline under a `-<sha>.json` name before re-capturing or the diff is meaningless. |
 | "My claim doesn't fit the signal table neatly." | Pick the closest row. If truly novel, state the expected signal *in the commit message* so review is decidable. |
+| "I'll run the rebuild and the bench in parallel to save time." | The rebuild restarts promshim mid-bench; the artifact is contaminated. Run sequentially. |
+| "I'll capture a profile while the compliance suite runs." | The capture aggregates `system.query_log` over whatever ran in that window, including compliance queries. The "after" artifact is non-comparable. |
+| "The artifact looks a bit weird but I can work around it." | Don't. Mixed artifacts have been repeatedly mistaken for real signal. Discard and re-run from a quiet stack. |
 
 ## Red flags — stop and verify
 
@@ -167,6 +198,10 @@ additive and persists until `docker volume rm`.
 - Commit message describes a different change than the diff (even if the
   diff looks good — the message is part of the review contract).
 - Only one `ch-profile.json` on disk, claimed as before/after evidence.
+- Two measurement tools running against the same stack at the same time
+  (rebuild + capture, capture + compliance, bench + seed, etc.).
+- Capture artifact with a surprising number of normalized queries (e.g.
+  ~25 expected, 200+ actual) — stack was not quiet. Discard and re-run.
 
 **All of these mean: the commit's claim is unverified. Check the signals
 before merging.**

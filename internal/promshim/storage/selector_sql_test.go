@@ -98,6 +98,21 @@ func TestBuildInstantSelectorQuerySQLMatchesNormalizedBuilderShape(t *testing.T)
 	}
 }
 
+func TestSelectorTagsExprSkipsSortForSingleRequiredLabel(t *testing.T) {
+	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, 0, SelectorKindInstantVector)
+	selector.RequireFullTags = false
+	selector.RequiredTagLabels = []string{"job"}
+	got := selectorTagsExpr(selector, "metric_name", "tags")
+	if !strings.Contains(got, "if(mapContains(tags, 'job'), [tuple('job', concat('', tags['job']))], CAST([], 'Array(Tuple(String, String))'))") {
+		t.Fatalf("expected direct single-label selector tags expr, got %q", got)
+	}
+	for _, unwanted := range []string{"arrayFilter(", "arraySort(", "arrayConcat([tuple('__name__'", "mapKeys(tags)", "mapValues(tags)"} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("expected single-label selector tags expr to avoid %q, got %q", unwanted, got)
+		}
+	}
+}
+
 func TestBuildInstantSelectorQuerySQLOmitsTagsProjectionWhenUnneeded(t *testing.T) {
 	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, 0, SelectorKindInstantVector)
 	selector.NeedTags = false
@@ -118,7 +133,7 @@ func TestBuildInstantSelectorQuerySQLOmitsTagsProjectionWhenUnneeded(t *testing.
 func TestBuildRangeWindowSelectorQuerySQLUsesStepGridAndRangeWindow(t *testing.T) {
 	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, time.Minute, SelectorKindRangeVector)
 
-	sql, params, err := BuildRangeWindowSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -360000, 300000, 0, 300000, 30000, "arraySum(arrayMap(point -> point.2, window_series))", 0)
+	sql, params, err := BuildRangeWindowSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -360000, 300000, 0, 300000, 30000, "sum_over_time", "arraySum(arrayMap(point -> point.2, window_series))", 0)
 	if err != nil {
 		t.Fatalf("expected range window selector SQL, got error: %v", err)
 	}
@@ -135,7 +150,7 @@ func TestBuildRangeWindowSelectorQuerySQLUsesStepGridAndRangeWindow(t *testing.T
 func TestBuildRangeWindowSelectorQuerySQLUsesInclusiveTemporalBounds(t *testing.T) {
 	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, time.Minute, SelectorKindRangeVector)
 
-	sql, _, err := BuildRangeWindowSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -360000, 240000, 0, 300000, 30000, "arraySum(arrayMap(point -> point.2, window_series))", 0)
+	sql, _, err := BuildRangeWindowSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -360000, 240000, 0, 300000, 30000, "sum_over_time", "arraySum(arrayMap(point -> point.2, window_series))", 0)
 	if err != nil {
 		t.Fatalf("expected range window selector SQL, got error: %v", err)
 	}
@@ -144,6 +159,24 @@ func TestBuildRangeWindowSelectorQuerySQLUsesInclusiveTemporalBounds(t *testing.
 	}
 	if !strings.Contains(sql, "d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})") {
 		t.Fatalf("expected inclusive left-edge bound in SQL, got %q", sql)
+	}
+}
+
+func TestBuildRangeWindowSelectorQuerySQLSkipsUnusedRateAliases(t *testing.T) {
+	selector := selectorSourceFromMatchers("demo_cpu_usage_seconds_total", nil, 5*time.Minute, 0, SelectorKindRangeVector)
+
+	sql, _, err := BuildRangeWindowSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -300000, 300000, 0, 300000, 30000, "rate", "if(arrayExists(v -> isNaN(v), window_values) OR (window_duration_ms) <= 0, nan, (counter_delta_sum) / (window_duration_ms))", 1)
+	if err != nil {
+		t.Fatalf("expected rate range window selector SQL, got error: %v", err)
+	}
+	if strings.Contains(sql, "window_timestamps") {
+		t.Fatalf("expected rate SQL to skip unused window_timestamps alias, got %q", sql)
+	}
+	if strings.Contains(sql, "changes_count") {
+		t.Fatalf("expected rate SQL to skip unused changes_count alias, got %q", sql)
+	}
+	if !strings.Contains(sql, "tupleElement(arrayElement(window_series, length(window_series)), 1) - tupleElement(arrayElement(window_series, 1), 1) AS window_duration_ms") {
+		t.Fatalf("expected rate SQL to compute duration directly from window_series, got %q", sql)
 	}
 }
 

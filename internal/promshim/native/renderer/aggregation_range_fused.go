@@ -13,11 +13,7 @@ func tryRenderFusedRangeAggregationFragment(cfg storage.QueryConfig, fragment *n
 	if !canFuseRangeAggregationFragment(fragment, params) {
 		return renderedFragment{}, false, nil
 	}
-	rowsSQL, rowParams, err := renderRangeFunctionRowsSQL(cfg, fragment.Aggregation.Source, params)
-	if err != nil {
-		return renderedFragment{}, false, err
-	}
-	sql, queryParams, err := storage.BuildRangeAggregationOverRowsSubquerySQL(rowsSQL, rowParams, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber, fragment.Aggregation.ParamString)
+	sql, queryParams, err := renderFusedRangeAggregationSQL(cfg, fragment, params)
 	if err != nil {
 		return renderedFragment{}, false, err
 	}
@@ -25,6 +21,25 @@ func tryRenderFusedRangeAggregationFragment(cfg storage.QueryConfig, fragment *n
 		return wrapZeroOnEmptyAggregationRangeSQL(trimRenderedQuerySQL(sql), queryParams, params), true, nil
 	}
 	return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, true, nil
+}
+
+func renderFusedRangeAggregationSQL(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (string, map[string]string, error) {
+	rowsSQL, rowParams, err := renderFusedRangeAggregationRowsSQL(cfg, fragment, params)
+	if err != nil {
+		return "", nil, err
+	}
+	return storage.BuildRangeRowsToMatrixSubquerySQL(rowsSQL, rowParams)
+}
+
+func renderFusedRangeAggregationRowsSQL(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (string, map[string]string, error) {
+	if !canFuseRangeAggregationFragment(fragment, params) {
+		return "", nil, fmt.Errorf("fused range aggregation rows require a supported aggregation fragment")
+	}
+	rowsSQL, rowParams, err := renderRangeFunctionRowsSQL(cfg, fragment.Aggregation.Source, params)
+	if err != nil {
+		return "", nil, err
+	}
+	return storage.BuildRangeAggregationRowsSubquerySQL(rowsSQL, rowParams, fragment.Aggregation.Op, fragment.Aggregation.Grouping, fragment.Aggregation.Without, fragment.Aggregation.ParamNumber, fragment.Aggregation.ParamString)
 }
 
 func canFuseRangeAggregationFragment(fragment *native.NativeFragment, params RenderParams) bool {
@@ -60,7 +75,8 @@ func renderRangeFunctionRowsSQL(cfg storage.QueryConfig, fragment *native.Native
 			return "", nil, err
 		}
 		windowValueExpr := rangeFunctionValueExpr(fragment.RangeFunction.Func, "window_series", "window_values", fragment.RangeFunction.ParamNumber, fragment.RangeFunction.ParamNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", selectorFragment.Selector.Lookback.Milliseconds())
-		return storage.BuildRangeWindowSelectorRowsQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, windowValueExpr, rangeFunctionTagsExpr(fragment.RangeFunction.Func), minimumSeriesLengthForRangeFunction(fragment.RangeFunction.Func))
+		tagsExpr := rangeFunctionTagsExprFromInput(fragment.RangeFunction.Func, selectorOutputHasMetricName(selectorFragment.Selector))
+		return storage.BuildRangeWindowSelectorRowsQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, fragment.RangeFunction.Func, windowValueExpr, tagsExpr, minimumSeriesLengthForRangeFunction(fragment.RangeFunction.Func))
 	}
 	if selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector {
 		childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment, params.StartMS, params.EndMS)
@@ -68,7 +84,8 @@ func renderRangeFunctionRowsSQL(cfg storage.QueryConfig, fragment *native.Native
 		if err != nil {
 			return "", nil, err
 		}
-		sql, err := buildRangeFunctionOverWindowedArraysRowsSQL(trimRenderedQuerySQL(childRendered.SQL), fragment.RangeFunction.Func, fragment.RangeFunction.ParamNumber, fragment.RangeFunction.ParamNumbers, params.StartMS, params.EndMS, params.StepMS, selectorFragment.Selector.Lookback.Milliseconds(), selectorFragment.Selector.Offset.Milliseconds())
+		tagsExpr := rangeFunctionTagsExprFromInput(fragment.RangeFunction.Func, selectorOutputHasMetricName(selectorFragment.Selector))
+		sql, err := buildRangeFunctionOverWindowedArraysRowsSQL(trimRenderedQuerySQL(childRendered.SQL), fragment.RangeFunction.Func, tagsExpr, fragment.RangeFunction.ParamNumber, fragment.RangeFunction.ParamNumbers, params.StartMS, params.EndMS, params.StepMS, selectorFragment.Selector.Lookback.Milliseconds(), selectorFragment.Selector.Offset.Milliseconds())
 		if err != nil {
 			return "", nil, err
 		}
@@ -79,7 +96,7 @@ func renderRangeFunctionRowsSQL(cfg storage.QueryConfig, fragment *native.Native
 		if err != nil {
 			return "", nil, err
 		}
-		sql, err := buildRangeFunctionOverWindowedArraysRowsSQL(trimRenderedQuerySQL(childRendered.SQL), fragment.RangeFunction.Func, fragment.RangeFunction.ParamNumber, fragment.RangeFunction.ParamNumbers, params.StartMS, params.EndMS, params.StepMS, selectorFragment.Subquery.Range.Milliseconds(), selectorFragment.Subquery.Offset.Milliseconds())
+		sql, err := buildRangeFunctionOverWindowedArraysRowsSQL(trimRenderedQuerySQL(childRendered.SQL), fragment.RangeFunction.Func, rangeFunctionTagsExpr(fragment.RangeFunction.Func), fragment.RangeFunction.ParamNumber, fragment.RangeFunction.ParamNumbers, params.StartMS, params.EndMS, params.StepMS, selectorFragment.Subquery.Range.Milliseconds(), selectorFragment.Subquery.Offset.Milliseconds())
 		if err != nil {
 			return "", nil, err
 		}
@@ -88,14 +105,14 @@ func renderRangeFunctionRowsSQL(cfg storage.QueryConfig, fragment *native.Native
 	return "", nil, fmt.Errorf("fused range aggregation currently requires a direct range-vector selector child or supported subquery child")
 }
 
-func buildRangeFunctionOverWindowedArraysRowsSQL(sourceSQL, fn string, paramNumber *float64, paramNumbers []*float64, startMS, endMS, stepMS, rangeMS, offsetMS int64) (string, error) {
-	windowedSourceSQL, err := buildWindowedArraysSourceSQL(sourceSQL, startMS, endMS, stepMS, rangeMS, offsetMS)
+func buildRangeFunctionOverWindowedArraysRowsSQL(sourceSQL, fn, tagsExpr string, paramNumber *float64, paramNumbers []*float64, startMS, endMS, stepMS, rangeMS, offsetMS int64) (string, error) {
+	windowedSourceSQL, err := buildWindowedArraysSourceSQL(sourceSQL, fn, startMS, endMS, stepMS, rangeMS, offsetMS)
 	if err != nil {
 		return "", err
 	}
 	valueExpr := rangeFunctionValueExpr(fn, "window_series", "window_values", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", rangeMS)
 	rows := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: rangeFunctionTagsExpr(fn)}, Alias: "tags"}, {Expr: sqlb.Ident("eval_ts"), Alias: "timestamp"}, {Expr: sqlb.RawLit{V: valueExpr}, Alias: "value"}},
+		Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: tagsExpr}, Alias: "tags"}, {Expr: sqlb.Ident("eval_ts"), Alias: "timestamp"}, {Expr: sqlb.RawLit{V: valueExpr}, Alias: "value"}},
 		From:    rawRenderedSubquerySourceWithAlias(trimRenderedQuerySQL(windowedSourceSQL), "step_windows"),
 		Where:   sqlb.RawLit{V: "length(window_series) > " + fmt.Sprintf("%d", minimumSeriesLengthForRangeFunction(fn))},
 	}

@@ -88,6 +88,8 @@ func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 		return lowerAbsent(ctx, n)
 	case *logicalpkg.AbsentOverTimePlan:
 		return lowerAbsent(ctx, n)
+	case *logicalpkg.InfoPlan:
+		return lowerInfoJoin(ctx, n)
 	default:
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}

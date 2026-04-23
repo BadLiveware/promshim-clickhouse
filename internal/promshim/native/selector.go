@@ -31,6 +31,14 @@ type SelectorSource struct {
 	StartOrEnd        parser.ItemType
 }
 
+// BuildSelectorSource returns the SelectorSource for a selector-backed
+// parser.Expr (VectorSelector or MatrixSelector), or nil for all other
+// expression kinds. Exported so the renderer package can reuse the same
+// selector analysis without re-implementing the logic.
+func BuildSelectorSource(expr parser.Expr) (*SelectorSource, error) {
+	return buildSelectorSource(expr)
+}
+
 func buildSelectorSource(expr parser.Expr) (*SelectorSource, error) {
 	switch node := expr.(type) {
 	case *parser.VectorSelector:

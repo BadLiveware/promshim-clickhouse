@@ -143,8 +143,8 @@ func TestBuildInstantAggregationQuerySQLWithBoundsSupportsTier1Reducers(t *testi
 	if !strings.Contains(sqlb.NormalizeSQL(groupSQL), sqlb.NormalizeSQL("toFloat64(1) AS value")) {
 		t.Fatalf("expected group SQL, got %s", sqlb.NormalizeSQL(groupSQL))
 	}
-	if !strings.Contains(sqlb.NormalizeSQL(groupSQL), sqlb.NormalizeSQL("ORDER BY arrayFilter(tag -> has(['job'], tag.1), tags)")) {
-		t.Fatalf("expected instant group SQL to preserve deterministic ordering by the grouping expression, got %s", sqlb.NormalizeSQL(groupSQL))
+	if !strings.Contains(sqlb.NormalizeSQL(groupSQL), sqlb.NormalizeSQL("GROUP BY tags ORDER BY tags")) {
+		t.Fatalf("expected instant group SQL to preserve deterministic ordering by the grouping alias, got %s", sqlb.NormalizeSQL(groupSQL))
 	}
 	topk := 3.0
 	topkSQL, _, err := BuildInstantAggregationQuerySQLWithBounds(QueryConfig{Database: "observability", Table: "prometheus"}, source, 2000, 1000, 2000, parser.TOPK, []string{"job"}, false, &topk, "")

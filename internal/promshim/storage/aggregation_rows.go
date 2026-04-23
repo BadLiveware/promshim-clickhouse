@@ -103,7 +103,7 @@ func BuildInstantAggregationRowsSubquerySQL(source AggregationSource, sourceSQL 
 	rows := &sqlb.Select{
 		Columns: []sqlb.ColExpr{{Expr: tagsExpr, Alias: "tags"}, {Expr: sqlb.RawLit{V: "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"}, Alias: "timestamp"}, {Expr: aggExpr, Alias: "value"}},
 		From:    fromSource,
-		GroupBy: []sqlb.Expr{tagsExpr},
+		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
 	}
 	sql, _, err := rows.Build()
 	if err != nil {

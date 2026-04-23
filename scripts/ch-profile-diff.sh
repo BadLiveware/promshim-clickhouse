@@ -38,7 +38,8 @@ done
 [[ -f "$BEFORE" ]] || { echo "missing: $BEFORE" >&2; exit 2; }
 [[ -f "$AFTER"  ]] || { echo "missing: $AFTER"  >&2; exit 2; }
 
-# jq program: join by normalized_query, compute deltas, filter by
+# jq program: join by log_comment (preferred — survives SQL-shape
+# rewrites) falling back to normalized_query, compute deltas, filter by
 # min-delta-ms, and output either a markdown table or a JSON document.
 JQ=$(cat <<'JQ'
 def to_num:       if . == null then 0 else . end;
@@ -49,8 +50,12 @@ def pct(before; after):
     ((after - before) * 100.0 / before)
   end;
 
-# Index by normalized_query for fast lookup.
-def as_map: (.queries // []) | map({(.normalized_query): .}) | add // {};
+# Stable join key: non-empty log_comment wins (survives SQL-shape changes
+# from optimizer rewrites). Otherwise fall back to normalized_query so old
+# captures and queries lacking a bench tag still work.
+def join_key: if (.log_comment // "") != "" then .log_comment else "shape:" + (.normalized_query // "") end;
+
+def as_map: (.queries // []) | map({(join_key): .}) | add // {};
 
 . as [$before, $after]
 | ($before | as_map) as $b
@@ -63,7 +68,10 @@ def as_map: (.queries // []) | map({(.normalized_query): .}) | add // {};
     | ($b[$k] // null) as $bq
     | ($a[$k] // null) as $aq
     | {
-        normalized_query: $k,
+        join_key:         $k,
+        log_comment:      ($aq.log_comment // $bq.log_comment // ""),
+        normalized_query: ($aq.normalized_query // $bq.normalized_query),
+        shape_changed:    (($bq.normalized_query // null) != null and ($aq.normalized_query // null) != null and $bq.normalized_query != $aq.normalized_query),
         example_query:    ($aq.example_query // $bq.example_query),
         present_before:   ($bq != null),
         present_after:    ($aq != null),
@@ -119,7 +127,7 @@ echo
 echo "_Events tracked: ${EVENTS_CSV}_"
 echo "_Rows filtered to |Δp50_ms| ≥ ${MIN_DELTA_MS}ms, or present-in-one-only, or non-zero event delta._"
 echo
-echo "| Δp50 ms | Δ% | p50 before→after | Δ read_rows | Δ read_bytes | Δ memory B | status | query (head) |"
+echo "| Δp50 ms | Δ% | p50 before→after | Δ read_rows | Δ read_bytes | Δ memory B | status | tag / query (head) |"
 echo "|---:|---:|---|---:|---:|---:|---|---|"
 
 jq -r '
@@ -131,10 +139,11 @@ jq -r '
       (.read_rows_delta  | tostring),
       (.read_bytes_delta | tostring),
       (.memory_delta     | tostring),
-      (if .present_before and .present_after then "both"
+      (if .present_before and .present_after then
+          (if .shape_changed then "**shape↻**" else "both" end)
         elif .present_before then "**gone**"
         else "**new**" end),
-      ((.example_query // "") | gsub("[\\n\\t ]+"; " ") | .[0:110])
+      ((if (.log_comment // "") != "" then .log_comment + " · " else "" end) + ((.example_query // "") | gsub("[\\n\\t ]+"; " ")) | .[0:140])
     ] | join(" | "))
   | "| " + . + " |"
 ' <<<"$DELTAS"

@@ -115,8 +115,8 @@ func BuildInstantAggregationOverSubquerySQL(source AggregationSource, sourceSQL 
 	outer := &sqlb.Select{
 		Columns: []sqlb.ColExpr{{Expr: tagsExpr, Alias: "tags"}, {Expr: sqlb.RawLit{V: "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"}, Alias: "timestamp"}, {Expr: aggExpr, Alias: "value"}},
 		From:    fromSource,
-		GroupBy: []sqlb.Expr{tagsExpr},
-		OrderBy: []sqlb.OrderExpr{{Expr: tagsExpr}},
+		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
+		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}},
 	}
 	sql, _, err := outer.Build()
 	if err != nil {

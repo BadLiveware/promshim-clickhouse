@@ -120,6 +120,19 @@ via `native_lowering_mode=...`:
   frozen fixture (Prometheus :29090, promshim :29091). `--matrix` prints
   a Markdown Native-vs-Prom matrix sorted by N/P ratio. `--baseline` +
   `--update-baseline` maintain `harness/bench/baseline.json`.
+  `--long-range {7d|30d|1y|all}` runs the pinned 7d/30d/1y profiles and
+  writes one `bench-report-<profile>.json` per profile beside the default
+  report.
+- `scripts/seed-long-range.sh --profile {7d|30d|1y} [--target
+  ch|prom|both]` — seeds the matching long-range dataset into CH and/or
+  Prom's remote-write receiver. Prom accepts backdated writes because
+  `out_of_order_time_window: 10y` is set in
+  `harness/compliance/prometheus/prometheus.yml`. One-time per
+  `docker volume rm`.
+- `scripts/bench-matrix.sh` — joins multiple bench-report files by the
+  corpus `category` field and renders a cross-profile markdown matrix
+  (Prom p50 / Native p50 / N/P / F/N per profile). Defaults to
+  `bench-report-{7d,30d,1y}.json`. `--per-query` for query-level rows.
 - `scripts/run-harness.sh` — differential harness against custom query
   corpora in `harness/corpus/`.
 - `cmd/promshim-bench`, `cmd/promshim-matrix`,

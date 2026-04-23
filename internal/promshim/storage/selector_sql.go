@@ -242,16 +242,10 @@ func buildRangeWindowSelectorDirectAggregatePerStepQuery(cfg QueryConfig, select
 	params["param_lookback_ms"] = strconv.FormatInt(selector.LookbackMS, 10)
 	params["param_offset_ms"] = strconv.FormatInt(selector.OffsetMS, 10)
 
-	gridTagsExpr := sqlb.Expr(sqlb.Ident("series.tags"))
-	windowTagsExpr := sqlb.Expr(sqlb.Ident("grid.tags"))
 	resolvedFinalTagsExpr := sqlb.Expr(sqlb.RawLit{V: "arrayFilter(tag -> tag.1 != '__name__', tags)"})
-	groupByWindow := []sqlb.Expr{sqlb.Ident("grid.id"), sqlb.Ident("grid.tags"), sqlb.Ident("grid.eval_ts")}
 	orderBy := []sqlb.OrderExpr{{Expr: sqlb.Ident("final_tags")}}
 	if !selector.NeedTags {
-		gridTagsExpr = schema.EmptyTagsArrayExpr()
-		windowTagsExpr = schema.EmptyTagsArrayExpr()
-		resolvedFinalTagsExpr = sqlb.Ident("tags")
-		groupByWindow = []sqlb.Expr{sqlb.Ident("grid.id"), sqlb.Ident("grid.eval_ts")}
+		resolvedFinalTagsExpr = schema.EmptyTagsArrayExpr()
 		orderBy = nil
 	} else if strings.TrimSpace(finalTagsSQL) != "" {
 		resolvedFinalTagsExpr = sqlb.RawLit{V: finalTagsSQL}
@@ -263,11 +257,11 @@ func buildRangeWindowSelectorDirectAggregatePerStepQuery(cfg QueryConfig, select
 	}
 
 	grid := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("series.id"), Alias: "id"}, {Expr: gridTagsExpr, Alias: "tags"}, {Expr: sqlb.RawLit{V: "arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64})))"}, Alias: "eval_ts"}},
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("series.id"), Alias: "id"}, {Expr: sqlb.RawLit{V: "arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64})))"}, Alias: "eval_ts"}},
 		From:    sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},
 	}
 	windowColumns := []sqlb.ColExpr{
-		{Expr: windowTagsExpr, Alias: "tags"},
+		{Expr: sqlb.Ident("grid.id"), Alias: "id"},
 		{Expr: sqlb.Ident("grid.eval_ts"), Alias: "eval_ts"},
 		{Expr: sqlb.RawLit{V: "count()"}, Alias: "sample_count"},
 	}
@@ -276,11 +270,33 @@ func buildRangeWindowSelectorDirectAggregatePerStepQuery(cfg QueryConfig, select
 		Columns: windowColumns,
 		From:    sqlb.Join{Left: sqlb.SubSelect{S: grid, Alias: "grid"}, Right: sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"}, Kind: "INNER", On: sqlb.RawLit{V: "d.id = grid.id"}},
 		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64}) AND d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64}) AND " + staleNaNFilterSQL("d.value")},
-		GroupBy: groupByWindow,
+		GroupBy: []sqlb.Expr{sqlb.Ident("grid.id"), sqlb.Ident("grid.eval_ts")},
+	}
+
+	perStepFrom := sqlb.Source(sqlb.SubSelect{S: windowed})
+	if selector.NeedTags {
+		taggedColumns := []sqlb.ColExpr{
+			{Expr: sqlb.Ident("series.tags"), Alias: "tags"},
+			{Expr: sqlb.Ident("windowed.eval_ts"), Alias: "eval_ts"},
+			{Expr: sqlb.Ident("windowed.sample_count"), Alias: "sample_count"},
+		}
+		for _, col := range aggregateColumns {
+			taggedColumns = append(taggedColumns, sqlb.ColExpr{Expr: sqlb.Ident("windowed." + col.Alias), Alias: col.Alias})
+		}
+		tagged := &sqlb.Select{
+			Columns: taggedColumns,
+			From: sqlb.Join{
+				Left:  sqlb.SubSelect{S: windowed, Alias: "windowed"},
+				Right: sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},
+				Kind:  "INNER",
+				On:    sqlb.RawLit{V: "windowed.id = series.id"},
+			},
+		}
+		perStepFrom = sqlb.SubSelect{S: tagged}
 	}
 	perStep := &sqlb.Select{
 		Columns: []sqlb.ColExpr{{Expr: resolvedFinalTagsExpr, Alias: "final_tags"}, {Expr: sqlb.Ident("eval_ts"), Alias: "timestamp"}, {Expr: sqlb.RawLit{V: aggregateValueExpr}, Alias: "value"}},
-		From:    sqlb.SubSelect{S: windowed},
+		From:    perStepFrom,
 		Where:   sqlb.RawLit{V: "sample_count > " + strconv.Itoa(minimumSeriesLength)},
 	}
 	return perStep, params, orderBy, nil

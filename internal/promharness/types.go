@@ -64,6 +64,11 @@ type QuerySpec struct {
 	Name                  string                    `json:"name"`
 	Endpoint              string                    `json:"endpoint"`
 	Query                 string                    `json:"query"`
+	// Category groups related queries for cross-profile matrix rendering
+	// (scripts/bench-matrix.sh). Free-form; suggested values follow the
+	// "{shape}_{window}" convention — e.g. "instant_rate_short",
+	// "range_histogram_quantile", "selector_plain".
+	Category string `json:"category,omitempty"`
 	TimeOffsetSeconds     int64                     `json:"timeOffsetSeconds,omitempty"`
 	StartOffsetSeconds    int64                     `json:"startOffsetSeconds,omitempty"`
 	EndOffsetSeconds      int64                     `json:"endOffsetSeconds,omitempty"`

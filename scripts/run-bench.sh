@@ -58,6 +58,10 @@ ensure_command() {
 }
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=lib/run-lock.sh
+source "${REPO_ROOT}/scripts/lib/run-lock.sh"
+acquire_run_lock "run-bench"
+
 DEFAULT_CORPUS="harness/corpus/bench-native-lowering.json"
 DEFAULT_BASELINE="harness/bench/baseline.json"
 
@@ -97,10 +101,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -n "$LONG_RANGE" ]]; then
-  # Long-range data is ClickHouse-only; Prom wasn't seeded with backdated
-  # samples. Skip the Prom readiness gate so bench can still run.
-  SKIP_PROM_READY=1
-
   if [[ "$LONG_RANGE" == "all" ]]; then
     # Re-invoke self once per profile so each gets its own promshim-bench
     # process (and its own bench-report.json artifact path). Stop on first
@@ -171,12 +171,8 @@ wait_for_http() {
   fatal "${name} did not become ready within ${READY_TIMEOUT}s (${url})"
 }
 
-if [[ "${SKIP_PROM_READY:-0}" == "1" ]]; then
-  log "Checking promshim (:29091) readiness (Prom skipped for --long-range)."
-else
-  log "Checking Prometheus (:29090) and promshim (:29091) readiness."
-  wait_for_http "Prometheus reference" "http://localhost:29090/-/ready"
-fi
+log "Checking Prometheus (:29090) and promshim (:29091) readiness."
+wait_for_http "Prometheus reference" "http://localhost:29090/-/ready"
 wait_for_http "promshim"             "http://localhost:29091/-/ready"
 
 log "Probing promshim -> ClickHouse integration."
@@ -223,6 +219,17 @@ if (( STATUS == 0 )); then
   log "Bench completed with no regressions."
 else
   log "Bench exited non-zero (status=${STATUS})."
+fi
+
+# Preserve a per-profile copy so `--long-range all` leaves three reports
+# side-by-side and scripts/bench-matrix.sh can join across them.
+if [[ -n "$LONG_RANGE" ]]; then
+  src="${REPO_ROOT}/harness/artifacts/bench-report.json"
+  dst="${REPO_ROOT}/harness/artifacts/bench-report-${LONG_RANGE}.json"
+  if [[ -f "$src" ]]; then
+    cp "$src" "$dst"
+    log "Saved per-profile report: $dst"
+  fi
 fi
 
 if (( MATRIX == 1 )); then

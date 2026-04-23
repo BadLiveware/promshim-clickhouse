@@ -19,7 +19,7 @@ set -euo pipefail
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/run-lock.sh
 source "${REPO_ROOT}/scripts/lib/run-lock.sh"
-acquire_run_lock "ch-profile-capture"
+acquire_run_lock "stack"
 
 CH_URL="${CH_URL:-http://localhost:28123}"
 CH_USER="${CH_USER:-default}"

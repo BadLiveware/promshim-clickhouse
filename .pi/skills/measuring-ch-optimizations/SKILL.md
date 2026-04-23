@@ -97,33 +97,44 @@ All scripts live in `scripts/`. Run with `--help` for full flags.
 | `run-bench.sh --long-range {7d\|30d\|1y\|all}` | 90 / 360 / 120 / ~570 s | Scan-work / partition-pruning signal. 7d = baseline `SelectedRows` signal, 30d = crosses `PARTITION BY toYYYYMM`, 1y = 12 partitions (use `--repeats 3 --warmup 1`). Prom is compared at the same pinned eval-time when seeded via `seed-long-range.sh --target prom\|both`. Writes `bench-report-<profile>.json` beside the default `bench-report.json` so `--long-range all` leaves three artifacts for cross-profile joining. |
 | `bench-matrix.sh [profile:path]...` | <1 s | Renders a markdown matrix that traces each corpus `category` across profiles — one row per category, columns per profile (Prom p50 / Native p50 / N/P / F/N). Default inputs are `bench-report-{7d,30d,1y}.json`. `--per-query` drops to one row per query for intra-category comparisons. `--sort-by {np\|fn\|category}` picks the axis. Rows collapse via median when a (category, profile) bucket holds multiple queries. |
 
-## Serialize measurement runs — never parallelize conflicting tools
+## Serialize measurement runs via the named-lock library
 
-The compliance stack has **one** promshim + **one** ClickHouse. Any two
-tools that read `system.query_log`, hit `:29091`, or rebuild/restart a
-container will contaminate or invalidate each other's output. **Always
-run these sequentially against the same stack, never in parallel:**
+Two concurrent stack-using runs silently corrupt each other: they share
+the compliance stack (`:29091`, `:28123`, `:29090`), the
+`system.query_log` time-window (normalizeQuery aggregation merges both
+runs' rows), and `harness/artifacts/*.json` (last writer wins).
+`scripts/lib/run-lock.sh` enforces serialization at the shell so you
+don't have to remember which tools conflict.
 
-| Conflict | Why it ruins the data |
-|---|---|
-| `ch-profile-capture.sh` + `run-compliance.sh` (rebuild/bring-up) | The rebuild restarts promshim mid-capture, often in `force_supported` mode, so the query_log the capture aggregates is a mix of pre-restart, compliance-pass, and post-restart rows. Produces "271 normalized queries" noise instead of the ~25 a bench-only run produces. |
-| Two `ch-profile-capture.sh` / `run-bench.sh` runs at once | Both write `harness/artifacts/bench-report.json` and `ch-profile.json`; last writer wins and the earlier run's samples also ended up in the same `system.query_log` window. |
-| `seed-long-range.sh` + any bench or capture | The bench sees partial data; the capture aggregates over samples from the still-running seed. Finish seeding, then measure. |
-| `ch-explain.sh` + matrix bench | Both pull SQL from `system.query_log` by marker. Concurrent runs interleave rows and the explain may grab the wrong query's SQL. |
-| `ch-explain-diff.sh` + anything | It rebuilds and restarts the shim per ref. Nothing else may be running against `:29091` while it does. |
-| `ch-profile-capture.sh --bring-up` + a separate bench step | The `--bring-up` rebuild and the downstream bench step race; the capture artifact becomes non-comparable. Either use `--bring-up` alone, or bring up first and then run a bench-only capture. |
+Locks are keyed by name:
 
-**The rule:** if a measurement artifact doesn't look right, do **not** try
-to recover it — throw it out and re-run the step sequentially from a
-quiet stack. Mixed artifacts have been repeatedly mistaken for real
-signal; discard-and-redo is faster than trying to subtract the noise.
+- **`stack`** — exclusive access to the compliance stack. Taken by
+  `run-bench.sh`, `run-compliance.sh`, `seed-long-range.sh`,
+  `ch-explain.sh`, `ch-explain-diff.sh`, and `ch-profile-capture.sh`.
+  Two runs with the same name refuse to race; the second exits 3 and
+  points at the holder's pid/script.
+- **`harness`** — orchestrator-level, held only by `run-harness.sh` so
+  two full harness runs can't interleave. Inner phases take `stack`
+  only while they're running, so external stack-users can grab the
+  stack between phases.
 
-**Exceptions (safe to parallelize):**
-- Reading already-written artifacts (`jq`, `ch-profile-diff.sh` on two
-  preserved files, viewing explain dumps).
-- Running independent stacks on different ports/volumes.
-- Anything that does not touch `:29091`, `:29090`, `:28123`, the
-  compliance docker volume, or `harness/artifacts/`.
+Inheritance is per-name via `CHO_RUN_LOCK_HELD_<NAME>=1`, so nested
+calls (`run-bench --bring-up` → `run-compliance`, `ch-profile-capture`
+→ `run-bench`, `run-harness` → `run-compliance`/`run-bench`) compose
+without deadlock.
+
+**What the lock does not cover:**
+
+- Direct interactive work against the stack (`curl :29091/...`,
+  `docker exec`, ad-hoc ClickHouse queries). You are the serializer.
+- File-system races on `harness/artifacts/` from hand-written tools
+  not routed through the scripts.
+- Wall-clock noise from a warm-up pass or a busy host.
+
+**If an artifact looks wrong, discard it.** Mixed artifacts have been
+repeatedly mistaken for real signal. Check for stale locks
+(`ls /tmp/ch-observability-*.lock`) and re-run from a quiet stack
+rather than trying to subtract the noise.
 
 ## Reading the signals
 
@@ -185,8 +196,8 @@ additive and persists until `docker volume rm`.
 | "The message says CSE; I'll just check the counters." | Check the *diff* first. If the patch doesn't actually do a CSE, no counter movement attributes to a CSE. Reject for the mismatch. |
 | "I ran `ch-profile-capture.sh` once, I have my before/after." | Single capture = no before. The file is overwritten each run; `cp` the baseline under a `-<sha>.json` name before re-capturing or the diff is meaningless. |
 | "My claim doesn't fit the signal table neatly." | Pick the closest row. If truly novel, state the expected signal *in the commit message* so review is decidable. |
-| "I'll run the rebuild and the bench in parallel to save time." | The rebuild restarts promshim mid-bench; the artifact is contaminated. Run sequentially. |
-| "I'll capture a profile while the compliance suite runs." | The capture aggregates `system.query_log` over whatever ran in that window, including compliance queries. The "after" artifact is non-comparable. |
+| "The stack lock is in the way; I'll `rm` it to unblock." | The lock is held for a reason. Check `ls /tmp/ch-observability-*.lock` and the pid in the file; only remove if that process is actually gone. |
+| "I'll poke the stack via curl/docker while a bench runs." | The named lock doesn't guard interactive access. You're adding rows to the same `query_log` window the bench is aggregating. Wait. |
 | "The artifact looks a bit weird but I can work around it." | Don't. Mixed artifacts have been repeatedly mistaken for real signal. Discard and re-run from a quiet stack. |
 
 ## Red flags — stop and verify
@@ -199,8 +210,9 @@ additive and persists until `docker volume rm`.
 - Commit message describes a different change than the diff (even if the
   diff looks good — the message is part of the review contract).
 - Only one `ch-profile.json` on disk, claimed as before/after evidence.
-- Two measurement tools running against the same stack at the same time
-  (rebuild + capture, capture + compliance, bench + seed, etc.).
+- Interactive `curl`/`docker exec` against the stack while a bench or
+  capture is running — the named lock only guards scripts, not ad-hoc
+  probes, and the probes still land in the same `query_log` window.
 - Capture artifact with a surprising number of normalized queries (e.g.
   ~25 expected, 200+ actual) — stack was not quiet. Discard and re-run.
 

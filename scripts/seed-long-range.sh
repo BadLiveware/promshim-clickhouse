@@ -11,7 +11,7 @@
 # SelectedRows / ReadCompressedBytes signal without disturbing correctness
 # tests on the 10m fixture. Prometheus must have
 # `storage.tsdb.out_of_order_time_window` set wide enough to accept
-# backdated samples (harness/prometheus/prometheus.yml uses 2y).
+# backdated samples (harness/compliance/prometheus/prometheus.yml uses 10y).
 #
 # Runtime: ~10–30s per target for 7 days of ~40 series at 15s step
 # (~1.5M samples). Safe to re-run; CH dedupes at merge time by
@@ -37,6 +37,10 @@
 set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=lib/run-lock.sh
+source "${REPO_ROOT}/scripts/lib/run-lock.sh"
+acquire_run_lock "stack"
+
 cd "$REPO_ROOT"
 
 PROFILE=""

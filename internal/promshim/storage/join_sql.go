@@ -3,6 +3,7 @@ package storage
 import (
 	"fmt"
 
+	"github.com/BadLiveware/promshim-ch/internal/promshim/emit"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage/schema"
 	"github.com/prometheus/prometheus/model/labels"
@@ -76,7 +77,7 @@ func buildBinaryVectorJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL
 		outer := &sqlb.Select{
 			Columns: []sqlb.ColExpr{
 				{Expr: sqlb.Ident("result_tags"), Alias: "tags"},
-				{Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"},
+				{Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"},
 			},
 			From:    sqlb.SubSelect{S: grouped},
 			GroupBy: []sqlb.Expr{sqlb.Ident("result_tags")},
@@ -163,7 +164,7 @@ func buildSetVectorJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL st
 	}
 	params := mergeParamMaps(lhsParams, rhsParams)
 	if rangeMode {
-		sql := "SELECT result_tags AS tags, " + renderStorageExprNoParams(schema.SortedTimeSeriesGroupArrayExpr()) + " AS time_series FROM (" + combinedRowsSQL + ") AS joined_rows GROUP BY result_tags ORDER BY result_tags" + schema.QuerySuffix
+		sql := "SELECT result_tags AS tags, " + renderStorageExprNoParams(emit.SortedTimeSeriesGroupArray()) + " AS time_series FROM (" + combinedRowsSQL + ") AS joined_rows GROUP BY result_tags ORDER BY result_tags" + schema.QuerySuffix
 		return sql, params, nil
 	}
 	sql := "SELECT result_tags AS tags, timestamp AS timestamp, value AS value FROM (" + combinedRowsSQL + ") AS joined_rows ORDER BY result_tags" + schema.QuerySuffix
@@ -240,7 +241,7 @@ func buildJoinGroupExpr(tagsExpr sqlb.Expr, vectorMatching *parser.VectorMatchin
 	matching := normalizeStorageVectorMatching(vectorMatching)
 	if matching.On {
 		if len(matching.MatchingLabels) == 0 {
-			return schema.EmptyTagsArrayExpr()
+			return emit.EmptyTagsArray()
 		}
 		return sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
 			sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},
@@ -266,7 +267,7 @@ func buildBinaryResultTagsExpr(cfg BinaryJoinConfig) sqlb.Expr {
 	if cfg.JoinShape == "one_to_one" {
 		if matching.On {
 			if len(matching.MatchingLabels) == 0 {
-				result = schema.EmptyTagsArrayExpr()
+				result = emit.EmptyTagsArray()
 			} else {
 				result = sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
 					sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},

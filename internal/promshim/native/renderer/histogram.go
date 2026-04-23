@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BadLiveware/promshim-ch/internal/promshim/emit"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
@@ -331,7 +332,7 @@ func histogramOutputFragment(histograms renderedFragment, valueExpr sqlb.Expr, m
 	outerSelect := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
 			{Expr: sqlb.Ident("tags"), Alias: "tags"},
-			{Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"},
+			{Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"},
 		},
 		From:    sqlb.SubSelect{S: innerSelect, Alias: rangeAlias},
 		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
@@ -402,7 +403,7 @@ func renderClassicHistogramGroupsQuery(cfg storage.QueryConfig, child *native.Na
 	upperBoundExpr := sqlb.RawLit{V: "multiIf(le_raw IN ['+Inf', 'Inf', '+inf', 'inf'], inf, le_raw IN ['-Inf', '-inf'], -inf, toFloat64OrNull(le_raw))"}
 	histogramTagsExpr := sqlb.Expr(sqlb.RawLit{V: "arrayFilter(tag -> tag.1 != 'le' AND tag.1 != '__name__', tags)"})
 	if histogramChildUsesOnlyLETags(child) {
-		histogramTagsExpr = schema.EmptyTagsArrayExpr()
+		histogramTagsExpr = emit.EmptyTagsArray()
 	}
 	whereExpr := sqlb.RawLit{V: "le_raw != '' AND upper_bound IS NOT NULL"}
 
@@ -532,9 +533,9 @@ func renderClassicHistogramGroupsQuery(cfg storage.QueryConfig, child *native.Na
 	}
 	groupedGroupBy := []sqlb.Expr{sqlb.Ident("histogram_tags"), sqlb.Ident("timestamp")}
 	if histogramChildUsesOnlyLETags(child) {
-		coalescedColumns[0] = sqlb.ColExpr{Expr: schema.EmptyTagsArrayExpr(), Alias: "histogram_tags"}
+		coalescedColumns[0] = sqlb.ColExpr{Expr: emit.EmptyTagsArray(), Alias: "histogram_tags"}
 		coalescedGroupBy = []sqlb.Expr{sqlb.Ident("timestamp"), sqlb.Ident("upper_bound")}
-		groupedColumns[0] = sqlb.ColExpr{Expr: schema.EmptyTagsArrayExpr(), Alias: "tags"}
+		groupedColumns[0] = sqlb.ColExpr{Expr: emit.EmptyTagsArray(), Alias: "tags"}
 		groupedGroupBy = []sqlb.Expr{sqlb.Ident("timestamp")}
 	}
 

@@ -1,12 +1,12 @@
 package renderer
 
 import (
+	"github.com/BadLiveware/promshim-ch/internal/promshim/emit"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"fmt"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage/schema"
 )
 
 func renderSourceFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
@@ -80,7 +80,7 @@ func renderSyntheticFragment(fragment *native.NativeFragment, params RenderParam
 	if fragment == nil || fragment.Synthetic == nil {
 		return renderedFragment{}, fmt.Errorf("synthetic series fragment is missing synthetic metadata")
 	}
-	emptyTags := schema.EmptyTagsArrayExpr()
+	emptyTags := emit.EmptyTagsArray()
 	switch params.Mode {
 	case native.RenderModeInstant:
 		valueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic, "{evaluation_ms:Int64}")
@@ -175,7 +175,7 @@ func renderScalarConvertFragment(cfg storage.QueryConfig, fragment *native.Nativ
 	if err != nil {
 		return renderedFragment{}, err
 	}
-	emptyTags := schema.EmptyTagsArrayExpr()
+	emptyTags := emit.EmptyTagsArray()
 	switch params.Mode {
 	case native.RenderModeInstant:
 		evalParam := sqlb.Param{Name: "evaluation_ms", Type: "Int64", V: params.EvaluationTimeMS}

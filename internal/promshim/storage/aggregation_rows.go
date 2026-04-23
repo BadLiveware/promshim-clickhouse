@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BadLiveware/promshim-ch/internal/promshim/emit"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage/schema"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -49,7 +50,7 @@ func BuildRangeAggregationRowsSubquerySQL(sourceSQL string, params map[string]st
 // shape without re-aggregating its values.
 func BuildRangeRowsToMatrixSubquerySQL(sourceSQL string, params map[string]string) (string, map[string]string, error) {
 	outer := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"}},
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"}},
 		From:    sqlb.RawSource{SQL: rawSubquerySQL(trimNestedRowSourceSQL(sourceSQL))},
 		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}},

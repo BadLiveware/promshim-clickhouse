@@ -1,6 +1,7 @@
 package renderer
 
 import (
+	"github.com/BadLiveware/promshim-ch/internal/promshim/emit"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"fmt"
 	"strconv"
@@ -8,7 +9,6 @@ import (
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage/schema"
 )
 
 func renderSubqueryFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
@@ -258,14 +258,14 @@ func preferDirectSelectorWindowJoin(lookbackMS, stepMS int64) bool {
 }
 
 func buildWindowedArraysSourceSQL(sourceSQL, fn string, startMS, endMS, stepMS, rangeMS, offsetMS int64) (string, error) {
-	grid := &sqlb.Select{Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: "arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range(" + strconv.FormatInt(startMS, 10) + ", " + strconv.FormatInt(endMS, 10) + " + 1, " + strconv.FormatInt(stepMS, 10) + ")))"}, Alias: "eval_ts"}}}
+	grid := &sqlb.Select{Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: emit.GridEvalTSLiteral(startMS, endMS, stepMS)}, Alias: "eval_ts"}}}
 	windowColumns := []sqlb.ColExpr{
 		{Expr: sqlb.Ident("source.tags"), Alias: "tags"},
 		{Expr: sqlb.Ident("grid.eval_ts"), Alias: "eval_ts"},
 		{Expr: sqlb.RawLit{V: "arrayFilter(point -> tupleElement(point, 1) <= grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(offsetMS, 10) + ") AND tupleElement(point, 1) >= grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(offsetMS+rangeMS, 10) + "), source.time_series)"}, Alias: "window_series"},
 	}
 	if rangeWindowSourceNeedsTimestamps(fn) {
-		windowColumns = append(windowColumns, sqlb.ColExpr{Expr: sqlb.RawLit{V: "arrayMap(point -> tupleElement(point, 1), window_series)"}, Alias: "window_timestamps"})
+		windowColumns = append(windowColumns, sqlb.ColExpr{Expr: sqlb.RawLit{V: emit.WindowPointTimestamps("window_series")}, Alias: "window_timestamps"})
 	}
 	if rangeWindowSourceNeedsDuration(fn) {
 		durationExpr := "tupleElement(arrayElement(window_series, length(window_series)), 1) - tupleElement(arrayElement(window_series, 1), 1)"
@@ -275,7 +275,7 @@ func buildWindowedArraysSourceSQL(sourceSQL, fn string, startMS, endMS, stepMS, 
 		windowColumns = append(windowColumns, sqlb.ColExpr{Expr: sqlb.RawLit{V: durationExpr}, Alias: "window_duration_ms"})
 	}
 	if rangeWindowSourceNeedsValues(fn) {
-		windowColumns = append(windowColumns, sqlb.ColExpr{Expr: sqlb.RawLit{V: "arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series)"}, Alias: "window_values"})
+		windowColumns = append(windowColumns, sqlb.ColExpr{Expr: sqlb.RawLit{V: emit.WindowPointValues("window_series")}, Alias: "window_values"})
 	}
 	needsChangesCount := rangeWindowSourceNeedsChangesCount(fn)
 	if rangeWindowSourceNeedsPairwiseNeighbors(fn) && needsChangesCount {
@@ -302,15 +302,15 @@ func buildWindowedArraysSourceSQL(sourceSQL, fn string, startMS, endMS, stepMS, 
 }
 
 func buildWindowedRowsSourceSQL(sourceRowsSQL string, startMS, endMS, stepMS, rangeMS, offsetMS int64) (string, error) {
-	grid := &sqlb.Select{Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: "arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range(" + strconv.FormatInt(startMS, 10) + ", " + strconv.FormatInt(endMS, 10) + " + 1, " + strconv.FormatInt(stepMS, 10) + ")))"}, Alias: "eval_ts"}}}
+	grid := &sqlb.Select{Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: emit.GridEvalTSLiteral(startMS, endMS, stepMS)}, Alias: "eval_ts"}}}
 	stepWindows := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
 			{Expr: sqlb.Ident("source.tags"), Alias: "tags"},
 			{Expr: sqlb.Ident("grid.eval_ts"), Alias: "eval_ts"},
 			{Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((source.timestamp, source.value)))"}, Alias: "window_series"},
-			{Expr: sqlb.RawLit{V: "arrayMap(point -> tupleElement(point, 1), window_series)"}, Alias: "window_timestamps"},
+			{Expr: sqlb.RawLit{V: emit.WindowPointTimestamps("window_series")}, Alias: "window_timestamps"},
 			{Expr: sqlb.RawLit{V: "arrayElement(window_timestamps, length(window_series)) - arrayElement(window_timestamps, 1)"}, Alias: "window_duration_ms"},
-			{Expr: sqlb.RawLit{V: "arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series)"}, Alias: "window_values"},
+			{Expr: sqlb.RawLit{V: emit.WindowPointValues("window_series")}, Alias: "window_values"},
 			{Expr: sqlb.RawLit{V: "arrayPopBack(window_values)"}, Alias: "window_values_prev"},
 			{Expr: sqlb.RawLit{V: "arrayPopFront(window_values)"}, Alias: "window_values_cur"},
 			{Expr: sqlb.RawLit{V: "arraySum(arrayMap((p, c) -> if(c < p, c, c - p), window_values_prev, window_values_cur))"}, Alias: "counter_delta_sum"},
@@ -391,7 +391,7 @@ func buildRangeFunctionOverWindowedSourceSQL(windowedSourceSQL, fn, finalTagsExp
 		Where:   sqlb.RawLit{V: "length(window_series) > " + strconv.Itoa(minimumSeriesLengthForRangeFunction(fn))},
 	}
 	outer := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"}},
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"}},
 		From:    sqlb.SubSelect{S: perStep},
 		GroupBy: []sqlb.Expr{sqlb.Ident("final_tags")},
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("final_tags")}},
@@ -440,7 +440,7 @@ func buildInstantRateOverRowsSQL(sourceRowsSQL, finalTagsExpr string, evaluation
 		Columns: []sqlb.ColExpr{
 			{Expr: sqlb.RawLit{V: finalTagsExpr}, Alias: "final_tags"},
 			{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
-			{Expr: sqlb.RawLit{V: "ifNull(toFloat64(value), nan)"}, Alias: "value"},
+			{Expr: sqlb.RawLit{V: emit.NullableFloatCoerce("value")}, Alias: "value"},
 		},
 		From: rawRenderedSubquerySource(trimRenderedQuerySQL(sourceRowsSQL)),
 	}
@@ -481,7 +481,7 @@ func buildRangeFunctionOverRowsSQL(sourceRowsSQL, fn, finalTagsExpr string, star
 	if err != nil {
 		return "", fmt.Errorf("range row fast path for %s is not implemented yet", fn)
 	}
-	grid := &sqlb.Select{Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: "arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range(" + strconv.FormatInt(startMS, 10) + ", " + strconv.FormatInt(endMS, 10) + " + 1, " + strconv.FormatInt(stepMS, 10) + ")))"}, Alias: "eval_ts"}}}
+	grid := &sqlb.Select{Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: emit.GridEvalTSLiteral(startMS, endMS, stepMS)}, Alias: "eval_ts"}}}
 	perStep := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
 			{Expr: sqlb.RawLit{V: finalTagsExpr}, Alias: "final_tags"},
@@ -493,7 +493,7 @@ func buildRangeFunctionOverRowsSQL(sourceRowsSQL, fn, finalTagsExpr string, star
 		GroupBy: []sqlb.Expr{sqlb.Ident("source.tags"), sqlb.Ident("grid.eval_ts")},
 	}
 	outer := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"}},
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"}},
 		From:    sqlb.SubSelect{S: perStep},
 		GroupBy: []sqlb.Expr{sqlb.Ident("final_tags")},
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("final_tags")}},
@@ -563,7 +563,7 @@ func buildInstantRangeFunctionSQL(sourceSQL, fn, tagsExpr string, paramNumber *f
 		columns = append(columns, sqlb.ColExpr{Expr: sqlb.RawLit{V: durationExpr}, Alias: "range_duration_ms"})
 	}
 	if instantRangeFunctionNeedsValues(fn) {
-		columns = append(columns, sqlb.ColExpr{Expr: sqlb.RawLit{V: "arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), time_series)"}, Alias: "range_values"})
+		columns = append(columns, sqlb.ColExpr{Expr: sqlb.RawLit{V: emit.WindowPointValues("time_series")}, Alias: "range_values"})
 	}
 	if instantRangeFunctionNeedsHasNaN(fn) {
 		columns = append(columns, sqlb.ColExpr{Expr: sqlb.RawLit{V: "arrayExists(v -> isNaN(v), range_values)"}, Alias: "range_has_nan"})
@@ -675,7 +675,7 @@ func rangeFunctionTagsExpr(fn string) string {
 	if native.RangeFunctionPreservesMetricName(fn) {
 		return "tags"
 	}
-	return "arrayFilter(tag -> tag.1 != '__name__', tags)"
+	return emit.StripMetricName("tags")
 }
 
 func rangeFunctionTagsExprFromInput(fn string, inputHasMetricName bool) string {
@@ -754,7 +754,7 @@ func rangeFunctionChildRangeMS(child *native.NativeFragment) int64 {
 
 func rangeFunctionValueExpr(fn, seriesExpr, valuesSourceExpr string, paramNumber *float64, paramNumbers []*float64, timestampsSourceExpr string, interceptTimeMSExpr string, rangeMS int64) string {
 	series := sqlb.RawLit{V: seriesExpr}
-	valuesExpr := sqlb.Expr(sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "point -> ifNull(toFloat64(tupleElement(point, 2)), nan)"}, series}})
+	valuesExpr := sqlb.Expr(sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "point -> " + emit.NullableFloatCoerce("tupleElement(point, 2)")}, series}})
 	if valuesSourceExpr != "" {
 		valuesExpr = sqlb.RawLit{V: valuesSourceExpr}
 	}

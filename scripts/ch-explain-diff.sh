@@ -20,6 +20,9 @@
 set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=lib/run-lock.sh
+source "${REPO_ROOT}/scripts/lib/run-lock.sh"
+acquire_run_lock "stack"
 
 if [[ $# -lt 3 ]]; then
   echo "Usage: $0 <sha-before> <sha-after> '<promql>' [ch-explain flags...]" >&2

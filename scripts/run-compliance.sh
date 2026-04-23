@@ -57,6 +57,10 @@ ensure_command() {
 }
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=lib/run-lock.sh
+source "${REPO_ROOT}/scripts/lib/run-lock.sh"
+acquire_run_lock "stack"
+
 COMPLIANCE_DIR="${REPO_ROOT}/harness/compliance"
 
 BUILD_IMAGES=1

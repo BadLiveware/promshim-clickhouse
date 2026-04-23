@@ -64,6 +64,10 @@ ensure_command() {
 }
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=lib/run-lock.sh
+source "${REPO_ROOT}/scripts/lib/run-lock.sh"
+acquire_run_lock "harness"
+
 HARNESS_DIR="${REPO_ROOT}/harness"
 THEMES_HOST_DIR="${HARNESS_DIR}/corpus/draft-grafana-top-panel-shortlist.themes"
 

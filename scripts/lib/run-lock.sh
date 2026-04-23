@@ -1,51 +1,91 @@
 #!/usr/bin/env bash
-# run-lock.sh — shared lockfile guard for bench/profile tooling.
+# run-lock.sh — named flock guards for bench/profile tooling.
 #
-# Two concurrent bench or capture runs will silently corrupt each other:
-# they share the compliance stack (latencies interleave), the query_log
-# time-window (normalizeQuery aggregation merges both runs into one row),
-# and harness/artifacts/*.json (last writer wins). We refuse to race —
-# second caller exits non-zero with a pointer at whoever holds the lock.
+# Most measurement scripts share a single physical resource — the
+# compliance stack (one promshim, one ClickHouse, one shared
+# system.query_log time-window) — so any two concurrent stack-using
+# runs silently corrupt each other's artifacts. This library lets each
+# script name the resource it needs and refuses to race on that name.
+#
+# Locks are keyed by name. Each distinct name gets its own lockfile
+# at ${TMPDIR:-/tmp}/ch-observability-<name>.lock, so two scripts
+# taking different names can run in parallel; two scripts taking the
+# same name serialize.
 #
 # Usage, from inside a script:
 #   source "$(dirname "${BASH_SOURCE[0]}")/lib/run-lock.sh"
-#   acquire_run_lock "run-bench"
+#   acquire_run_lock "stack"              # most stack-using scripts
+#   acquire_run_lock "harness"            # orchestrator-level
+#   acquire_run_lock "stack" "harness"    # hold both (rare)
 #
-# Nested scripts (e.g. ch-profile-capture.sh -> run-bench.sh) inherit the
-# lock via CHO_RUN_LOCK_HELD=1 and skip re-acquisition. That's what makes
-# the lock compose; without it the parent would deadlock waiting on
-# itself. The inherited FD stays open in the child, so the OS releases
-# the lock when the outermost holder dies — even on kill -9.
+# Recommended names for this repo:
+#   stack   — exclusive access to the compliance stack (promshim:29091,
+#             CH:28123, Prom:29090, and the system.query_log window).
+#             Taken by run-bench, run-compliance, seed-long-range,
+#             ch-explain, ch-explain-diff, ch-profile-capture.
+#   harness — orchestrator-level; held by run-harness so two full
+#             harness runs can't interleave, but individual inner
+#             phases only hold "stack" while they're running — so
+#             external stack-users can grab the stack between phases.
+#
+# Inheritance: nested calls (e.g. run-harness -> run-compliance;
+# run-bench --bring-up -> run-compliance) inherit their parent's held
+# locks via CHO_RUN_LOCK_HELD_<uppercase-name>=1 and skip
+# re-acquisition. Inherited FDs stay open in the child, so the OS
+# releases the lock when the outermost holder dies — even on kill -9.
 
-CHO_RUN_LOCK_FILE="${CHO_RUN_LOCK_FILE:-${TMPDIR:-/tmp}/ch-observability-run.lock}"
+_cho_lock_fd_for() {
+  # Map a name to a stable FD number in [10, 19]. Hash-derived so two
+  # names can be held simultaneously without collision. We keep FDs 0-9
+  # free for the caller's stdio and conventional redirections.
+  local name="$1"
+  local h
+  h=$(printf '%s' "$name" | cksum | awk '{print $1}')
+  echo $(( 10 + h % 10 ))
+}
+
+_cho_lock_holdvar_for() {
+  local name="$1"
+  local upper
+  upper=$(printf '%s' "$name" | tr '[:lower:]-' '[:upper:]_')
+  printf 'CHO_RUN_LOCK_HELD_%s' "$upper"
+}
 
 acquire_run_lock() {
-  local name="${1:-run}"
-  if [[ "${CHO_RUN_LOCK_HELD:-0}" == "1" ]]; then
-    return 0
+  if (( $# == 0 )); then
+    echo "error: acquire_run_lock requires at least one lock name" >&2
+    exit 3
   fi
   if ! command -v flock >/dev/null 2>&1; then
     echo "error: flock(1) not available; refusing to run without a race guard" >&2
     exit 3
   fi
-  exec 9>>"$CHO_RUN_LOCK_FILE" || {
-    echo "error: cannot open lock file $CHO_RUN_LOCK_FILE" >&2
-    exit 3
-  }
-  if ! flock -n 9; then
-    local holder
-    holder=$(head -1 "$CHO_RUN_LOCK_FILE" 2>/dev/null || true)
-    echo "error: another bench/profile run is active (lock: $CHO_RUN_LOCK_FILE)" >&2
-    if [[ -n "$holder" ]]; then
-      echo "  held by: $holder" >&2
+  local name holdvar lockfile fd
+  for name in "$@"; do
+    holdvar=$(_cho_lock_holdvar_for "$name")
+    if [[ "${!holdvar:-0}" == "1" ]]; then
+      continue  # inherited from a parent scope
     fi
-    echo "  wait for it to finish, or — if you're certain nothing is running —" >&2
-    echo "  rm $CHO_RUN_LOCK_FILE" >&2
-    exit 3
-  fi
-  : >"$CHO_RUN_LOCK_FILE"
-  printf 'pid=%d script=%s started=%s host=%s\n' \
-    "$$" "$name" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(hostname)" >&9
-  export CHO_RUN_LOCK_HELD=1
-  export CHO_RUN_LOCK_FILE
+    lockfile="${TMPDIR:-/tmp}/ch-observability-${name}.lock"
+    fd=$(_cho_lock_fd_for "$name")
+    eval "exec ${fd}>>\"\$lockfile\"" || {
+      echo "error: cannot open lock file $lockfile" >&2
+      exit 3
+    }
+    if ! flock -n "$fd"; then
+      local holder
+      holder=$(head -1 "$lockfile" 2>/dev/null || true)
+      echo "error: another ${name}-locked run is active (lock: $lockfile)" >&2
+      if [[ -n "$holder" ]]; then
+        echo "  held by: $holder" >&2
+      fi
+      echo "  wait for it to finish, or — if you're certain nothing is running —" >&2
+      echo "  rm $lockfile" >&2
+      exit 3
+    fi
+    : >"$lockfile"
+    printf 'pid=%d script=%s lock=%s started=%s host=%s\n' \
+      "$$" "${0##*/}" "$name" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(hostname)" >&"$fd"
+    export "$holdvar=1"
+  done
 }

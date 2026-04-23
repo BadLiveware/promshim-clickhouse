@@ -3,7 +3,7 @@ package local
 import (
 	nativeplan "ch-observability/internal/promshim/native"
 	"ch-observability/internal/promshim/native/renderer"
-	planpkg "ch-observability/internal/promshim/plan"
+	logicalpkg "ch-observability/internal/promshim/logical"
 	"ch-observability/internal/promshim/storage"
 
 	"github.com/prometheus/prometheus/promql/parser"
@@ -72,7 +72,7 @@ func maybeBuildNativeSubqueryPlan(node *logicalSubqueryPlan, ctx PlanContext, an
 	return &nativeSubtreePlan{Kind: "subquery", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info}, true, nil
 }
 
-func maybeBuildNativeGenericPlan(node planpkg.LogicalPlan, expr, kind string, ctx PlanContext, analysis *nativeplan.Analysis, allowedKinds ...nativeplan.FragmentKind) (Plan, bool, error) {
+func maybeBuildNativeGenericPlan(node logicalpkg.Node, expr, kind string, ctx PlanContext, analysis *nativeplan.Analysis, allowedKinds ...nativeplan.FragmentKind) (Plan, bool, error) {
 	if ctx.Mode != EvalModeInstant && ctx.Mode != EvalModeRange {
 		return nil, false, nil
 	}

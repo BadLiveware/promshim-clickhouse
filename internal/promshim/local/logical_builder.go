@@ -4,68 +4,68 @@ import (
 	"strings"
 
 	"ch-observability/internal/promshim/model"
-	"ch-observability/internal/promshim/plan"
+	"ch-observability/internal/promshim/logical"
 	promlabels "github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-type logicalPlan = plan.LogicalPlan
+type logicalPlan = logical.Node
 
-type logicalLeafExprPlan = plan.LogicalLeafExprPlan
+type logicalLeafExprPlan = logical.LeafExprPlan
 
-type logicalScalarLiteralPlan = plan.LogicalScalarLiteralPlan
+type logicalScalarLiteralPlan = logical.ScalarLiteralPlan
 
-type logicalUnaryPlan = plan.LogicalUnaryPlan
+type logicalUnaryPlan = logical.UnaryPlan
 
-type logicalBinaryPlan = plan.LogicalBinaryPlan
+type logicalBinaryPlan = logical.BinaryPlan
 
-type logicalAggregationPlan = plan.LogicalAggregationPlan
+type logicalAggregationPlan = logical.AggregationPlan
 
-type logicalHistogramQuantilePlan = plan.LogicalHistogramQuantilePlan
+type logicalHistogramQuantilePlan = logical.HistogramQuantilePlan
 
-type logicalHistogramFractionPlan = plan.LogicalHistogramFractionPlan
+type logicalHistogramFractionPlan = logical.HistogramFractionPlan
 
-type logicalHistogramProjectionPlan = plan.LogicalHistogramProjectionPlan
+type logicalHistogramProjectionPlan = logical.HistogramProjectionPlan
 
-type logicalHistogramQuantilesPlan = plan.LogicalHistogramQuantilesPlan
+type logicalHistogramQuantilesPlan = logical.HistogramQuantilesPlan
 
-type logicalRangeFunctionPlan = plan.LogicalRangeFunctionPlan
+type logicalRangeFunctionPlan = logical.RangeFunctionPlan
 
-type logicalVectorPlan = plan.LogicalVectorPlan
+type logicalVectorPlan = logical.VectorPlan
 
-type logicalRoundPlan = plan.LogicalRoundPlan
+type logicalRoundPlan = logical.RoundPlan
 
-type logicalSortPlan = plan.LogicalSortPlan
+type logicalSortPlan = logical.SortPlan
 
-type logicalScalarConvertPlan = plan.LogicalScalarConvertPlan
+type logicalScalarConvertPlan = logical.ScalarConvertPlan
 
-type logicalInfoPlan = plan.LogicalInfoPlan
+type logicalInfoPlan = logical.InfoPlan
 
-type logicalPointwiseFunctionPlan = plan.LogicalPointwiseFunctionPlan
+type logicalPointwiseFunctionPlan = logical.PointwiseFunctionPlan
 
-type logicalScalarBuiltinPlan = plan.LogicalScalarBuiltinPlan
+type logicalScalarBuiltinPlan = logical.ScalarBuiltinPlan
 
-type logicalRatePlan = plan.LogicalRatePlan
+type logicalRatePlan = logical.RatePlan
 
-type logicalIncreasePlan = plan.LogicalIncreasePlan
+type logicalIncreasePlan = logical.IncreasePlan
 
-type logicalDeltaPlan = plan.LogicalDeltaPlan
+type logicalDeltaPlan = logical.DeltaPlan
 
-type logicalChangesPlan = plan.LogicalChangesPlan
+type logicalChangesPlan = logical.ChangesPlan
 
-type logicalDerivPlan = plan.LogicalDerivPlan
+type logicalDerivPlan = logical.DerivPlan
 
-type logicalQuantileOverTimePlan = plan.LogicalQuantileOverTimePlan
+type logicalQuantileOverTimePlan = logical.QuantileOverTimePlan
 
-type logicalAbsentPlan = plan.LogicalAbsentPlan
+type logicalAbsentPlan = logical.AbsentPlan
 
-type logicalAbsentOverTimePlan = plan.LogicalAbsentOverTimePlan
+type logicalAbsentOverTimePlan = logical.AbsentOverTimePlan
 
-type logicalSubqueryPlan = plan.LogicalSubqueryPlan
+type logicalSubqueryPlan = logical.SubqueryPlan
 
-type logicalLabelReplacePlan = plan.LogicalLabelReplacePlan
+type logicalLabelReplacePlan = logical.LabelReplacePlan
 
-type logicalLabelJoinPlan = plan.LogicalLabelJoinPlan
+type logicalLabelJoinPlan = logical.LabelJoinPlan
 
 func BuildLogicalPlan(expr parser.Expr) (logicalPlan, error) {
 	expr = unwrapTransparentExpr(expr)
@@ -76,7 +76,7 @@ func BuildLogicalPlan(expr parser.Expr) (logicalPlan, error) {
 	case *parser.Call:
 		return buildLogicalCallPlan(node)
 	case *parser.UnaryExpr:
-		result := plan.AnalyzeUnaryExpression(node)
+		result := logical.AnalyzeUnaryExpression(node)
 		if !result.Supported {
 			return nil, NewPlanBuildError(node, result, "unary planning")
 		}
@@ -86,7 +86,7 @@ func BuildLogicalPlan(expr parser.Expr) (logicalPlan, error) {
 		}
 		return &logicalUnaryPlan{Expr: node, Op: node.Op, Child: child}, nil
 	case *parser.BinaryExpr:
-		result := plan.AnalyzeBinaryExpression(node)
+		result := logical.AnalyzeBinaryExpression(node)
 		if !result.Supported {
 			return nil, NewPlanBuildError(node, result, "binary planning")
 		}
@@ -100,7 +100,7 @@ func BuildLogicalPlan(expr parser.Expr) (logicalPlan, error) {
 		}
 		return &logicalBinaryPlan{Expr: node, Op: node.Op, VectorMatching: cloneVectorMatching(node.VectorMatching), ReturnBool: node.ReturnBool, LHS: lhs, RHS: rhs}, nil
 	case *parser.SubqueryExpr:
-		result := plan.AnalyzeSubqueryExpression(node)
+		result := logical.AnalyzeSubqueryExpression(node)
 		if !result.Supported {
 			return nil, NewPlanBuildError(node, result, "subquery planning")
 		}
@@ -108,10 +108,10 @@ func BuildLogicalPlan(expr parser.Expr) (logicalPlan, error) {
 		if err != nil {
 			return nil, WithInternalContext(err, "building logical child plan for subquery %q", node.String())
 		}
-		delegatable := plan.AnalyzeDelegatableSubqueryExpression(node).Supported
+		delegatable := logical.AnalyzeDelegatableSubqueryExpression(node).Supported
 		return &logicalSubqueryPlan{Expr: node, Range: node.Range, Step: node.Step, Offset: node.OriginalOffset, Timestamp: node.Timestamp, StartOrEnd: node.StartOrEnd, DelegatedLeafCompatible: delegatable, Child: child}, nil
 	case *parser.AggregateExpr:
-		result := plan.AnalyzeAggregateExpression(node)
+		result := logical.AnalyzeAggregateExpression(node)
 		if !result.Supported {
 			return nil, NewPlanBuildError(node, result, "aggregate planning")
 		}
@@ -131,7 +131,7 @@ func BuildLogicalPlan(expr parser.Expr) (logicalPlan, error) {
 
 func buildLogicalDelegatedLeaf(expr parser.Expr) (logicalPlan, error) {
 	expr = unwrapTransparentExpr(expr)
-	result := plan.AnalyzeDelegatableExpression(expr)
+	result := logical.AnalyzeDelegatableExpression(expr)
 	if !result.Supported {
 		return nil, NewPlanBuildError(expr, result, "delegated leaf planning")
 	}
@@ -142,7 +142,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 	name := strings.ToLower(call.Func.Name)
 	switch name {
 	case "label_replace":
-		if result := plan.AnalyzeLabelReplaceCall(call); !result.Supported {
+		if result := logical.AnalyzeLabelReplaceCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		child, err := BuildLogicalPlan(call.Args[0])
@@ -171,7 +171,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalLabelReplacePlan{Expr: call, Config: cfg, Child: child}, nil
 	case "label_join":
-		if result := plan.AnalyzeLabelJoinCall(call); !result.Supported {
+		if result := logical.AnalyzeLabelJoinCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		child, err := BuildLogicalPlan(call.Args[0])
@@ -200,7 +200,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalLabelJoinPlan{Expr: call, Config: cfg, Child: child}, nil
 	case "histogram_quantile":
-		if result := plan.AnalyzeHistogramQuantileCall(call); !result.Supported {
+		if result := logical.AnalyzeHistogramQuantileCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		quantile, err := numberLiteralArgument(call.Args[0], "histogram_quantile quantile")
@@ -213,7 +213,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalHistogramQuantilePlan{Expr: call, Quantile: quantile, Child: child}, nil
 	case "histogram_fraction":
-		if result := plan.AnalyzeHistogramFractionCall(call); !result.Supported {
+		if result := logical.AnalyzeHistogramFractionCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		lower, err := numberLiteralArgument(call.Args[0], "histogram_fraction lower bound")
@@ -230,7 +230,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalHistogramFractionPlan{Expr: call, Lower: lower, Upper: upper, Child: child}, nil
 	case "histogram_count", "histogram_sum", "histogram_avg", "histogram_stddev", "histogram_stdvar":
-		if result := plan.AnalyzeHistogramProjectionCall(name, call); !result.Supported {
+		if result := logical.AnalyzeHistogramProjectionCall(name, call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		child, err := BuildLogicalPlan(call.Args[0])
@@ -239,7 +239,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalHistogramProjectionPlan{Expr: call, Func: name, Child: child}, nil
 	case "histogram_quantiles":
-		if result := plan.AnalyzeHistogramQuantilesCall(call); !result.Supported {
+		if result := logical.AnalyzeHistogramQuantilesCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		label, err := stringLiteralArgument(call.Args[1], "histogram_quantiles label")
@@ -267,7 +267,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalHistogramQuantilesPlan{Expr: call, Label: label, ParamNumbers: paramNumbers, ParamChildren: paramChildren, Child: child}, nil
 	case "vector":
-		if result := plan.AnalyzeVectorCall(call); !result.Supported {
+		if result := logical.AnalyzeVectorCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		child, err := BuildLogicalPlan(call.Args[0])
@@ -278,7 +278,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 	case "pi", "time":
 		return &logicalScalarBuiltinPlan{Expr: call, Func: name}, nil
 	case "info":
-		if result := plan.AnalyzeInfoCall(call); !result.Supported {
+		if result := logical.AnalyzeInfoCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		child, err := BuildLogicalPlan(call.Args[0])
@@ -295,7 +295,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalInfoPlan{Expr: call, SelectorMatchers: selectorMatchers, Child: child}, nil
 	case "scalar":
-		if result := plan.AnalyzeScalarCall(call); !result.Supported {
+		if result := logical.AnalyzeScalarCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		child, err := BuildLogicalPlan(call.Args[0])
@@ -304,7 +304,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalScalarConvertPlan{Expr: call, Child: child}, nil
 	case "round":
-		if result := plan.AnalyzeRoundCall(call); !result.Supported {
+		if result := logical.AnalyzeRoundCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		child, err := BuildLogicalPlan(call.Args[0])
@@ -321,7 +321,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return plan, nil
 	case "sort", "sort_desc", "sort_by_label", "sort_by_label_desc":
-		if result := plan.AnalyzeSortCall(name, call); !result.Supported {
+		if result := logical.AnalyzeSortCall(name, call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		child, err := BuildLogicalPlan(call.Args[0])
@@ -338,9 +338,9 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalSortPlan{Expr: call, Func: name, Labels: labels, Child: child}, nil
 	case "rate", "irate":
-		analyze := plan.AnalyzeRateCall
+		analyze := logical.AnalyzeRateCall
 		if name == "irate" {
-			analyze = plan.AnalyzeIrateCall
+			analyze = logical.AnalyzeIrateCall
 		}
 		if result := analyze(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
@@ -351,7 +351,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalRatePlan{Expr: call, Func: name, Child: child}, nil
 	case "increase":
-		if result := plan.AnalyzeIncreaseCall(call); !result.Supported {
+		if result := logical.AnalyzeIncreaseCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		child, err := BuildLogicalPlan(call.Args[0])
@@ -360,9 +360,9 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalIncreasePlan{Expr: call, Child: child}, nil
 	case "delta", "idelta":
-		analyze := plan.AnalyzeDeltaCall
+		analyze := logical.AnalyzeDeltaCall
 		if name == "idelta" {
-			analyze = plan.AnalyzeIDeltaCall
+			analyze = logical.AnalyzeIDeltaCall
 		}
 		if result := analyze(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
@@ -373,7 +373,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalDeltaPlan{Expr: call, Func: name, Child: child}, nil
 	case "changes":
-		if result := plan.AnalyzeChangesCall(call); !result.Supported {
+		if result := logical.AnalyzeChangesCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		child, err := BuildLogicalPlan(call.Args[0])
@@ -382,7 +382,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalChangesPlan{Expr: call, Child: child}, nil
 	case "deriv":
-		if result := plan.AnalyzeDerivCall(call); !result.Supported {
+		if result := logical.AnalyzeDerivCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		child, err := BuildLogicalPlan(call.Args[0])
@@ -391,7 +391,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalDerivPlan{Expr: call, Child: child}, nil
 	case "last_over_time", "first_over_time", "sum_over_time", "avg_over_time", "max_over_time", "min_over_time", "count_over_time", "stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time", "resets", "ts_of_first_over_time", "ts_of_last_over_time", "ts_of_max_over_time", "ts_of_min_over_time":
-		if result := plan.AnalyzeRangeFunctionCall(name, call); !result.Supported {
+		if result := logical.AnalyzeRangeFunctionCall(name, call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		child, err := BuildLogicalPlan(call.Args[0])
@@ -400,7 +400,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalRangeFunctionPlan{Expr: call, Func: name, Child: child}, nil
 	case "predict_linear":
-		if result := plan.AnalyzePredictLinearCall(call); !result.Supported {
+		if result := logical.AnalyzePredictLinearCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		duration, err := numberLiteralArgument(call.Args[1], "predict_linear duration")
@@ -413,7 +413,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalRangeFunctionPlan{Expr: call, Func: name, ParamNumber: cloneFloat64(duration), Child: child}, nil
 	case "double_exponential_smoothing", "holt_winters":
-		if result := plan.AnalyzeDoubleExponentialSmoothingCall(call); !result.Supported {
+		if result := logical.AnalyzeDoubleExponentialSmoothingCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		sf, err := numberLiteralArgument(call.Args[1], name+" smoothing factor")
@@ -438,7 +438,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		"minute", "hour", "day_of_week", "day_of_month", "day_of_year", "days_in_month", "month", "year":
 		return buildLogicalPointwiseFunctionPlan(name, call)
 	case "quantile_over_time":
-		if result := plan.AnalyzeQuantileOverTimeCall(call); !result.Supported {
+		if result := logical.AnalyzeQuantileOverTimeCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		quantile, err := numberLiteralArgument(call.Args[0], "quantile_over_time quantile")
@@ -451,7 +451,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalQuantileOverTimePlan{Expr: call, Quantile: quantile, Child: child}, nil
 	case "absent":
-		if result := plan.AnalyzeAbsentCall(call); !result.Supported {
+		if result := logical.AnalyzeAbsentCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		child, err := BuildLogicalPlan(call.Args[0])
@@ -460,7 +460,7 @@ func buildLogicalCallPlan(call *parser.Call) (logicalPlan, error) {
 		}
 		return &logicalAbsentPlan{Expr: call, OutputMetric: deriveAbsentOutputMetric(call.Args[0]), Child: child}, nil
 	case "absent_over_time":
-		if result := plan.AnalyzeAbsentOverTimeCall(call); !result.Supported {
+		if result := logical.AnalyzeAbsentOverTimeCall(call); !result.Supported {
 			return nil, NewPlanBuildError(call, result, "call planning")
 		}
 		child, err := BuildLogicalPlan(call.Args[0])

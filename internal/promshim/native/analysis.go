@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	planpkg "ch-observability/internal/promshim/plan"
+	logicalpkg "ch-observability/internal/promshim/logical"
 
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -15,7 +15,7 @@ type describedLogicalPlan interface {
 	ValueType() parser.ValueType
 }
 
-func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
+func (a *Analysis) walk(node logicalpkg.Node) *LoweringInfo {
 	if node == nil {
 		return nil
 	}
@@ -28,7 +28,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 	a.byNode[node] = info
 
 	switch n := node.(type) {
-	case *planpkg.LogicalLeafExprPlan:
+	case *logicalpkg.LeafExprPlan:
 		info.NodeType = "leaf"
 		selector, err := buildSelectorSource(n.Expr)
 		if err != nil {
@@ -53,13 +53,13 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		info.LabelLineage = leafLabelLineage()
 		info.TimeRequirements = leafTimeRequirements(n.Expr)
 		return info
-	case *planpkg.LogicalScalarLiteralPlan:
+	case *logicalpkg.ScalarLiteralPlan:
 		info.NodeType = "scalar"
 		info.NativeLowerable = true
 		info.NativeReason = "scalar literal can lower to a native synthetic scalar series"
 		info.Fragment = &NativeFragment{Kind: FragmentKindSyntheticSeries, OutputKind: OutputKindScalar, DropsMetric: true, Synthetic: &SyntheticSeriesFragment{Func: "literal", Value: cloneFloat64Pointer(&n.Value)}}
 		return info
-	case *planpkg.LogicalUnaryPlan:
+	case *logicalpkg.UnaryPlan:
 		child := a.walk(n.Child)
 		info.NodeType = "unary"
 		info.Children = []*LoweringInfo{child}
@@ -101,7 +101,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = fmt.Sprintf("unary operator %q is not part of the current native source subset", n.Op.String())
 		return info
-	case *planpkg.LogicalBinaryPlan:
+	case *logicalpkg.BinaryPlan:
 		lhs := a.walk(n.LHS)
 		rhs := a.walk(n.RHS)
 		info.NodeType = "binary"
@@ -120,8 +120,8 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 			}
 		}
 
-		lhsScalar, lhsIsScalar := n.LHS.(*planpkg.LogicalScalarLiteralPlan)
-		rhsScalar, rhsIsScalar := n.RHS.(*planpkg.LogicalScalarLiteralPlan)
+		lhsScalar, lhsIsScalar := n.LHS.(*logicalpkg.ScalarLiteralPlan)
+		rhsScalar, rhsIsScalar := n.RHS.(*logicalpkg.ScalarLiteralPlan)
 		lhsLiteral, lhsLiteralOK := syntheticLiteralValue(lhs.Fragment)
 		rhsLiteral, rhsLiteralOK := syntheticLiteralValue(rhs.Fragment)
 		switch {
@@ -305,7 +305,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 
 		info.NativeReason = "binary expression currently lowers natively only for scalar/vector arithmetic or supported vector-vector joins over lowerable children"
 		return info
-	case *planpkg.LogicalAggregationPlan:
+	case *logicalpkg.AggregationPlan:
 		child := a.walk(n.Child)
 		info.NodeType = "aggregation"
 		info.Children = []*LoweringInfo{child}
@@ -360,7 +360,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		info.NativeLowerable = eligible
 		info.NativeReason = reason
 		return info
-	case *planpkg.LogicalHistogramQuantilePlan:
+	case *logicalpkg.HistogramQuantilePlan:
 		child := a.walk(n.Child)
 		info.NodeType = "histogram_quantile"
 		info.Children = []*LoweringInfo{child}
@@ -384,7 +384,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = "histogram_quantile currently stays on the local execution path"
 		return info
-	case *planpkg.LogicalHistogramFractionPlan:
+	case *logicalpkg.HistogramFractionPlan:
 		child := a.walk(n.Child)
 		info.NodeType = "histogram_fraction"
 		info.Children = []*LoweringInfo{child}
@@ -408,7 +408,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = "histogram_fraction currently stays on the local execution path"
 		return info
-	case *planpkg.LogicalHistogramProjectionPlan:
+	case *logicalpkg.HistogramProjectionPlan:
 		child := a.walk(n.Child)
 		info.NodeType = n.Func
 		info.Children = []*LoweringInfo{child}
@@ -437,7 +437,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = fmt.Sprintf("%s currently stays on the local execution path", n.Func)
 		return info
-	case *planpkg.LogicalHistogramQuantilesPlan:
+	case *logicalpkg.HistogramQuantilesPlan:
 		child := a.walk(n.Child)
 		info.NodeType = "histogram_quantiles"
 		children := make([]*LoweringInfo, 0, 1+len(n.ParamChildren))
@@ -475,7 +475,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = "histogram_quantiles currently requires a lowerable instant-vector histogram child and lowerable scalar quantile arguments to run fully in native SQL"
 		return info
-	case *planpkg.LogicalRangeFunctionPlan:
+	case *logicalpkg.RangeFunctionPlan:
 		child := a.walk(n.Child)
 		info.NodeType = n.Func
 		info.Children = []*LoweringInfo{child}
@@ -548,7 +548,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = fmt.Sprintf("range function %q currently stays on the local execution path until native range lowering lands", n.Func)
 		return info
-	case *planpkg.LogicalVectorPlan:
+	case *logicalpkg.VectorPlan:
 		child := a.walk(n.Child)
 		info.NodeType = "vector"
 		info.Children = []*LoweringInfo{child}
@@ -564,7 +564,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = "vector() currently requires a lowerable scalar child to run fully in native SQL"
 		return info
-	case *planpkg.LogicalSortPlan:
+	case *logicalpkg.SortPlan:
 		child := a.walk(n.Child)
 		info.NodeType = n.Func
 		info.Children = []*LoweringInfo{child}
@@ -578,7 +578,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = fmt.Sprintf("%s currently requires a lowerable instant-vector child to run fully in native SQL", n.Func)
 		return info
-	case *planpkg.LogicalScalarConvertPlan:
+	case *logicalpkg.ScalarConvertPlan:
 		child := a.walk(n.Child)
 		info.NodeType = "scalar"
 		info.Children = []*LoweringInfo{child}
@@ -592,7 +592,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = "scalar() currently stays on the local execution path"
 		return info
-	case *planpkg.LogicalInfoPlan:
+	case *logicalpkg.InfoPlan:
 		child := a.walk(n.Child)
 		info.NodeType = "info"
 		info.Children = []*LoweringInfo{child}
@@ -610,7 +610,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = "info() currently requires a lowerable instant-vector child to run fully in native SQL"
 		return info
-	case *planpkg.LogicalPointwiseFunctionPlan:
+	case *logicalpkg.PointwiseFunctionPlan:
 		info.NodeType = n.Func
 		var child *LoweringInfo
 		children := make([]*LoweringInfo, 0, 1+len(n.ParamChildren))
@@ -655,7 +655,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		info.NodeType = n.Func
 		info.NativeReason = fmt.Sprintf("%s currently stays on the local execution path", n.Func)
 		return info
-	case *planpkg.LogicalScalarBuiltinPlan:
+	case *logicalpkg.ScalarBuiltinPlan:
 		info.NodeType = n.Func
 		info.LabelLineage = syntheticOutputLineage(map[string]string{})
 		if isSupportedNativeSyntheticScalarBuiltin(n.Func) {
@@ -666,7 +666,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = fmt.Sprintf("%s currently stays on the local execution path", n.Func)
 		return info
-	case *planpkg.LogicalRoundPlan:
+	case *logicalpkg.RoundPlan:
 		child := a.walk(n.Child)
 		info.NodeType = "round"
 		info.Children = []*LoweringInfo{child}
@@ -685,7 +685,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = "round() currently stays on the local execution path"
 		return info
-	case *planpkg.LogicalRatePlan:
+	case *logicalpkg.RatePlan:
 		child := a.walk(n.Child)
 		info.NodeType = n.Func
 		info.Children = []*LoweringInfo{child}
@@ -707,7 +707,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = fmt.Sprintf("%s currently stays on the local execution path until native range lowering lands", n.Func)
 		return info
-	case *planpkg.LogicalIncreasePlan:
+	case *logicalpkg.IncreasePlan:
 		child := a.walk(n.Child)
 		info.NodeType = "increase"
 		info.Children = []*LoweringInfo{child}
@@ -729,7 +729,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = "increase currently stays on the local execution path until native range lowering lands"
 		return info
-	case *planpkg.LogicalDeltaPlan:
+	case *logicalpkg.DeltaPlan:
 		child := a.walk(n.Child)
 		info.NodeType = n.Func
 		info.Children = []*LoweringInfo{child}
@@ -751,7 +751,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = fmt.Sprintf("%s currently stays on the local execution path until native range lowering lands", n.Func)
 		return info
-	case *planpkg.LogicalChangesPlan:
+	case *logicalpkg.ChangesPlan:
 		child := a.walk(n.Child)
 		info.NodeType = "changes"
 		info.Children = []*LoweringInfo{child}
@@ -773,7 +773,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = "changes currently stays on the local execution path until native range lowering lands"
 		return info
-	case *planpkg.LogicalDerivPlan:
+	case *logicalpkg.DerivPlan:
 		child := a.walk(n.Child)
 		info.NodeType = "deriv"
 		info.Children = []*LoweringInfo{child}
@@ -795,7 +795,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = "deriv currently stays on the local execution path until native range lowering lands"
 		return info
-	case *planpkg.LogicalQuantileOverTimePlan:
+	case *logicalpkg.QuantileOverTimePlan:
 		child := a.walk(n.Child)
 		info.NodeType = "quantile_over_time"
 		info.Children = []*LoweringInfo{child}
@@ -818,7 +818,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = "quantile_over_time currently requires a lowerable matrix child to run fully in native SQL"
 		return info
-	case *planpkg.LogicalAbsentPlan:
+	case *logicalpkg.AbsentPlan:
 		child := a.walk(n.Child)
 		info.NodeType = "absent"
 		info.Children = []*LoweringInfo{child}
@@ -841,7 +841,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = "absent() currently requires a lowerable instant-vector child to run fully in native SQL"
 		return info
-	case *planpkg.LogicalAbsentOverTimePlan:
+	case *logicalpkg.AbsentOverTimePlan:
 		child := a.walk(n.Child)
 		info.NodeType = "absent_over_time"
 		info.Children = []*LoweringInfo{child}
@@ -864,7 +864,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = "absent_over_time currently requires a lowerable range-selector/subquery child to run fully in native SQL"
 		return info
-	case *planpkg.LogicalSubqueryPlan:
+	case *logicalpkg.SubqueryPlan:
 		child := a.walk(n.Child)
 		info.NodeType = "subquery"
 		info.Children = []*LoweringInfo{child}
@@ -889,7 +889,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = "subquery step-grid execution currently stays on the local/delegated paths until native range lowering lands"
 		return info
-	case *planpkg.LogicalLabelReplacePlan:
+	case *logicalpkg.LabelReplacePlan:
 		child := a.walk(n.Child)
 		info.NodeType = "label_replace"
 		info.Children = []*LoweringInfo{child}
@@ -903,7 +903,7 @@ func (a *Analysis) walk(node planpkg.LogicalPlan) *LoweringInfo {
 		}
 		info.NativeReason = "label_replace currently requires a lowerable instant-vector child to run fully in native SQL"
 		return info
-	case *planpkg.LogicalLabelJoinPlan:
+	case *logicalpkg.LabelJoinPlan:
 		child := a.walk(n.Child)
 		info.NodeType = "label_join"
 		info.Children = []*LoweringInfo{child}
@@ -962,23 +962,23 @@ func buildNativeClampFragment(name string, child *LoweringInfo, params []*Loweri
 	return &NativeFragment{Kind: FragmentKindClampTransform, OutputKind: child.Fragment.OutputKind, DropsMetric: true, ClampTransform: &ClampTransformFragment{Func: name, Child: child.Fragment, Min: minFragment, Max: maxFragment}}, true
 }
 
-func isVectorZeroLogicalPlan(node planpkg.LogicalPlan) bool {
-	vector, ok := node.(*planpkg.LogicalVectorPlan)
+func isVectorZeroLogicalPlan(node logicalpkg.Node) bool {
+	vector, ok := node.(*logicalpkg.VectorPlan)
 	if !ok || vector == nil {
 		return false
 	}
-	scalar, ok := vector.Child.(*planpkg.LogicalScalarLiteralPlan)
+	scalar, ok := vector.Child.(*logicalpkg.ScalarLiteralPlan)
 	if !ok || scalar == nil {
 		return false
 	}
 	return scalar.Value == 0
 }
 
-func zeroFillAggregationSource(op parser.ItemType, grouping []string, without bool, child planpkg.LogicalPlan, analysis *Analysis) (*NativeFragment, bool) {
+func zeroFillAggregationSource(op parser.ItemType, grouping []string, without bool, child logicalpkg.Node, analysis *Analysis) (*NativeFragment, bool) {
 	if op != parser.SUM || without || len(grouping) != 0 {
 		return nil, false
 	}
-	binary, ok := child.(*planpkg.LogicalBinaryPlan)
+	binary, ok := child.(*logicalpkg.BinaryPlan)
 	if !ok || binary == nil || binary.Op != parser.LOR || binary.ReturnBool {
 		return nil, false
 	}
@@ -997,7 +997,7 @@ func zeroFillAggregationSource(op parser.ItemType, grouping []string, without bo
 	return nil, false
 }
 
-func describeLogicalPlan(node planpkg.LogicalPlan) (string, OutputKind) {
+func describeLogicalPlan(node logicalpkg.Node) (string, OutputKind) {
 	described, ok := node.(describedLogicalPlan)
 	if !ok {
 		return "", OutputKindUnknown

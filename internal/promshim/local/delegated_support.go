@@ -3,7 +3,7 @@ package local
 import (
 	"strings"
 
-	planpkg "ch-observability/internal/promshim/plan"
+	logicalpkg "ch-observability/internal/promshim/logical"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -15,21 +15,21 @@ func ensureDelegatedExprSupportedForContext(expr parser.Expr, ctx PlanContext, s
 	return NewPlanBuildError(expr, result, stage)
 }
 
-func analyzeDelegatedExprSupportForContext(expr parser.Expr, ctx PlanContext) planpkg.SupportResult {
+func analyzeDelegatedExprSupportForContext(expr parser.Expr, ctx PlanContext) logicalpkg.SupportResult {
 	if ctx.Mode != EvalModeRange || expr == nil {
-		return planpkg.SupportResult{Supported: true}
+		return logicalpkg.SupportResult{Supported: true}
 	}
 
 	expr = unwrapTransparentExpr(expr)
 	call, ok := expr.(*parser.Call)
 	if !ok {
-		return planpkg.SupportResult{Supported: true}
+		return logicalpkg.SupportResult{Supported: true}
 	}
 
 	switch strings.ToLower(call.Func.Name) {
 	case "increase":
-		return planpkg.SupportResult{Supported: false, Difficulty: planpkg.DifficultyMedium, Reason: `function "increase" is not implemented yet for range queries`}
+		return logicalpkg.SupportResult{Supported: false, Difficulty: logicalpkg.DifficultyMedium, Reason: `function "increase" is not implemented yet for range queries`}
 	default:
-		return planpkg.SupportResult{Supported: true}
+		return logicalpkg.SupportResult{Supported: true}
 	}
 }

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"ch-observability/internal/promshim/native"
-	planpkg "ch-observability/internal/promshim/plan"
+	logicalpkg "ch-observability/internal/promshim/logical"
 	"ch-observability/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -16,10 +16,10 @@ func TestOptimizeFragmentPushesProjectionIntoUngroupedAggregationSelector(t *tes
 	if !ok {
 		t.Fatalf("expected aggregate expr, got %T", aggExpr)
 	}
-	logical := &planpkg.LogicalAggregationPlan{
+	logical := &logicalpkg.AggregationPlan{
 		Expr:  agg,
 		Op:    agg.Op,
-		Child: &planpkg.LogicalLeafExprPlan{Expr: agg.Expr},
+		Child: &logicalpkg.LeafExprPlan{Expr: agg.Expr},
 	}
 
 	optimized, err := native.BuildOptimizedFragmentWithContext(logical, nil, native.OptimizationContext{Mode: native.RenderModeInstant, EvaluationTimeMS: 300000})

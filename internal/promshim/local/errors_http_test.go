@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"ch-observability/internal/promshim/model"
-	"ch-observability/internal/promshim/plan"
+	"ch-observability/internal/promshim/logical"
 )
 
 func TestAPIErrorFromInternalStripsContextFromBadDataError(t *testing.T) {
@@ -19,11 +19,11 @@ func TestAPIErrorFromInternalStripsContextFromBadDataError(t *testing.T) {
 }
 
 func TestAPIErrorFromInternalUsesUserFacingPlanBuildErrorMessage(t *testing.T) {
-	expr, err := plan.ParseExpression(`rate(up[5m:30s])`)
+	expr, err := logical.ParseExpression(`rate(up[5m:30s])`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	apiErr := apiErrorFromInternal(NewPlanBuildError(expr, plan.SupportResult{Supported: false, Difficulty: plan.DifficultyHard, Reason: `function "rate" with subquery arguments is not implemented yet`}, "call planning"))
+	apiErr := apiErrorFromInternal(NewPlanBuildError(expr, logical.SupportResult{Supported: false, Difficulty: logical.DifficultyHard, Reason: `function "rate" with subquery arguments is not implemented yet`}, "call planning"))
 	if apiErr.ErrorType != "unsupported" {
 		t.Fatalf("expected unsupported error type, got %#v", apiErr)
 	}

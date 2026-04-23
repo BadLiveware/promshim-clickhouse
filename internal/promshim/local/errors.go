@@ -8,7 +8,7 @@ import (
 
 	httpapi "ch-observability/internal/promshim/httpapi"
 	"ch-observability/internal/promshim/local/exec"
-	"ch-observability/internal/promshim/plan"
+	"ch-observability/internal/promshim/logical"
 	"ch-observability/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -82,7 +82,7 @@ func WithInternalContext(err error, format string, args ...any) error {
 }
 
 type PlanBuildError struct {
-	Support plan.SupportResult
+	Support logical.SupportResult
 	Expr    parser.Expr
 	Stage   string
 }
@@ -109,7 +109,7 @@ func (e *PlanBuildError) Kind() internalErrorKind {
 	return internalErrorKindUnsupported
 }
 
-func NewPlanBuildError(expr parser.Expr, support plan.SupportResult, stage string) error {
+func NewPlanBuildError(expr parser.Expr, support logical.SupportResult, stage string) error {
 	return &PlanBuildError{Support: support, Expr: expr, Stage: stage}
 }
 

@@ -3,7 +3,7 @@ package local
 import (
 	nativeplan "ch-observability/internal/promshim/native"
 	"ch-observability/internal/promshim/native/renderer"
-	planpkg "ch-observability/internal/promshim/plan"
+	logicalpkg "ch-observability/internal/promshim/logical"
 	"ch-observability/internal/promshim/storage"
 
 	"github.com/prometheus/prometheus/promql/parser"
@@ -117,11 +117,11 @@ func maybeBuildNativeQuantileOverTimePlan(node *logicalQuantileOverTimePlan, ctx
 	return maybeBuildNativeRangeLikePlan(node, "quantile_over_time", node.ExprString(), ctx, analysis)
 }
 
-func maybeBuildNativeRangeLikePlan(node planpkg.LogicalPlan, kind, expr string, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+func maybeBuildNativeRangeLikePlan(node logicalpkg.Node, kind, expr string, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
 	return maybeBuildNativeRangeLikePlanAllowRange(node, kind, expr, ctx, analysis, false)
 }
 
-func maybeBuildNativeRangeLikePlanAllowRange(node planpkg.LogicalPlan, kind, expr string, ctx PlanContext, analysis *nativeplan.Analysis, allowRange bool) (Plan, bool, error) {
+func maybeBuildNativeRangeLikePlanAllowRange(node logicalpkg.Node, kind, expr string, ctx PlanContext, analysis *nativeplan.Analysis, allowRange bool) (Plan, bool, error) {
 	if ctx.Mode != EvalModeInstant && !(allowRange && ctx.Mode == EvalModeRange) {
 		return nil, false, nil
 	}
@@ -188,7 +188,7 @@ func maybeBuildNativeAbsentOverTimePlan(node *logicalAbsentOverTimePlan, ctx Pla
 	return maybeBuildNativeAbsentLikePlan(node, "absent_over_time", node.ExprString(), ctx, analysis)
 }
 
-func maybeBuildNativeAbsentLikePlan(node planpkg.LogicalPlan, kind, expr string, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
+func maybeBuildNativeAbsentLikePlan(node logicalpkg.Node, kind, expr string, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
 	if ctx.Mode != EvalModeInstant && ctx.Mode != EvalModeRange {
 		return nil, false, nil
 	}

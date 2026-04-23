@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	planpkg "ch-observability/internal/promshim/plan"
+	logicalpkg "ch-observability/internal/promshim/logical"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -112,11 +112,11 @@ var functionRewriteCatalog = []string{
 	"sum by(...) (rate(...))",
 }
 
-func BuildOptimizedFragment(node planpkg.LogicalPlan, analysis *Analysis) (*OptimizedFragment, error) {
+func BuildOptimizedFragment(node logicalpkg.Node, analysis *Analysis) (*OptimizedFragment, error) {
 	return BuildOptimizedFragmentWithContext(node, analysis, OptimizationContext{})
 }
 
-func BuildOptimizedFragmentWithContext(node planpkg.LogicalPlan, analysis *Analysis, ctx OptimizationContext) (*OptimizedFragment, error) {
+func BuildOptimizedFragmentWithContext(node logicalpkg.Node, analysis *Analysis, ctx OptimizationContext) (*OptimizedFragment, error) {
 	if node == nil {
 		return nil, fmt.Errorf("native optimized fragment build requires a logical plan node")
 	}

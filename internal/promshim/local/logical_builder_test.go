@@ -5,12 +5,12 @@ import (
 
 	"ch-observability/internal/promshim/model"
 	nativeplan "ch-observability/internal/promshim/native"
-	"ch-observability/internal/promshim/plan"
+	"ch-observability/internal/promshim/logical"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
 func TestBuildLogicalPlanCreatesDelegatedLeafPlan(t *testing.T) {
-	expr, err := plan.ParseExpression("up")
+	expr, err := logical.ParseExpression("up")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestBuildLogicalPlanCreatesDelegatedLeafPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesAggregationPlan(t *testing.T) {
-	expr, err := plan.ParseExpression("sum by (job) (up)")
+	expr, err := logical.ParseExpression("sum by (job) (up)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestBuildLogicalPlanCreatesAggregationPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanPreservesTimeModifierLeafExpression(t *testing.T) {
-	expr, err := plan.ParseExpression("up offset 5m")
+	expr, err := logical.ParseExpression("up offset 5m")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestBuildLogicalPlanPreservesTimeModifierLeafExpression(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesTopKPlan(t *testing.T) {
-	expr, err := plan.ParseExpression("topk(3, up)")
+	expr, err := logical.ParseExpression("topk(3, up)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestBuildLogicalPlanCreatesTier1AdditionalAggregationPlans(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesHistogramQuantilePlan(t *testing.T) {
-	expr, err := plan.ParseExpression("histogram_quantile(0.9, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
+	expr, err := logical.ParseExpression("histogram_quantile(0.9, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestBuildLogicalPlanCreatesHistogramQuantilePlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesHistogramQuantilesPlan(t *testing.T) {
-	expr, err := plan.ParseExpression("histogram_quantiles(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])), \"quantile\", 0.5, scalar(sum(up)))")
+	expr, err := logical.ParseExpression("histogram_quantiles(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])), \"quantile\", 0.5, scalar(sum(up)))")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestBuildLogicalPlanCreatesHistogramQuantilesPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesHistogramProjectionPlan(t *testing.T) {
-	expr, err := plan.ParseExpression("histogram_count(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
+	expr, err := logical.ParseExpression("histogram_count(sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestBuildLogicalPlanCreatesHistogramProjectionPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesHistogramFractionPlan(t *testing.T) {
-	expr, err := plan.ParseExpression("histogram_fraction(0, 1, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
+	expr, err := logical.ParseExpression("histogram_fraction(0, 1, sum by (le, job) (rate(http_request_duration_seconds_bucket[5m])))")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestBuildLogicalPlanCreatesTier1AdditionalRangeFunctionPlans(t *testing.T) 
 }
 
 func TestBuildLogicalPlanCreatesIncreasePlan(t *testing.T) {
-	expr, err := plan.ParseExpression("increase(up[5m])")
+	expr, err := logical.ParseExpression("increase(up[5m])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestBuildLogicalPlanCreatesIncreasePlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesIncreasePlanForSubqueryArg(t *testing.T) {
-	expr, err := plan.ParseExpression("increase(sum(up)[5m:])")
+	expr, err := logical.ParseExpression("increase(sum(up)[5m:])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +289,7 @@ func TestBuildLogicalPlanCreatesIncreasePlanForSubqueryArg(t *testing.T) {
 
 func TestBuildLogicalPlanCreatesRatePlanForDirectSelectorArg(t *testing.T) {
 	for _, fn := range []string{"rate", "irate"} {
-		expr, err := plan.ParseExpression(fn + "(up[5m])")
+		expr, err := logical.ParseExpression(fn + "(up[5m])")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -312,7 +312,7 @@ func TestBuildLogicalPlanCreatesRatePlanForDirectSelectorArg(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesRatePlanForSubqueryArg(t *testing.T) {
-	expr, err := plan.ParseExpression("rate(sum(up)[5m:])")
+	expr, err := logical.ParseExpression("rate(sum(up)[5m:])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +334,7 @@ func TestBuildLogicalPlanCreatesRatePlanForSubqueryArg(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesIratePlanForSubqueryArg(t *testing.T) {
-	expr, err := plan.ParseExpression("irate(sum(up)[5m:])")
+	expr, err := logical.ParseExpression("irate(sum(up)[5m:])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +366,7 @@ func TestBuildLogicalPlanCreatesCounterPlansForDirectSelectorArgs(t *testing.T) 
 		{query: "deriv(up[5m])", planType: (*logicalDerivPlan)(nil)},
 	}
 	for _, tc := range cases {
-		expr, err := plan.ParseExpression(tc.query)
+		expr, err := logical.ParseExpression(tc.query)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -404,7 +404,7 @@ func TestBuildLogicalPlanCreatesCounterPlansForDirectSelectorArgs(t *testing.T) 
 }
 
 func TestBuildLogicalPlanCreatesDeltaPlanForSubqueryArg(t *testing.T) {
-	expr, err := plan.ParseExpression("delta(sum(up)[5m:])")
+	expr, err := logical.ParseExpression("delta(sum(up)[5m:])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +426,7 @@ func TestBuildLogicalPlanCreatesDeltaPlanForSubqueryArg(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesIDeltaPlanForSubqueryArg(t *testing.T) {
-	expr, err := plan.ParseExpression("idelta(sum(up)[5m:])")
+	expr, err := logical.ParseExpression("idelta(sum(up)[5m:])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +448,7 @@ func TestBuildLogicalPlanCreatesIDeltaPlanForSubqueryArg(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesChangesPlanForSubqueryArg(t *testing.T) {
-	expr, err := plan.ParseExpression("changes(sum(up)[5m:])")
+	expr, err := logical.ParseExpression("changes(sum(up)[5m:])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,7 +467,7 @@ func TestBuildLogicalPlanCreatesChangesPlanForSubqueryArg(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesDerivPlanForSubqueryArg(t *testing.T) {
-	expr, err := plan.ParseExpression("deriv(sum(up)[5m:])")
+	expr, err := logical.ParseExpression("deriv(sum(up)[5m:])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,7 +486,7 @@ func TestBuildLogicalPlanCreatesDerivPlanForSubqueryArg(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesVectorPlan(t *testing.T) {
-	expr, err := plan.ParseExpression("vector(0)")
+	expr, err := logical.ParseExpression("vector(0)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,7 +505,7 @@ func TestBuildLogicalPlanCreatesVectorPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesRoundPlan(t *testing.T) {
-	expr, err := plan.ParseExpression("round(up)")
+	expr, err := logical.ParseExpression("round(up)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -685,7 +685,7 @@ func TestBuildLogicalPlanCreatesPiBuiltinPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesNestedAggregationPlan(t *testing.T) {
-	expr, err := plan.ParseExpression("count(count by (job) (up))")
+	expr, err := logical.ParseExpression("count(count by (job) (up))")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -707,7 +707,7 @@ func TestBuildLogicalPlanCreatesNestedAggregationPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesLastOverTimePlan(t *testing.T) {
-	expr, err := plan.ParseExpression("last_over_time(up[5m])")
+	expr, err := logical.ParseExpression("last_over_time(up[5m])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -726,7 +726,7 @@ func TestBuildLogicalPlanCreatesLastOverTimePlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesSumOverTimePlan(t *testing.T) {
-	expr, err := plan.ParseExpression("sum_over_time(up[5m])")
+	expr, err := logical.ParseExpression("sum_over_time(up[5m])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -745,7 +745,7 @@ func TestBuildLogicalPlanCreatesSumOverTimePlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesAvgOverTimePlan(t *testing.T) {
-	expr, err := plan.ParseExpression("avg_over_time(up[5m])")
+	expr, err := logical.ParseExpression("avg_over_time(up[5m])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -764,7 +764,7 @@ func TestBuildLogicalPlanCreatesAvgOverTimePlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesMaxOverTimePlan(t *testing.T) {
-	expr, err := plan.ParseExpression("max_over_time(up[5m])")
+	expr, err := logical.ParseExpression("max_over_time(up[5m])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -783,7 +783,7 @@ func TestBuildLogicalPlanCreatesMaxOverTimePlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesMinOverTimePlan(t *testing.T) {
-	expr, err := plan.ParseExpression("min_over_time(up[5m])")
+	expr, err := logical.ParseExpression("min_over_time(up[5m])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -802,7 +802,7 @@ func TestBuildLogicalPlanCreatesMinOverTimePlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesCountOverTimePlan(t *testing.T) {
-	expr, err := plan.ParseExpression("count_over_time(up[5m])")
+	expr, err := logical.ParseExpression("count_over_time(up[5m])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -821,7 +821,7 @@ func TestBuildLogicalPlanCreatesCountOverTimePlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesQuantileOverTimePlan(t *testing.T) {
-	expr, err := plan.ParseExpression("quantile_over_time(0.95, up[5m])")
+	expr, err := logical.ParseExpression("quantile_over_time(0.95, up[5m])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -840,7 +840,7 @@ func TestBuildLogicalPlanCreatesQuantileOverTimePlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesAbsentPlanWithDerivedLabels(t *testing.T) {
-	expr, err := plan.ParseExpression(`absent(nonexistent{job="api",instance=~".*"})`)
+	expr, err := logical.ParseExpression(`absent(nonexistent{job="api",instance=~".*"})`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -859,7 +859,7 @@ func TestBuildLogicalPlanCreatesAbsentPlanWithDerivedLabels(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesAbsentOverTimePlanWithEmptyDerivedLabelsForComplexExpr(t *testing.T) {
-	expr, err := plan.ParseExpression(`absent_over_time(sum(nonexistent{job="api"})[5m:1m])`)
+	expr, err := logical.ParseExpression(`absent_over_time(sum(nonexistent{job="api"})[5m:1m])`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -878,7 +878,7 @@ func TestBuildLogicalPlanCreatesAbsentOverTimePlanWithEmptyDerivedLabelsForCompl
 }
 
 func TestBuildLogicalPlanCreatesNestedSubqueryRangeFunctionPlan(t *testing.T) {
-	expr, err := plan.ParseExpression("last_over_time(last_over_time((up * 100)[5m:30s])[10m:1m])")
+	expr, err := logical.ParseExpression("last_over_time(last_over_time((up * 100)[5m:30s])[10m:1m])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -897,7 +897,7 @@ func TestBuildLogicalPlanCreatesNestedSubqueryRangeFunctionPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesNestedMatrixFunctionBinaryPlan(t *testing.T) {
-	expr, err := plan.ParseExpression("sum_over_time((up * 100)[5m:30s]) + count_over_time((up * 100)[5m:30s])")
+	expr, err := logical.ParseExpression("sum_over_time((up * 100)[5m:30s]) + count_over_time((up * 100)[5m:30s])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -912,7 +912,7 @@ func TestBuildLogicalPlanCreatesNestedMatrixFunctionBinaryPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesSetOperatorPlan(t *testing.T) {
-	expr, err := plan.ParseExpression("up and on(job) up")
+	expr, err := logical.ParseExpression("up and on(job) up")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -934,7 +934,7 @@ func TestBuildLogicalPlanCreatesSetOperatorPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesSubqueryPlan(t *testing.T) {
-	expr, err := plan.ParseExpression("(up * 100)[5m:30s]")
+	expr, err := logical.ParseExpression("(up * 100)[5m:30s]")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -956,7 +956,7 @@ func TestBuildLogicalPlanCreatesSubqueryPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesSubqueryWithLocalAggregationChildPlan(t *testing.T) {
-	expr, err := plan.ParseExpression("sum(up)[5m:30s]")
+	expr, err := logical.ParseExpression("sum(up)[5m:30s]")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -975,7 +975,7 @@ func TestBuildLogicalPlanCreatesSubqueryWithLocalAggregationChildPlan(t *testing
 }
 
 func TestBuildLogicalPlanCreatesVectorMatchingBinaryPlan(t *testing.T) {
-	expr, err := plan.ParseExpression("up * on(job) group_left sum by (job) (up)")
+	expr, err := logical.ParseExpression("up * on(job) group_left sum by (job) (up)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1000,7 +1000,7 @@ func TestBuildLogicalPlanCreatesVectorMatchingBinaryPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesLabelReplacePlan(t *testing.T) {
-	expr, err := plan.ParseExpression(`label_replace(up, "job_copy", "$1", "job", "(.*)")`)
+	expr, err := logical.ParseExpression(`label_replace(up, "job_copy", "$1", "job", "(.*)")`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1022,7 +1022,7 @@ func TestBuildLogicalPlanCreatesLabelReplacePlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanAcceptsPrometheus3UTF8LabelReplaceDestination(t *testing.T) {
-	expr, err := plan.ParseExpression(`label_replace(up, "~invalid", "", "src", "(.*)")`)
+	expr, err := logical.ParseExpression(`label_replace(up, "~invalid", "", "src", "(.*)")`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1317,9 +1317,9 @@ func TestBuildExecPlanLowersLogicalLabelJoinPlan(t *testing.T) {
 
 func mustParseExpr(t *testing.T, query string) parser.Expr {
 	t.Helper()
-	expr, err := plan.ParseExpression(query)
+	expr, err := logical.ParseExpression(query)
 	if err != nil {
-		t.Fatalf("plan.ParseExpression(%q): %v", query, err)
+		t.Fatalf("logical.ParseExpression(%q): %v", query, err)
 	}
 	return expr
 }

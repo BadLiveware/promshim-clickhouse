@@ -3,7 +3,7 @@ package native
 import (
 	"time"
 
-	planpkg "ch-observability/internal/promshim/plan"
+	logicalpkg "ch-observability/internal/promshim/logical"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -223,16 +223,16 @@ type LoweringInfo struct {
 
 type Analysis struct {
 	Root   *LoweringInfo
-	byNode map[planpkg.LogicalPlan]*LoweringInfo
+	byNode map[logicalpkg.Node]*LoweringInfo
 }
 
-func Analyze(plan planpkg.LogicalPlan) *Analysis {
-	analysis := &Analysis{byNode: map[planpkg.LogicalPlan]*LoweringInfo{}}
+func Analyze(plan logicalpkg.Node) *Analysis {
+	analysis := &Analysis{byNode: map[logicalpkg.Node]*LoweringInfo{}}
 	analysis.Root = analysis.walk(plan)
 	return analysis
 }
 
-func (a *Analysis) InfoFor(node planpkg.LogicalPlan) *LoweringInfo {
+func (a *Analysis) InfoFor(node logicalpkg.Node) *LoweringInfo {
 	if a == nil || node == nil {
 		return nil
 	}

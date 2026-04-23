@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	planpkg "ch-observability/internal/promshim/plan"
+	logicalpkg "ch-observability/internal/promshim/logical"
 )
 
 type corpusMetadata struct {
@@ -188,7 +188,7 @@ func validateQueryCorpus(t *testing.T, fixture string, queries []QuerySpec) {
 			t.Fatalf("%s: query %q has empty PromQL", fixture, query.Name)
 		}
 		expectedStatus := strings.ToLower(strings.TrimSpace(query.ExpectedStatus))
-		if _, err := planpkg.ParseExpression(query.Query); err != nil && expectedStatus != "error" {
+		if _, err := logicalpkg.ParseExpression(query.Query); err != nil && expectedStatus != "error" {
 			t.Fatalf("%s: query %q does not parse: %v", fixture, query.Name, err)
 		}
 

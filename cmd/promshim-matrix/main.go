@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"ch-observability/internal/promshim/compliance"
-	planpkg "ch-observability/internal/promshim/plan"
+	logicalpkg "ch-observability/internal/promshim/logical"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -375,7 +375,7 @@ func init() {
 		`sum by (job) (harness_up)`,
 		`harness_up + on(job,instance) fill(0) harness_up`,
 	} {
-		if _, err := planpkg.ParseExpression(query); err != nil {
+		if _, err := logicalpkg.ParseExpression(query); err != nil {
 			panic(err)
 		}
 	}

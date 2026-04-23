@@ -2,6 +2,7 @@ package renderer
 
 import (
 	"errors"
+	"flag"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,39 +10,34 @@ import (
 	"ch-observability/internal/promshim/native"
 )
 
-// syntheticFuncCases covers the eight zero-arg synthetic date
-// functions that flow through logical.PointwiseFunctionPlan. "time"
-// and "pi" are logical.ScalarBuiltinPlan and retire on a later surface
-// commit; "literal" is logical.ScalarLiteralPlan and retires with the
-// scalar-literal surface. Neither belongs in this surface's tests.
-var syntheticFuncCases = []string{
-	"minute",
-	"hour",
-	"day_of_week",
-	"day_of_month",
-	"day_of_year",
-	"days_in_month",
-	"month",
-	"year",
+// updateLowerGolden is the shared -update flag used by every Lower
+// surface's golden test. Surface 1's original local flag was rolled up
+// into this package-level flag when Surface 2 landed; future surfaces
+// should reuse it rather than declaring their own.
+var updateLowerGolden = flag.Bool("update", false, "rewrite golden .sql files for renderer.Lower surface tests")
+
+// scalarConvertCases covers a sampling of PromQL scalar() inputs that
+// all lower natively: a bare leaf selector (no rate), a selector with
+// label matchers, and scalar() over a range function (rate). The
+// differential guard runs each query through both Lower and the
+// Fragment path and fails on any SQL diff.
+var scalarConvertCases = []struct {
+	name  string
+	query string
+}{
+	{name: "bare", query: `scalar(up)`},
+	{name: "labelled", query: `scalar(http_requests_total{job="api"})`},
+	{name: "rate", query: `scalar(rate(up[5m]))`},
 }
 
-func testRenderParamsInstant() RenderParams {
-	return RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 1_700_000_000_000}
-}
-
-func testRenderParamsRange() RenderParams {
-	return RenderParams{Mode: native.RenderModeRange, StartMS: 1_700_000_000_000, EndMS: 1_700_000_300_000, StepMS: 60_000}
-}
-
-// TestLowerPointwiseFunctionMatchesFragment is the byte-identical
-// differential guard: for every supported synthetic Func in every
+// TestLowerScalarConvertMatchesFragment is the byte-identical
+// differential guard for the scalar() surface: for every case in every
 // render mode, lower the plan twice — once through renderer.Lower,
 // once through native.BuildFragment + RenderFragment — and fail on any
 // diff. The goldens only lock the shape down; this test is what makes
 // them meaningful.
-func TestLowerPointwiseFunctionMatchesFragment(t *testing.T) {
-	for _, fn := range syntheticFuncCases {
-		query := fn + "()"
+func TestLowerScalarConvertMatchesFragment(t *testing.T) {
+	for _, tc := range scalarConvertCases {
 		for _, mode := range []struct {
 			name   string
 			params RenderParams
@@ -49,8 +45,8 @@ func TestLowerPointwiseFunctionMatchesFragment(t *testing.T) {
 			{name: "instant", params: testRenderParamsInstant()},
 			{name: "range", params: testRenderParamsRange()},
 		} {
-			t.Run(fn+"_"+mode.name, func(t *testing.T) {
-				root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+			t.Run(tc.name+"_"+mode.name, func(t *testing.T) {
+				root, analysis, nativeAnalysis := buildLowerInputs(t, tc.query)
 				lowerCtx := LoweringCtx{
 					Config:         testRenderConfig(),
 					Analysis:       analysis,
@@ -85,11 +81,13 @@ func TestLowerPointwiseFunctionMatchesFragment(t *testing.T) {
 	}
 }
 
-// TestLowerPointwiseFunctionGolden locks in the exact SQL per func ×
-// mode to catch incidental drift. Run with -update to regenerate.
-func TestLowerPointwiseFunctionGolden(t *testing.T) {
-	for _, fn := range syntheticFuncCases {
-		query := fn + "()"
+// TestLowerScalarConvertGolden locks in the exact SQL for a subset of
+// the differential cases. Run with -update to regenerate. We lock both
+// the bare and labelled cases in both render modes; the rate variant
+// is covered by the differential guard alone.
+func TestLowerScalarConvertGolden(t *testing.T) {
+	goldenCases := scalarConvertCases[:2] // bare + labelled
+	for _, tc := range goldenCases {
 		for _, mode := range []struct {
 			name   string
 			params RenderParams
@@ -97,8 +95,8 @@ func TestLowerPointwiseFunctionGolden(t *testing.T) {
 			{name: "instant", params: testRenderParamsInstant()},
 			{name: "range", params: testRenderParamsRange()},
 		} {
-			t.Run(fn+"_"+mode.name, func(t *testing.T) {
-				root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+			t.Run(tc.name+"_"+mode.name, func(t *testing.T) {
+				root, analysis, nativeAnalysis := buildLowerInputs(t, tc.query)
 				rq, err := Lower(LoweringCtx{
 					Config:         testRenderConfig(),
 					Analysis:       analysis,
@@ -108,7 +106,7 @@ func TestLowerPointwiseFunctionGolden(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Lower: %v", err)
 				}
-				goldenPath := filepath.Join("testdata", "synthetic_"+fn+"_"+mode.name+".sql")
+				goldenPath := filepath.Join("testdata", "scalar_convert_"+tc.name+"_"+mode.name+".sql")
 				if *updateLowerGolden {
 					if err := os.MkdirAll(filepath.Dir(goldenPath), 0o755); err != nil {
 						t.Fatalf("mkdir testdata: %v", err)
@@ -130,30 +128,14 @@ func TestLowerPointwiseFunctionGolden(t *testing.T) {
 	}
 }
 
-// TestLowerPointwiseFunctionUnsupportedFallsBack guards the sentinel
-// path: a PointwiseFunctionPlan with a child (e.g. abs(up)) must
-// return errUnsupportedLowerNode so the caller falls back to Fragment
-// rendering. The Lower surface only handles the zero-arg synthetic
-// shape.
-func TestLowerPointwiseFunctionUnsupportedFallsBack(t *testing.T) {
-	root, analysis, nativeAnalysis := buildLowerInputs(t, `abs(up)`)
-	_, err := Lower(LoweringCtx{
-		Config:         testRenderConfig(),
-		Analysis:       analysis,
-		NativeAnalysis: nativeAnalysis,
-		Params:         testRenderParamsInstant(),
-	}, root)
-	if !IsUnsupportedByLower(err) {
-		t.Fatalf("expected errUnsupportedLowerNode for abs(up), got %v", err)
-	}
-}
-
-// TestLowerPointwiseFunctionNilErrors exercises the defensive nil
-// guard in lowerPointwiseFunction.
-func TestLowerPointwiseFunctionNilErrors(t *testing.T) {
-	_, err := lowerPointwiseFunction(LoweringCtx{}, nil)
+// TestLowerScalarConvertNilErrors exercises the defensive nil guard in
+// lowerScalarConvert. A nil node must return a non-sentinel error
+// (callers should not silently fall back to Fragment for a malformed
+// plan tree).
+func TestLowerScalarConvertNilErrors(t *testing.T) {
+	_, err := lowerScalarConvert(LoweringCtx{}, nil)
 	if err == nil {
-		t.Fatalf("expected error for nil PointwiseFunctionPlan")
+		t.Fatalf("expected error for nil ScalarConvertPlan")
 	}
 	if errors.Is(err, errUnsupportedLowerNode) {
 		t.Fatalf("expected non-sentinel error for nil node, got sentinel")

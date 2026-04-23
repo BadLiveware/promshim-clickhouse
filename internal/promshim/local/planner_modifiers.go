@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
-	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -16,7 +16,7 @@ import (
 const clickHouseRangePadding = time.Millisecond
 
 func resolveDelegatedPromQL(expr parser.Expr, params EvalParams) (string, error) {
-	parsed, err := planpkg.ParseExpression(expr.String())
+	parsed, err := logicalpkg.ParseExpression(expr.String())
 	if err != nil {
 		return "", NewExecutionErrorf("re-parsing expression for delegation rewrite: %v", err)
 	}

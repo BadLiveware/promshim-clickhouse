@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
-	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -26,13 +26,13 @@ func TestAnalyzeAggregationTracksNativeSourceExpression(t *testing.T) {
 		t.Fatalf("expected scalar rhs, got %T", binaryExpr.RHS)
 	}
 
-	child := &planpkg.LogicalBinaryPlan{
+	child := &logicalpkg.BinaryPlan{
 		Expr: binaryExpr,
 		Op:   binaryExpr.Op,
-		LHS:  &planpkg.LogicalLeafExprPlan{Expr: binaryExpr.LHS},
-		RHS:  &planpkg.LogicalScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
+		LHS:  &logicalpkg.LeafExprPlan{Expr: binaryExpr.LHS},
+		RHS:  &logicalpkg.ScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
 	}
-	logical := &planpkg.LogicalAggregationPlan{
+	logical := &logicalpkg.AggregationPlan{
 		Expr:     agg,
 		Op:       agg.Op,
 		Grouping: append([]string(nil), agg.Grouping...),
@@ -78,7 +78,7 @@ func TestAnalyzeTier1AdditionalAggregationsMarkNativeLowerable(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected aggregate expr for %q, got %T", tc.query, aggExpr)
 		}
-		logical := &planpkg.LogicalAggregationPlan{Expr: agg, Op: agg.Op, Grouping: append([]string(nil), agg.Grouping...), Without: agg.Without, Child: &planpkg.LogicalLeafExprPlan{Expr: agg.Expr}}
+		logical := &logicalpkg.AggregationPlan{Expr: agg, Op: agg.Op, Grouping: append([]string(nil), agg.Grouping...), Without: agg.Without, Child: &logicalpkg.LeafExprPlan{Expr: agg.Expr}}
 		if agg.Param != nil {
 			switch param := agg.Param.(type) {
 			case *parser.NumberLiteral:
@@ -116,7 +116,7 @@ func TestAnalyzePointwiseFunctionMarksNativeLowerable(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected call expr, got %T", callExpr)
 	}
-	logical := &planpkg.LogicalPointwiseFunctionPlan{Expr: call, Func: "abs", Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+	logical := &logicalpkg.PointwiseFunctionPlan{Expr: call, Func: "abs", Child: &logicalpkg.LeafExprPlan{Expr: call.Args[0]}}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected abs() to be native-lowerable, got %#v", info)
@@ -132,7 +132,7 @@ func TestAnalyzeInfoMarksNativeLowerableForDefaultTargetInfo(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected call expr, got %T", callExpr)
 	}
-	logical := &planpkg.LogicalInfoPlan{Expr: call, Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+	logical := &logicalpkg.InfoPlan{Expr: call, Child: &logicalpkg.LeafExprPlan{Expr: call.Args[0]}}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected info() to be native-lowerable, got %#v", info)
@@ -149,7 +149,7 @@ func TestAnalyzeInfoMarksRegexMetricNameMatcherNativeLowerable(t *testing.T) {
 		t.Fatalf("expected call expr, got %T", callExpr)
 	}
 	selector := call.Args[1].(*parser.VectorSelector)
-	logical := &planpkg.LogicalInfoPlan{Expr: call, SelectorMatchers: CloneMatchers(selector.LabelMatchers), Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+	logical := &logicalpkg.InfoPlan{Expr: call, SelectorMatchers: CloneMatchers(selector.LabelMatchers), Child: &logicalpkg.LeafExprPlan{Expr: call.Args[0]}}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected regex info() metric-name matcher to be native-lowerable, got %#v", info)
@@ -175,7 +175,7 @@ func TestAnalyzeVectorMarksNativeLowerableForScalarLiteral(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected call expr, got %T", callExpr)
 	}
-	logical := &planpkg.LogicalVectorPlan{Expr: call, Child: &planpkg.LogicalScalarLiteralPlan{Expr: call.Args[0], Value: 1}}
+	logical := &logicalpkg.VectorPlan{Expr: call, Child: &logicalpkg.ScalarLiteralPlan{Expr: call.Args[0], Value: 1}}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected vector() to be native-lowerable, got %#v", info)
@@ -191,7 +191,7 @@ func TestAnalyzeSortByLabelMarksNativeLowerable(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected call expr, got %T", callExpr)
 	}
-	logical := &planpkg.LogicalSortPlan{Expr: call, Func: "sort_by_label", Labels: []string{"instance", "job"}, Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+	logical := &logicalpkg.SortPlan{Expr: call, Func: "sort_by_label", Labels: []string{"instance", "job"}, Child: &logicalpkg.LeafExprPlan{Expr: call.Args[0]}}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected sort_by_label to be native-lowerable, got %#v", info)
@@ -208,12 +208,12 @@ func TestAnalyzeClampMinMarksNativeLowerableForScalarParameterChild(t *testing.T
 		t.Fatalf("expected call expr, got %T", callExpr)
 	}
 	aggExpr := call.Args[1].(*parser.Call).Args[0].(*parser.AggregateExpr)
-	logical := &planpkg.LogicalPointwiseFunctionPlan{
+	logical := &logicalpkg.PointwiseFunctionPlan{
 		Expr:  call,
 		Func:  "clamp_min",
-		Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]},
-		ParamChildren: []planpkg.LogicalPlan{
-			&planpkg.LogicalScalarConvertPlan{Expr: call.Args[1], Child: &planpkg.LogicalAggregationPlan{Expr: aggExpr, Op: aggExpr.Op, Grouping: append([]string(nil), aggExpr.Grouping...), Without: aggExpr.Without, Child: &planpkg.LogicalLeafExprPlan{Expr: aggExpr.Expr}}},
+		Child: &logicalpkg.LeafExprPlan{Expr: call.Args[0]},
+		ParamChildren: []logicalpkg.Node{
+			&logicalpkg.ScalarConvertPlan{Expr: call.Args[1], Child: &logicalpkg.AggregationPlan{Expr: aggExpr, Op: aggExpr.Op, Grouping: append([]string(nil), aggExpr.Grouping...), Without: aggExpr.Without, Child: &logicalpkg.LeafExprPlan{Expr: aggExpr.Expr}}},
 		},
 		ParamNumbers: []*float64{nil},
 	}
@@ -235,7 +235,7 @@ func TestAnalyzeScalarConvertMarksNativeLowerable(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected call expr, got %T", callExpr)
 	}
-	logical := &planpkg.LogicalScalarConvertPlan{Expr: call, Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+	logical := &logicalpkg.ScalarConvertPlan{Expr: call, Child: &logicalpkg.LeafExprPlan{Expr: call.Args[0]}}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected scalar() to be native-lowerable, got %#v", info)
@@ -251,7 +251,7 @@ func TestAnalyzeSyntheticDateFunctionMarksNativeLowerable(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected call expr, got %T", callExpr)
 	}
-	logical := &planpkg.LogicalPointwiseFunctionPlan{Expr: call, Func: "minute"}
+	logical := &logicalpkg.PointwiseFunctionPlan{Expr: call, Func: "minute"}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected minute() to be native-lowerable, got %#v", info)
@@ -267,7 +267,7 @@ func TestAnalyzeScalarBuiltinMarksNativeLowerable(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected call expr, got %T", callExpr)
 	}
-	logical := &planpkg.LogicalScalarBuiltinPlan{Expr: call, Func: "time"}
+	logical := &logicalpkg.ScalarBuiltinPlan{Expr: call, Func: "time"}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected time() to be native-lowerable, got %#v", info)
@@ -285,7 +285,7 @@ func TestAnalyzeHistogramProjectionMarksNativeLowerable(t *testing.T) {
 			if !ok {
 				t.Fatalf("expected call expr, got %T", callExpr)
 			}
-			logical := &planpkg.LogicalHistogramProjectionPlan{Expr: call, Func: fn, Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+			logical := &logicalpkg.HistogramProjectionPlan{Expr: call, Func: fn, Child: &logicalpkg.LeafExprPlan{Expr: call.Args[0]}}
 			info := Analyze(logical).InfoFor(logical)
 			if info == nil || !info.NativeLowerable {
 				t.Fatalf("expected %s to be native-lowerable, got %#v", fn, info)
@@ -305,7 +305,7 @@ func TestAnalyzeHistogramQuantileMarksNativeLowerable(t *testing.T) {
 	}
 	agg := call.Args[1].(*parser.AggregateExpr)
 	rateCall := agg.Expr.(*parser.Call)
-	logical := &planpkg.LogicalHistogramQuantilePlan{Expr: call, Quantile: 0.9, Child: &planpkg.LogicalAggregationPlan{Expr: agg, Op: agg.Op, Grouping: append([]string(nil), agg.Grouping...), Without: agg.Without, Child: &planpkg.LogicalRatePlan{Expr: rateCall, Func: "rate", Child: &planpkg.LogicalLeafExprPlan{Expr: rateCall.Args[0]}}}}
+	logical := &logicalpkg.HistogramQuantilePlan{Expr: call, Quantile: 0.9, Child: &logicalpkg.AggregationPlan{Expr: agg, Op: agg.Op, Grouping: append([]string(nil), agg.Grouping...), Without: agg.Without, Child: &logicalpkg.RatePlan{Expr: rateCall, Func: "rate", Child: &logicalpkg.LeafExprPlan{Expr: rateCall.Args[0]}}}}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected histogram_quantile to be native-lowerable, got %#v", info)
@@ -326,15 +326,15 @@ func TestAnalyzeHistogramQuantilesMarksNativeLowerable(t *testing.T) {
 	scalarCall := call.Args[3].(*parser.Call)
 	scalarAgg := scalarCall.Args[0].(*parser.AggregateExpr)
 	literal := 0.5
-	logical := &planpkg.LogicalHistogramQuantilesPlan{
+	logical := &logicalpkg.HistogramQuantilesPlan{
 		Expr:         call,
 		Label:        "quantile",
 		ParamNumbers: []*float64{&literal, nil},
-		ParamChildren: []planpkg.LogicalPlan{
-			&planpkg.LogicalScalarLiteralPlan{Expr: call.Args[2], Value: literal},
-			&planpkg.LogicalScalarConvertPlan{Expr: call.Args[3], Child: &planpkg.LogicalAggregationPlan{Expr: scalarAgg, Op: scalarAgg.Op, Grouping: append([]string(nil), scalarAgg.Grouping...), Without: scalarAgg.Without, Child: &planpkg.LogicalLeafExprPlan{Expr: scalarAgg.Expr}}},
+		ParamChildren: []logicalpkg.Node{
+			&logicalpkg.ScalarLiteralPlan{Expr: call.Args[2], Value: literal},
+			&logicalpkg.ScalarConvertPlan{Expr: call.Args[3], Child: &logicalpkg.AggregationPlan{Expr: scalarAgg, Op: scalarAgg.Op, Grouping: append([]string(nil), scalarAgg.Grouping...), Without: scalarAgg.Without, Child: &logicalpkg.LeafExprPlan{Expr: scalarAgg.Expr}}},
 		},
-		Child: &planpkg.LogicalAggregationPlan{Expr: histAgg, Op: histAgg.Op, Grouping: append([]string(nil), histAgg.Grouping...), Without: histAgg.Without, Child: &planpkg.LogicalRatePlan{Expr: histRate, Func: "rate", Child: &planpkg.LogicalLeafExprPlan{Expr: histRate.Args[0]}}},
+		Child: &logicalpkg.AggregationPlan{Expr: histAgg, Op: histAgg.Op, Grouping: append([]string(nil), histAgg.Grouping...), Without: histAgg.Without, Child: &logicalpkg.RatePlan{Expr: histRate, Func: "rate", Child: &logicalpkg.LeafExprPlan{Expr: histRate.Args[0]}}},
 	}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil || !info.NativeLowerable {
@@ -353,7 +353,7 @@ func TestAnalyzeHistogramFractionMarksNativeLowerable(t *testing.T) {
 	}
 	agg := call.Args[2].(*parser.AggregateExpr)
 	rateCall := agg.Expr.(*parser.Call)
-	logical := &planpkg.LogicalHistogramFractionPlan{Expr: call, Lower: 0, Upper: 1, Child: &planpkg.LogicalAggregationPlan{Expr: agg, Op: agg.Op, Grouping: append([]string(nil), agg.Grouping...), Without: agg.Without, Child: &planpkg.LogicalRatePlan{Expr: rateCall, Func: "rate", Child: &planpkg.LogicalLeafExprPlan{Expr: rateCall.Args[0]}}}}
+	logical := &logicalpkg.HistogramFractionPlan{Expr: call, Lower: 0, Upper: 1, Child: &logicalpkg.AggregationPlan{Expr: agg, Op: agg.Op, Grouping: append([]string(nil), agg.Grouping...), Without: agg.Without, Child: &logicalpkg.RatePlan{Expr: rateCall, Func: "rate", Child: &logicalpkg.LeafExprPlan{Expr: rateCall.Args[0]}}}}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected histogram_fraction to be native-lowerable, got %#v", info)
@@ -369,7 +369,7 @@ func TestAnalyzeAbsentMarksNativeLowerable(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected call expr, got %T", callExpr)
 	}
-	logical := &planpkg.LogicalAbsentPlan{Expr: call, OutputMetric: map[string]string{"job": "api"}, Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+	logical := &logicalpkg.AbsentPlan{Expr: call, OutputMetric: map[string]string{"job": "api"}, Child: &logicalpkg.LeafExprPlan{Expr: call.Args[0]}}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected absent() to be native-lowerable, got %#v", info)
@@ -388,7 +388,7 @@ func TestAnalyzeAbsentOverTimeMarksNativeLowerableForRangeSelectorChild(t *testi
 	if !ok {
 		t.Fatalf("expected call expr, got %T", callExpr)
 	}
-	logical := &planpkg.LogicalAbsentOverTimePlan{Expr: call, OutputMetric: map[string]string{"job": "api"}, Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+	logical := &logicalpkg.AbsentOverTimePlan{Expr: call, OutputMetric: map[string]string{"job": "api"}, Child: &logicalpkg.LeafExprPlan{Expr: call.Args[0]}}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected absent_over_time() to be native-lowerable, got %#v", info)
@@ -408,10 +408,10 @@ func TestAnalyzeLabelJoinMarksSyntheticDestination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	logical := &planpkg.LogicalLabelJoinPlan{
+	logical := &logicalpkg.LabelJoinPlan{
 		Expr:   call,
 		Config: cfg,
-		Child:  &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]},
+		Child:  &logicalpkg.LeafExprPlan{Expr: call.Args[0]},
 	}
 
 	info := Analyze(logical).InfoFor(logical)
@@ -436,7 +436,7 @@ func TestAnalyzeLabelReplaceCanRestoreMetricNameLineage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	logical := &planpkg.LogicalLabelReplacePlan{Expr: call, Config: cfg, Child: &planpkg.LogicalRatePlan{Expr: call.Args[0], Func: "rate", Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0].(*parser.Call).Args[0]}}}
+	logical := &logicalpkg.LabelReplacePlan{Expr: call, Config: cfg, Child: &logicalpkg.RatePlan{Expr: call.Args[0], Func: "rate", Child: &logicalpkg.LeafExprPlan{Expr: call.Args[0].(*parser.Call).Args[0]}}}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil || !info.NativeLowerable || info.Fragment == nil || info.Fragment.LabelTransform == nil {
 		t.Fatalf("expected native label_replace transform, got %#v", info)
@@ -460,19 +460,19 @@ func TestAnalyzeRateOverSubqueryMarksNativeLowerable(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected aggregate child, got %T", subquery.Expr)
 	}
-	logical := &planpkg.LogicalRatePlan{
+	logical := &logicalpkg.RatePlan{
 		Expr: call,
 		Func: "rate",
-		Child: &planpkg.LogicalSubqueryPlan{
+		Child: &logicalpkg.SubqueryPlan{
 			Expr:   subquery,
 			Range:  subquery.Range,
 			Step:   subquery.Step,
 			Offset: subquery.OriginalOffset,
-			Child: &planpkg.LogicalAggregationPlan{
+			Child: &logicalpkg.AggregationPlan{
 				Expr:     aggExpr,
 				Op:       aggExpr.Op,
 				Grouping: append([]string(nil), aggExpr.Grouping...),
-				Child:    &planpkg.LogicalLeafExprPlan{Expr: aggExpr.Expr},
+				Child:    &logicalpkg.LeafExprPlan{Expr: aggExpr.Expr},
 			},
 		},
 	}
@@ -515,24 +515,24 @@ func TestAnalyzeIncreaseAndDeltaOverSubqueryMarkNativeLowerable(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected aggregate child for %q, got %T", tc.query, subquery.Expr)
 		}
-		child := &planpkg.LogicalSubqueryPlan{
+		child := &logicalpkg.SubqueryPlan{
 			Expr:   subquery,
 			Range:  subquery.Range,
 			Step:   subquery.Step,
 			Offset: subquery.OriginalOffset,
-			Child: &planpkg.LogicalAggregationPlan{
+			Child: &logicalpkg.AggregationPlan{
 				Expr:     aggExpr,
 				Op:       aggExpr.Op,
 				Grouping: append([]string(nil), aggExpr.Grouping...),
-				Child:    &planpkg.LogicalLeafExprPlan{Expr: aggExpr.Expr},
+				Child:    &logicalpkg.LeafExprPlan{Expr: aggExpr.Expr},
 			},
 		}
-		var logical planpkg.LogicalPlan
+		var logical logicalpkg.Node
 		switch tc.kind {
 		case "increase":
-			logical = &planpkg.LogicalIncreasePlan{Expr: call, Child: child}
+			logical = &logicalpkg.IncreasePlan{Expr: call, Child: child}
 		default:
-			logical = &planpkg.LogicalDeltaPlan{Expr: call, Func: tc.kind, Child: child}
+			logical = &logicalpkg.DeltaPlan{Expr: call, Func: tc.kind, Child: child}
 		}
 		info := Analyze(logical).InfoFor(logical)
 		if info == nil || !info.NativeLowerable {
@@ -569,24 +569,24 @@ func TestAnalyzeChangesAndDerivOverSubqueryMarkNativeLowerable(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected aggregate child for %q, got %T", tc.query, subquery.Expr)
 		}
-		child := &planpkg.LogicalSubqueryPlan{
+		child := &logicalpkg.SubqueryPlan{
 			Expr:   subquery,
 			Range:  subquery.Range,
 			Step:   subquery.Step,
 			Offset: subquery.OriginalOffset,
-			Child: &planpkg.LogicalAggregationPlan{
+			Child: &logicalpkg.AggregationPlan{
 				Expr:     aggExpr,
 				Op:       aggExpr.Op,
 				Grouping: append([]string(nil), aggExpr.Grouping...),
-				Child:    &planpkg.LogicalLeafExprPlan{Expr: aggExpr.Expr},
+				Child:    &logicalpkg.LeafExprPlan{Expr: aggExpr.Expr},
 			},
 		}
-		var logical planpkg.LogicalPlan
+		var logical logicalpkg.Node
 		switch tc.kind {
 		case "changes":
-			logical = &planpkg.LogicalChangesPlan{Expr: call, Child: child}
+			logical = &logicalpkg.ChangesPlan{Expr: call, Child: child}
 		default:
-			logical = &planpkg.LogicalDerivPlan{Expr: call, Child: child}
+			logical = &logicalpkg.DerivPlan{Expr: call, Child: child}
 		}
 		info := Analyze(logical).InfoFor(logical)
 		if info == nil || !info.NativeLowerable {
@@ -608,7 +608,7 @@ func TestAnalyzeTier1AdditionalRangeFunctionsMarkNativeLowerable(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected call expr for %q, got %T", fn, callExpr)
 		}
-		logical := &planpkg.LogicalRangeFunctionPlan{Expr: call, Func: fn, Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+		logical := &logicalpkg.RangeFunctionPlan{Expr: call, Func: fn, Child: &logicalpkg.LeafExprPlan{Expr: call.Args[0]}}
 		info := Analyze(logical).InfoFor(logical)
 		if info == nil || !info.NativeLowerable {
 			t.Fatalf("expected %s to be native-lowerable, got %#v", fn, info)
@@ -625,7 +625,7 @@ func TestAnalyzeQuantileOverTimeMarksNativeLowerable(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected call expr, got %T", callExpr)
 	}
-	logical := &planpkg.LogicalQuantileOverTimePlan{Expr: call, Quantile: 0.95, Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[1]}}
+	logical := &logicalpkg.QuantileOverTimePlan{Expr: call, Quantile: 0.95, Child: &logicalpkg.LeafExprPlan{Expr: call.Args[1]}}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected quantile_over_time to be native-lowerable, got %#v", info)
@@ -648,7 +648,7 @@ func TestAnalyzePredictLinearMarksNativeLowerable(t *testing.T) {
 		t.Fatalf("expected call expr, got %T", callExpr)
 	}
 	duration := 60.0
-	logical := &planpkg.LogicalRangeFunctionPlan{Expr: call, Func: "predict_linear", ParamNumber: &duration, Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+	logical := &logicalpkg.RangeFunctionPlan{Expr: call, Func: "predict_linear", ParamNumber: &duration, Child: &logicalpkg.LeafExprPlan{Expr: call.Args[0]}}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected predict_linear to be native-lowerable, got %#v", info)
@@ -668,7 +668,7 @@ func TestAnalyzeDoubleExponentialSmoothingMarksNativeLowerable(t *testing.T) {
 		t.Fatalf("expected call expr, got %T", callExpr)
 	}
 	sf, tf := 0.5, 0.3
-	logical := &planpkg.LogicalRangeFunctionPlan{Expr: call, Func: "double_exponential_smoothing", ParamNumbers: []*float64{&sf, &tf}, Child: &planpkg.LogicalLeafExprPlan{Expr: call.Args[0]}}
+	logical := &logicalpkg.RangeFunctionPlan{Expr: call, Func: "double_exponential_smoothing", ParamNumbers: []*float64{&sf, &tf}, Child: &logicalpkg.LeafExprPlan{Expr: call.Args[0]}}
 	info := Analyze(logical).InfoFor(logical)
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected double_exponential_smoothing to be native-lowerable, got %#v", info)
@@ -700,16 +700,16 @@ func TestAnalyzeSubqueryAccumulatesTimeRequirements(t *testing.T) {
 		t.Fatalf("expected scalar rhs, got %T", binaryExpr.RHS)
 	}
 
-	logical := &planpkg.LogicalSubqueryPlan{
+	logical := &logicalpkg.SubqueryPlan{
 		Expr:   subquery,
 		Range:  subquery.Range,
 		Step:   subquery.Step,
 		Offset: subquery.OriginalOffset,
-		Child: &planpkg.LogicalBinaryPlan{
+		Child: &logicalpkg.BinaryPlan{
 			Expr: binaryExpr,
 			Op:   binaryExpr.Op,
-			LHS:  &planpkg.LogicalLeafExprPlan{Expr: binaryExpr.LHS},
-			RHS:  &planpkg.LogicalScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
+			LHS:  &logicalpkg.LeafExprPlan{Expr: binaryExpr.LHS},
+			RHS:  &logicalpkg.ScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
 		},
 	}
 
@@ -730,7 +730,7 @@ func TestAnalyzeSubqueryAccumulatesTimeRequirements(t *testing.T) {
 
 func TestAnalyzeLeafTracksInstantSelectorLookbackAndOffset(t *testing.T) {
 	expr := mustParseExpr(t, `up offset 90s`)
-	leaf := &planpkg.LogicalLeafExprPlan{Expr: expr}
+	leaf := &logicalpkg.LeafExprPlan{Expr: expr}
 
 	info := Analyze(leaf).InfoFor(leaf)
 	if info == nil {
@@ -762,16 +762,16 @@ func TestAnalyzeSubqueryAccumulatesChildAndOwnOffsetsSeparatelyFromLookback(t *t
 	if !ok {
 		t.Fatalf("expected scalar rhs, got %T", binaryExpr.RHS)
 	}
-	logical := &planpkg.LogicalSubqueryPlan{
+	logical := &logicalpkg.SubqueryPlan{
 		Expr:   subquery,
 		Range:  subquery.Range,
 		Step:   subquery.Step,
 		Offset: subquery.OriginalOffset,
-		Child: &planpkg.LogicalBinaryPlan{
+		Child: &logicalpkg.BinaryPlan{
 			Expr: binaryExpr,
 			Op:   binaryExpr.Op,
-			LHS:  &planpkg.LogicalLeafExprPlan{Expr: binaryExpr.LHS},
-			RHS:  &planpkg.LogicalScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
+			LHS:  &logicalpkg.LeafExprPlan{Expr: binaryExpr.LHS},
+			RHS:  &logicalpkg.ScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
 		},
 	}
 
@@ -874,7 +874,7 @@ func TestApplyBinarySourceTransformSupportsModulo(t *testing.T) {
 
 func mustParseExpr(t *testing.T, query string) parser.Expr {
 	t.Helper()
-	expr, err := planpkg.ParseExpression(query)
+	expr, err := logicalpkg.ParseExpression(query)
 	if err != nil {
 		t.Fatalf("parse %q: %v", query, err)
 	}

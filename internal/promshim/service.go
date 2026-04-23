@@ -10,7 +10,7 @@ import (
 	"github.com/BadLiveware/promshim-ch/internal/promshim/local"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
 	nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/shadow"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -342,7 +342,7 @@ func (h *queryService) nativeLoweringModeForRequest(requestMode string) (local.N
 }
 
 func (h *queryService) entireQueryDelegationForQuery(query string) *local.DelegationClassifierResult {
-	expr, err := plan.ParseExpression(query)
+	expr, err := logical.ParseExpression(query)
 	if err != nil {
 		return nil
 	}
@@ -355,7 +355,7 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 	if query == "" {
 		return "", time.Time{}, nil, nil, local.BadRequestHTTPError("missing required parameter 'query'")
 	}
-	expr, err := plan.ParseExpression(query)
+	expr, err := logical.ParseExpression(query)
 	if err != nil {
 		return "", time.Time{}, nil, nil, local.BadRequestHTTPError(err.Error())
 	}
@@ -399,7 +399,7 @@ func (h *queryService) buildRangePlan(req httpapi.RangeQueryRequest) (string, ti
 	if query == "" {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, local.BadRequestHTTPError("missing required parameter 'query'")
 	}
-	expr, err := plan.ParseExpression(query)
+	expr, err := logical.ParseExpression(query)
 	if err != nil {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, local.BadRequestHTTPError(err.Error())
 	}

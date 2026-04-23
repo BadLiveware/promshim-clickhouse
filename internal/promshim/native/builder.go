@@ -3,10 +3,10 @@ package native
 import (
 	"fmt"
 
-	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 )
 
-func BuildFragment(node planpkg.LogicalPlan, analysis *Analysis) (*NativeFragment, error) {
+func BuildFragment(node logicalpkg.Node, analysis *Analysis) (*NativeFragment, error) {
 	if node == nil {
 		return nil, fmt.Errorf("native fragment build requires a logical plan node")
 	}

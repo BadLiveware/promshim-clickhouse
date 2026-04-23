@@ -11,7 +11,7 @@ import (
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
 	nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 )
 
@@ -202,7 +202,7 @@ func TestNativeSubtreePlanExecutesRangeRateOverSubquery(t *testing.T) {
 		t.Fatalf("new client: %v", err)
 	}
 
-	expr, err := plan.ParseExpression(`rate(sum(up)[5m:1m])`)
+	expr, err := logical.ParseExpression(`rate(sum(up)[5m:1m])`)
 	if err != nil {
 		t.Fatalf("parse expression: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestNativeSubtreePlanExecutesRangeQuantileOverTimeOverSubquery(t *testing.T
 		t.Fatalf("new client: %v", err)
 	}
 
-	expr, err := plan.ParseExpression(`quantile_over_time(0.95, sum(up)[5m:1m])`)
+	expr, err := logical.ParseExpression(`quantile_over_time(0.95, sum(up)[5m:1m])`)
 	if err != nil {
 		t.Fatalf("parse expression: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestNativeSubtreePlanExecutesInstantInfoRegexQuery(t *testing.T) {
 		t.Fatalf("new client: %v", err)
 	}
 
-	expr, err := plan.ParseExpression(`info(up, {__name__=~".+_info"})`)
+	expr, err := logical.ParseExpression(`info(up, {__name__=~".+_info"})`)
 	if err != nil {
 		t.Fatalf("parse expression: %v", err)
 	}
@@ -367,7 +367,7 @@ func TestNativeSubtreePlanExecutesRangeRootSubquery(t *testing.T) {
 		t.Fatalf("new client: %v", err)
 	}
 
-	expr, err := plan.ParseExpression(`sum(up)[5m:1m]`)
+	expr, err := logical.ParseExpression(`sum(up)[5m:1m]`)
 	if err != nil {
 		t.Fatalf("parse expression: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestNativeSubtreePlanExecutesAnchoredRangePointwiseQuery(t *testing.T) {
 		t.Fatalf("new client: %v", err)
 	}
 
-	expr, err := plan.ParseExpression(`abs(up @ 300)`)
+	expr, err := logical.ParseExpression(`abs(up @ 300)`)
 	if err != nil {
 		t.Fatalf("parse expression: %v", err)
 	}

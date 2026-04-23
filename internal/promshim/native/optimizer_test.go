@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -16,11 +16,11 @@ func TestBuildOptimizedFragmentRecordsMandatoryPassOutputs(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected aggregate expr, got %T", aggExpr)
 	}
-	logical := &planpkg.LogicalAggregationPlan{
+	logical := &logicalpkg.AggregationPlan{
 		Expr:     agg,
 		Op:       agg.Op,
 		Grouping: append([]string(nil), agg.Grouping...),
-		Child:    &planpkg.LogicalLeafExprPlan{Expr: agg.Expr},
+		Child:    &logicalpkg.LeafExprPlan{Expr: agg.Expr},
 	}
 
 	optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeInstant, EvaluationTimeMS: 300000})
@@ -46,7 +46,7 @@ func TestBuildOptimizedFragmentRecordsMandatoryPassOutputs(t *testing.T) {
 
 func TestBuildOptimizedFragmentUsesSignedNegativeSelectorOffsetBounds(t *testing.T) {
 	expr := mustParseExpr(t, `up offset -1m`)
-	logical := &planpkg.LogicalLeafExprPlan{Expr: expr}
+	logical := &logicalpkg.LeafExprPlan{Expr: expr}
 
 	optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeInstant, EvaluationTimeMS: 300000})
 	if err != nil {
@@ -77,14 +77,14 @@ func TestBuildOptimizedFragmentPreservesNestedAggregationGroupingProjection(t *t
 	if !ok {
 		t.Fatalf("expected inner aggregate expr, got %T", outerAgg.Expr)
 	}
-	logical := &planpkg.LogicalAggregationPlan{
+	logical := &logicalpkg.AggregationPlan{
 		Expr: outerAgg,
 		Op:   outerAgg.Op,
-		Child: &planpkg.LogicalAggregationPlan{
+		Child: &logicalpkg.AggregationPlan{
 			Expr:     innerAgg,
 			Op:       innerAgg.Op,
 			Grouping: append([]string(nil), innerAgg.Grouping...),
-			Child:    &planpkg.LogicalLeafExprPlan{Expr: innerAgg.Expr},
+			Child:    &logicalpkg.LeafExprPlan{Expr: innerAgg.Expr},
 		},
 	}
 
@@ -122,16 +122,16 @@ func TestBuildOptimizedFragmentUsesFullSubqueryTemporalBounds(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected scalar rhs, got %T", binaryExpr.RHS)
 	}
-	logical := &planpkg.LogicalSubqueryPlan{
+	logical := &logicalpkg.SubqueryPlan{
 		Expr:   subquery,
 		Range:  subquery.Range,
 		Step:   subquery.Step,
 		Offset: subquery.OriginalOffset,
-		Child: &planpkg.LogicalBinaryPlan{
+		Child: &logicalpkg.BinaryPlan{
 			Expr: binaryExpr,
 			Op:   binaryExpr.Op,
-			LHS:  &planpkg.LogicalLeafExprPlan{Expr: binaryExpr.LHS},
-			RHS:  &planpkg.LogicalScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
+			LHS:  &logicalpkg.LeafExprPlan{Expr: binaryExpr.LHS},
+			RHS:  &logicalpkg.ScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
 		},
 	}
 
@@ -156,7 +156,7 @@ func TestBuildOptimizedFragmentUsesFixedSelectorTimestampForInstantBounds(t *tes
 	if leaf.Timestamp == nil {
 		t.Fatal("expected fixed selector timestamp")
 	}
-	logical := &planpkg.LogicalLeafExprPlan{Expr: leaf}
+	logical := &logicalpkg.LeafExprPlan{Expr: leaf}
 
 	optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeInstant, EvaluationTimeMS: 999999})
 	if err != nil {
@@ -191,18 +191,18 @@ func TestBuildOptimizedFragmentUsesFixedSubqueryTimestampForInstantBounds(t *tes
 	if !ok {
 		t.Fatalf("expected scalar rhs, got %T", binaryExpr.RHS)
 	}
-	logical := &planpkg.LogicalSubqueryPlan{
+	logical := &logicalpkg.SubqueryPlan{
 		Expr:       subquery,
 		Range:      subquery.Range,
 		Step:       subquery.Step,
 		Offset:     subquery.OriginalOffset,
 		Timestamp:  cloneInt64Pointer(subquery.Timestamp),
 		StartOrEnd: subquery.StartOrEnd,
-		Child: &planpkg.LogicalBinaryPlan{
+		Child: &logicalpkg.BinaryPlan{
 			Expr: binaryExpr,
 			Op:   binaryExpr.Op,
-			LHS:  &planpkg.LogicalLeafExprPlan{Expr: binaryExpr.LHS},
-			RHS:  &planpkg.LogicalScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
+			LHS:  &logicalpkg.LeafExprPlan{Expr: binaryExpr.LHS},
+			RHS:  &logicalpkg.ScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
 		},
 	}
 
@@ -248,18 +248,18 @@ func TestBuildOptimizedFragmentUsesSubqueryStartEndAnchorForInstantBounds(t *tes
 			if !ok {
 				t.Fatalf("expected scalar rhs, got %T", binaryExpr.RHS)
 			}
-			logical := &planpkg.LogicalSubqueryPlan{
+			logical := &logicalpkg.SubqueryPlan{
 				Expr:       subquery,
 				Range:      subquery.Range,
 				Step:       subquery.Step,
 				Offset:     subquery.OriginalOffset,
 				Timestamp:  cloneInt64Pointer(subquery.Timestamp),
 				StartOrEnd: subquery.StartOrEnd,
-				Child: &planpkg.LogicalBinaryPlan{
+				Child: &logicalpkg.BinaryPlan{
 					Expr: binaryExpr,
 					Op:   binaryExpr.Op,
-					LHS:  &planpkg.LogicalLeafExprPlan{Expr: binaryExpr.LHS},
-					RHS:  &planpkg.LogicalScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
+					LHS:  &logicalpkg.LeafExprPlan{Expr: binaryExpr.LHS},
+					RHS:  &logicalpkg.ScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
 				},
 			}
 
@@ -295,18 +295,18 @@ func TestBuildOptimizedFragmentUsesNestedSubqueryAnchorForInstantRangeFunctionBo
 	if !ok {
 		t.Fatalf("expected scalar rhs, got %T", binaryExpr.RHS)
 	}
-	child := &planpkg.LogicalSubqueryPlan{
+	child := &logicalpkg.SubqueryPlan{
 		Expr:       subquery,
 		Range:      subquery.Range,
 		Step:       subquery.Step,
 		Offset:     subquery.OriginalOffset,
 		Timestamp:  cloneInt64Pointer(subquery.Timestamp),
 		StartOrEnd: subquery.StartOrEnd,
-		Child: &planpkg.LogicalBinaryPlan{
+		Child: &logicalpkg.BinaryPlan{
 			Expr: binaryExpr,
 			Op:   binaryExpr.Op,
-			LHS:  &planpkg.LogicalLeafExprPlan{Expr: binaryExpr.LHS},
-			RHS:  &planpkg.LogicalScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
+			LHS:  &logicalpkg.LeafExprPlan{Expr: binaryExpr.LHS},
+			RHS:  &logicalpkg.ScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
 		},
 	}
 	callExpr := mustParseExpr(t, `sum_over_time((up * 100)[5m:1m] @ 300 offset 1m)`)
@@ -314,7 +314,7 @@ func TestBuildOptimizedFragmentUsesNestedSubqueryAnchorForInstantRangeFunctionBo
 	if !ok {
 		t.Fatalf("expected call expr, got %T", callExpr)
 	}
-	logical := &planpkg.LogicalRangeFunctionPlan{Expr: call, Func: "sum_over_time", Child: child}
+	logical := &logicalpkg.RangeFunctionPlan{Expr: call, Func: "sum_over_time", Child: child}
 
 	optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeInstant, EvaluationTimeMS: 999999})
 	if err != nil {
@@ -329,7 +329,7 @@ func TestBuildOptimizedFragmentUsesNestedSubqueryAnchorForInstantRangeFunctionBo
 }
 
 func TestBuildOptimizedFragmentUsesRangeLookbackEnvelopeForLeafSelector(t *testing.T) {
-	logical := &planpkg.LogicalLeafExprPlan{Expr: mustParseExpr(t, `up`)}
+	logical := &logicalpkg.LeafExprPlan{Expr: mustParseExpr(t, `up`)}
 
 	optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeRange, StartMS: 0, EndMS: 300000, StepMS: 30000})
 	if err != nil {
@@ -344,7 +344,7 @@ func TestBuildOptimizedFragmentUsesRangeLookbackEnvelopeForLeafSelector(t *testi
 }
 
 func TestBuildOptimizedFragmentUsesFixedSelectorTimestampForRangeBounds(t *testing.T) {
-	logical := &planpkg.LogicalLeafExprPlan{Expr: mustParseExpr(t, `up @ 300`)}
+	logical := &logicalpkg.LeafExprPlan{Expr: mustParseExpr(t, `up @ 300`)}
 
 	optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeRange, StartMS: 0, EndMS: 600000, StepMS: 30000})
 	if err != nil {
@@ -370,7 +370,7 @@ func TestBuildOptimizedFragmentUsesRangeStartEndAnchorForRangeBounds(t *testing.
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			logical := &planpkg.LogicalLeafExprPlan{Expr: mustParseExpr(t, tc.query)}
+			logical := &logicalpkg.LeafExprPlan{Expr: mustParseExpr(t, tc.query)}
 			optimized, err := BuildOptimizedFragmentWithContext(logical, nil, OptimizationContext{Mode: RenderModeRange, StartMS: 0, EndMS: 600000, StepMS: 30000})
 			if err != nil {
 				t.Fatalf("expected optimized fragment, got error: %v", err)
@@ -403,16 +403,16 @@ func TestBuildOptimizedFragmentMarksSubqueryStepGridSemanticBarrier(t *testing.T
 	if !ok {
 		t.Fatalf("expected scalar rhs, got %T", binaryExpr.RHS)
 	}
-	logical := &planpkg.LogicalSubqueryPlan{
+	logical := &logicalpkg.SubqueryPlan{
 		Expr:   subquery,
 		Range:  subquery.Range,
 		Step:   subquery.Step,
 		Offset: subquery.OriginalOffset,
-		Child: &planpkg.LogicalBinaryPlan{
+		Child: &logicalpkg.BinaryPlan{
 			Expr: binaryExpr,
 			Op:   binaryExpr.Op,
-			LHS:  &planpkg.LogicalLeafExprPlan{Expr: binaryExpr.LHS},
-			RHS:  &planpkg.LogicalScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
+			LHS:  &logicalpkg.LeafExprPlan{Expr: binaryExpr.LHS},
+			RHS:  &logicalpkg.ScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
 		},
 	}
 
@@ -490,7 +490,7 @@ func TestOptimizeFragmentDeduplicatesInferredMetricMatcherInPushdown(t *testing.
 	if !ok {
 		t.Fatalf("expected aggregate expr, got %T", aggExpr)
 	}
-	logical := &planpkg.LogicalAggregationPlan{Expr: agg, Op: agg.Op, Child: &planpkg.LogicalLeafExprPlan{Expr: agg.Expr}}
+	logical := &logicalpkg.AggregationPlan{Expr: agg, Op: agg.Op, Child: &logicalpkg.LeafExprPlan{Expr: agg.Expr}}
 	optimized, err := BuildOptimizedFragment(logical, nil)
 	if err != nil {
 		t.Fatalf("expected optimized fragment, got error: %v", err)
@@ -552,7 +552,7 @@ func TestOptimizeFragmentInternsEquivalentMatchersAcrossSelectorFields(t *testin
 	if !ok {
 		t.Fatalf("expected aggregate expr, got %T", aggExpr)
 	}
-	logical := &planpkg.LogicalAggregationPlan{Expr: agg, Op: agg.Op, Child: &planpkg.LogicalLeafExprPlan{Expr: agg.Expr}}
+	logical := &logicalpkg.AggregationPlan{Expr: agg, Op: agg.Op, Child: &logicalpkg.LeafExprPlan{Expr: agg.Expr}}
 	optimized, err := BuildOptimizedFragment(logical, nil)
 	if err != nil {
 		t.Fatalf("expected optimized fragment, got error: %v", err)

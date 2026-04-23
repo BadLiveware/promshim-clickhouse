@@ -5,7 +5,7 @@ import (
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/local"
 	nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
-	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 )
 
 type NativeMeasurementSnapshot struct {
@@ -105,12 +105,12 @@ func startsWithScalarLiteral(query string) bool {
 }
 
 func MeasureNativeSupport(query string) (NativeMeasurementSnapshot, error) {
-	expr, err := planpkg.ParseExpression(query)
+	expr, err := logicalpkg.ParseExpression(query)
 	if err != nil {
 		return NativeMeasurementSnapshot{Query: query}, err
 	}
 
-	support := planpkg.AnalyzeExpression(expr)
+	support := logicalpkg.AnalyzeExpression(expr)
 	snapshot := NativeMeasurementSnapshot{
 		Query:          query,
 		PlanSupported:  support.Supported,

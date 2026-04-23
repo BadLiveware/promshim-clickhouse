@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
-	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -54,15 +54,15 @@ func TestBuildFragmentReturnsAggregationTree(t *testing.T) {
 		t.Fatalf("expected scalar rhs, got %T", binaryExpr.RHS)
 	}
 
-	logical := &planpkg.LogicalAggregationPlan{
+	logical := &logicalpkg.AggregationPlan{
 		Expr:     agg,
 		Op:       agg.Op,
 		Grouping: append([]string(nil), agg.Grouping...),
-		Child: &planpkg.LogicalBinaryPlan{
+		Child: &logicalpkg.BinaryPlan{
 			Expr: binaryExpr,
 			Op:   binaryExpr.Op,
-			LHS:  &planpkg.LogicalLeafExprPlan{Expr: binaryExpr.LHS},
-			RHS:  &planpkg.LogicalScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
+			LHS:  &logicalpkg.LeafExprPlan{Expr: binaryExpr.LHS},
+			RHS:  &logicalpkg.ScalarLiteralPlan{Expr: scalarExpr, Value: scalarExpr.Val},
 		},
 	}
 

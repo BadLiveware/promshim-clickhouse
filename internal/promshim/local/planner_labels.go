@@ -7,7 +7,7 @@ import (
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/local/exec"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
-	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -57,7 +57,7 @@ func (e *Evaluator) fetchInfoVector(ctx context.Context, base model.VectorValue,
 	if query == "" {
 		return model.VectorValue{}, nil
 	}
-	expr, err := planpkg.ParseExpression(query)
+	expr, err := logicalpkg.ParseExpression(query)
 	if err != nil {
 		return model.VectorValue{}, WithInternalContext(err, "parsing info fetch selector %q", query)
 	}

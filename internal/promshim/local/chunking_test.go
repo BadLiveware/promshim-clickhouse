@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 )
 
 type syntheticRangePlan struct{}
@@ -25,7 +25,7 @@ func (syntheticRangePlan) explain() ExplainNode {
 }
 
 func TestBuildPlanWithContextRejectsRangeQueryOverGuardrail(t *testing.T) {
-	expr, err := plan.ParseExpression("up")
+	expr, err := logical.ParseExpression("up")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestBuildPlanWithContextRejectsRangeQueryOverGuardrail(t *testing.T) {
 }
 
 func TestBuildPlanWithContextWrapsLargeLocalRangePlanInChunkedRangePlan(t *testing.T) {
-	expr, err := plan.ParseExpression(`sum by (job) (up)`)
+	expr, err := logical.ParseExpression(`sum by (job) (up)`)
 	if err != nil {
 		t.Fatal(err)
 	}

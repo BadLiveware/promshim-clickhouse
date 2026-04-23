@@ -194,6 +194,15 @@ func renderScalarConvertFragment(cfg storage.QueryConfig, fragment *native.Nativ
 	if err != nil {
 		return renderedFragment{}, err
 	}
+	return renderScalarConvertFromSource(childSource, childParams, params)
+}
+
+// renderScalarConvertFromSource builds the scalar-convert outer SELECT over a
+// pre-rendered child source. Both the Fragment path
+// (renderScalarConvertFragment) and the direct Lower path
+// (lowerScalarConvert) call this helper, locking byte-identity between the
+// two by construction.
+func renderScalarConvertFromSource(childSource sqlb.Source, childParams map[string]string, params RenderParams) (renderedFragment, error) {
 	emptyTags := emit.EmptyTagsArray()
 	switch params.Mode {
 	case native.RenderModeInstant:

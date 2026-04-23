@@ -104,7 +104,7 @@ Baselines live in `.tmp/` (gitignored). This is a check, not a code change.
 
 **Acceptance Criteria:**
 - [ ] Package declaration in moved files is `package logical`.
-- [ ] No Go file compiles with `import "ch-observability/internal/promshim/plan"`.
+- [ ] No Go file compiles with `import "ch-observability/internal/promshim/logical"`.
 - [ ] No `plan.Logical` or `planpkg.Logical` identifiers remain in code (comments allowed temporarily).
 - [ ] All types keep their method sets unchanged; `logicalPlan()` marker method stays (rename to `logicalNode()` to match new package-name hygiene).
 - [ ] `go build ./...` green.
@@ -175,10 +175,10 @@ sed -i 's/logicalPlan()/logicalNode()/g' internal/promshim/logical/*.go
 
 - [ ] **Step 4: Rewrite import aliases across the codebase**
 
-The existing imports are mostly `planpkg "ch-observability/internal/promshim/plan"` and `nativeplan "ch-observability/internal/promshim/native"` (note: `nativeplan` is the alias for the *native* package — keep that one). Target pattern:
+The existing imports are mostly `planpkg "ch-observability/internal/promshim/logical"` and `nativeplan "ch-observability/internal/promshim/native"` (note: `nativeplan` is the alias for the *native* package — keep that one). Target pattern:
 
 ```diff
--	planpkg "ch-observability/internal/promshim/plan"
+-	planpkg "ch-observability/internal/promshim/logical"
 +	logicalpkg "ch-observability/internal/promshim/logical"
 ```
 
@@ -189,12 +189,12 @@ and the matching callsites:
 +case *logicalpkg.AggregationPlan:
 ```
 
-Apply across these files (full list — verify with `grep -rl '"ch-observability/internal/promshim/plan"' internal/promshim/`):
+Apply across these files (full list — verify with `grep -rl '"ch-observability/internal/promshim/logical"' internal/promshim/`):
 `native/*.go`, `native/renderer/*.go`, `local/*.go`, `compliance/measurement.go`, `service.go`.
 
 Automated helper — review diff before committing:
 ```bash
-git grep -l '"ch-observability/internal/promshim/plan"' | xargs sed -i 's#"ch-observability/internal/promshim/plan"#"ch-observability/internal/promshim/logical"#g'
+git grep -l '"ch-observability/internal/promshim/logical"' | xargs sed -i 's#"ch-observability/internal/promshim/logical"#"ch-observability/internal/promshim/logical"#g'
 git grep -l 'planpkg\.' | xargs sed -i 's/\bplanpkg\./logicalpkg./g; s/planpkg "ch/logicalpkg "ch/g'
 git grep -l 'plan\.Logical' | xargs sed -i 's/\bplan\.Logical\([A-Z][A-Za-z]*Plan\)/logical.\1/g'
 ```

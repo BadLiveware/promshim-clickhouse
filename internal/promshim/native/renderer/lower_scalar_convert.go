@@ -4,43 +4,33 @@ import (
 	"fmt"
 
 	logicalpkg "ch-observability/internal/promshim/logical"
-	"ch-observability/internal/promshim/native"
 )
 
-// lowerScalarConvert lowers a ScalarConvertPlan (PromQL `scalar(vec)`)
-// to a RenderedQuery via the existing Fragment renderer internals.
+// lowerScalarConvert renders scalar(vec) directly. The child vector is
+// lowered via Lower(ctx, n.Child); the outer scalar-convert wrapping is
+// shared with the Fragment path via renderScalarConvertFromSource, which
+// locks byte-identity between the two paths structurally.
 //
-// Surface 2 uses the "Approach A" dispatch port: rather than rewriting
-// the renderer body, the lowerer builds a FragmentKindScalarConvert
-// NativeFragment and delegates to renderScalarConvertFragment so SQL
-// stays byte-identical to the Fragment path. The render body retires
-// with the final cleanup commit once all surfaces have ported.
-//
-// Hierarchical fallback: if the child isn't marked native-lowerable by
-// native.Analyze (child.Fragment == nil), the info.Fragment on this
-// node will be nil and we return errUnsupportedLowerNode so the
-// caller can fall back to the Fragment rendering path wholesale.
+// Hierarchical fallback: if the child kind isn't yet direct-renderable,
+// Lower returns errUnsupportedLowerNode and we propagate it so the caller
+// falls back to the Fragment rendering path wholesale.
 func lowerScalarConvert(ctx LoweringCtx, n *logicalpkg.ScalarConvertPlan) (RenderedQuery, error) {
 	if n == nil {
-		return RenderedQuery{}, fmt.Errorf("renderer: lowerScalarConvert called with nil node")
+		return RenderedQuery{}, fmt.Errorf("renderer: lowerScalarConvert called with nil")
 	}
 	if n.Child == nil {
-		return RenderedQuery{}, fmt.Errorf("renderer: scalar_convert missing child node")
+		return RenderedQuery{}, fmt.Errorf("renderer: scalar_convert missing child")
 	}
-	if ctx.Analysis.InfoFor(n) == nil {
+	if ctx.Analysis == nil || ctx.Analysis.InfoFor(n) == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: scalar_convert missing analysis")
 	}
-	// If native.Analyze didn't mark this node as native-lowerable (e.g.
-	// because the child vector isn't lowerable yet), BuildFragment would
-	// report a non-sentinel error. Translate that to the Lower sentinel
-	// so the caller falls back hierarchically to the Fragment path.
-	nativeInfo := ctx.NativeAnalysis.InfoFor(n)
-	if nativeInfo == nil || nativeInfo.Fragment == nil {
-		return RenderedQuery{}, errUnsupportedLowerNode
+	childSource, childParams, err := renderLoweredChildAsSource(ctx, n.Child, "scalar_child")
+	if err != nil {
+		return RenderedQuery{}, err // bubble errUnsupportedLowerNode when child can't lower
 	}
-	fragment, err := native.BuildFragment(n, ctx.NativeAnalysis)
+	rf, err := renderScalarConvertFromSource(childSource, childParams, ctx.Params)
 	if err != nil {
 		return RenderedQuery{}, err
 	}
-	return RenderFragment(ctx.Config, fragment, ctx.Params)
+	return finalizeRenderedFragment(rf)
 }

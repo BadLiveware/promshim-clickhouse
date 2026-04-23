@@ -9,7 +9,7 @@ import (
 	"ch-observability/internal/promshim/storage"
 )
 
-func TestRenderFragmentBuildsInstantAvgOverTimeSQLWithValueAliases(t *testing.T) {
+func TestRenderFragmentBuildsInstantAvgOverTimeSQLUsingRowFastPath(t *testing.T) {
 	fragment := &native.NativeFragment{
 		Kind:       native.FragmentKindRangeFunction,
 		OutputKind: native.OutputKindInstantVector,
@@ -38,17 +38,19 @@ func TestRenderFragmentBuildsInstantAvgOverTimeSQLWithValueAliases(t *testing.T)
 	if err != nil {
 		t.Fatalf("expected rendered SQL, got error: %v", err)
 	}
-	for _, expected := range []string{
-		"arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), time_series) AS range_values",
-		"arrayExists(v -> isNaN(v), range_values) AS range_has_nan",
-		"arrayFilter(v -> NOT isNaN(v), range_values) AS range_values_finite",
-	} {
-		if !strings.Contains(rendered.SQL, expected) {
-			t.Fatalf("expected %q in SQL, got %q", expected, rendered.SQL)
-		}
+	if !strings.Contains(rendered.SQL, "avgIf(value, NOT isNaN(value))") {
+		t.Fatalf("expected instant avg_over_time row fast path to aggregate directly over rows, got %q", rendered.SQL)
 	}
-	if got := strings.Count(rendered.SQL, "arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), time_series)"); got != 1 {
-		t.Fatalf("expected values array expression once, got count=%d sql=%q", got, rendered.SQL)
+	for _, unwanted := range []string{
+		"groupArray((timestamp, value))) AS time_series",
+		"time_series AS time_series",
+		"range_values",
+		"range_has_nan",
+		"range_values_finite",
+	} {
+		if strings.Contains(rendered.SQL, unwanted) {
+			t.Fatalf("expected instant avg_over_time row fast path to avoid %q, got %q", unwanted, rendered.SQL)
+		}
 	}
 }
 

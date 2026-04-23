@@ -329,22 +329,18 @@ func TestRenderFragmentBuildsRangeSumOverTimeSQLForDirectSelector(t *testing.T) 
 	if !strings.Contains(rendered.SQL, "arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series") {
 		t.Fatalf("expected range result shaping in SQL, got %q", rendered.SQL)
 	}
-	if !strings.Contains(rendered.SQL, "arraySort(item -> item.1, groupArray((d.timestamp, d.value))) AS window_series") {
-		t.Fatalf("expected direct-selector window materialization in SQL, got %q", rendered.SQL)
+	if !strings.Contains(rendered.SQL, "if(countIf(isNaN(source.value)) > 0, nan, sumIf(source.value, NOT isNaN(source.value)))") {
+		t.Fatalf("expected sum_over_time direct-selector row fast path in SQL, got %q", rendered.SQL)
 	}
-	if strings.Contains(rendered.SQL, "CROSS JOIN") {
-		t.Fatalf("expected direct-selector fast path to avoid cross joining pre-materialized series, got %q", rendered.SQL)
+	for _, unwanted := range []string{"window_series", "window_timestamps", "window_values"} {
+		if strings.Contains(rendered.SQL, unwanted) {
+			t.Fatalf("expected sum_over_time direct-selector row fast path to avoid %q, got %q", unwanted, rendered.SQL)
+		}
 	}
-	if strings.Contains(rendered.SQL, "window_timestamps") {
-		t.Fatalf("expected sum_over_time direct-selector SQL to skip unused window_timestamps alias, got %q", rendered.SQL)
+	if !strings.Contains(rendered.SQL, "CROSS JOIN") {
+		t.Fatalf("expected row fast path to join the eval grid against source rows, got %q", rendered.SQL)
 	}
-	if !strings.Contains(rendered.SQL, "arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series) AS window_values") {
-		t.Fatalf("expected shared window values array in SQL, got %q", rendered.SQL)
-	}
-	if !strings.Contains(rendered.SQL, "arraySum(arrayFilter(v -> NOT isNaN(v), window_values))") {
-		t.Fatalf("expected sum_over_time expression in SQL, got %q", rendered.SQL)
-	}
-	if got := rendered.QueryParams["param_range_window_matcher_0_value"]; got != "up" {
+	if got := rendered.QueryParams["param_range_matrix_matcher_0_value"]; got != "up" {
 		t.Fatalf("expected metric-name selector param, got %q with params=%#v", got, rendered.QueryParams)
 	}
 }
@@ -558,6 +554,125 @@ func TestRenderFragmentBuildsInstantMaxOverTimeSQLForFusedSubqueryUsingRows(t *t
 	}
 	if strings.Contains(rendered.SQL, "time_series AS time_series") || strings.Contains(rendered.SQL, "groupArray((timestamp, value))) AS time_series") {
 		t.Fatalf("expected instant max_over_time row fast path to avoid time_series materialization, got %q", rendered.SQL)
+	}
+}
+
+func TestRenderFragmentBuildsInstantAvgOverTimeSQLForDirectSelectorUsingRows(t *testing.T) {
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindRangeFunction,
+		OutputKind: native.OutputKindInstantVector,
+		RangeFunction: &native.RangeFunctionFragment{
+			Func: "avg_over_time",
+			Child: &native.NativeFragment{
+				Kind:       native.FragmentKindLeafSource,
+				OutputKind: native.OutputKindRangeMatrix,
+				Selector: &native.SelectorSource{
+					Kind:       native.SelectorKindRangeVector,
+					MetricName: "demo_memory_usage_bytes",
+					Lookback:   5 * time.Minute,
+				},
+				ValueExpr: "{value}",
+				TagsExpr:  "{tags}",
+			},
+		},
+	}
+
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
+		Mode:             native.RenderModeInstant,
+		EvaluationTimeMS: 300000,
+		RequiredStartMS:  0,
+		RequiredEndMS:    300000,
+	})
+	if err != nil {
+		t.Fatalf("expected rendered SQL, got error: %v", err)
+	}
+	if !strings.Contains(rendered.SQL, "avgIf(value, NOT isNaN(value))") {
+		t.Fatalf("expected instant avg_over_time row fast path to aggregate directly over rows, got %q", rendered.SQL)
+	}
+	if !strings.Contains(rendered.SQL, "fromUnixTimestamp64Milli(300000) AS timestamp") {
+		t.Fatalf("expected instant avg_over_time row fast path to stamp the evaluation time directly, got %q", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, "groupArray((timestamp, value))) AS time_series") || strings.Contains(rendered.SQL, "window_series") {
+		t.Fatalf("expected instant avg_over_time row fast path to avoid time_series/window materialization, got %q", rendered.SQL)
+	}
+}
+
+func TestRenderFragmentBuildsInstantSumOverTimeSQLForDirectSelectorUsingRows(t *testing.T) {
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindRangeFunction,
+		OutputKind: native.OutputKindInstantVector,
+		RangeFunction: &native.RangeFunctionFragment{
+			Func: "sum_over_time",
+			Child: &native.NativeFragment{
+				Kind:       native.FragmentKindLeafSource,
+				OutputKind: native.OutputKindRangeMatrix,
+				Selector: &native.SelectorSource{
+					Kind:       native.SelectorKindRangeVector,
+					MetricName: "demo_memory_usage_bytes",
+					Lookback:   5 * time.Minute,
+				},
+				ValueExpr: "{value}",
+				TagsExpr:  "{tags}",
+			},
+		},
+	}
+
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
+		Mode:             native.RenderModeInstant,
+		EvaluationTimeMS: 300000,
+		RequiredStartMS:  0,
+		RequiredEndMS:    300000,
+	})
+	if err != nil {
+		t.Fatalf("expected rendered SQL, got error: %v", err)
+	}
+	if !strings.Contains(rendered.SQL, "sumIf(value, NOT isNaN(value))") {
+		t.Fatalf("expected instant sum_over_time row fast path to aggregate directly over rows, got %q", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, "groupArray((timestamp, value))) AS time_series") || strings.Contains(rendered.SQL, "window_series") {
+		t.Fatalf("expected instant sum_over_time row fast path to avoid time_series/window materialization, got %q", rendered.SQL)
+	}
+}
+
+func TestRenderFragmentBuildsRangeAvgOverTimeSQLForDirectSelectorUsingWindowedArrays(t *testing.T) {
+	fragment := &native.NativeFragment{
+		Kind:       native.FragmentKindRangeFunction,
+		OutputKind: native.OutputKindInstantVector,
+		RangeFunction: &native.RangeFunctionFragment{
+			Func: "avg_over_time",
+			Child: &native.NativeFragment{
+				Kind:       native.FragmentKindLeafSource,
+				OutputKind: native.OutputKindRangeMatrix,
+				Selector: &native.SelectorSource{
+					Kind:       native.SelectorKindRangeVector,
+					MetricName: "demo_memory_usage_bytes",
+					Lookback:   5 * time.Minute,
+				},
+				ValueExpr: "{value}",
+				TagsExpr:  "{tags}",
+			},
+		},
+	}
+
+	rendered, err := RenderFragment(storage.QueryConfig{Database: "observability", Table: "prometheus"}, fragment, RenderParams{
+		Mode:            native.RenderModeRange,
+		StartMS:         0,
+		EndMS:           300000,
+		StepMS:          30000,
+		RequiredStartMS: -300000,
+		RequiredEndMS:   300000,
+	})
+	if err != nil {
+		t.Fatalf("expected rendered SQL, got error: %v", err)
+	}
+	if !strings.Contains(rendered.SQL, "arrayFilter(point -> tupleElement(point, 1) <= grid.eval_ts") {
+		t.Fatalf("expected range avg_over_time to keep the windowed-array path, got %q", rendered.SQL)
+	}
+	if !strings.Contains(rendered.SQL, "arrayAvg(arrayFilter(v -> NOT isNaN(v), window_values))") {
+		t.Fatalf("expected range avg_over_time expression over window_values, got %q", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, "avgIf(source.value, NOT isNaN(source.value))") {
+		t.Fatalf("expected range avg_over_time to avoid the row fast path until the timeout is fixed, got %q", rendered.SQL)
 	}
 }
 

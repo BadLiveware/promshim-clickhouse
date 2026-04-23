@@ -78,6 +78,22 @@ func renderRangeFunctionFragment(cfg storage.QueryConfig, fragment *native.Nativ
 	}
 	switch params.Mode {
 	case native.RenderModeInstant:
+		if selectorFragment := fragment.RangeFunction.Child; selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector && sourceWrapperIsIdentity(selectorFragment) && fragment.RangeFunction.Func == "rate" {
+			source, err := renderAggregationSource(selectorFragment, params)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			rowsSQL, rowParams, err := storage.BuildRangeMatrixSelectorRowsQuerySQL(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			tagsExpr := rangeFunctionTagsExprFromInput(fragment.RangeFunction.Func, selectorOutputHasMetricName(selectorFragment.Selector))
+			sql, err := buildInstantRateOverRowsSQL(trimRenderedQuerySQL(rowsSQL), tagsExpr, params.EvaluationTimeMS)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: rowParams}, nil
+		}
 		if selectorFragment := fragment.RangeFunction.Child; selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector && sourceWrapperIsIdentity(selectorFragment) && canUseInstantRangeFunctionRowsFastPath(fragment.RangeFunction.Func) {
 			source, err := renderAggregationSource(selectorFragment, params)
 			if err != nil {
@@ -414,6 +430,47 @@ func buildInstantRangeFunctionOverRowsSQL(sourceRowsSQL, fn, finalTagsExpr strin
 		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: sqlb.RawLit{V: "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"}, Alias: "timestamp"}, {Expr: valueExpr, Alias: "value"}},
 		From:    sqlb.SubSelect{S: prepared},
 		GroupBy: []sqlb.Expr{sqlb.Ident("final_tags")},
+		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("final_tags")}},
+	}
+	return buildNativeWrapperSQL(outer)
+}
+
+func buildInstantRateOverRowsSQL(sourceRowsSQL, finalTagsExpr string, evaluationTimeMS int64) (string, error) {
+	prepared := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.RawLit{V: finalTagsExpr}, Alias: "final_tags"},
+			{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
+			{Expr: sqlb.RawLit{V: "ifNull(toFloat64(value), nan)"}, Alias: "value"},
+		},
+		From: rawRenderedSubquerySource(trimRenderedQuerySQL(sourceRowsSQL)),
+	}
+	annotated := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("final_tags"), Alias: "final_tags"},
+			{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
+			{Expr: sqlb.Ident("value"), Alias: "value"},
+			{Expr: sqlb.RawLit{V: "lagInFrame(value, 1, nan) OVER (PARTITION BY final_tags ORDER BY timestamp)"}, Alias: "prev_value"},
+		},
+		From: sqlb.SubSelect{S: prepared},
+	}
+	grouped := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("final_tags"), Alias: "final_tags"},
+			{Expr: sqlb.RawLit{V: "count()"}, Alias: "sample_count"},
+			{Expr: sqlb.RawLit{V: "countIf(isNaN(value))"}, Alias: "nan_count"},
+			{Expr: sqlb.RawLit{V: "max(timestamp) - min(timestamp)"}, Alias: "range_duration_ms"},
+			{Expr: sqlb.RawLit{V: "sum(if(isNaN(value) OR isNaN(prev_value), toFloat64(0), if(value < prev_value, value, value - prev_value)))"}, Alias: "range_counter_delta_sum"},
+		},
+		From:    sqlb.SubSelect{S: annotated},
+		GroupBy: []sqlb.Expr{sqlb.Ident("final_tags")},
+	}
+	outer := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("final_tags"), Alias: "tags"},
+			{Expr: sqlb.RawLit{V: "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"}, Alias: "timestamp"},
+			{Expr: sqlb.RawLit{V: "if(nan_count > 0 OR sample_count <= 1 OR range_duration_ms <= 0, nan, range_counter_delta_sum / range_duration_ms)"}, Alias: "value"},
+		},
+		From:    sqlb.SubSelect{S: grouped},
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("final_tags")}},
 	}
 	return buildNativeWrapperSQL(outer)

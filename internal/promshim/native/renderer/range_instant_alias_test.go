@@ -54,7 +54,7 @@ func TestRenderFragmentBuildsInstantAvgOverTimeSQLUsingRowFastPath(t *testing.T)
 	}
 }
 
-func TestRenderFragmentBuildsInstantRateSQLWithRangeRateAliases(t *testing.T) {
+func TestRenderFragmentBuildsInstantRateSQLUsingRowFastPath(t *testing.T) {
 	fragment := &native.NativeFragment{
 		Kind:       native.FragmentKindRangeFunction,
 		OutputKind: native.OutputKindInstantVector,
@@ -84,18 +84,22 @@ func TestRenderFragmentBuildsInstantRateSQLWithRangeRateAliases(t *testing.T) {
 		t.Fatalf("expected rendered SQL, got error: %v", err)
 	}
 	for _, unwanted := range []string{
-		"arrayMap(point -> tupleElement(point, 1), time_series) AS range_timestamps",
-		"arrayPopBack(range_values) AS range_values_prev",
-		"arrayPopFront(range_values) AS range_values_cur",
+		"time_series AS time_series",
+		"groupArray((timestamp, value))) AS time_series",
+		"range_values",
+		"range_has_nan",
+		"arrayPopBack(range_values)",
+		"arrayPopFront(range_values)",
 	} {
 		if strings.Contains(rendered.SQL, unwanted) {
-			t.Fatalf("expected instant rate SQL to avoid %q, got %q", unwanted, rendered.SQL)
+			t.Fatalf("expected instant rate row fast path to avoid %q, got %q", unwanted, rendered.SQL)
 		}
 	}
 	for _, expected := range []string{
-		"arraySum(arrayMap((p, c) -> if(c < p, c, c - p), arrayPopBack(range_values), arrayPopFront(range_values))) AS range_counter_delta_sum",
-		"tupleElement(arrayElement(time_series, length(time_series)), 1) - tupleElement(arrayElement(time_series, 1), 1) AS range_duration_ms",
-		"(range_counter_delta_sum) / (range_duration_ms)",
+		"lagInFrame(value, 1, nan) OVER (PARTITION BY final_tags ORDER BY timestamp)",
+		"sum(if(isNaN(value) OR isNaN(prev_value), toFloat64(0), if(value < prev_value, value, value - prev_value))) AS range_counter_delta_sum",
+		"max(timestamp) - min(timestamp) AS range_duration_ms",
+		"if(nan_count > 0 OR sample_count <= 1 OR range_duration_ms <= 0, nan, range_counter_delta_sum / range_duration_ms)",
 	} {
 		if !strings.Contains(rendered.SQL, expected) {
 			t.Fatalf("expected %q in SQL, got %q", expected, rendered.SQL)

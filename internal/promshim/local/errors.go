@@ -13,12 +13,15 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-type internalErrorKind string
+// internalErrorKind is an alias for logical.ErrorKind so that error values
+// produced by logical/build.go (which implement Kind() logical.ErrorKind)
+// also satisfy the local internalError interface.
+type internalErrorKind = logical.ErrorKind
 
 const (
-	internalErrorKindBadData     internalErrorKind = "bad_data"
-	internalErrorKindUnsupported internalErrorKind = "unsupported"
-	internalErrorKindExecution   internalErrorKind = "execution"
+	internalErrorKindBadData     internalErrorKind = logical.ErrorKindBadData
+	internalErrorKindUnsupported internalErrorKind = logical.ErrorKindUnsupported
+	internalErrorKindExecution   internalErrorKind = logical.ErrorKindExecution
 )
 
 type internalError interface {
@@ -81,36 +84,13 @@ func WithInternalContext(err error, format string, args ...any) error {
 	}
 }
 
-type PlanBuildError struct {
-	Support logical.SupportResult
-	Expr    parser.Expr
-	Stage   string
-}
+// PlanBuildError is a type alias for logical.BuildError so that existing
+// callers (e.g. errors_http_test.go) continue to compile.
+type PlanBuildError = logical.BuildError
 
-func (e *PlanBuildError) Error() string {
-	base := e.UserMessage()
-	if e.Expr == nil && e.Stage == "" {
-		return fmt.Sprintf("planner cannot build plan: %s", base)
-	}
-	if e.Expr == nil {
-		return fmt.Sprintf("planner cannot build plan during %s: %s", e.Stage, base)
-	}
-	if e.Stage == "" {
-		return fmt.Sprintf("planner cannot build plan for %T %q: %s", e.Expr, e.Expr.String(), base)
-	}
-	return fmt.Sprintf("planner cannot build plan during %s for %T %q: %s", e.Stage, e.Expr, e.Expr.String(), base)
-}
-
-func (e *PlanBuildError) UserMessage() string {
-	return fmt.Sprintf("unsupported PromQL (difficulty=%s): %s", e.Support.Difficulty, e.Support.Reason)
-}
-
-func (e *PlanBuildError) Kind() internalErrorKind {
-	return internalErrorKindUnsupported
-}
-
+// NewPlanBuildError constructs a PlanBuildError for an unsupported expression.
 func NewPlanBuildError(expr parser.Expr, support logical.SupportResult, stage string) error {
-	return &PlanBuildError{Support: support, Expr: expr, Stage: stage}
+	return logical.NewBuildError(expr, support, stage)
 }
 
 func NormalizeInternalError(err error) error {

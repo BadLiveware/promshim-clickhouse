@@ -1,77 +1,27 @@
 package local
 
 import (
-	"strings"
-
-	commonmodel "github.com/prometheus/common/model"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 	promlabels "github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-func aggregatePlanParam(expr *parser.AggregateExpr) (*float64, string, error) {
-	if expr == nil || expr.Param == nil {
-		return nil, "", nil
-	}
-	switch expr.Op {
-	case parser.TOPK, parser.BOTTOMK, parser.QUANTILE, parser.LIMITK, parser.LIMIT_RATIO:
-		literal, ok := unwrapTransparentExpr(expr.Param).(*parser.NumberLiteral)
-		if !ok {
-			return nil, "", NewUnsupportedErrorf("aggregation operator %q currently requires a literal scalar parameter", strings.ToLower(expr.Op.String()))
-		}
-		value := literal.Val
-		return &value, "", nil
-	case parser.COUNT_VALUES:
-		label, err := stringLiteralArgument(expr.Param, "count_values label parameter")
-		if err != nil {
-			return nil, "", err
-		}
-		if !commonmodel.UTF8Validation.IsValidLabelName(label) {
-			return nil, "", NewBadDataErrorf("invalid destination label name in count_values(): %s", label)
-		}
-		return nil, label, nil
-	default:
-		return nil, "", nil
-	}
+// unwrapTransparentExpr is a package-local forwarding wrapper around
+// logical.UnwrapTransparentExpr so that callers within local/ (e.g.
+// delegated_support.go) continue to compile without modification.
+func unwrapTransparentExpr(expr parser.Expr) parser.Expr {
+	return logical.UnwrapTransparentExpr(expr)
 }
 
-func buildLogicalPointwiseFunctionPlan(name string, call *parser.Call) (logicalPlan, error) {
-	paramNumbers := make([]*float64, 0, max(0, len(call.Args)-1))
-	argOffset := 0
-	if name == "clamp" || name == "clamp_min" || name == "clamp_max" {
-		child, err := BuildLogicalPlan(call.Args[0])
-		if err != nil {
-			return nil, WithInternalContext(err, "building logical child plan for %s %q", name, call.String())
-		}
-		paramChildren := make([]logicalPlan, 0, len(call.Args)-1)
-		for _, arg := range call.Args[1:] {
-			builtArg, err := BuildLogicalPlan(arg)
-			if err != nil {
-				return nil, WithInternalContext(err, "building logical %s scalar parameter for %q", name, call.String())
-			}
-			paramChildren = append(paramChildren, builtArg)
-			if literal, ok := unwrapTransparentExpr(arg).(*parser.NumberLiteral); ok {
-				valueCopy := literal.Val
-				paramNumbers = append(paramNumbers, &valueCopy)
-			} else {
-				paramNumbers = append(paramNumbers, nil)
-			}
-		}
-		return &logicalPointwiseFunctionPlan{Expr: call, Func: name, ParamNumbers: paramNumbers, ParamChildren: paramChildren, Child: child}, nil
-	}
-	if len(call.Args) > 0 {
-		argOffset = 1
-	}
-	var child logicalPlan
-	if argOffset == 1 {
-		builtChild, err := BuildLogicalPlan(call.Args[0])
-		if err != nil {
-			return nil, WithInternalContext(err, "building logical child plan for %s %q", name, call.String())
-		}
-		child = builtChild
-	}
-	return &logicalPointwiseFunctionPlan{Expr: call, Func: name, Child: child}, nil
+// expressionContainsSubquery forwards to logical.ExpressionContainsSubquery.
+// Kept here for any local/ callers; prefer the exported version in new code.
+func expressionContainsSubquery(expr parser.Expr) bool {
+	return logical.ExpressionContainsSubquery(expr)
 }
 
+// clonePromMatchers is retained for use by planner.go which builds local plan
+// nodes that embed copied matcher slices. The canonical implementation lives
+// in logical/build_helpers.go.
 func clonePromMatchers(matchers []*promlabels.Matcher) []*promlabels.Matcher {
 	if len(matchers) == 0 {
 		return nil
@@ -86,62 +36,8 @@ func clonePromMatchers(matchers []*promlabels.Matcher) []*promlabels.Matcher {
 	return out
 }
 
-func stringLiteralArgument(expr parser.Expr, description string) (string, error) {
-	expr = unwrapTransparentExpr(expr)
-	literal, ok := expr.(*parser.StringLiteral)
-	if !ok {
-		return "", NewBadDataErrorf("expected string literal for %s, got %T", description, expr)
-	}
-	return literal.Val, nil
-}
-
-func numberLiteralArgument(expr parser.Expr, description string) (float64, error) {
-	expr = unwrapTransparentExpr(expr)
-	literal, ok := expr.(*parser.NumberLiteral)
-	if !ok {
-		return 0, NewBadDataErrorf("expected numeric literal for %s, got %T", description, expr)
-	}
-	return literal.Val, nil
-}
-
-func cloneFloat64(value float64) *float64 {
-	cloned := value
-	return &cloned
-}
-
-func deriveAbsentOutputMetric(expr parser.Expr) map[string]string {
-	expr = unwrapTransparentExpr(expr)
-
-	var matchers []*promlabels.Matcher
-	switch node := expr.(type) {
-	case *parser.VectorSelector:
-		matchers = node.LabelMatchers
-	case *parser.MatrixSelector:
-		vectorSelector, ok := node.VectorSelector.(*parser.VectorSelector)
-		if !ok {
-			return map[string]string{}
-		}
-		matchers = vectorSelector.LabelMatchers
-	default:
-		return map[string]string{}
-	}
-
-	result := make(map[string]string)
-	has := make(map[string]bool, len(matchers))
-	for _, matcher := range matchers {
-		if matcher.Name == promlabels.MetricName {
-			continue
-		}
-		if matcher.Type == promlabels.MatchEqual && !has[matcher.Name] {
-			result[matcher.Name] = matcher.Value
-			has[matcher.Name] = true
-			continue
-		}
-		delete(result, matcher.Name)
-	}
-	return result
-}
-
+// cloneVectorMatching is retained for use by planner.go. The canonical
+// implementation lives in logical/build_helpers.go.
 func cloneVectorMatching(vectorMatching *parser.VectorMatching) *parser.VectorMatching {
 	if vectorMatching == nil {
 		return nil
@@ -161,47 +57,4 @@ func cloneVectorMatching(vectorMatching *parser.VectorMatching) *parser.VectorMa
 		cloned.FillValues.RHS = &rhs
 	}
 	return cloned
-}
-
-func unwrapTransparentExpr(expr parser.Expr) parser.Expr {
-	for {
-		switch e := expr.(type) {
-		case *parser.ParenExpr:
-			expr = e.Expr
-		case *parser.StepInvariantExpr:
-			expr = e.Expr
-		default:
-			return expr
-		}
-	}
-}
-
-func expressionContainsSubquery(expr parser.Expr) bool {
-	expr = unwrapTransparentExpr(expr)
-	switch node := expr.(type) {
-	case *parser.SubqueryExpr:
-		return true
-	case *parser.Call:
-		for _, arg := range node.Args {
-			if expressionContainsSubquery(arg) {
-				return true
-			}
-		}
-		return false
-	case *parser.AggregateExpr:
-		if node.Param != nil && expressionContainsSubquery(node.Param) {
-			return true
-		}
-		return expressionContainsSubquery(node.Expr)
-	case *parser.BinaryExpr:
-		return expressionContainsSubquery(node.LHS) || expressionContainsSubquery(node.RHS)
-	case *parser.UnaryExpr:
-		return expressionContainsSubquery(node.Expr)
-	case *parser.ParenExpr, *parser.StepInvariantExpr:
-		return false
-	case *parser.MatrixSelector:
-		return expressionContainsSubquery(node.VectorSelector)
-	default:
-		return false
-	}
 }

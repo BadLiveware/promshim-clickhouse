@@ -90,6 +90,12 @@ func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 		return lowerAbsent(ctx, n)
 	case *logicalpkg.InfoPlan:
 		return lowerInfoJoin(ctx, n)
+	case *logicalpkg.UnaryPlan:
+		return lowerUnary(ctx, n)
+	case *logicalpkg.RoundPlan:
+		return lowerRound(ctx, n)
+	case *logicalpkg.VectorPlan:
+		return lowerVector(ctx, n)
 	default:
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}

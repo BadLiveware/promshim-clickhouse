@@ -139,3 +139,37 @@ func TestLowerLabelTransformNilErrors(t *testing.T) {
 		t.Fatalf("expected non-sentinel error for nil node, got sentinel")
 	}
 }
+
+// TestBuildLabelTransformTagsExprLogicalMatchesFragment locks byte-identity
+// between buildLabelTransformTagsExpr (reads *LabelTransformFragment) and
+// buildLabelTransformTagsExprFromLogical (reads the logical node directly).
+// The direct-render path uses the latter; the Fragment path uses the former.
+// Both must produce the same mutated-tags SQL expression for equivalent
+// inputs, otherwise the outer SELECT wrapping renderLabelTransformFromSource
+// would emit drifting SQL.
+func TestBuildLabelTransformTagsExprLogicalMatchesFragment(t *testing.T) {
+	for _, tc := range labelTransformCases {
+		t.Run(tc.name, func(t *testing.T) {
+			root, _, nativeAnalysis := buildLowerInputs(t, tc.query)
+			fragment, err := native.BuildFragment(root, nativeAnalysis)
+			if err != nil {
+				t.Fatalf("BuildFragment: %v", err)
+			}
+			if fragment.LabelTransform == nil {
+				t.Fatalf("fragment has no LabelTransform spec")
+			}
+			const tagsExpr = "label_child.tags"
+			fragmentExpr, err := buildLabelTransformTagsExpr(fragment.LabelTransform, tagsExpr)
+			if err != nil {
+				t.Fatalf("buildLabelTransformTagsExpr: %v", err)
+			}
+			logicalExpr, err := buildLabelTransformTagsExprFromLogical(root, tagsExpr)
+			if err != nil {
+				t.Fatalf("buildLabelTransformTagsExprFromLogical: %v", err)
+			}
+			if fragmentExpr != logicalExpr {
+				t.Errorf("tags expressions differ\nFragment: %s\nLogical:  %s", fragmentExpr, logicalExpr)
+			}
+		})
+	}
+}

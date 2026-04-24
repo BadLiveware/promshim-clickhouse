@@ -37,10 +37,6 @@ func sqlStringLiteral(value string) string {
 	return "'" + escaped + "'"
 }
 
-func sourceWrapperIsIdentity(fragment *native.NativeFragment) bool {
-	return fragment != nil && fragment.ValueExpr == "{value}" && fragment.TagsExpr == "{tags}" && !fragment.DropsMetric
-}
-
 func buildNativeWrapperSQL(query *sqlb.Select) (string, error) {
 	sql, params, err := query.Build()
 	if err != nil {
@@ -147,16 +143,6 @@ func alignSubqueryStepStart(windowStartMS, stepMS int64) int64 {
 		aligned += stepMS
 	}
 	return aligned
-}
-
-func rangeRequiredBoundsForChild(fragment *native.NativeFragment, startMS, endMS int64) (int64, int64) {
-	selector := native.BaseSelectorSource(fragment)
-	if selector == nil {
-		return startMS, endMS
-	}
-	lookbackMS := selector.Lookback.Milliseconds()
-	offsetMS := selector.Offset.Milliseconds()
-	return startMS - offsetMS - lookbackMS, endMS - offsetMS
 }
 
 // logicalRangeRequiredBoundsForChild mirrors rangeRequiredBoundsForChild but

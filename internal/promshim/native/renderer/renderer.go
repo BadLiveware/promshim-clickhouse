@@ -1,11 +1,9 @@
 package renderer
 
 import (
-	"fmt"
 	"strings"
 
 	"ch-observability/internal/promshim/native"
-	"ch-observability/internal/promshim/storage"
 	"ch-observability/internal/promshim/storage/schema"
 
 	"github.com/prometheus/prometheus/promql/parser"
@@ -37,28 +35,6 @@ type RenderParams struct {
 type RenderedQuery struct {
 	SQL         string
 	QueryParams map[string]string
-}
-
-func RenderFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
-	rf, err := renderFragment(cfg, fragment, params)
-	if err != nil {
-		return RenderedQuery{}, err
-	}
-	return finalizeRenderedFragment(rf)
-}
-
-func renderFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
-	if fragment == nil {
-		return renderedFragment{}, fmt.Errorf("native fragment render requires a fragment")
-	}
-	switch fragment.Kind {
-	case native.FragmentKindLeafSource, native.FragmentKindUnarySourceExpr, native.FragmentKindBinaryScalarSourceExpr:
-		return renderSourceFragment(cfg, fragment, params)
-	case native.FragmentKindSubquery:
-		return renderSubqueryFragment(cfg, fragment, params)
-	default:
-		return renderedFragment{}, fmt.Errorf("native SQL rendering for fragment kind %q is not implemented yet", fragment.Kind)
-	}
 }
 
 func mergeRenderedQueryParams(dst, src map[string]string) {

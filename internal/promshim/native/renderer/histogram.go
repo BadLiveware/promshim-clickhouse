@@ -339,10 +339,6 @@ func arrayLastValue(x sqlb.Expr) sqlb.Expr {
 	return arrayLastElement(x)
 }
 
-func histogramChildUsesOnlyLETags(fragment *native.NativeFragment) bool {
-	return fragment != nil && fragment.Aggregation != nil && !fragment.Aggregation.Without && len(fragment.Aggregation.Grouping) == 1 && fragment.Aggregation.Grouping[0] == "le"
-}
-
 func buildHistogramIdentityTagAggregationRowsSQL(sourceSQL string, params map[string]string, timestampExpr string) (string, map[string]string, error) {
 	rows := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
@@ -368,36 +364,29 @@ func buildHistogramIdentityTagAggregationRowsSQL(sourceSQL string, params map[st
 }
 
 // tryRenderHistogramChildRowsSQLLogical is the logical-plan entry to the
-// histogram child-rows fast path. It mirrors tryRenderHistogramChildRowsSQL
-// but keys the capability check on the logical plan shape alone — no
-// NativeFragment is required at the boundary. When the shape matches,
-// the function materializes the child Fragment once via BuildFragment
-// and delegates to tryRenderHistogramChildRowsSQL for byte-identical
-// SQL. The structural detection covers exactly the same shapes as the
-// Fragment-side check:
+// histogram child-rows fast path. The capability check is keyed on the
+// logical plan shape alone — no NativeFragment is required at the
+// boundary. The structural detection covers exactly the same shapes as
+// the Fragment-side check used to:
 //
 //   - Range mode: the child is a SUM grouping aggregation whose source is a
 //     range function over a leaf range-vector selector or a supported
 //     subquery child — detected via canFuseRangeAggregationLogicalDirect.
 //   - Instant mode: the child is a SUM aggregation (logical
 //     AggregationPlan with Op=SUM). The inner source can be any
-//     lowerable instant-vector child; the Fragment path still succeeds
-//     when BuildFragment produces an aggregation fragment with a usable
-//     source.
+//     lowerable instant-vector child.
 //
 // For non-matching shapes the helper returns ok=false so the caller
-// falls through to the full renderFragmentSubquery/renderLogicalSubquery
-// path.
+// falls through to the full renderLogicalSubquery path.
 //
-// Phase 6g (Task 13a Phase 6g): the scoped native.BuildFragment call
-// has been replaced with a cached-fragment read from
-// analysis.InfoFor(childNode).Fragment. BuildFragment is
-// definitionally CloneFragment(analysis.InfoFor(n).Fragment) (see
-// native/builder.go), and Analyze's AggregationPlan walk already
-// populates info.Fragment for every shape that reaches this helper.
-// The downstream tryRenderHistogramChildRowsSQL still consumes a
-// *NativeFragment; it retires together with the child-rows fast-path
-// Fragment renderers in Task 13 Step 2/3.
+// Task 13c-14d-1: the scoped native.BuildFragment / CloneFragment hop
+// and the downstream *NativeFragment-taking helper have been retired.
+// The range-mode branches now recurse through
+// renderRangeFunctionRowsLogicalSQL / renderFusedRangeAggregationLogicalRowsSQL
+// directly off the AggregationPlan, and the instant-mode branch reads
+// Op / Grouping / Without / ParamNumber / ParamString straight off the
+// logical plan. The "only-le-tags" shape check is performed on the
+// logical tree via histogramChildUsesOnlyLETagsLogical.
 func tryRenderHistogramChildRowsSQLLogical(cfg storage.QueryConfig, childNode logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams, prefix string) (string, map[string]string, bool, error) {
 	if childNode == nil {
 		return "", nil, false, nil
@@ -406,33 +395,7 @@ func tryRenderHistogramChildRowsSQLLogical(cfg storage.QueryConfig, childNode lo
 	if !ok || agg == nil {
 		return "", nil, false, nil
 	}
-	switch params.Mode {
-	case native.RenderModeRange:
-		if !canFuseRangeAggregationLogicalDirect(agg, params) {
-			return "", nil, false, nil
-		}
-	case native.RenderModeInstant:
-		if agg.Op != parser.SUM {
-			return "", nil, false, nil
-		}
-	default:
-		return "", nil, false, nil
-	}
-	if analysis == nil {
-		return "", nil, false, nil
-	}
-	info := analysis.InfoFor(childNode)
-	if info == nil || info.Fragment == nil {
-		return "", nil, false, nil
-	}
-	child := native.CloneFragment(info.Fragment)
-	return tryRenderHistogramChildRowsSQL(cfg, child, agg.Child, logicalAnalysis, analysis, params, prefix)
-}
-
-func tryRenderHistogramChildRowsSQL(cfg storage.QueryConfig, child *native.NativeFragment, innerChildNode logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, nativeAnalysis *native.Analysis, params RenderParams, prefix string) (string, map[string]string, bool, error) {
-	if child == nil {
-		return "", nil, false, nil
-	}
+	ctx := LoweringCtx{Config: cfg, Analysis: logicalAnalysis, NativeAnalysis: analysis, Params: params}
 	var (
 		rowsSQL   string
 		rowParams map[string]string
@@ -440,33 +403,33 @@ func tryRenderHistogramChildRowsSQL(cfg storage.QueryConfig, child *native.Nativ
 	)
 	switch params.Mode {
 	case native.RenderModeRange:
-		if !canFuseRangeAggregationFragment(child, params) {
+		if !canFuseRangeAggregationLogicalDirect(agg, params) {
 			return "", nil, false, nil
 		}
-		if histogramChildUsesOnlyLETags(child) {
-			childRowsSQL, childRowParams, childErr := renderRangeFunctionRowsSQL(cfg, child.Aggregation.Source, params)
+		if histogramChildUsesOnlyLETagsLogical(agg) {
+			childRowsSQL, childRowParams, childErr := renderRangeFunctionRowsLogicalSQL(ctx, agg.Child)
 			if childErr != nil {
 				return "", nil, false, childErr
 			}
 			rowsSQL, rowParams, err = buildHistogramIdentityTagAggregationRowsSQL(childRowsSQL, childRowParams, "timestamp")
 		} else {
-			rowsSQL, rowParams, err = renderFusedRangeAggregationRowsSQL(cfg, child, params)
+			rowsSQL, rowParams, err = renderFusedRangeAggregationLogicalRowsSQL(ctx, agg)
 		}
 	case native.RenderModeInstant:
-		if child.Aggregation == nil || child.Aggregation.Source == nil || child.Aggregation.Op != parser.SUM {
+		if agg.Op != parser.SUM {
 			return "", nil, false, nil
 		}
-		if innerChildNode == nil {
+		if agg.Child == nil {
 			return "", nil, false, nil
 		}
-		childRendered, lowerErr := Lower(LoweringCtx{Config: cfg, Analysis: logicalAnalysis, NativeAnalysis: nativeAnalysis, Params: params}, innerChildNode)
+		childRendered, lowerErr := Lower(ctx, agg.Child)
 		if lowerErr != nil {
 			return "", nil, false, lowerErr
 		}
-		if histogramChildUsesOnlyLETags(child) {
+		if histogramChildUsesOnlyLETagsLogical(agg) {
 			rowsSQL, rowParams, err = buildHistogramIdentityTagAggregationRowsSQL(trimRenderedQuerySQL(childRendered.SQL), childRendered.QueryParams, "fromUnixTimestamp64Milli("+strconv.FormatInt(params.EvaluationTimeMS, 10)+")")
 		} else {
-			rowsSQL, rowParams, err = storage.BuildInstantAggregationRowsSubquerySQL(storage.AggregationSource{ValueExpr: "{value}", TagsExpr: "{tags}"}, trimRenderedQuerySQL(childRendered.SQL), childRendered.QueryParams, params.EvaluationTimeMS, child.Aggregation.Op, child.Aggregation.Grouping, child.Aggregation.Without, child.Aggregation.ParamNumber, child.Aggregation.ParamString)
+			rowsSQL, rowParams, err = storage.BuildInstantAggregationRowsSubquerySQL(storage.AggregationSource{ValueExpr: "{value}", TagsExpr: "{tags}"}, trimRenderedQuerySQL(childRendered.SQL), childRendered.QueryParams, params.EvaluationTimeMS, agg.Op, agg.Grouping, agg.Without, agg.ParamNumber, agg.ParamString)
 		}
 	default:
 		return "", nil, false, nil

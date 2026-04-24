@@ -78,9 +78,9 @@ func renderAggregationLogicalDirect(ctx LoweringCtx, n *logicalpkg.AggregationPl
 //
 //  1. Direct-aggregation-source: when the aggregation's child shape can be
 //     rendered as a storage.AggregationSource (leaf selector /
-//     unary-source / binary-scalar-source fragments, read off the cached
-//     native.Analysis entry), build the aggregation SQL via
-//     BuildInstantAggregationQuerySQLWithBounds /
+//     unary-source / binary-scalar-source fragments, read off the
+//     analysis-side SourceExprView on the child node), build the
+//     aggregation SQL via BuildInstantAggregationQuerySQLWithBounds /
 //     BuildRangeAggregationQuerySQLWithBounds.
 //  2. Subquery fallback: when the child cannot feed the direct-aggregation
 //     source path, recurse into the logical child via renderLogicalSubquery
@@ -89,24 +89,25 @@ func renderAggregationLogicalDirect(ctx LoweringCtx, n *logicalpkg.AggregationPl
 //     BuildRangeAggregationOverSubquerySQL.
 //
 // Aggregation fields (Op, Grouping, Without, ParamNumber, ParamString) are
-// read directly from the logical plan. EmitZeroOnEmpty and the source
-// Fragment used for branch 1 are read from the cached aggregation
-// Fragment (populated during native.Analyze): the former is computed from
-// a structural `sum(x) or vector(0)` pattern that has no standalone
-// logical representation, and the latter carries the
-// applySelectorProjection-narrowed SelectorSource that the
-// Fragment-side renderAggregationSource consumes. Both reads are
-// transitional and retire in a later phase when the narrowing/structural
-// derivation moves onto the logical side.
+// read directly from the logical plan. EmitZeroOnEmpty is read from the
+// cached aggregation info (populated during native.Analyze) because it is
+// computed from a structural `sum(x) or vector(0)` pattern that has no
+// standalone logical representation. The direct-source shape data comes
+// from info.SourceExpr on the logical child node — no NativeFragment
+// dereference at the render boundary.
 //
 // For selection aggregations (topk, bottomk, limitk, limit_ratio) and
-// count_values, the cached source Fragment is cloned and its selector is
-// forced to carry full tags — matching the Fragment-side clone +
-// forceFragmentFullTags in renderAggregationFragment.
+// count_values the renderer forces RequireFullTags=true via RenderParams
+// so the underlying selector emits the full tags array. This mirrors the
+// Fragment-side clone + forceFragmentFullTags without materializing a
+// Fragment at the boundary: renderAggregationSourceView already honors
+// params.RequireFullTags through applyRenderParamsNarrowing.
 //
-// Phase 6e (Task 13a Phase 6e): this helper retires the scoped
-// native.BuildFragment + renderAggregationFragment call that
-// renderAggregationLogicalDirect previously used on the non-fused branch.
+// Task 13c-14d-1: the scoped CloneFragment + forceFragmentFullTags +
+// renderAggregationSource(*NativeFragment) chain retires here. The
+// direct-source branch now reads info.SourceExpr on the logical child
+// and threads the selection-aggregation full-tag forcing through
+// RenderParams.
 func renderAggregationLogicalBody(ctx LoweringCtx, n *logicalpkg.AggregationPlan) (renderedFragment, error) {
 	if n == nil {
 		return renderedFragment{}, fmt.Errorf("renderer: aggregation body requires a node")
@@ -115,46 +116,53 @@ func renderAggregationLogicalBody(ctx LoweringCtx, n *logicalpkg.AggregationPlan
 		return renderedFragment{}, fmt.Errorf("aggregation (logical) requires a native analysis")
 	}
 	aggInfo := ctx.NativeAnalysis.InfoFor(n)
-	if aggInfo == nil || aggInfo.Aggregation == nil || aggInfo.Aggregation.Source == nil {
+	if aggInfo == nil || aggInfo.Aggregation == nil {
 		return renderedFragment{}, fmt.Errorf("aggregation (logical) is missing cached aggregation metadata")
 	}
 	cachedAgg := aggInfo.Aggregation
 
-	// Mirror the Fragment-side clone + forceFragmentFullTags for selection
-	// aggregations and count_values: those ops synthesize output labels
-	// from the input labelset and cannot lower through the empty-tags
-	// selector fast path.
-	sourceFragment := cachedAgg.Source
+	// Selection aggregations (topk, bottomk, limitk, limit_ratio) and
+	// count_values synthesize output labels from the input labelset and
+	// cannot lower through the empty-tags selector fast path; force the
+	// underlying selector to emit the full tags array via RenderParams.
+	sourceParams := ctx.Params
 	if native.IsSelectionNativeAggregation(n.Op) || n.Op == parser.COUNT_VALUES {
-		sourceFragment = native.CloneFragment(sourceFragment)
-		forceFragmentFullTags(sourceFragment)
+		sourceParams.RequireFullTags = true
+		sourceParams.RequiredTagLabels = nil
 	}
 
-	// Branch 1: direct-aggregation-source. renderAggregationSource
-	// succeeds for leaf / unary-source / binary-scalar-source child
-	// fragments — the same shapes the Fragment-side body handled.
-	if source, err := renderAggregationSource(sourceFragment, ctx.Params); err == nil {
-		switch ctx.Params.Mode {
-		case native.RenderModeInstant:
-			sql, queryParams, err := storage.BuildInstantAggregationQuerySQLWithBounds(ctx.Config, source, ctx.Params.EvaluationTimeMS, ctx.Params.RequiredStartMS, ctx.Params.RequiredEndMS, n.Op, n.Grouping, n.Without, n.ParamNumber, n.ParamString)
-			if err != nil {
-				return renderedFragment{}, err
+	// Branch 1: direct-aggregation-source. Render from the child node's
+	// SourceExprView, which mirrors the leaf / unary-source /
+	// binary-scalar-source fragment shapes — the same shapes the
+	// Fragment-side body handled.
+	var childInfo *native.LoweringInfo
+	if n.Child != nil {
+		childInfo = ctx.NativeAnalysis.InfoFor(n.Child)
+	}
+	if childInfo != nil && childInfo.SourceExpr != nil {
+		if source, err := renderAggregationSourceView(childInfo.SourceExpr, sourceParams); err == nil {
+			switch ctx.Params.Mode {
+			case native.RenderModeInstant:
+				sql, queryParams, err := storage.BuildInstantAggregationQuerySQLWithBounds(ctx.Config, source, ctx.Params.EvaluationTimeMS, ctx.Params.RequiredStartMS, ctx.Params.RequiredEndMS, n.Op, n.Grouping, n.Without, n.ParamNumber, n.ParamString)
+				if err != nil {
+					return renderedFragment{}, err
+				}
+				if cachedAgg.EmitZeroOnEmpty {
+					return wrapZeroOnEmptyAggregationInstantSQL(trimRenderedQuerySQL(sql), queryParams, ctx.Params), nil
+				}
+				return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
+			case native.RenderModeRange:
+				sql, queryParams, err := storage.BuildRangeAggregationQuerySQLWithBounds(ctx.Config, source, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, ctx.Params.RequiredStartMS, ctx.Params.RequiredEndMS, n.Op, n.Grouping, n.Without, n.ParamNumber, n.ParamString)
+				if err != nil {
+					return renderedFragment{}, err
+				}
+				if cachedAgg.EmitZeroOnEmpty {
+					return wrapZeroOnEmptyAggregationRangeSQL(trimRenderedQuerySQL(sql), queryParams, ctx.Params), nil
+				}
+				return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
+			default:
+				return renderedFragment{}, fmt.Errorf("unknown render mode %q", ctx.Params.Mode)
 			}
-			if cachedAgg.EmitZeroOnEmpty {
-				return wrapZeroOnEmptyAggregationInstantSQL(trimRenderedQuerySQL(sql), queryParams, ctx.Params), nil
-			}
-			return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
-		case native.RenderModeRange:
-			sql, queryParams, err := storage.BuildRangeAggregationQuerySQLWithBounds(ctx.Config, source, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, ctx.Params.RequiredStartMS, ctx.Params.RequiredEndMS, n.Op, n.Grouping, n.Without, n.ParamNumber, n.ParamString)
-			if err != nil {
-				return renderedFragment{}, err
-			}
-			if cachedAgg.EmitZeroOnEmpty {
-				return wrapZeroOnEmptyAggregationRangeSQL(trimRenderedQuerySQL(sql), queryParams, ctx.Params), nil
-			}
-			return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
-		default:
-			return renderedFragment{}, fmt.Errorf("unknown render mode %q", ctx.Params.Mode)
 		}
 	}
 

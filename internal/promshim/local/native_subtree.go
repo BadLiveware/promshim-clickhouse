@@ -361,7 +361,7 @@ func explainNativeAggregationSource(info *nativeplan.LoweringInfo) ExplainNode {
 		return ExplainNode{}
 	}
 	strategy := "native_sql_expression"
-	if info.SubtreeShape == nativeplan.FragmentKindLeafSource {
+	if info.SubtreeShape == nativeplan.SubtreeShapeLeafSource {
 		strategy = "delegated_promql"
 	}
 	children := make([]ExplainNode, 0, len(info.Children))

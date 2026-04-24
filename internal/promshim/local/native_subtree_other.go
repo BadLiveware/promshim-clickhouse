@@ -10,7 +10,7 @@ func maybeBuildNativeLeafPlan(node *logicalLeafExprPlan, ctx PlanContext, analys
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.SubtreeShape != nativeplan.FragmentKindLeafSource {
+	if info == nil || info.SubtreeShape != nativeplan.SubtreeShapeLeafSource {
 		return nil, false, nil
 	}
 	optimized, err := nativeplan.OptimizeFromInfo(info, node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
@@ -31,7 +31,7 @@ func maybeBuildNativeSubqueryPlan(node *logicalSubqueryPlan, ctx PlanContext, an
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.SubtreeShape != nativeplan.FragmentKindSubquery || !nativeplan.HasSubqueryFragmentFromInfo(info) {
+	if info == nil || info.SubtreeShape != nativeplan.SubtreeShapeSubquery || !nativeplan.HasSubqueryFragmentFromInfo(info) {
 		return nil, false, nil
 	}
 	optimized, err := nativeplan.OptimizeFromInfo(info, node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
@@ -47,7 +47,7 @@ func maybeBuildNativeSubqueryPlan(node *logicalSubqueryPlan, ctx PlanContext, an
 	return newNativeSubtreePlan("subquery", node.ExprString(), info.NativeReason, estimateRangePlan(ctx), buildNativeSubtreeChildren(info), optimized, info, node, analysis), true, nil
 }
 
-func maybeBuildNativeGenericPlan(node logicalpkg.Node, expr, kind string, ctx PlanContext, analysis *nativeplan.Analysis, allowedKinds ...nativeplan.FragmentKind) (Plan, bool, error) {
+func maybeBuildNativeGenericPlan(node logicalpkg.Node, expr, kind string, ctx PlanContext, analysis *nativeplan.Analysis, allowedShapes ...nativeplan.SubtreeShape) (Plan, bool, error) {
 	if ctx.Mode != EvalModeInstant && ctx.Mode != EvalModeRange {
 		return nil, false, nil
 	}
@@ -56,8 +56,8 @@ func maybeBuildNativeGenericPlan(node logicalpkg.Node, expr, kind string, ctx Pl
 		return nil, false, nil
 	}
 	allowed := false
-	for _, fragmentKind := range allowedKinds {
-		if info.SubtreeShape == fragmentKind {
+	for _, shape := range allowedShapes {
+		if info.SubtreeShape == shape {
 			allowed = true
 			break
 		}
@@ -87,7 +87,7 @@ func maybeBuildNativeSourcePlan(node *logicalPointwiseFunctionPlan, ctx PlanCont
 		return nil, false, nil
 	}
 	switch info.SubtreeShape {
-	case nativeplan.FragmentKindLeafSource, nativeplan.FragmentKindUnarySourceExpr, nativeplan.FragmentKindBinaryScalarSourceExpr, nativeplan.FragmentKindSyntheticSeries, nativeplan.FragmentKindClampTransform:
+	case nativeplan.SubtreeShapeLeafSource, nativeplan.SubtreeShapeUnarySourceExpr, nativeplan.SubtreeShapeBinaryScalarSourceExpr, nativeplan.SubtreeShapeSyntheticSeries, nativeplan.SubtreeShapeClampTransform:
 	default:
 		return nil, false, nil
 	}
@@ -105,15 +105,15 @@ func maybeBuildNativeSourcePlan(node *logicalPointwiseFunctionPlan, ctx PlanCont
 }
 
 func maybeBuildNativeSortPlan(node *logicalSortPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
-	return maybeBuildNativeGenericPlan(node, node.ExprString(), node.Func, ctx, analysis, nativeplan.FragmentKindSortTransform)
+	return maybeBuildNativeGenericPlan(node, node.ExprString(), node.Func, ctx, analysis, nativeplan.SubtreeShapeSortTransform)
 }
 
 func maybeBuildNativeLabelReplacePlan(node *logicalLabelReplacePlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
-	return maybeBuildNativeGenericPlan(node, node.ExprString(), "label_replace", ctx, analysis, nativeplan.FragmentKindLabelTransform)
+	return maybeBuildNativeGenericPlan(node, node.ExprString(), "label_replace", ctx, analysis, nativeplan.SubtreeShapeLabelTransform)
 }
 
 func maybeBuildNativeLabelJoinPlan(node *logicalLabelJoinPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
-	return maybeBuildNativeGenericPlan(node, node.ExprString(), "label_join", ctx, analysis, nativeplan.FragmentKindLabelTransform)
+	return maybeBuildNativeGenericPlan(node, node.ExprString(), "label_join", ctx, analysis, nativeplan.SubtreeShapeLabelTransform)
 }
 
 func maybeBuildNativeInfoPlan(node *logicalInfoPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
@@ -121,7 +121,7 @@ func maybeBuildNativeInfoPlan(node *logicalInfoPlan, ctx PlanContext, analysis *
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.SubtreeShape != nativeplan.FragmentKindInfoJoin {
+	if info == nil || info.SubtreeShape != nativeplan.SubtreeShapeInfoJoin {
 		return nil, false, nil
 	}
 	optimized, err := nativeplan.OptimizeFromInfo(info, node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
@@ -142,7 +142,7 @@ func maybeBuildNativeScalarConvertPlan(node *logicalScalarConvertPlan, ctx PlanC
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.SubtreeShape != nativeplan.FragmentKindScalarConvert {
+	if info == nil || info.SubtreeShape != nativeplan.SubtreeShapeScalarConvert {
 		return nil, false, nil
 	}
 	optimized, err := nativeplan.OptimizeFromInfo(info, node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
@@ -163,7 +163,7 @@ func maybeBuildNativeHistogramFractionPlan(node *logicalHistogramFractionPlan, c
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.SubtreeShape != nativeplan.FragmentKindHistogramFunction || !nativeplan.HasHistogramFunctionFragmentFromInfo(info) {
+	if info == nil || info.SubtreeShape != nativeplan.SubtreeShapeHistogramFunction || !nativeplan.HasHistogramFunctionFragmentFromInfo(info) {
 		return nil, false, nil
 	}
 	optimized, err := nativeplan.OptimizeFromInfo(info, node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
@@ -184,7 +184,7 @@ func maybeBuildNativeHistogramQuantilePlan(node *logicalHistogramQuantilePlan, c
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.SubtreeShape != nativeplan.FragmentKindHistogramFunction || !nativeplan.HasHistogramFunctionFragmentFromInfo(info) {
+	if info == nil || info.SubtreeShape != nativeplan.SubtreeShapeHistogramFunction || !nativeplan.HasHistogramFunctionFragmentFromInfo(info) {
 		return nil, false, nil
 	}
 	optimized, err := nativeplan.OptimizeFromInfo(info, node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
@@ -205,7 +205,7 @@ func maybeBuildNativeHistogramQuantilesPlan(node *logicalHistogramQuantilesPlan,
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.SubtreeShape != nativeplan.FragmentKindHistogramFunction || !nativeplan.HasHistogramFunctionFragmentFromInfo(info) || nativeplan.HistogramFunctionNameFromInfo(info) != "histogram_quantiles" {
+	if info == nil || info.SubtreeShape != nativeplan.SubtreeShapeHistogramFunction || !nativeplan.HasHistogramFunctionFragmentFromInfo(info) || nativeplan.HistogramFunctionNameFromInfo(info) != "histogram_quantiles" {
 		return nil, false, nil
 	}
 	optimized, err := nativeplan.OptimizeFromInfo(info, node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
@@ -226,7 +226,7 @@ func maybeBuildNativeHistogramProjectionPlan(node *logicalHistogramProjectionPla
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.SubtreeShape != nativeplan.FragmentKindHistogramProjection || !nativeplan.HasHistogramProjectionFragmentFromInfo(info) {
+	if info == nil || info.SubtreeShape != nativeplan.SubtreeShapeHistogramProjection || !nativeplan.HasHistogramProjectionFragmentFromInfo(info) {
 		return nil, false, nil
 	}
 	optimized, err := nativeplan.OptimizeFromInfo(info, node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
@@ -246,11 +246,11 @@ func maybeBuildNativeScalarLiteralPlan(node *logicalScalarLiteralPlan, ctx PlanC
 	if !ctx.NativeLoweringMode.ForcesNativeRoot() {
 		return nil, false, nil
 	}
-	return maybeBuildNativeGenericPlan(node, node.ExprString(), "scalar_literal", ctx, analysis, nativeplan.FragmentKindSyntheticSeries)
+	return maybeBuildNativeGenericPlan(node, node.ExprString(), "scalar_literal", ctx, analysis, nativeplan.SubtreeShapeSyntheticSeries)
 }
 
 func maybeBuildNativeVectorPlan(node *logicalVectorPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
-	return maybeBuildNativeGenericPlan(node, node.ExprString(), "vector", ctx, analysis, nativeplan.FragmentKindSyntheticSeries, nativeplan.FragmentKindScalarConvert)
+	return maybeBuildNativeGenericPlan(node, node.ExprString(), "vector", ctx, analysis, nativeplan.SubtreeShapeSyntheticSeries, nativeplan.SubtreeShapeScalarConvert)
 }
 
 func maybeBuildNativeScalarBuiltinPlan(node *logicalScalarBuiltinPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
@@ -258,7 +258,7 @@ func maybeBuildNativeScalarBuiltinPlan(node *logicalScalarBuiltinPlan, ctx PlanC
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.SubtreeShape != nativeplan.FragmentKindSyntheticSeries {
+	if info == nil || info.SubtreeShape != nativeplan.SubtreeShapeSyntheticSeries {
 		return nil, false, nil
 	}
 	optimized, err := nativeplan.OptimizeFromInfo(info, node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
@@ -279,7 +279,7 @@ func maybeBuildNativeUnaryPlan(node *logicalUnaryPlan, ctx PlanContext, analysis
 	if info != nil && info.OutputKind == nativeplan.OutputKindScalar && !ctx.NativeLoweringMode.ForcesNativeRoot() {
 		return nil, false, nil
 	}
-	return maybeBuildNativeGenericPlan(node, node.ExprString(), "unary", ctx, analysis, nativeplan.FragmentKindUnarySourceExpr, nativeplan.FragmentKindValueTransform, nativeplan.FragmentKindSyntheticSeries)
+	return maybeBuildNativeGenericPlan(node, node.ExprString(), "unary", ctx, analysis, nativeplan.SubtreeShapeUnarySourceExpr, nativeplan.SubtreeShapeValueTransform, nativeplan.SubtreeShapeSyntheticSeries)
 }
 
 func maybeBuildNativeBinaryPlan(node *logicalBinaryPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
@@ -287,16 +287,16 @@ func maybeBuildNativeBinaryPlan(node *logicalBinaryPlan, ctx PlanContext, analys
 	if info != nil && info.OutputKind == nativeplan.OutputKindScalar && !ctx.NativeLoweringMode.ForcesNativeRoot() {
 		return nil, false, nil
 	}
-	return maybeBuildNativeGenericPlan(node, node.ExprString(), "binary", ctx, analysis, nativeplan.FragmentKindBinaryVectorJoin, nativeplan.FragmentKindBinaryScalarSourceExpr, nativeplan.FragmentKindValueTransform, nativeplan.FragmentKindSyntheticSeries)
+	return maybeBuildNativeGenericPlan(node, node.ExprString(), "binary", ctx, analysis, nativeplan.SubtreeShapeBinaryVectorJoin, nativeplan.SubtreeShapeBinaryScalarSourceExpr, nativeplan.SubtreeShapeValueTransform, nativeplan.SubtreeShapeSyntheticSeries)
 }
 
 func maybeBuildNativeRoundPlan(node *logicalRoundPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
-	return maybeBuildNativeGenericPlan(node, node.ExprString(), "round", ctx, analysis, nativeplan.FragmentKindValueTransform)
+	return maybeBuildNativeGenericPlan(node, node.ExprString(), "round", ctx, analysis, nativeplan.SubtreeShapeValueTransform)
 }
 
 func maybeBuildNativeAggregationPlan(node *logicalAggregationPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
 	info := analysis.InfoFor(node)
-	if info == nil || info.SubtreeShape != nativeplan.FragmentKindAggregation || !nativeplan.HasAggregationFragmentFromInfo(info) {
+	if info == nil || info.SubtreeShape != nativeplan.SubtreeShapeAggregation || !nativeplan.HasAggregationFragmentFromInfo(info) {
 		return nil, false, nil
 	}
 	decision := decideNativeAggregationPushdownFromAnalysis(node, analysis, ctx)

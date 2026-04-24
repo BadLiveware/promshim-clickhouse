@@ -1007,7 +1007,7 @@ func joinNormalizationFromInfo(info *LoweringInfo) string {
 		return "not_applicable"
 	}
 	switch info.SubtreeShape {
-	case FragmentKindAggregation, FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindSyntheticSeries, FragmentKindScalarConvert, FragmentKindInfoJoin, FragmentKindAbsent, FragmentKindHistogramProjection, FragmentKindHistogramFunction, FragmentKindSortTransform, FragmentKindLabelTransform, FragmentKindClampTransform, FragmentKindValueTransform:
+	case SubtreeShapeAggregation, SubtreeShapeLeafSource, SubtreeShapeUnarySourceExpr, SubtreeShapeBinaryScalarSourceExpr, SubtreeShapeSyntheticSeries, SubtreeShapeScalarConvert, SubtreeShapeInfoJoin, SubtreeShapeAbsent, SubtreeShapeHistogramProjection, SubtreeShapeHistogramFunction, SubtreeShapeSortTransform, SubtreeShapeLabelTransform, SubtreeShapeClampTransform, SubtreeShapeValueTransform:
 		return "not_applicable"
 	default:
 		return "required"
@@ -1076,17 +1076,17 @@ func semanticBarriersFromLogical(node logicalpkg.Node, analysis *Analysis) []str
 	}
 	barriers := []string{}
 	switch info.SubtreeShape {
-	case FragmentKindAggregation:
+	case SubtreeShapeAggregation:
 		barriers = append(barriers, "aggregation_boundary")
-	case FragmentKindSubquery:
+	case SubtreeShapeSubquery:
 		barriers = append(barriers, "subquery_step_grid")
-	case FragmentKindRangeFunction:
+	case SubtreeShapeRangeFunction:
 		barriers = append(barriers, "range_window_materialization_boundary")
-	case FragmentKindAbsent:
+	case SubtreeShapeAbsent:
 		if info.Fragment != nil && info.Fragment.Absent != nil && info.Fragment.Absent.Func == "absent_over_time" {
 			barriers = append(barriers, "range_window_materialization_boundary")
 		}
-	case FragmentKindHistogramProjection, FragmentKindHistogramFunction:
+	case SubtreeShapeHistogramProjection, SubtreeShapeHistogramFunction:
 		barriers = append(barriers, "histogram_bucket_materialization_boundary")
 	}
 	if logicalNodeDropsMetricName(info) {
@@ -1118,7 +1118,7 @@ func logicalNodeDropsMetricName(info *LoweringInfo) bool {
 	if info == nil {
 		return false
 	}
-	if info.SubtreeShape == FragmentKindAggregation {
+	if info.SubtreeShape == SubtreeShapeAggregation {
 		if len(info.Children) > 0 && info.Children[0] != nil && info.Children[0].LabelLineage.MetricName == LabelLineageDropped {
 			return true
 		}

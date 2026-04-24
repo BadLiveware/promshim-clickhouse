@@ -46,6 +46,34 @@ const (
 	FragmentKindValueTransform         FragmentKind = "value_transform"
 )
 
+// SubtreeShape is the tier-3 / analysis-time classification of a logical
+// node's lowered shape. It mirrors FragmentKind 1:1 today (populated from
+// NativeFragment.Kind during Analyze) but is a distinct type so that tier-3
+// dispatchers and analysis-side consumers no longer read from the
+// NativeFragment intermediate. When NativeFragment is retired the mapping
+// will be driven directly from the logical walk.
+type SubtreeShape string
+
+const (
+	SubtreeShapeLeafSource             SubtreeShape = "leaf_source"
+	SubtreeShapeUnarySourceExpr        SubtreeShape = "unary_source_expression"
+	SubtreeShapeBinaryScalarSourceExpr SubtreeShape = "binary_scalar_source_expression"
+	SubtreeShapeBinaryVectorJoin       SubtreeShape = "binary_vector_join"
+	SubtreeShapeRangeFunction          SubtreeShape = "range_function"
+	SubtreeShapeSubquery               SubtreeShape = "subquery"
+	SubtreeShapeAggregation            SubtreeShape = "aggregation"
+	SubtreeShapeSyntheticSeries        SubtreeShape = "synthetic_series"
+	SubtreeShapeScalarConvert          SubtreeShape = "scalar_convert"
+	SubtreeShapeInfoJoin               SubtreeShape = "info_join"
+	SubtreeShapeAbsent                 SubtreeShape = "absent"
+	SubtreeShapeHistogramProjection    SubtreeShape = "histogram_projection"
+	SubtreeShapeHistogramFunction      SubtreeShape = "histogram_function"
+	SubtreeShapeSortTransform          SubtreeShape = "sort_transform"
+	SubtreeShapeLabelTransform         SubtreeShape = "label_transform"
+	SubtreeShapeClampTransform         SubtreeShape = "clamp_transform"
+	SubtreeShapeValueTransform         SubtreeShape = "value_transform"
+)
+
 type NativeFragment struct {
 	Kind                FragmentKind
 	OutputKind          OutputKind
@@ -255,12 +283,12 @@ type LoweringInfo struct {
 	RuntimeValueTransform *RuntimeValueTransform
 
 	// SubtreeShape mirrors Fragment.Kind for this node's analysis-time
-	// Fragment. Populated by a single post-walk pass in Analyze so tier-3
-	// construction dispatchers can gate on shape without dereferencing
-	// NativeFragment. Reflects the pre-optimize Kind (OptimizeFragment
-	// operates on a clone, so info.Fragment.Kind is never mutated).
-	// Empty ("") when Fragment is nil.
-	SubtreeShape FragmentKind
+	// Fragment, but typed as a distinct SubtreeShape so tier-3 consumers
+	// no longer depend on the FragmentKind enum. Populated by a single
+	// post-walk pass in Analyze. Reflects the pre-optimize Kind
+	// (OptimizeFragment operates on a clone, so info.Fragment.Kind is
+	// never mutated). Empty ("") when Fragment is nil.
+	SubtreeShape SubtreeShape
 
 	// LeafSelector mirrors fragment.Selector on the base leaf (Vector/
 	// Matrix) selector reached from this node. Populated during the
@@ -449,7 +477,7 @@ func Analyze(plan logicalpkg.Node) *Analysis {
 	analysis.Root = analysis.walk(plan)
 	for _, info := range analysis.byNode {
 		if info != nil && info.Fragment != nil {
-			info.SubtreeShape = info.Fragment.Kind
+			info.SubtreeShape = SubtreeShape(info.Fragment.Kind)
 		}
 	}
 	return analysis

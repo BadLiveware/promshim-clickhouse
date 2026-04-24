@@ -112,7 +112,7 @@ func maybeBuildNativeRangeLikePlanAllowRange(node logicalpkg.Node, kind, expr st
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.SubtreeShape != nativeplan.FragmentKindRangeFunction {
+	if info == nil || info.SubtreeShape != nativeplan.SubtreeShapeRangeFunction {
 		return nil, false, nil
 	}
 	optimized, err := nativeplan.OptimizeFromInfo(info, node, analysis, nativeplan.OptimizationContext{
@@ -148,7 +148,7 @@ func maybeBuildNativeAbsentLikePlan(node logicalpkg.Node, kind, expr string, ctx
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.SubtreeShape != nativeplan.FragmentKindAbsent || !nativeplan.HasAbsentFragmentFromInfo(info) {
+	if info == nil || info.SubtreeShape != nativeplan.SubtreeShapeAbsent || !nativeplan.HasAbsentFragmentFromInfo(info) {
 		return nil, false, nil
 	}
 	optimized, err := nativeplan.OptimizeFromInfo(info, node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})

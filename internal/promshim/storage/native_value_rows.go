@@ -11,8 +11,10 @@ import (
 )
 
 const (
-	QueryPurposeInstant QueryPurpose = "instant"
-	QueryPurposeRange   QueryPurpose = "range"
+	QueryPurposeInstant          QueryPurpose = "instant"
+	QueryPurposeRange            QueryPurpose = "range"
+	QueryPurposeDelegatedInstant QueryPurpose = "delegated_instant"
+	QueryPurposeDelegatedRange   QueryPurpose = "delegated_range"
 )
 
 func (c *Client) QueryInstantSamples(ctx context.Context, req QueryRequest) (samples []model.InstantSample, err error) {

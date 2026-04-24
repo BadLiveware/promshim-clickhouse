@@ -24,7 +24,6 @@ type Config struct {
 type Client struct {
 	transportKind TransportKind
 	transport     Transport
-	httpJSON      *HTTPJSONTransport
 }
 
 type QueryError struct {
@@ -54,7 +53,7 @@ func NewClient(cfg Config) (*Client, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &Client{transportKind: TransportHTTP, transport: transport, httpJSON: transport}, nil
+		return &Client{transportKind: TransportHTTP, transport: transport}, nil
 	case TransportNative:
 		transport, err := NewNativeDriverTransport(NativeDriverTransportConfig{
 			Addr:            cfg.NativeAddr,
@@ -70,17 +69,7 @@ func NewClient(cfg Config) (*Client, error) {
 		if err != nil {
 			return nil, err
 		}
-		httpJSON, err := NewHTTPJSONTransport(HTTPJSONTransportConfig{
-			Endpoint:       cfg.Endpoint,
-			Username:       cfg.Username,
-			Password:       cfg.Password,
-			RequestTimeout: cfg.RequestTimeout,
-		})
-		if err != nil {
-			_ = transport.Close()
-			return nil, err
-		}
-		return &Client{transportKind: TransportNative, transport: transport, httpJSON: httpJSON}, nil
+		return &Client{transportKind: TransportNative, transport: transport}, nil
 	default:
 		return nil, fmt.Errorf("unsupported clickhouse transport %q", transportKind)
 	}
@@ -105,26 +94,6 @@ func (c *Client) Execute(ctx context.Context, sql string, params map[string]stri
 	return &http.Response{StatusCode: http.StatusOK, Body: rows}, nil
 }
 
-func (c *Client) ExecuteHTTPJSON(ctx context.Context, sql string, params map[string]string) (*http.Response, error) {
-	if c.httpJSON == nil {
-		return nil, fmt.Errorf("HTTP JSON compatibility transport is not configured")
-	}
-	rows, err := c.httpJSON.Query(ctx, QueryRequest{SQL: sql, Params: params, Format: ResultFormatJSONEachRow})
-	if err != nil {
-		return nil, err
-	}
-	if httpRows, ok := rows.(*httpRows); ok {
-		return httpRows.response, nil
-	}
-	return &http.Response{StatusCode: http.StatusOK, Body: rows}, nil
-}
-
 func (c *Client) Close() error {
-	err := c.transport.Close()
-	if c.httpJSON != nil && c.httpJSON != c.transport {
-		if httpErr := c.httpJSON.Close(); err == nil {
-			err = httpErr
-		}
-	}
-	return err
+	return c.transport.Close()
 }

@@ -6,11 +6,13 @@ import (
 	"sort"
 	"strings"
 
+	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage/schema"
 
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/promql/parser"
 )
 
 func outputMetricTagsSQL(metric map[string]string) string {
@@ -155,6 +157,114 @@ func rangeRequiredBoundsForChild(fragment *native.NativeFragment, startMS, endMS
 	lookbackMS := selector.Lookback.Milliseconds()
 	offsetMS := selector.Offset.Milliseconds()
 	return startMS - offsetMS - lookbackMS, endMS - offsetMS
+}
+
+// logicalRangeRequiredBoundsForChild mirrors rangeRequiredBoundsForChild but
+// walks the logical plan tree directly rather than reading the NativeFragment
+// side-map. The walker descends through the same plan shapes that
+// native.BaseSelectorSource unwinds on the fragment side, returning the
+// range envelope widened by the base range-vector selector's lookback/offset.
+// Plan shapes without a discoverable base range-vector selector leave the
+// (startMS, endMS) envelope unchanged, matching the fragment-side nil branch.
+func logicalRangeRequiredBoundsForChild(child logicalpkg.Node, startMS, endMS int64) (int64, int64) {
+	lookbackMS, offsetMS, ok := logicalBaseSelectorBounds(child)
+	if !ok {
+		return startMS, endMS
+	}
+	return startMS - offsetMS - lookbackMS, endMS - offsetMS
+}
+
+// logicalBaseSelectorBounds walks a logical plan until it finds a
+// LeafExprPlan whose underlying parser.Expr is a selector, and returns
+// that selector's effective (lookback, offset) in milliseconds. The
+// mapping matches native.BuildSelectorSource: a MatrixSelector
+// contributes matrix.Range as lookback; a plain VectorSelector
+// contributes DefaultInstantSelectorLookback (the instant-mode staleness
+// window). Offset comes from VectorSelector.OriginalOffset in both
+// cases. The walk mirrors native.BaseSelectorSource: it descends child
+// links across every plan kind that can host a selector leaf in its
+// subtree, stopping at the first matching leaf.
+func logicalBaseSelectorBounds(n logicalpkg.Node) (lookbackMS, offsetMS int64, ok bool) {
+	switch p := n.(type) {
+	case nil:
+		return 0, 0, false
+	case *logicalpkg.LeafExprPlan:
+		switch sel := p.Expr.(type) {
+		case *parser.MatrixSelector:
+			vec, matches := sel.VectorSelector.(*parser.VectorSelector)
+			if !matches {
+				return 0, 0, false
+			}
+			return sel.Range.Milliseconds(), vec.OriginalOffset.Milliseconds(), true
+		case *parser.VectorSelector:
+			return native.DefaultInstantSelectorLookback.Milliseconds(), sel.OriginalOffset.Milliseconds(), true
+		default:
+			return 0, 0, false
+		}
+	case *logicalpkg.AggregationPlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.RangeFunctionPlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.RatePlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.IncreasePlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.DeltaPlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.ChangesPlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.DerivPlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.QuantileOverTimePlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.SubqueryPlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.ScalarConvertPlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.InfoPlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.AbsentPlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.AbsentOverTimePlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.HistogramProjectionPlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.HistogramQuantilePlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.HistogramFractionPlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.HistogramQuantilesPlan:
+		if lb, off, found := logicalBaseSelectorBounds(p.Child); found {
+			return lb, off, true
+		}
+		for _, q := range p.ParamChildren {
+			if lb, off, found := logicalBaseSelectorBounds(q); found {
+				return lb, off, true
+			}
+		}
+		return 0, 0, false
+	case *logicalpkg.SortPlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.RoundPlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.LabelReplacePlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.LabelJoinPlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.PointwiseFunctionPlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.UnaryPlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.VectorPlan:
+		return logicalBaseSelectorBounds(p.Child)
+	case *logicalpkg.BinaryPlan:
+		if lb, off, found := logicalBaseSelectorBounds(p.LHS); found {
+			return lb, off, true
+		}
+		return logicalBaseSelectorBounds(p.RHS)
+	default:
+		return 0, 0, false
+	}
 }
 
 func renderFragmentSubquery(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams, prefix string) (string, map[string]string, error) {

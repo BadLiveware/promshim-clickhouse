@@ -33,12 +33,7 @@ func lowerSubquery(ctx LoweringCtx, n *logicalpkg.SubqueryPlan) (RenderedQuery, 
 	if err != nil {
 		return RenderedQuery{}, err
 	}
-	childRequiredStartMS, childRequiredEndMS := startMS, endMS
-	if ctx.NativeAnalysis != nil {
-		if childInfo := ctx.NativeAnalysis.InfoFor(n.Child); childInfo != nil && childInfo.Fragment != nil {
-			childRequiredStartMS, childRequiredEndMS = rangeRequiredBoundsForChild(childInfo.Fragment, startMS, endMS)
-		}
-	}
+	childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(n.Child, startMS, endMS)
 	childCtx := LoweringCtx{
 		Config:         ctx.Config,
 		Analysis:       ctx.Analysis,

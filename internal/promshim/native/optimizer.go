@@ -60,8 +60,7 @@ type OptimizationReport struct {
 }
 
 type OptimizedFragment struct {
-	Fragment *NativeFragment
-	Report   *OptimizationReport
+	Report *OptimizationReport
 }
 
 type fragmentMutationKind string
@@ -111,11 +110,10 @@ func OptimizeFromInfo(info *LoweringInfo, node logicalpkg.Node, analysis *Analys
 	if info == nil {
 		return nil, fmt.Errorf("native optimizer requires lowering info")
 	}
-	if info.Fragment == nil {
-		return nil, fmt.Errorf("native optimizer requires a fragment")
+	if info.SubtreeShape == "" {
+		return nil, fmt.Errorf("native optimizer requires a lowered subtree shape")
 	}
 	state := &optimizerState{
-		fragment: CloneFragment(info.Fragment),
 		report: &OptimizationReport{
 			FunctionCatalog: append([]string(nil), functionRewriteCatalog...),
 		},
@@ -125,7 +123,6 @@ func OptimizeFromInfo(info *LoweringInfo, node logicalpkg.Node, analysis *Analys
 		ctx:      ctx,
 		interner: newMatcherInterner(),
 	}
-	internSelectorMatchers(BaseSelectorSource(state.fragment), state.interner)
 	for _, pass := range optimizerPasses {
 		state.report.RulesApplied = append(state.report.RulesApplied, string(pass.ID))
 		if err := pass.Apply(state); err != nil {
@@ -133,7 +130,7 @@ func OptimizeFromInfo(info *LoweringInfo, node logicalpkg.Node, analysis *Analys
 		}
 	}
 	state.report.SemanticBarriers = mergeUniqueStrings(state.report.SemanticBarriers, semanticBarriersFromLogical(state.node, state.analysis)...)
-	return &OptimizedFragment{Fragment: state.fragment, Report: state.report}, nil
+	return &OptimizedFragment{Report: state.report}, nil
 }
 
 func ApplyRenderedSQLMetadata(report *OptimizationReport, mode RenderMode, sql string) error {
@@ -149,9 +146,8 @@ func ApplyRenderedSQLMetadata(report *OptimizationReport, mode RenderMode, sql s
 }
 
 type optimizerState struct {
-	fragment *NativeFragment
-	report   *OptimizationReport
-	info     *LoweringInfo
+	report *OptimizationReport
+	info   *LoweringInfo
 	// node + analysis carry the logical-tree context the info-based
 	// passes walk via analysis.InfoFor(node). OptimizeFromInfo — the
 	// sole production entrypoint — threads both through.
@@ -196,22 +192,6 @@ func (m *matcherInterner) intern(matcher *labels.Matcher) *labels.Matcher {
 	return matcher
 }
 
-// internSelectorMatchers re-interns the cloned selector's
-// Matchers/InferredMatchers/PushedMatchers so pointer-equal matcher
-// keys across the three fields share a single *labels.Matcher. The
-// Analyze-time pass interns against a per-leaf interner, but
-// CloneMatchers (called by cloneSelectorSource) allocates fresh
-// pointers via labels.MustNewMatcher — this helper restores
-// pointer-identity for the optimizer's report-emission passes.
-func internSelectorMatchers(selector *SelectorSource, interner *matcherInterner) {
-	if selector == nil || interner == nil {
-		return
-	}
-	selector.Matchers = interner.internSlice(selector.Matchers)
-	selector.InferredMatchers = interner.internSlice(selector.InferredMatchers)
-	selector.PushedMatchers = interner.internSlice(selector.PushedMatchers)
-}
-
 func (m *matcherInterner) internSlice(matchers []*labels.Matcher) []*labels.Matcher {
 	if len(matchers) == 0 {
 		return nil
@@ -241,25 +221,42 @@ func applyEvaluationRangePropagation(state *optimizerState) error {
 }
 
 func applyCommonMatcherInference(state *optimizerState) error {
-	selector := BaseSelectorSource(state.fragment)
+	selector := baseSelectorFromInfo(state.info)
 	if selector == nil {
 		return nil
 	}
 	// Task 13c-9: Analyze has pre-populated InferredMatchers on the leaf
-	// selector and CloneFragment has copied them onto state.fragment's
 	// selector. This pass is pure report-emission.
 	state.report.InferredPredicates = mergeUniqueStrings(state.report.InferredPredicates, matcherStrings(selector.InferredMatchers)...)
 	return nil
 }
 
 func applyLabelPredicatePushdown(state *optimizerState) error {
-	selector := BaseSelectorSource(state.fragment)
+	selector := baseSelectorFromInfo(state.info)
 	if selector == nil {
 		return nil
 	}
 	// Task 13c-9: PushedMatchers is pre-populated by Analyze on the
 	// production path. Pure report-emission.
 	state.report.PushedPredicates = mergeUniqueStrings(state.report.PushedPredicates, matcherStrings(selector.PushedMatchers)...)
+	return nil
+}
+
+// baseSelectorFromInfo walks the info side-map to locate the leaf
+// selector (first LeafSelector encountered along info.Children). It
+// replaces the fragment-walking BaseSelectorSource.
+func baseSelectorFromInfo(info *LoweringInfo) *SelectorSource {
+	if info == nil {
+		return nil
+	}
+	if info.LeafSelector != nil {
+		return info.LeafSelector
+	}
+	for _, child := range info.Children {
+		if sel := baseSelectorFromInfo(child); sel != nil {
+			return sel
+		}
+	}
 	return nil
 }
 
@@ -357,65 +354,6 @@ func matcherStrings(matchers []*labels.Matcher) []string {
 	return predicates
 }
 
-func BaseSelectorSource(fragment *NativeFragment) *SelectorSource {
-	if fragment == nil {
-		return nil
-	}
-	if fragment.Aggregation != nil {
-		return BaseSelectorSource(fragment.Aggregation.Source)
-	}
-	if fragment.RangeFunction != nil {
-		return BaseSelectorSource(fragment.RangeFunction.Child)
-	}
-	if fragment.Subquery != nil {
-		return BaseSelectorSource(fragment.Subquery.Child)
-	}
-	if fragment.ScalarConvert != nil {
-		return BaseSelectorSource(fragment.ScalarConvert.Child)
-	}
-	if fragment.InfoJoin != nil {
-		return BaseSelectorSource(fragment.InfoJoin.Child)
-	}
-	if fragment.Absent != nil {
-		return BaseSelectorSource(fragment.Absent.Child)
-	}
-	if fragment.HistogramProjection != nil {
-		return BaseSelectorSource(fragment.HistogramProjection.Child)
-	}
-	if fragment.HistogramFunction != nil {
-		if selector := BaseSelectorSource(fragment.HistogramFunction.Child); selector != nil {
-			return selector
-		}
-		for _, quantile := range fragment.HistogramFunction.Quantiles {
-			if selector := BaseSelectorSource(quantile); selector != nil {
-				return selector
-			}
-		}
-		return nil
-	}
-	if fragment.SortTransform != nil {
-		return BaseSelectorSource(fragment.SortTransform.Child)
-	}
-	if fragment.LabelTransform != nil {
-		return BaseSelectorSource(fragment.LabelTransform.Child)
-	}
-	if fragment.ClampTransform != nil {
-		if selector := BaseSelectorSource(fragment.ClampTransform.Child); selector != nil {
-			return selector
-		}
-		if selector := BaseSelectorSource(fragment.ClampTransform.Min); selector != nil {
-			return selector
-		}
-		return BaseSelectorSource(fragment.ClampTransform.Max)
-	}
-	if fragment.ValueTransform != nil {
-		return BaseSelectorSource(fragment.ValueTransform.Child)
-	}
-	if fragment.Selector != nil {
-		return fragment.Selector
-	}
-	return nil
-}
 
 // requiredColumnsFromInfo mirrors the legacy requiredColumnsForFragment
 // walk over the LoweringInfo side-map. Each node contributes its output
@@ -553,7 +491,7 @@ func semanticBarriersFromLogical(node logicalpkg.Node, analysis *Analysis) []str
 	case SubtreeShapeRangeFunction:
 		barriers = append(barriers, "range_window_materialization_boundary")
 	case SubtreeShapeAbsent:
-		if info.Fragment != nil && info.Fragment.Absent != nil && info.Fragment.Absent.Func == "absent_over_time" {
+		if info.AbsentFunc == "absent_over_time" {
 			barriers = append(barriers, "range_window_materialization_boundary")
 		}
 	case SubtreeShapeHistogramProjection, SubtreeShapeHistogramFunction:

@@ -4,7 +4,6 @@ import (
 	"time"
 
 	logicalpkg "ch-observability/internal/promshim/logical"
-	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -24,34 +23,8 @@ const (
 	RenderModeRange   RenderMode = "range"
 )
 
-type FragmentKind string
-
-const (
-	FragmentKindLeafSource             FragmentKind = "leaf_source"
-	FragmentKindUnarySourceExpr        FragmentKind = "unary_source_expression"
-	FragmentKindBinaryScalarSourceExpr FragmentKind = "binary_scalar_source_expression"
-	FragmentKindBinaryVectorJoin       FragmentKind = "binary_vector_join"
-	FragmentKindRangeFunction          FragmentKind = "range_function"
-	FragmentKindSubquery               FragmentKind = "subquery"
-	FragmentKindAggregation            FragmentKind = "aggregation"
-	FragmentKindSyntheticSeries        FragmentKind = "synthetic_series"
-	FragmentKindScalarConvert          FragmentKind = "scalar_convert"
-	FragmentKindInfoJoin               FragmentKind = "info_join"
-	FragmentKindAbsent                 FragmentKind = "absent"
-	FragmentKindHistogramProjection    FragmentKind = "histogram_projection"
-	FragmentKindHistogramFunction      FragmentKind = "histogram_function"
-	FragmentKindSortTransform          FragmentKind = "sort_transform"
-	FragmentKindLabelTransform         FragmentKind = "label_transform"
-	FragmentKindClampTransform         FragmentKind = "clamp_transform"
-	FragmentKindValueTransform         FragmentKind = "value_transform"
-)
-
 // SubtreeShape is the tier-3 / analysis-time classification of a logical
-// node's lowered shape. It mirrors FragmentKind 1:1 today (populated from
-// NativeFragment.Kind during Analyze) but is a distinct type so that tier-3
-// dispatchers and analysis-side consumers no longer read from the
-// NativeFragment intermediate. When NativeFragment is retired the mapping
-// will be driven directly from the logical walk.
+// node's lowered shape. Populated during Analyze from the logical walk.
 type SubtreeShape string
 
 const (
@@ -74,30 +47,6 @@ const (
 	SubtreeShapeValueTransform         SubtreeShape = "value_transform"
 )
 
-type NativeFragment struct {
-	Kind                FragmentKind
-	OutputKind          OutputKind
-	SourcePromQL        parser.Expr
-	Selector            *SelectorSource
-	ValueExpr           string
-	TagsExpr            string
-	DropsMetric         bool
-	BinaryJoin          *BinaryJoinFragment
-	RangeFunction       *RangeFunctionFragment
-	Subquery            *SubqueryFragment
-	Aggregation         *AggregationFragment
-	Synthetic           *SyntheticSeriesFragment
-	ScalarConvert       *ScalarConvertFragment
-	InfoJoin            *InfoJoinFragment
-	Absent              *AbsentFragment
-	HistogramProjection *HistogramProjectionFragment
-	HistogramFunction   *HistogramFunctionFragment
-	SortTransform       *SortTransformFragment
-	LabelTransform      *LabelTransformFragment
-	ClampTransform      *ClampTransformFragment
-	ValueTransform      *ValueTransformFragment
-}
-
 const (
 	JoinShapeOneToOne   = "one_to_one"
 	JoinShapeManyToOne  = "many_to_one"
@@ -105,111 +54,13 @@ const (
 	JoinShapeManyToMany = "many_to_many"
 )
 
-type BinaryJoinFragment struct {
-	Op             parser.ItemType
-	ReturnBool     bool
-	VectorMatching *parser.VectorMatching
-	JoinShape      string
-	LHS            *NativeFragment
-	RHS            *NativeFragment
-}
-
-type RangeFunctionFragment struct {
-	Func         string
-	ParamNumber  *float64
-	ParamNumbers []*float64
-	Child        *NativeFragment
-}
-
-type SubqueryFragment struct {
-	Range      time.Duration
-	Step       time.Duration
-	Offset     time.Duration
-	Timestamp  *int64
-	StartOrEnd parser.ItemType
-	Child      *NativeFragment
-}
-
-type AggregationFragment struct {
-	Op              parser.ItemType
-	Grouping        []string
-	Without         bool
-	ParamNumber     *float64
-	ParamString     string
-	Source          *NativeFragment
-	EmitZeroOnEmpty bool
-}
-
-type SyntheticSeriesFragment struct {
-	Func  string
-	Value *float64
-}
-
-type ScalarConvertFragment struct {
-	Child *NativeFragment
-}
-
-type InfoJoinFragment struct {
-	Child            *NativeFragment
-	InfoMetricName   string
-	SelectorMatchers []*labels.Matcher
-	CopyLabelNames   []string
-	DropUnmatched    bool
-}
-
-type AbsentFragment struct {
-	Func         string
-	OutputMetric map[string]string
-	Child        *NativeFragment
-}
-
-type HistogramProjectionFragment struct {
-	Func  string
-	Child *NativeFragment
-}
-
-type HistogramFunctionFragment struct {
-	Func      string
-	Label     string
-	Quantile  *float64
-	Quantiles []*NativeFragment
-	Lower     *float64
-	Upper     *float64
-	Child     *NativeFragment
-}
-
-type SortTransformFragment struct {
-	Func   string
-	Labels []string
-	Child  *NativeFragment
-}
-
-type LabelTransformFragment struct {
-	Func             string
-	Dst              string
-	Repl             string
-	Regex            string
-	RegexSubexpNames []string
-	Src              string
-	Separator        string
-	SrcLabels        []string
-	Child            *NativeFragment
-}
-
-type ClampTransformFragment struct {
-	Func  string
-	Child *NativeFragment
-	Min   *NativeFragment
-	Max   *NativeFragment
-}
-
-type ValueTransformFragment struct {
-	Child            *NativeFragment
-	ValueExpr        string
-	FilterExpr       string
-	DropsMetric      bool
-	RuntimeTransform *RuntimeValueTransform
-}
+// SubqueryFragment is a sentinel marker populated onto
+// LoweringInfo.RangeFunctionSubquery when a range function's child is a
+// subquery. It carries no payload today — readers recover the subquery
+// parameters from the logical tree via SubqueryPlan.Range/Step/Offset —
+// and is retained only as a "subquery child present" signal so the
+// emission sites on range-function plans stay uniform.
+type SubqueryFragment struct{}
 
 const RuntimeValueTransformPromQLModulo RuntimeValueTransformOp = "promql_modulo"
 
@@ -224,13 +75,12 @@ type RuntimeValueTransform struct {
 type AggregationSupport struct {
 	Eligible bool
 	Reason   string
-	Source   *NativeFragment
-	// SourceInfo is the analysis-side mirror of Source: it points at the
-	// LoweringInfo for whichever child carries the lowered source
-	// expression the aggregation-pushdown reader needs.
+	// SourceInfo points at the LoweringInfo for whichever child carries
+	// the lowered source expression the aggregation-pushdown reader
+	// needs.
 	//
-	// For the direct-child case (sourceFragment = child.Fragment) this is
-	// info.Children[0] — the AggregationPlan's single child.
+	// For the direct-child case this is info.Children[0] — the
+	// AggregationPlan's single child.
 	//
 	// For the zero-fill case (sum(... or vector(0))) this is the
 	// LoweringInfo of the non-zero arm of the LOR BinaryPlan — i.e.
@@ -281,8 +131,25 @@ type LoweringInfo struct {
 	NativeLowerable bool
 	NativeReason    string
 
-	Fragment    *NativeFragment
 	Aggregation *AggregationSupport
+
+	// DropsMetric indicates the node's lowered SQL strips __name__ from
+	// the tags column. Populated during the Analyze walk alongside
+	// SubtreeShape.
+	DropsMetric bool
+
+	// AbsentFunc mirrors Fragment.Absent.Func ("absent" or
+	// "absent_over_time"). Populated on AbsentPlan / AbsentOverTimePlan
+	// nodes so semanticBarriersFromLogical can distinguish the two
+	// without reading info.Fragment.
+	AbsentFunc string
+
+	// HistogramFunc mirrors Fragment.HistogramFunction.Func
+	// ("histogram_quantile", "histogram_fraction", "histogram_quantiles").
+	// Populated alongside SubtreeShapeHistogramFunction so tier-3
+	// dispatchers can gate on the specific histogram variant without
+	// reading info.Fragment.
+	HistogramFunc string
 
 	LabelLineage     LabelLineage
 	TimeRequirements TimeRequirements
@@ -519,11 +386,6 @@ type Analysis struct {
 func Analyze(plan logicalpkg.Node) *Analysis {
 	analysis := &Analysis{byNode: map[logicalpkg.Node]*LoweringInfo{}}
 	analysis.Root = analysis.walk(plan)
-	for _, info := range analysis.byNode {
-		if info != nil && info.Fragment != nil {
-			info.SubtreeShape = SubtreeShape(info.Fragment.Kind)
-		}
-	}
 	return analysis
 }
 
@@ -567,8 +429,8 @@ func (info *LoweringInfo) ExplainInfo() *ExplainInfo {
 		RequiredOffsetSeconds:   info.TimeRequirements.Offset.Seconds(),
 		NeedsSubqueryStepGrid:   info.TimeRequirements.NeedsSubqueryStepGrid,
 	}
-	if info.Fragment != nil {
-		explain.FragmentKind = string(info.Fragment.Kind)
+	if info.SubtreeShape != "" {
+		explain.FragmentKind = string(info.SubtreeShape)
 	}
 	if info.Aggregation != nil {
 		explain.AggregationPushdownEligible = info.Aggregation.Eligible
@@ -647,60 +509,6 @@ func SubqueryChildIsInstantVectorLowering(analysis *Analysis, child logicalpkg.N
 		return false
 	}
 	return info.OutputKind == OutputKindInstantVector && info.Shape.HasSelector
-}
-
-func HasFixedTemporalAnchor(fragment *NativeFragment) bool {
-	if fragment == nil {
-		return false
-	}
-	if fragment.Selector != nil && (fragment.Selector.Timestamp != nil || fragment.Selector.StartOrEnd == parser.START || fragment.Selector.StartOrEnd == parser.END) {
-		return true
-	}
-	if fragment.Subquery != nil {
-		if fragment.Subquery.Timestamp != nil || fragment.Subquery.StartOrEnd == parser.START || fragment.Subquery.StartOrEnd == parser.END {
-			return true
-		}
-		if HasFixedTemporalAnchor(fragment.Subquery.Child) {
-			return true
-		}
-	}
-	if fragment.Aggregation != nil && HasFixedTemporalAnchor(fragment.Aggregation.Source) {
-		return true
-	}
-	if fragment.RangeFunction != nil && HasFixedTemporalAnchor(fragment.RangeFunction.Child) {
-		return true
-	}
-	if fragment.BinaryJoin != nil && (HasFixedTemporalAnchor(fragment.BinaryJoin.LHS) || HasFixedTemporalAnchor(fragment.BinaryJoin.RHS)) {
-		return true
-	}
-	if fragment.ScalarConvert != nil && HasFixedTemporalAnchor(fragment.ScalarConvert.Child) {
-		return true
-	}
-	if fragment.InfoJoin != nil && HasFixedTemporalAnchor(fragment.InfoJoin.Child) {
-		return true
-	}
-	if fragment.Absent != nil && HasFixedTemporalAnchor(fragment.Absent.Child) {
-		return true
-	}
-	if fragment.HistogramProjection != nil && HasFixedTemporalAnchor(fragment.HistogramProjection.Child) {
-		return true
-	}
-	if fragment.HistogramFunction != nil && HasFixedTemporalAnchor(fragment.HistogramFunction.Child) {
-		return true
-	}
-	if fragment.SortTransform != nil && HasFixedTemporalAnchor(fragment.SortTransform.Child) {
-		return true
-	}
-	if fragment.LabelTransform != nil && HasFixedTemporalAnchor(fragment.LabelTransform.Child) {
-		return true
-	}
-	if fragment.ClampTransform != nil && (HasFixedTemporalAnchor(fragment.ClampTransform.Child) || HasFixedTemporalAnchor(fragment.ClampTransform.Min) || HasFixedTemporalAnchor(fragment.ClampTransform.Max)) {
-		return true
-	}
-	if fragment.ValueTransform != nil && HasFixedTemporalAnchor(fragment.ValueTransform.Child) {
-		return true
-	}
-	return false
 }
 
 func outputKindForValueType(valueType parser.ValueType) OutputKind {

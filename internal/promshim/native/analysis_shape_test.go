@@ -32,18 +32,19 @@ func TestAnalyzeShapeLiftsLeafInstantVectorSelector(t *testing.T) {
 	if info.Shape.SelectorOffset != 90*time.Second {
 		t.Fatalf("expected SelectorOffset=90s, got %s", info.Shape.SelectorOffset)
 	}
-	// Parity check against the fragment-side field.
-	if info.Fragment == nil || info.Fragment.Selector == nil {
-		t.Fatalf("expected fragment+selector to be populated for leaf")
+	// Parity check against the LeafSelector side-map field (the
+	// post-retirement equivalent of fragment.Selector).
+	if info.LeafSelector == nil {
+		t.Fatalf("expected leaf selector to be populated for leaf")
 	}
-	if info.Fragment.Selector.Kind != info.Shape.SelectorKind {
-		t.Fatalf("fragment vs shape kind mismatch: %q vs %q", info.Fragment.Selector.Kind, info.Shape.SelectorKind)
+	if info.LeafSelector.Kind != info.Shape.SelectorKind {
+		t.Fatalf("leaf selector vs shape kind mismatch: %q vs %q", info.LeafSelector.Kind, info.Shape.SelectorKind)
 	}
-	if info.Fragment.Selector.Lookback != info.Shape.SelectorLookback {
-		t.Fatalf("fragment vs shape lookback mismatch: %s vs %s", info.Fragment.Selector.Lookback, info.Shape.SelectorLookback)
+	if info.LeafSelector.Lookback != info.Shape.SelectorLookback {
+		t.Fatalf("leaf selector vs shape lookback mismatch: %s vs %s", info.LeafSelector.Lookback, info.Shape.SelectorLookback)
 	}
-	if info.Fragment.Selector.Offset != info.Shape.SelectorOffset {
-		t.Fatalf("fragment vs shape offset mismatch: %s vs %s", info.Fragment.Selector.Offset, info.Shape.SelectorOffset)
+	if info.LeafSelector.Offset != info.Shape.SelectorOffset {
+		t.Fatalf("leaf selector vs shape offset mismatch: %s vs %s", info.LeafSelector.Offset, info.Shape.SelectorOffset)
 	}
 }
 

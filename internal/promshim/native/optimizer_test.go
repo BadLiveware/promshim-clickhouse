@@ -194,22 +194,27 @@ func TestOptimizeFromInfoDeduplicatesInferredMetricMatcherInPushdown(t *testing.
 
 func TestOptimizeFromInfoInternsEquivalentMatchersAcrossSelectorFields(t *testing.T) {
 	// Analyze interns Matchers/InferredMatchers/PushedMatchers via the
-	// per-leaf interner in populateSelectorInferredAndPushedMatchers;
-	// CloneFragment preserves those pointers onto the optimizer's
-	// working fragment.
+	// per-leaf interner in populateSelectorInferredAndPushedMatchers.
+	// After Task 13c-14d-2 retired NativeFragment, we look up the
+	// analyzed selector via baseSelectorFromInfo on the root
+	// LoweringInfo (the info side-map carries the intern-shared pointers).
 	aggExpr := mustParseExpr(t, `sum(up{job="api"})`)
 	agg, ok := aggExpr.(*parser.AggregateExpr)
 	if !ok {
 		t.Fatalf("expected aggregate expr, got %T", aggExpr)
 	}
 	logical := &logicalpkg.AggregationPlan{Expr: agg, Op: agg.Op, Child: &logicalpkg.LeafExprPlan{Expr: agg.Expr}}
-	optimized, err := optimizeLogical(t, logical, OptimizationContext{})
-	if err != nil {
+	analysis := Analyze(logical)
+	info := analysis.InfoFor(logical)
+	if info == nil {
+		t.Fatalf("expected lowering info for %T", logical)
+	}
+	if _, err := OptimizeFromInfo(info, logical, analysis, OptimizationContext{}); err != nil {
 		t.Fatalf("expected optimized fragment, got error: %v", err)
 	}
-	selector := BaseSelectorSource(optimized.Fragment)
+	selector := baseSelectorFromInfo(info)
 	if selector == nil {
-		t.Fatalf("expected selector source, got %#v", optimized.Fragment)
+		t.Fatalf("expected selector source, got info=%#v", info)
 	}
 	selectorMetric := findMatcher(selector.Matchers, labels.MatchEqual, labels.MetricName, "up")
 	inferredMetric := findMatcher(selector.InferredMatchers, labels.MatchEqual, labels.MetricName, "up")

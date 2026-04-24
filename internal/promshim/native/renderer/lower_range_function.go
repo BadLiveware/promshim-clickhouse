@@ -35,7 +35,7 @@ func lowerRangeFunction(ctx LoweringCtx, n logicalpkg.Node) (RenderedQuery, erro
 	if ctx.Analysis == nil || ctx.Analysis.InfoFor(n) == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: range function missing logical analysis")
 	}
-	rendered, err := renderRangeFunctionLogical(ctx.Config, ctx.NativeAnalysis, n, ctx.Params)
+	rendered, err := renderRangeFunctionLogical(ctx, n)
 	if err != nil {
 		return RenderedQuery{}, err
 	}

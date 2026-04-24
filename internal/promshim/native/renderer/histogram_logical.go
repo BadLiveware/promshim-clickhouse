@@ -238,20 +238,20 @@ func narrowHistogramChildAnalysisInPlace(childNode logicalpkg.Node, analysis *na
 	if childNode == nil || analysis == nil {
 		return
 	}
-	info := analysis.InfoFor(childNode)
-	if info == nil || info.Fragment == nil {
+	agg, ok := childNode.(*logicalpkg.AggregationPlan)
+	if !ok || agg.Without || len(agg.Grouping) == 0 {
 		return
 	}
-	fragment := info.Fragment
-	if fragment.Aggregation == nil || fragment.Aggregation.Without || len(fragment.Aggregation.Grouping) == 0 || fragment.Aggregation.Source == nil {
+	leafNode := logicalBaseLeafNode(agg.Child)
+	if leafNode == nil {
 		return
 	}
-	selector := native.BaseSelectorSource(fragment.Aggregation.Source)
-	if selector == nil {
+	leafInfo := analysis.InfoFor(leafNode)
+	if leafInfo == nil || leafInfo.LeafSelector == nil {
 		return
 	}
-	selector.RequireFullTags = false
-	selector.RequiredTagLabels = append([]string(nil), fragment.Aggregation.Grouping...)
+	leafInfo.LeafSelector.RequireFullTags = false
+	leafInfo.LeafSelector.RequiredTagLabels = append([]string(nil), agg.Grouping...)
 }
 
 // histogramChildUsesOnlyLETagsLogical is the logical-plan analog of

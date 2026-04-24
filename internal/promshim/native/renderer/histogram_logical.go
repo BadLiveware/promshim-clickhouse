@@ -101,28 +101,29 @@ func renderHistogramFunctionLogical(cfg storage.QueryConfig, analysis *native.An
 	return renderHistogramFunctionFragment(cfg, fragment, params)
 }
 
-// histogramFunctionChildAggregation returns the AggregationPlan child of
-// any histogram-function plan kind, or nil when the child is not a direct
-// aggregation. The immediate child of each plan kind is the bucket expression;
-// unwrapToAggregation peels one level in case it is an AggregationPlan.
-// RangeFunction wrappers (e.g. rate(x[5m])) sit INSIDE the aggregation,
-// not outside it, so the immediate child of histogram_quantile(q, sum by (le)
-// (rate(...))) is the AggregationPlan — no additional peeling is needed.
+// histogramFunctionChildAggregation returns the immediate AggregationPlan
+// child of any histogram-function plan kind, or nil when the child is not a
+// grouping aggregation. If the user wraps a grouping aggregation in a range
+// function (e.g. sum by (le)(rate(...))), the range function is already
+// inside the aggregation, so the immediate child is the AggregationPlan.
+// If there is no aggregation at all (e.g. histogram_quantile(q, rate(...))),
+// the immediate child is the range-function node itself and nil is returned
+// so narrowing is correctly skipped.
 func histogramFunctionChildAggregation(n logicalpkg.Node) *logicalpkg.AggregationPlan {
 	switch h := n.(type) {
 	case *logicalpkg.HistogramQuantilePlan:
-		return unwrapToAggregation(h.Child)
+		return asAggregation(h.Child)
 	case *logicalpkg.HistogramFractionPlan:
-		return unwrapToAggregation(h.Child)
+		return asAggregation(h.Child)
 	case *logicalpkg.HistogramQuantilesPlan:
-		return unwrapToAggregation(h.Child)
+		return asAggregation(h.Child)
 	default:
 		return nil
 	}
 }
 
-// unwrapToAggregation returns n as an *AggregationPlan, or nil if it is not one.
-func unwrapToAggregation(n logicalpkg.Node) *logicalpkg.AggregationPlan {
+// asAggregation returns n as an *AggregationPlan, or nil if it is not one.
+func asAggregation(n logicalpkg.Node) *logicalpkg.AggregationPlan {
 	if agg, ok := n.(*logicalpkg.AggregationPlan); ok {
 		return agg
 	}

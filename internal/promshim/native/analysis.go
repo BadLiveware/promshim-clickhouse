@@ -55,6 +55,11 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 				TagsExpr:     "{tags}",
 				DropsMetric:  false,
 			}
+			// LeafSelector mirrors info.Fragment.Selector for this leaf so
+			// Lower can read the cached selector without dereferencing
+			// info.Fragment. Same pointer so upstream in-place mutations
+			// (narrowHistogramChildAnalysisInPlace) are visible via both.
+			info.LeafSelector = selector
 		} else {
 			info.NativeReason = "delegatable leaf expression is not a selector-backed native source"
 		}

@@ -256,6 +256,20 @@ type LoweringInfo struct {
 	// operates on a clone, so info.Fragment.Kind is never mutated).
 	// Empty ("") when Fragment is nil.
 	SubtreeShape FragmentKind
+
+	// LeafSelector mirrors fragment.Selector on the base leaf (Vector/
+	// Matrix) selector reached from this node. Populated during the
+	// Analyze walk for LeafExprPlan nodes so Lower can read the cached
+	// selector without dereferencing info.Fragment.
+	//
+	// Holds the same *SelectorSource pointer stored in info.Fragment.
+	// Selector, so in-place mutations by upstream passes — specifically
+	// narrowHistogramChildAnalysisInPlace, which flips RequireFullTags /
+	// RequiredTagLabels on the cached selector — flow through both fields
+	// identically. OptimizeFragment operates on a clone and does not
+	// mutate this pointer. Nil when the node is not a leaf selector or
+	// when selector-source analysis failed.
+	LeafSelector *SelectorSource
 }
 
 // SelectorShape carries per-node selector/shape metadata that tier-2

@@ -91,7 +91,7 @@ SKIP_BENCH=0
 SHIM_MODES="prefer,force_supported,off"
 INCLUDE_PROM="true"
 MEMORY_MODE="summary"
-CORPUS_SET="native"
+CORPUS_SET=""
 YES=0
 
 while [[ $# -gt 0 ]]; do
@@ -134,10 +134,12 @@ case "$TRANSPORT" in
   native|http) ;;
   *) fatal "--transport must be native|http (got: $TRANSPORT)" ;;
 esac
-case "$CORPUS_SET" in
-  native|processing|both) ;;
-  *) fatal "--corpus-set must be native|processing|both (got: $CORPUS_SET)" ;;
-esac
+if [[ -n "$CORPUS_SET" ]]; then
+  case "$CORPUS_SET" in
+    native|processing|both) ;;
+    *) fatal "--corpus-set must be native|processing|both (got: $CORPUS_SET)" ;;
+  esac
+fi
 if (( ESTIMATE == 1 && EXECUTE == 0 )); then
   DRY_RUN=1
 fi
@@ -150,6 +152,9 @@ if [[ -z "$DENSITY" ]]; then
 fi
 if [[ -z "$SEED_POLICY" ]]; then
   if [[ "$MODE" == "setup" ]]; then SEED_POLICY="missing"; else SEED_POLICY="reuse"; fi
+fi
+if [[ -z "$CORPUS_SET" ]]; then
+  if [[ "$DENSITY" == "dense" ]]; then CORPUS_SET="processing"; else CORPUS_SET="native"; fi
 fi
 case "$SEED_POLICY" in
   reuse|missing|always|never) ;;
@@ -172,6 +177,13 @@ densities_for() {
     all) printf '%s\n' sparse dense ;;
     sparse|dense) printf '%s\n' "$1" ;;
     *) fatal "--density must be sparse|dense|all (got: $1)" ;;
+  esac
+}
+
+target_includes() {
+  case "$1:$2" in
+    both:*|prom:prom|ch:ch) return 0 ;;
+    *) return 1 ;;
   esac
 }
 
@@ -342,7 +354,7 @@ setup_selected() {
           continue
           ;;
         reuse)
-          if [[ "$TARGET" != "ch" && "$prom_state" != "present" ]] || [[ "$TARGET" != "prom" && "$ch_state" != "present" ]]; then
+          if { target_includes "$TARGET" prom && [[ "$prom_state" != "present" ]]; } || { target_includes "$TARGET" ch && [[ "$ch_state" != "present" ]]; }; then
             cat >&2 <<EOF
 Missing benchmark dataset: profile=${p} density=${d} target=${TARGET}
 Run:
@@ -384,7 +396,7 @@ corpus_paths_for() {
   if [[ "$set" == "native" || "$set" == "both" ]]; then
     echo "harness/corpus/bench-native-lowering${suffix}.json"
   fi
-  if [[ "$set" == "processing" || "$set" == "both" || ( "$set" == "native" && "$density" == "dense" ) ]]; then
+  if [[ "$set" == "processing" || "$set" == "both" ]]; then
     echo "harness/corpus/bench-processing${suffix}.json"
   fi
 }
@@ -394,11 +406,19 @@ estimate_samples() {
   python3 - "$profile" "$density" <<'PY'
 import sys
 profile, density = sys.argv[1:3]
-points = {"7d": 7*24*60, "30d": 30*24*60, "1y": 365*24*60}[profile]
-instances = {"sparse": {"7d": 10, "30d": 10, "1y": 10}, "dense": {"7d": 100, "30d": 100, "1y": 50}}[density][profile]
-series = instances * 56
+profiles = {
+    "7d": (7 * 24 * 3600, 15),
+    "30d": (30 * 24 * 3600, 60),
+    "1y": (365 * 24 * 3600, 300),
+}
+duration_seconds, step_seconds = profiles[profile]
+points = duration_seconds // step_seconds
+instances_per_job = 5 if density == "sparse" else (50 if profile == "1y" else 100)
+jobs = 2
+series_per_instance = 13
+series = jobs * instances_per_job * series_per_instance
 samples = series * points
-print(f"series≈{series:,} samples≈{samples:,} disk≈{samples*60/1024**3:.1f}GiB-headroom")
+print(f"series≈{series:,} points/series≈{points:,} samples≈{samples:,} disk≈{samples*60/1024**3:.1f}GiB-headroom")
 PY
 }
 

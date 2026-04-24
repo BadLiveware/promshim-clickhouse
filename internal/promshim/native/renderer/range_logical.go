@@ -111,41 +111,45 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 		switch child := childNode.(type) {
 		case *logicalpkg.LeafExprPlan:
 			if _, isMatrix := child.Expr.(*parser.MatrixSelector); isMatrix {
-				selectorFragment, err := rangeFunctionSelectorFragment(ctx, n)
-				if err != nil {
-					return renderedFragment{}, err
-				}
-				if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector && sourceWrapperIsIdentity(selectorFragment) && fn == "rate" {
-					source, err := renderAggregationSource(selectorFragment, params)
-					if err != nil {
-						return renderedFragment{}, err
+				// Pure-logical read: the leaf's LoweringInfo carries
+				// LeafSelector (applySelectorProjection-narrowed) and
+				// SourceExpr (identity wrapper for LeafSource/range-vector).
+				leafInfo := ctx.NativeAnalysis.InfoFor(child)
+				if leafInfo != nil && leafInfo.LeafSelector != nil && leafInfo.SourceExpr != nil &&
+					leafInfo.LeafSelector.Kind == native.SelectorKindRangeVector &&
+					leafInfo.SourceExpr.ValueExpr == "{value}" && leafInfo.SourceExpr.TagsExpr == "{tags}" && !leafInfo.SourceExpr.DropsMetric {
+					if fn == "rate" {
+						source, err := renderAggregationSourceView(leafInfo.SourceExpr, params)
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						rowsSQL, rowParams, err := storage.BuildRangeMatrixSelectorRowsQuerySQL(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS)
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(leafInfo.LeafSelector))
+						sql, err := buildInstantRateOverRowsSQL(trimRenderedQuerySQL(rowsSQL), tagsExpr, params.EvaluationTimeMS)
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: rowParams}, nil
 					}
-					rowsSQL, rowParams, err := storage.BuildRangeMatrixSelectorRowsQuerySQL(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS)
-					if err != nil {
-						return renderedFragment{}, err
+					if canUseInstantRangeFunctionRowsFastPath(fn) {
+						source, err := renderAggregationSourceView(leafInfo.SourceExpr, params)
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						rowsSQL, rowParams, err := storage.BuildRangeMatrixSelectorRowsQuerySQL(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS)
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(leafInfo.LeafSelector))
+						sql, err := buildInstantRangeFunctionOverRowsSQL(trimRenderedQuerySQL(rowsSQL), fn, tagsExpr, params.EvaluationTimeMS)
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: rowParams}, nil
 					}
-					tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(selectorFragment.Selector))
-					sql, err := buildInstantRateOverRowsSQL(trimRenderedQuerySQL(rowsSQL), tagsExpr, params.EvaluationTimeMS)
-					if err != nil {
-						return renderedFragment{}, err
-					}
-					return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: rowParams}, nil
-				}
-				if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector && sourceWrapperIsIdentity(selectorFragment) && canUseInstantRangeFunctionRowsFastPath(fn) {
-					source, err := renderAggregationSource(selectorFragment, params)
-					if err != nil {
-						return renderedFragment{}, err
-					}
-					rowsSQL, rowParams, err := storage.BuildRangeMatrixSelectorRowsQuerySQL(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS)
-					if err != nil {
-						return renderedFragment{}, err
-					}
-					tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(selectorFragment.Selector))
-					sql, err := buildInstantRangeFunctionOverRowsSQL(trimRenderedQuerySQL(rowsSQL), fn, tagsExpr, params.EvaluationTimeMS)
-					if err != nil {
-						return renderedFragment{}, err
-					}
-					return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: rowParams}, nil
 				}
 			}
 		case *logicalpkg.SubqueryPlan:
@@ -181,14 +185,11 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 		childRangeMS := int64(0)
 		if leaf, isLeaf := childNode.(*logicalpkg.LeafExprPlan); isLeaf {
 			if _, isMatrix := leaf.Expr.(*parser.MatrixSelector); isMatrix {
-				selectorFragment, selErr := rangeFunctionSelectorFragment(ctx, n)
-				if selErr != nil {
-					return renderedFragment{}, selErr
-				}
-				if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil {
-					tagsExpr = rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(selectorFragment.Selector))
-					if selectorFragment.Selector.Kind == native.SelectorKindRangeVector {
-						childRangeMS = selectorFragment.Selector.Lookback.Milliseconds()
+				leafInfo := ctx.NativeAnalysis.InfoFor(leaf)
+				if leafInfo != nil && leafInfo.LeafSelector != nil {
+					tagsExpr = rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(leafInfo.LeafSelector))
+					if leafInfo.LeafSelector.Kind == native.SelectorKindRangeVector {
+						childRangeMS = leafInfo.LeafSelector.Lookback.Milliseconds()
 					}
 				}
 			}
@@ -205,63 +206,72 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 		switch child := childNode.(type) {
 		case *logicalpkg.LeafExprPlan:
 			if _, isMatrix := child.Expr.(*parser.MatrixSelector); isMatrix {
-				selectorFragment, err := rangeFunctionSelectorFragment(ctx, n)
-				if err != nil {
-					return renderedFragment{}, err
-				}
-				if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector && sourceWrapperIsIdentity(selectorFragment) && canUseRangeFunctionRowsFastPath(fn) {
-					childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment, params.StartMS, params.EndMS)
-					source, err := renderAggregationSource(selectorFragment, params)
-					if err != nil {
-						return renderedFragment{}, err
+				// Pure-logical read: LeafSelector mirrors
+				// fragment.Selector (applySelectorProjection-narrowed)
+				// and SourceExpr mirrors fragment.{ValueExpr,TagsExpr,
+				// DropsMetric}. For LeafSource/range-vector leaves the
+				// wrapper is always identity; we still check explicitly
+				// so the fast-path gate is visible at the call site.
+				leafInfo := ctx.NativeAnalysis.InfoFor(child)
+				if leafInfo != nil && leafInfo.LeafSelector != nil && leafInfo.SourceExpr != nil &&
+					leafInfo.LeafSelector.Kind == native.SelectorKindRangeVector {
+					sel := leafInfo.LeafSelector
+					view := leafInfo.SourceExpr
+					isIdentity := view.ValueExpr == "{value}" && view.TagsExpr == "{tags}" && !view.DropsMetric
+					lookbackMS := sel.Lookback.Milliseconds()
+					offsetMS := sel.Offset.Milliseconds()
+					if isIdentity && canUseRangeFunctionRowsFastPath(fn) {
+						childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
+						source, err := renderAggregationSourceView(view, params)
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						rowsSQL, rowParams, err := storage.BuildRangeMatrixSelectorRowsQuerySQL(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS)
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(sel))
+						sql, err := buildRangeFunctionOverRowsSQL(trimRenderedQuerySQL(rowsSQL), fn, tagsExpr, params.StartMS, params.EndMS, params.StepMS, lookbackMS, offsetMS)
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: rowParams}, nil
 					}
-					rowsSQL, rowParams, err := storage.BuildRangeMatrixSelectorRowsQuerySQL(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS)
-					if err != nil {
-						return renderedFragment{}, err
+					// Keep the selector-scoped grid→data join that benchmarks well on long-range
+					// windows, but skip per-step window_series/window_values materialization for
+					// direct avg_over_time selectors by aggregating inside that grouped join.
+					if isIdentity && fn == "avg_over_time" && preferDirectSelectorWindowJoin(lookbackMS, params.StepMS) {
+						childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
+						source, err := renderAggregationSourceView(view, params)
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(sel))
+						sql, queryParams, err := storage.BuildRangeWindowSelectorDirectAggregateQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, fn, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 					}
-					tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(selectorFragment.Selector))
-					sql, err := buildRangeFunctionOverRowsSQL(trimRenderedQuerySQL(rowsSQL), fn, tagsExpr, params.StartMS, params.EndMS, params.StepMS, selectorFragment.Selector.Lookback.Milliseconds(), selectorFragment.Selector.Offset.Milliseconds())
-					if err != nil {
-						return renderedFragment{}, err
+					if isIdentity && preferDirectSelectorWindowJoin(lookbackMS, params.StepMS) {
+						childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
+						source, err := renderAggregationSourceView(view, params)
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						windowValueExpr := rangeFunctionValueExpr(fn, "window_series", "window_values", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", lookbackMS)
+						tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(sel))
+						sql, queryParams, err := storage.BuildRangeWindowSelectorQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, fn, windowValueExpr, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 					}
-					return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: rowParams}, nil
-				}
-				// Keep the selector-scoped grid→data join that benchmarks well on long-range
-				// windows, but skip per-step window_series/window_values materialization for
-				// direct avg_over_time selectors by aggregating inside that grouped join.
-				if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector && sourceWrapperIsIdentity(selectorFragment) && fn == "avg_over_time" && preferDirectSelectorWindowJoin(selectorFragment.Selector.Lookback.Milliseconds(), params.StepMS) {
-					childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment, params.StartMS, params.EndMS)
-					source, err := renderAggregationSource(selectorFragment, params)
-					if err != nil {
-						return renderedFragment{}, err
-					}
-					tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(selectorFragment.Selector))
-					sql, queryParams, err := storage.BuildRangeWindowSelectorDirectAggregateQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, fn, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
-					if err != nil {
-						return renderedFragment{}, err
-					}
-					return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
-				}
-				if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector && sourceWrapperIsIdentity(selectorFragment) && preferDirectSelectorWindowJoin(selectorFragment.Selector.Lookback.Milliseconds(), params.StepMS) {
-					childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment, params.StartMS, params.EndMS)
-					source, err := renderAggregationSource(selectorFragment, params)
-					if err != nil {
-						return renderedFragment{}, err
-					}
-					windowValueExpr := rangeFunctionValueExpr(fn, "window_series", "window_values", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", selectorFragment.Selector.Lookback.Milliseconds())
-					tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(selectorFragment.Selector))
-					sql, queryParams, err := storage.BuildRangeWindowSelectorQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, fn, windowValueExpr, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
-					if err != nil {
-						return renderedFragment{}, err
-					}
-					return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
-				}
-				if selectorFragment != nil && selectorFragment.Kind == native.FragmentKindLeafSource && selectorFragment.Selector != nil && selectorFragment.Selector.Kind == native.SelectorKindRangeVector {
 					// Range-mode leaf catch-all (Phase-6d retirement of the
 					// Fragment-side RenderFragment at range.go:188). Lower the
 					// logical leaf directly with a RangeMode child context
 					// widened by the selector's lookback/offset.
-					childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment, params.StartMS, params.EndMS)
+					childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
 					childCtx := ctx
 					childCtx.Params = RenderParams{
 						Mode:                native.RenderModeRange,
@@ -276,8 +286,8 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 					if err != nil {
 						return renderedFragment{}, err
 					}
-					tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(selectorFragment.Selector))
-					sql, err := buildRangeFunctionOverWindowedArraysSQL(trimRenderedQuerySQL(childRendered.SQL), fn, tagsExpr, paramNumber, paramNumbers, params.StartMS, params.EndMS, params.StepMS, selectorFragment.Selector.Lookback.Milliseconds(), selectorFragment.Selector.Offset.Milliseconds())
+					tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(sel))
+					sql, err := buildRangeFunctionOverWindowedArraysSQL(trimRenderedQuerySQL(childRendered.SQL), fn, tagsExpr, paramNumber, paramNumbers, params.StartMS, params.EndMS, params.StepMS, lookbackMS, offsetMS)
 					if err != nil {
 						return renderedFragment{}, err
 					}

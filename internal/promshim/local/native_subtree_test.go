@@ -37,6 +37,7 @@ func TestNativeSubtreePlanNormalizesInstantVectorTimestampToEvaluationTime(t *te
 			ValueExpr:  "{value}",
 			TagsExpr:   "{tags}",
 		},
+		Info:               &nativeplan.LoweringInfo{OutputKind: nativeplan.OutputKindInstantVector},
 		OptimizationReport: &nativeplan.OptimizationReport{RequiredInputStartMS: 0, RequiredInputEndMS: 0},
 	}
 
@@ -92,6 +93,7 @@ func TestNativeSubtreePlanAppliesRuntimeModuloCorrectionToInstantVectors(t *test
 				DropsMetric: true,
 			},
 		},
+		Info:               &nativeplan.LoweringInfo{OutputKind: nativeplan.OutputKindInstantVector},
 		OptimizationReport: &nativeplan.OptimizationReport{RequiredInputStartMS: 0, RequiredInputEndMS: 0},
 	}
 
@@ -147,6 +149,7 @@ func TestNativeSubtreePlanAppliesRuntimeModuloCorrectionToRangeMatrices(t *testi
 				DropsMetric: true,
 			},
 		},
+		Info:               &nativeplan.LoweringInfo{OutputKind: nativeplan.OutputKindInstantVector},
 		OptimizationReport: &nativeplan.OptimizationReport{RequiredInputStartMS: 0, RequiredInputEndMS: 0},
 	}
 

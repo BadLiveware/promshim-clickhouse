@@ -98,13 +98,13 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 	defer response.Body.Close()
 
 	switch {
-	case params.Mode == EvalModeInstant && p.Fragment != nil && p.Fragment.OutputKind == nativeplan.OutputKindRangeMatrix:
+	case params.Mode == EvalModeInstant && p.Info != nil && p.Info.OutputKind == nativeplan.OutputKindRangeMatrix:
 		series, err := DecodeRangeSeries(response.Body)
 		if err != nil {
 			return nil, WithInternalContext(err, "decoding native subtree instant matrix result for %q", p.Expr)
 		}
 		return model.MatrixValue{Series: series}, nil
-	case params.Mode == EvalModeInstant && p.Fragment != nil && p.Fragment.OutputKind == nativeplan.OutputKindScalar:
+	case params.Mode == EvalModeInstant && p.Info != nil && p.Info.OutputKind == nativeplan.OutputKindScalar:
 		samples, err := DecodeInstantSamples(response.Body)
 		if err != nil {
 			return nil, WithInternalContext(err, "decoding native subtree instant scalar result for %q", p.Expr)

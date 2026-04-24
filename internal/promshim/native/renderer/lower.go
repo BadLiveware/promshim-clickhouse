@@ -142,13 +142,8 @@ func lowerBinary(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQuery, erro
 	if lhsInfo == nil || rhsInfo == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: binary node missing analysis")
 	}
-	// Scalar-involving path (existing behavior — keep bridging to BuildFragment + RenderFragment).
 	if lhsInfo.TimeDomain == logicalpkg.DomainScalar || rhsInfo.TimeDomain == logicalpkg.DomainScalar {
-		fragment, err := native.BuildFragment(n, ctx.NativeAnalysis)
-		if err != nil {
-			return RenderedQuery{}, err
-		}
-		return RenderFragment(ctx.Config, fragment, ctx.Params)
+		return lowerBinaryScalarInvolving(ctx, n)
 	}
 	// Vector-vector path: Surface 13 (Approach A).
 	return lowerBinaryVectorJoin(ctx, n)

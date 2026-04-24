@@ -15,18 +15,17 @@ import (
 // boundary. Tag-narrowing for a grouping-aggregation child is threaded
 // through RenderParams using decideHistogramChildNarrowing.
 //
-// Phase 1 (Task 13a Phase 1): the top-level BuildFragment call has been
-// moved out of this function and into renderClassicHistogramGroupsQueryLogical,
-// which reads the child via the logical plan and materializes the child
-// Fragment internally once, where it is still needed for
-// renderFragmentSubquery / tryRenderHistogramChildRowsSQL. Predicates
-// such as "does this child group by (le) only?" and the narrowing
-// decision are sourced from the logical plan (childAggregationUsesOnlyLETags
-// and decideHistogramChildNarrowing), so the Fragment is no longer
-// consulted for shape questions at the lowerer boundary. Fragment
-// materialization inside the helper retires in Phase 6 together with
-// renderFragmentSubquery.
-func renderHistogramProjectionLogical(cfg storage.QueryConfig, analysis *native.Analysis, n *logicalpkg.HistogramProjectionPlan, params RenderParams) (renderedFragment, error) {
+// Phase 6a (Task 13a Phase 6a): the downstream helper
+// renderClassicHistogramGroupsQueryLogical now consumes a logical.Node
+// via renderer.Lower instead of a materialized child Fragment. The
+// caller threads both the logical and native Analysis side-maps so Lower
+// can dispatch and BuildFragment can still be used for the narrow set of
+// shapes that require it (histogram_quantiles scalar bindings, subtree
+// aggregation rendering that still reads the native analysis cache).
+// Narrowing is applied in-place on the native analysis Fragment cache so
+// the cloned Fragment any downstream BuildFragment produces is already
+// narrowed.
+func renderHistogramProjectionLogical(cfg storage.QueryConfig, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, n *logicalpkg.HistogramProjectionPlan, params RenderParams) (renderedFragment, error) {
 	if n == nil || n.Child == nil {
 		return renderedFragment{}, fmt.Errorf("renderer: histogram projection requires a child")
 	}
@@ -41,7 +40,7 @@ func renderHistogramProjectionLogical(cfg storage.QueryConfig, analysis *native.
 		childParams.RequiredTagLabels = labels
 	}
 
-	histograms, err := renderClassicHistogramGroupsQueryLogical(cfg, n.Child, analysis, childParams, "histogram_projection_child")
+	histograms, err := renderClassicHistogramGroupsQueryLogical(cfg, n.Child, logicalAnalysis, analysis, childParams, "histogram_projection_child")
 	if err != nil {
 		return renderedFragment{}, err
 	}
@@ -71,11 +70,11 @@ func renderHistogramProjectionLogical(cfg storage.QueryConfig, analysis *native.
 // Quantiles children); that single internal BuildFragment call is the
 // only Fragment materialization remaining at this tier. It retires in
 // Phase 6 together with renderHistogramQuantilesFragment.
-func renderHistogramFunctionLogical(cfg storage.QueryConfig, analysis *native.Analysis, n logicalpkg.Node, params RenderParams) (renderedFragment, error) {
+func renderHistogramFunctionLogical(cfg storage.QueryConfig, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, n logicalpkg.Node, params RenderParams) (renderedFragment, error) {
 	if n == nil {
 		return renderedFragment{}, fmt.Errorf("renderer: histogram function requires a node")
 	}
-	return renderHistogramFunctionLogicalDirect(cfg, n, analysis, params)
+	return renderHistogramFunctionLogicalDirect(cfg, n, logicalAnalysis, analysis, params)
 }
 
 // renderHistogramFunctionLogicalDirect is the Phase-2 direct-render
@@ -92,7 +91,7 @@ func renderHistogramFunctionLogical(cfg storage.QueryConfig, analysis *native.An
 // Fragment access localized and, importantly, scoped to only the one
 // branch that needs it; histogram_quantile and histogram_fraction never
 // materialize a histogram-function Fragment on the direct path.
-func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalpkg.Node, analysis *native.Analysis, params RenderParams) (renderedFragment, error) {
+func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams) (renderedFragment, error) {
 	childNode, funcName, ok := histogramFunctionChildNode(node)
 	if !ok || childNode == nil {
 		return renderedFragment{}, errUnsupportedLowerNode
@@ -107,7 +106,7 @@ func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalp
 		childParams.RequiredTagLabels = labels
 	}
 
-	histograms, err := renderClassicHistogramGroupsQueryLogical(cfg, childNode, analysis, childParams, "histogram_function_child")
+	histograms, err := renderClassicHistogramGroupsQueryLogical(cfg, childNode, logicalAnalysis, analysis, childParams, "histogram_function_child")
 	if err != nil {
 		return renderedFragment{}, err
 	}
@@ -204,31 +203,51 @@ func asAggregation(n logicalpkg.Node) *logicalpkg.AggregationPlan {
 	return nil
 }
 
-// applyRenderParamsNarrowing merges RenderParams narrowing fields onto
-// a child Fragment's underlying selector. It mirrors
-// narrowHistogramAggregationChildTags so the legacy
-// renderClassicHistogramGroupsQuery helper, which re-applies the same
-// rule internally, is idempotent against this pre-narrowing.
+// narrowHistogramChildAnalysisInPlace narrows the native.Analysis-cached
+// Fragment for a histogram-projection/function child in-place, so any
+// downstream BuildFragment (inside renderer.Lower's aggregation dispatch
+// or inside tryRenderHistogramChildRowsSQLLogical's scoped materialization)
+// clones a pre-narrowed Fragment.
 //
-// The helper is a no-op when the parent has not expressed a narrowing
-// requirement (RequireFullTags=true or empty RequiredTagLabels), or
-// when the child's aggregation shape would itself reject narrowing
-// (Without=true, empty grouping, missing source).
-func applyRenderParamsNarrowing(fragment *native.NativeFragment, params RenderParams) *native.NativeFragment {
-	if fragment == nil || params.RequireFullTags || len(params.RequiredTagLabels) == 0 {
-		return fragment
+// The narrowing rule mirrors the pre-Phase-6a applyRenderParamsNarrowing
+// (first pass, keyed on RenderParams) followed by
+// narrowHistogramAggregationChildTags (second pass, keyed on
+// Grouping — used as a defense-in-depth default when the caller did not
+// thread RenderParams). The second pass is the one that survives in
+// this helper because:
+//
+//   - When RenderParams carries narrowing (the projection/function
+//     lowerer threaded it), its RequiredTagLabels list is exactly
+//     agg.Grouping (decideHistogramChildNarrowing copies Grouping into
+//     labels for sum-by shapes and returns nil otherwise), so the two
+//     passes converge on the same selector state.
+//   - When RenderParams does not carry narrowing (no caller path hits
+//     this, but the previous code used the grouping-derived defense
+//     regardless), the grouping-derived narrowing still applies.
+//
+// Non-aggregation children and aggregation shapes that reject narrowing
+// (Without=true, empty grouping, no base selector) leave the analysis
+// cache untouched. Mutation is scoped to the per-query analysis and
+// therefore safe: logical plans in promshim are not CSE'd across
+// queries, so no other query sees this selector.
+func narrowHistogramChildAnalysisInPlace(childNode logicalpkg.Node, analysis *native.Analysis, _ RenderParams) {
+	if childNode == nil || analysis == nil {
+		return
 	}
+	info := analysis.InfoFor(childNode)
+	if info == nil || info.Fragment == nil {
+		return
+	}
+	fragment := info.Fragment
 	if fragment.Aggregation == nil || fragment.Aggregation.Without || len(fragment.Aggregation.Grouping) == 0 || fragment.Aggregation.Source == nil {
-		return fragment
+		return
 	}
-	cloned := native.CloneFragment(fragment)
-	selector := native.BaseSelectorSource(cloned.Aggregation.Source)
+	selector := native.BaseSelectorSource(fragment.Aggregation.Source)
 	if selector == nil {
-		return cloned
+		return
 	}
 	selector.RequireFullTags = false
-	selector.RequiredTagLabels = append([]string(nil), params.RequiredTagLabels...)
-	return cloned
+	selector.RequiredTagLabels = append([]string(nil), fragment.Aggregation.Grouping...)
 }
 
 // histogramChildUsesOnlyLETagsLogical is the logical-plan analog of
@@ -255,36 +274,32 @@ func histogramChildUsesOnlyLETagsLogical(childNode logicalpkg.Node) bool {
 // renderClassicHistogramGroupsQuery; it reads the child via a
 // logical.Node + analysis rather than a pre-built NativeFragment.
 //
-// Phase 1 (Task 13a Phase 1) transitional: the helper still materializes
-// the child Fragment on demand via native.BuildFragment and hands it to
-// renderFragmentSubquery / tryRenderHistogramChildRowsSQL, which have
-// not yet been ported to consume a logical child directly. The
-// BuildFragment call has moved here from renderHistogramProjectionLogical
-// so all Fragment access is contained inside this helper. The
-// structural predicates that previously read the child Fragment —
-// "child groups by (le) only?" and "narrow the child selector?" — are
-// now sourced from the logical plan (histogramChildUsesOnlyLETagsLogical
-// and decideHistogramChildNarrowing applied via RenderParams).
-// Fragment materialization retires in Phase 6 together with
-// renderFragmentSubquery.
-func renderClassicHistogramGroupsQueryLogical(cfg storage.QueryConfig, childNode logicalpkg.Node, analysis *native.Analysis, params RenderParams, prefix string) (renderedFragment, error) {
+// Phase 6a (Task 13a Phase 6a): the helper no longer materializes a child
+// Fragment at the boundary. Child SQL is rendered via
+// renderLogicalSubquery (backed by renderer.Lower), and the child-rows
+// fast path is detected via tryRenderHistogramChildRowsSQLLogical
+// (which performs its own scoped Fragment materialization for the
+// existing SQL synthesis helper). Tag-narrowing for a grouping
+// aggregation child is applied in-place on the native.Analysis Fragment
+// cache before either helper runs, so the subsequent rendering (which
+// clones the cached Fragment when it needs one) sees the narrowed
+// selector. This mirrors the previous applyRenderParamsNarrowing +
+// narrowHistogramAggregationChildTags pipeline but without constructing
+// an intermediate Fragment at the boundary.
+func renderClassicHistogramGroupsQueryLogical(cfg storage.QueryConfig, childNode logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams, prefix string) (renderedFragment, error) {
 	if childNode == nil {
 		return renderedFragment{}, fmt.Errorf("classic histogram materialization requires a child")
 	}
 
-	// Phase-1 transitional: materialize the child Fragment once, then
-	// apply the RenderParams-derived narrowing onto its selector so the
-	// downstream helpers (renderFragmentSubquery,
-	// tryRenderHistogramChildRowsSQL) see the pre-narrowed shape. The
-	// second pass of narrowHistogramAggregationChildTags (now invoked
-	// below for defense-in-depth against callers that don't thread
-	// RenderParams) is idempotent against the pre-narrowed Fragment.
-	child, err := native.BuildFragment(childNode, analysis)
-	if err != nil {
-		return renderedFragment{}, errUnsupportedLowerNode
-	}
-	child = applyRenderParamsNarrowing(child, params)
-	child = narrowHistogramAggregationChildTags(child)
+	// Apply narrowing in-place on the native analysis Fragment cache so
+	// any downstream BuildFragment (inside renderer.Lower's aggregation
+	// dispatch or inside tryRenderHistogramChildRowsSQLLogical's scoped
+	// fast-path materialization) clones a pre-narrowed Fragment. The
+	// mutation is scoped to this analysis (per-query, not shared with
+	// other queries) and mirrors the selector writes that
+	// applyRenderParamsNarrowing + narrowHistogramAggregationChildTags
+	// used to perform on a cloned Fragment at render time.
+	narrowHistogramChildAnalysisInPlace(childNode, analysis, params)
 
 	onlyLETags := histogramChildUsesOnlyLETagsLogical(childNode)
 
@@ -302,7 +317,7 @@ func renderClassicHistogramGroupsQueryLogical(cfg storage.QueryConfig, childNode
 	)
 	switch params.Mode {
 	case native.RenderModeInstant:
-		if childRowsSQL, namespacedParams, ok, err := tryRenderHistogramChildRowsSQL(cfg, child, params, prefix); err != nil {
+		if childRowsSQL, namespacedParams, ok, err := tryRenderHistogramChildRowsSQLLogical(cfg, childNode, analysis, params, prefix); err != nil {
 			return renderedFragment{}, err
 		} else if ok {
 			childParams = namespacedParams
@@ -326,7 +341,7 @@ func renderClassicHistogramGroupsQueryLogical(cfg storage.QueryConfig, childNode
 				Where: whereExpr,
 			}
 		} else {
-			childSQL, namespacedParams, err := renderFragmentSubquery(cfg, child, params, prefix)
+			childSQL, namespacedParams, err := renderLogicalSubquery(cfg, childNode, logicalAnalysis, analysis, params, prefix)
 			if err != nil {
 				return renderedFragment{}, err
 			}
@@ -352,7 +367,7 @@ func renderClassicHistogramGroupsQueryLogical(cfg storage.QueryConfig, childNode
 			}
 		}
 	case native.RenderModeRange:
-		if childRowsSQL, namespacedParams, ok, err := tryRenderHistogramChildRowsSQL(cfg, child, params, prefix); err != nil {
+		if childRowsSQL, namespacedParams, ok, err := tryRenderHistogramChildRowsSQLLogical(cfg, childNode, analysis, params, prefix); err != nil {
 			return renderedFragment{}, err
 		} else if ok {
 			childParams = namespacedParams
@@ -376,7 +391,7 @@ func renderClassicHistogramGroupsQueryLogical(cfg storage.QueryConfig, childNode
 				Where: whereExpr,
 			}
 		} else {
-			childSQL, namespacedParams, err := renderFragmentSubquery(cfg, child, params, prefix)
+			childSQL, namespacedParams, err := renderLogicalSubquery(cfg, childNode, logicalAnalysis, analysis, params, prefix)
 			if err != nil {
 				return renderedFragment{}, err
 			}

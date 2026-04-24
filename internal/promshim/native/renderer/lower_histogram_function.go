@@ -28,7 +28,7 @@ func lowerHistogramFunction(ctx LoweringCtx, n logicalpkg.Node) (RenderedQuery, 
 	if ctx.Analysis == nil || ctx.Analysis.InfoFor(n) == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: histogram function missing logical analysis")
 	}
-	rendered, err := renderHistogramFunctionLogical(ctx.Config, ctx.NativeAnalysis, n, ctx.Params)
+	rendered, err := renderHistogramFunctionLogical(ctx.Config, ctx.Analysis, ctx.NativeAnalysis, n, ctx.Params)
 	if err != nil {
 		return RenderedQuery{}, err
 	}

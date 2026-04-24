@@ -227,6 +227,19 @@ type LoweringInfo struct {
 	// Fragment fields remain authoritative until Task 13a-d ports
 	// consumers over. See SelectorShape for field semantics.
 	Shape SelectorShape
+
+	// JoinShape mirrors fragment.BinaryJoin.JoinShape for nodes that
+	// lower through the BinaryVectorJoin path. Non-empty only when the
+	// node corresponds to a supported vector-vector join
+	// (isSupportedNativeVectorJoinOp true + SupportedNativeVectorJoinShape
+	// returned (shape, true)). Consumed by explain() to surface the
+	// join cardinality without dereferencing NativeFragment.
+	JoinShape string
+
+	// JoinLabels mirrors VectorMatching.MatchingLabels on the binary
+	// join for which JoinShape is set. Populated only when JoinShape is
+	// non-empty.
+	JoinLabels []string
 }
 
 // SelectorShape carries per-node selector/shape metadata that tier-2

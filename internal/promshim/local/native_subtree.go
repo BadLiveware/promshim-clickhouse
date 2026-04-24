@@ -261,11 +261,9 @@ func (p *nativeSubtreePlan) explain() ExplainNode {
 		SemanticBarriers:    append([]string(nil), report.SemanticBarriers...),
 		RenderedSQL:         report.RenderedSQL,
 	}
-	if p.Fragment != nil && p.Fragment.BinaryJoin != nil {
-		explain.JoinShape = p.Fragment.BinaryJoin.JoinShape
-		if matching := p.Fragment.BinaryJoin.VectorMatching; matching != nil {
-			explain.JoinLabels = append([]string(nil), matching.MatchingLabels...)
-		}
+	if p.Info != nil && p.Info.JoinShape != "" {
+		explain.JoinShape = p.Info.JoinShape
+		explain.JoinLabels = append([]string(nil), p.Info.JoinLabels...)
 	}
 	return explain
 }

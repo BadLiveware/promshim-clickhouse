@@ -162,28 +162,35 @@ func renderInfoJoinFragment(cfg storage.QueryConfig, fragment *native.NativeFrag
 	if err != nil {
 		return renderedFragment{}, err
 	}
-	selector := storage.SelectorSource{Kind: storage.SelectorKindInstantVector, MetricName: fragment.InfoJoin.InfoMetricName, Matchers: native.CloneMatchers(fragment.InfoJoin.SelectorMatchers), NeedTags: true, RequireFullTags: true, LookbackMS: native.DefaultInstantSelectorLookback.Milliseconds()}
-	infoNameMatchers := infoJoinNameMatchers(fragment.InfoJoin)
-	var infoSQL string
-	var infoParams map[string]string
+	return assembleInfoJoinSQL(cfg, childSQL, childParams, fragment.InfoJoin.InfoMetricName, fragment.InfoJoin.SelectorMatchers, fragment.InfoJoin.CopyLabelNames, fragment.InfoJoin.DropUnmatched, params)
+}
+
+// assembleInfoJoinSQL builds the info-join outer query from an already
+// rendered, namespaced child source ("info_lhs") and info-series metadata.
+// Shared by the Fragment path (renderInfoJoinFragment) and the direct path
+// (lowerInfoJoin) so SQL stays byte-identical.
+func assembleInfoJoinSQL(cfg storage.QueryConfig, childSQL string, childParams map[string]string, infoMetricName string, selectorMatchers []*labels.Matcher, copyLabelNames []string, dropUnmatched bool, params RenderParams) (renderedFragment, error) {
+	selector := storage.SelectorSource{Kind: storage.SelectorKindInstantVector, MetricName: infoMetricName, Matchers: native.CloneMatchers(selectorMatchers), NeedTags: true, RequireFullTags: true, LookbackMS: native.DefaultInstantSelectorLookback.Milliseconds()}
+	infoNameMatchers := infoJoinNameMatchers(selectorMatchers, infoMetricName)
+	joinCfg := storage.InfoJoinConfig{IdentifyingLabels: []string{"instance", "job"}, CopyLabelNames: append([]string(nil), copyLabelNames...), DropUnmatched: dropUnmatched, InfoNameMatchers: infoNameMatchers}
 	switch params.Mode {
 	case native.RenderModeInstant:
-		infoSQL, infoParams, err = storage.BuildInstantSelectorQuerySQL(cfg, selector, params.EvaluationTimeMS-native.DefaultInstantSelectorLookback.Milliseconds(), params.EvaluationTimeMS)
+		infoSQL, infoParams, err := storage.BuildInstantSelectorQuerySQL(cfg, selector, params.EvaluationTimeMS-native.DefaultInstantSelectorLookback.Milliseconds(), params.EvaluationTimeMS)
 		if err != nil {
 			return renderedFragment{}, err
 		}
-		joinSQL, joinParams, err := storage.BuildInstantInfoJoinSQL(childSQL, childParams, trimRenderedQuerySQL(infoSQL), infoParams, storage.InfoJoinConfig{IdentifyingLabels: []string{"instance", "job"}, CopyLabelNames: append([]string(nil), fragment.InfoJoin.CopyLabelNames...), DropUnmatched: fragment.InfoJoin.DropUnmatched, InfoNameMatchers: infoNameMatchers})
+		joinSQL, joinParams, err := storage.BuildInstantInfoJoinSQL(childSQL, childParams, trimRenderedQuerySQL(infoSQL), infoParams, joinCfg)
 		if err != nil {
 			return renderedFragment{}, err
 		}
 		return renderedFragment{RawSQL: trimRenderedQuerySQL(joinSQL), ExtraParams: joinParams}, nil
 	case native.RenderModeRange:
 		requiredStartMS := params.StartMS - native.DefaultInstantSelectorLookback.Milliseconds()
-		infoSQL, infoParams, err = storage.BuildRangeSelectorQuerySQL(cfg, selector, requiredStartMS, params.EndMS, params.StartMS, params.EndMS, params.StepMS)
+		infoSQL, infoParams, err := storage.BuildRangeSelectorQuerySQL(cfg, selector, requiredStartMS, params.EndMS, params.StartMS, params.EndMS, params.StepMS)
 		if err != nil {
 			return renderedFragment{}, err
 		}
-		joinSQL, joinParams, err := storage.BuildRangeInfoJoinSQL(childSQL, childParams, trimRenderedQuerySQL(infoSQL), infoParams, storage.InfoJoinConfig{IdentifyingLabels: []string{"instance", "job"}, CopyLabelNames: append([]string(nil), fragment.InfoJoin.CopyLabelNames...), DropUnmatched: fragment.InfoJoin.DropUnmatched, InfoNameMatchers: infoNameMatchers})
+		joinSQL, joinParams, err := storage.BuildRangeInfoJoinSQL(childSQL, childParams, trimRenderedQuerySQL(infoSQL), infoParams, joinCfg)
 		if err != nil {
 			return renderedFragment{}, err
 		}
@@ -193,19 +200,19 @@ func renderInfoJoinFragment(cfg storage.QueryConfig, fragment *native.NativeFrag
 	}
 }
 
-func infoJoinNameMatchers(fragment *native.InfoJoinFragment) []*labels.Matcher {
-	if fragment == nil {
-		return nil
-	}
+// infoJoinNameMatchers derives the metric-name matcher list the info-join
+// SQL builder expects, given either explicit MetricName-matchers inside
+// selectorMatchers or a single equality on infoMetricName as the fallback.
+func infoJoinNameMatchers(selectorMatchers []*labels.Matcher, infoMetricName string) []*labels.Matcher {
 	nameMatchers := make([]*labels.Matcher, 0)
-	for _, matcher := range fragment.SelectorMatchers {
+	for _, matcher := range selectorMatchers {
 		if matcher == nil || matcher.Name != labels.MetricName {
 			continue
 		}
 		nameMatchers = append(nameMatchers, labels.MustNewMatcher(matcher.Type, matcher.Name, matcher.Value))
 	}
-	if len(nameMatchers) == 0 && fragment.InfoMetricName != "" {
-		nameMatchers = append(nameMatchers, labels.MustNewMatcher(labels.MatchEqual, labels.MetricName, fragment.InfoMetricName))
+	if len(nameMatchers) == 0 && infoMetricName != "" {
+		nameMatchers = append(nameMatchers, labels.MustNewMatcher(labels.MatchEqual, labels.MetricName, infoMetricName))
 	}
 	return nameMatchers
 }

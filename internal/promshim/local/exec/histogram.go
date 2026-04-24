@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 	promlabels "github.com/prometheus/prometheus/model/labels"
 )
 

@@ -6,13 +6,13 @@ import (
 	"net/http"
 	"time"
 
-	httpapi "github.com/BadLiveware/promshim-ch/internal/promshim/httpapi"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/local"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
-	nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/shadow"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
+	httpapi "github.com/BadLiveware/promshim-clickhouse/internal/promshim/httpapi"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/local"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
+	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/shadow"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 

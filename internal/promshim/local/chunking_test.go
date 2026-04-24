@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 )
 
 type syntheticRangePlan struct{}

@@ -8,7 +8,7 @@
 // deliberately NOT in this package.
 package schema
 
-import "github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
+import "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/sqlb"
 
 // QuerySuffix is the trailer appended to every native ClickHouse query that
 // reads from the experimental TimeSeries engine.

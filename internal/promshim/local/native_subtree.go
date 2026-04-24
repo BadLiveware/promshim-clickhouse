@@ -6,11 +6,11 @@ import (
 	"math"
 	"time"
 
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
-	nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native/renderer"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
+	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/renderer"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 
 	"github.com/prometheus/prometheus/promql/parser"
 )

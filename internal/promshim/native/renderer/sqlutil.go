@@ -1,15 +1,15 @@
 package renderer
 
 import (
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"fmt"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 	"sort"
 	"strings"
 
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage/schema"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/sqlb"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage/schema"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"

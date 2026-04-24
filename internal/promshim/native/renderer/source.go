@@ -1,11 +1,11 @@
 package renderer
 
 import (
-	"github.com/BadLiveware/promshim-ch/internal/promshim/emit"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"fmt"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/emit"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/sqlb"
 )
 
 // syntheticSeriesValueSQL returns the SQL expression that computes the
@@ -136,4 +136,3 @@ func renderScalarConvertFromSource(childSource sqlb.Source, childParams map[stri
 		return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
 	}
 }
-

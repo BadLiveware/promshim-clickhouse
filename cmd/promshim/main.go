@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim"
 )
 
 func main() {

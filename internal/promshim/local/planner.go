@@ -4,12 +4,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/local/exec"
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	logicalopt "github.com/BadLiveware/promshim-ch/internal/promshim/logical/opt"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
-	nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/local/exec"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	logicalopt "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical/opt"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
+	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 
 	"github.com/prometheus/prometheus/promql/parser"
 )

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -213,8 +213,8 @@ func TestAnalyzeShapeSubqueryAnchorPropagates(t *testing.T) {
 		Timestamp:  sub.Timestamp,
 		StartOrEnd: sub.StartOrEnd,
 		Child: &logicalpkg.AggregationPlan{
-			Expr: sub.Expr.(*parser.AggregateExpr),
-			Op:   sub.Expr.(*parser.AggregateExpr).Op,
+			Expr:  sub.Expr.(*parser.AggregateExpr),
+			Op:    sub.Expr.(*parser.AggregateExpr).Op,
 			Child: &logicalpkg.LeafExprPlan{Expr: sub.Expr.(*parser.AggregateExpr).Expr},
 		},
 	}

@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 )
 
 // errUnsupportedLowerNode is returned by Lower when the node kind is

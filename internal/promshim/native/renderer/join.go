@@ -1,14 +1,14 @@
 package renderer
 
 import (
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"fmt"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 	"strconv"
 	"strings"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage/schema"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/sqlb"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage/schema"
 	"github.com/prometheus/prometheus/model/labels"
 )
 

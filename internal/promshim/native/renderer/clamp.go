@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 )
 
 // clampBoundBinding collects the per-bound (min or max) SQL pieces and the

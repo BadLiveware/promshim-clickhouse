@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	modelpkg "github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	modelpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 )
 
 func ApplyLabelReplaceRuntimeValue(value modelpkg.RuntimeValue, cfg modelpkg.LabelReplaceConfig) (modelpkg.RuntimeValue, error) {

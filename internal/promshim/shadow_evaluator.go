@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	httpapi "github.com/BadLiveware/promshim-ch/internal/promshim/httpapi"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/local"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/shadow"
+	httpapi "github.com/BadLiveware/promshim-clickhouse/internal/promshim/httpapi"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/local"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/shadow"
 )
 
 func (h *queryService) EvaluateInstantShadow(ctx context.Context, req httpapi.InstantQueryRequest) shadow.InstantResult {

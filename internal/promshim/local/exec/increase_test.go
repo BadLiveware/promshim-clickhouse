@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 )
 
 func TestApplyIncreaseInstantUsesDeltaAcrossSamples(t *testing.T) {

@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"strings"
 
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	modelpkg "github.com/BadLiveware/promshim-ch/internal/promshim/model"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	modelpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 )
 
 // renderLabelTransformFromSource wraps a pre-rendered child source in the

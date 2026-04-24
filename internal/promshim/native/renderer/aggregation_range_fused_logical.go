@@ -3,9 +3,9 @@ package renderer
 import (
 	"fmt"
 
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -220,4 +220,3 @@ func rangeFunctionParamNumbers(rangeNode logicalpkg.Node) (*float64, []*float64)
 		return nil, nil
 	}
 }
-

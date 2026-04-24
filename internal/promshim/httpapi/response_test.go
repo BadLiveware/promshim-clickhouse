@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 )
 
 func TestRenderInstantQueryValueForVector(t *testing.T) {

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 )
 
 // lowerSubquery lowers a SubqueryPlan (PromQL subquery expressions like

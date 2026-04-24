@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"strings"
 
-	httpapi "github.com/BadLiveware/promshim-ch/internal/promshim/httpapi"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/local/exec"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
+	httpapi "github.com/BadLiveware/promshim-clickhouse/internal/promshim/httpapi"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/local/exec"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 

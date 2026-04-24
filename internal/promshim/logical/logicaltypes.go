@@ -3,7 +3,7 @@ package logical
 import (
 	"time"
 
-	modelpkg "github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	modelpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )

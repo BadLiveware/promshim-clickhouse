@@ -3,8 +3,8 @@ package renderer
 import (
 	"fmt"
 
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 )
 
 // lowerSortTransform renders sort/sort_desc/sort_by_label/sort_by_label_desc

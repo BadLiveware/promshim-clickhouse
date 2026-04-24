@@ -17,7 +17,7 @@ package emit
 import (
 	"strconv"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/sqlb"
 )
 
 // --- Tag-array primitives -------------------------------------------------

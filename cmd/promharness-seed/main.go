@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/BadLiveware/promshim-ch/internal/promharness"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promharness"
 )
 
 func main() {

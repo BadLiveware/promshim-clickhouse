@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 )
 
 type ResponseStats struct{ Series, Points int64 }

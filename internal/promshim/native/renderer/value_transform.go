@@ -3,7 +3,7 @@ package renderer
 import (
 	"math"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 )
 
 // buildRoundValueExpr returns the ValueTransform template for PromQL

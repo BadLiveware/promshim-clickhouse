@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 

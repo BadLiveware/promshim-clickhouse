@@ -3,7 +3,7 @@ package renderer
 import (
 	"fmt"
 
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 )
 
 // lowerVector delegates to Lower on the scalar child because vector()

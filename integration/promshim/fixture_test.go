@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim"
 )
 
 type fixture struct {

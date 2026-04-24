@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/obs"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/obs"
 )
 
 type stubService struct {

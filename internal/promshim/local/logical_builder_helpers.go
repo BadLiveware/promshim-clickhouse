@@ -1,7 +1,7 @@
 package local
 
 import (
-	"github.com/BadLiveware/promshim-ch/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	promlabels "github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )

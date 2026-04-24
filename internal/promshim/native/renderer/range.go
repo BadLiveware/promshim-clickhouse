@@ -1,13 +1,13 @@
 package renderer
 
 import (
-	"github.com/BadLiveware/promshim-ch/internal/promshim/emit"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"fmt"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/emit"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 	"strconv"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/sqlb"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 )
 
 func preferDirectSelectorWindowJoin(lookbackMS, stepMS int64) bool {

@@ -3,7 +3,7 @@ package exec
 import (
 	"sort"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 )
 
 func ApplyDoubleExponentialSmoothing(sf, tf float64, input model.RuntimeValue) (model.VectorValue, error) {

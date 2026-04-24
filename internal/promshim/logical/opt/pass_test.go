@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/logical/opt"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical/opt"
 )
 
 type noopPass struct{}

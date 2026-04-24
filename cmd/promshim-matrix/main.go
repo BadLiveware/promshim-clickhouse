@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/compliance"
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/compliance"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 

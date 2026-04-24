@@ -3,7 +3,7 @@ package renderer
 import (
 	"fmt"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/sqlb"
 )
 
 // buildRangeFunctionOverWindowedArraysRowsSQL builds the inner row SQL for a

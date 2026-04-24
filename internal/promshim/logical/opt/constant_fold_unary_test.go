@@ -3,8 +3,8 @@ package opt_test
 import (
 	"testing"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/logical/opt"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical/opt"
 )
 
 func TestConstantFoldDoubleNegation(t *testing.T) {

@@ -32,12 +32,12 @@ const LatencyThresholdMillis = 3.0
 //
 //   - strategy_change   : current row's Strategy differs from baseline's
 //   - strategy_flap     : current row flapped strategy across repeats (orthogonal
-//                         to baseline — if the shim is non-deterministic in path
-//                         choice, that alone is a bug)
+//     to baseline — if the shim is non-deterministic in path
+//     choice, that alone is a bug)
 //   - ch_roundtrips     : current row's CHRoundtrips > baseline's (strict; any
-//                         increase is signal)
+//     increase is signal)
 //   - latency           : current p50 > baseline p50 * (1 + LatencyThresholdPercent)
-//                         AND (current p50 - baseline p50) > LatencyThresholdMillis
+//     AND (current p50 - baseline p50) > LatencyThresholdMillis
 func CompareBaseline(current, baseline BenchReport) []Regression {
 	byKey := map[string]BenchRow{}
 	for _, row := range baseline.Rows {

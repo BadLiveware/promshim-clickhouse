@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 )
 
 func ApplySortFunction(name string, input model.RuntimeValue, labels []string) (model.VectorValue, error) {

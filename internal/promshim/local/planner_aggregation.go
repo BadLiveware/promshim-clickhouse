@@ -3,8 +3,8 @@ package local
 import (
 	"context"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/local/exec"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/local/exec"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 

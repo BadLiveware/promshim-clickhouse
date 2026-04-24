@@ -3,9 +3,9 @@ package renderer
 import (
 	"fmt"
 
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage/schema"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/sqlb"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage/schema"
 )
 
 // renderedFragment is the typed form of a rendered native fragment. A fragment

@@ -1,8 +1,8 @@
 package local
 
 import (
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 )
 
 func maybeBuildNativeLeafPlan(node *logicalLeafExprPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {

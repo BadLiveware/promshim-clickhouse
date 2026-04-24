@@ -1,4 +1,4 @@
-# Project AGENTS (promshim-ch)
+# Project AGENTS (promshim-clickhouse)
 
 ## Purpose
 

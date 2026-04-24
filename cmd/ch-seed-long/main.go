@@ -26,7 +26,7 @@ import (
 
 	"github.com/prometheus/prometheus/prompb"
 
-	"github.com/BadLiveware/promshim-ch/internal/promharness"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promharness"
 )
 
 // profiles maps named dashboard ranges to (end-time, duration, step).
@@ -284,4 +284,3 @@ func withBasicAuth(raw, user, pass string) string {
 	}
 	return raw[:idx+3] + user + ":" + pass + "@" + raw[idx+3:]
 }
-

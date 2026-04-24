@@ -1,6 +1,6 @@
 package exec
 
-import "github.com/BadLiveware/promshim-ch/internal/promshim/model"
+import "github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 
 func ApplyAbsent(input model.RuntimeValue, outputMetric map[string]string, timestamp float64) (model.VectorValue, error) {
 	vector, ok := input.(model.VectorValue)

@@ -1,6 +1,6 @@
 package exec
 
-import "github.com/BadLiveware/promshim-ch/internal/promshim/model"
+import "github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 
 type LocalRangeOperatorDescriptor struct {
 	Name             string

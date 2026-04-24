@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"net/url"
 
-	httpapi "github.com/BadLiveware/promshim-ch/internal/promshim/httpapi"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/local"
+	httpapi "github.com/BadLiveware/promshim-clickhouse/internal/promshim/httpapi"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/local"
 )
 
 func metadataHTTPRequest(ctx context.Context, req httpapi.MetadataRequest) (*http.Request, *httpapi.APIError) {

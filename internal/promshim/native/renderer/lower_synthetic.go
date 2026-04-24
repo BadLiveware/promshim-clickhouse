@@ -3,10 +3,10 @@ package renderer
 import (
 	"fmt"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/emit"
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/emit"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/sqlb"
 )
 
 // lowerPointwiseFunction lowers a PointwiseFunctionPlan to a

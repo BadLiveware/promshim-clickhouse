@@ -1,7 +1,7 @@
 package renderer
 
 import (
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 )
 
 // decideHistogramChildNarrowing returns the tag-narrowing decision for a

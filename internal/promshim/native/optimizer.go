@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/prometheus/prometheus/model/labels"
 )
 
@@ -353,7 +353,6 @@ func matcherStrings(matchers []*labels.Matcher) []string {
 	}
 	return predicates
 }
-
 
 // requiredColumnsFromInfo mirrors the legacy requiredColumnsForFragment
 // walk over the LoweringInfo side-map. Each node contributes its output

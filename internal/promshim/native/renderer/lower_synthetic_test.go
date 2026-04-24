@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 )
 
 // syntheticFuncCases covers the eight zero-arg synthetic date

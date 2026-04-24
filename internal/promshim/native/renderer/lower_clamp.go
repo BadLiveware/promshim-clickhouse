@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 )
 
 // lowerClamp lowers a PointwiseFunctionPlan whose Func is one of clamp,

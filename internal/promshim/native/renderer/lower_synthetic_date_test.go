@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 )
 
 // TestLowerSyntheticDateGolden locks in the exact SQL for all 8 date

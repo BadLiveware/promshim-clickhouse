@@ -5,9 +5,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/local/exec"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/local/exec"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )

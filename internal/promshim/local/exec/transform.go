@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 )
 
 func ApplyVector(input model.RuntimeValue) (model.VectorValue, error) {

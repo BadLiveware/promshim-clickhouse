@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 )
 
 func newScanner(body io.Reader) *bufio.Scanner {

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/compliance"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/compliance"
 	"go.yaml.in/yaml/v2"
 )
 

@@ -3,7 +3,7 @@ package local
 import (
 	"testing"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 )
 
 func TestNormalizeInternalErrorMapsNativeDuplicateJoinGuardToBadData(t *testing.T) {

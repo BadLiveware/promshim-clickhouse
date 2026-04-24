@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 
 	"github.com/prometheus/prometheus/model/labels"
 )

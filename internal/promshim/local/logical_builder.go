@@ -1,7 +1,7 @@
 package local
 
 import (
-	"github.com/BadLiveware/promshim-ch/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 

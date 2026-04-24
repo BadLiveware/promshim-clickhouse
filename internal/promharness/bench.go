@@ -60,11 +60,11 @@ type BenchSummary struct {
 }
 
 type BenchReport struct {
-	CorpusPath string       `json:"corpusPath"`
-	Manifest   Manifest     `json:"manifest"`
-	GeneratedAt string      `json:"generatedAt"`
-	Rows       []BenchRow   `json:"rows"`
-	Summary    BenchSummary `json:"summary"`
+	CorpusPath  string       `json:"corpusPath"`
+	Manifest    Manifest     `json:"manifest"`
+	GeneratedAt string       `json:"generatedAt"`
+	Rows        []BenchRow   `json:"rows"`
+	Summary     BenchSummary `json:"summary"`
 }
 
 // RunBench drives each query in the corpus three ways — Prometheus (no

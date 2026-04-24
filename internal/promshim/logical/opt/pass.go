@@ -3,7 +3,7 @@ package opt
 import (
 	"fmt"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 )
 
 // Pass is a pure rewrite over the logical IR. Apply returns the

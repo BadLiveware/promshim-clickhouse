@@ -86,4 +86,3 @@ func TestLowerUnaryNilErrors(t *testing.T) {
 		t.Fatalf("expected non-sentinel error for nil node, got sentinel")
 	}
 }
-

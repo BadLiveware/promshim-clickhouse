@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strconv"
 
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 )
 
 // lowerAbsent dispatches to either the AbsentPlan or AbsentOverTimePlan

@@ -1,6 +1,6 @@
 package local
 
-import nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
+import nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 
 type planEstimate struct {
 	RangeSeconds    float64 `json:"rangeSeconds,omitempty"`

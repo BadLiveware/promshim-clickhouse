@@ -3,9 +3,9 @@ package compliance
 import (
 	"strings"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/local"
-	nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/local"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 )
 
 type NativeMeasurementSnapshot struct {

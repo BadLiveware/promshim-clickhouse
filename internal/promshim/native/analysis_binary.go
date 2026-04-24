@@ -3,7 +3,7 @@ package native
 import (
 	"math"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -147,11 +147,11 @@ func applyUnarySourceTransform(op parser.ItemType, valueExpr string, childDropsM
 // the resulting LabelLineage so the Analyze caller can flip those onto
 // the LoweringInfo.
 type valueTransformResult struct {
-	View       ValueTransformView
-	OutputKind OutputKind
+	View        ValueTransformView
+	OutputKind  OutputKind
 	DropsMetric bool
-	Runtime    *RuntimeValueTransform
-	Lineage    LabelLineage
+	Runtime     *RuntimeValueTransform
+	Lineage     LabelLineage
 }
 
 func applyUnaryValueTransform(op parser.ItemType, childOutputKind OutputKind, childDropsMetric bool, childLineage LabelLineage) (valueTransformResult, bool) {

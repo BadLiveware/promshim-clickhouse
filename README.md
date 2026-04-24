@@ -1,7 +1,10 @@
-# promshim
+# promshim-clickhouse
 
-`promshim` is a Prometheus HTTP API compatibility layer for metrics stored in
-ClickHouse's experimental `TimeSeries` table engine.
+`promshim` is a PromQL compatibility layer for metrics stored in ClickHouse's
+experimental `TimeSeries` table engine. It exposes the Prometheus HTTP query API
+and routes each query through tiered execution: whole-query ClickHouse PromQL
+delegation, native ClickHouse SQL lowering, and compatibility-preserving local
+fallback.
 
 It lets existing Prometheus clients — most importantly Grafana dashboards and
 PromQL-based tooling — continue to ask Prometheus-shaped questions while the

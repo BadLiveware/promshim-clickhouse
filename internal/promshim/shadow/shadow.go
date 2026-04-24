@@ -8,9 +8,9 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/BadLiveware/promshim-ch/internal/promharness"
-	httpapi "github.com/BadLiveware/promshim-ch/internal/promshim/httpapi"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promharness"
+	httpapi "github.com/BadLiveware/promshim-clickhouse/internal/promshim/httpapi"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 )
 
 type Comparison struct {

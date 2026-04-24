@@ -3,7 +3,7 @@ package exec
 import (
 	"testing"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 )
 
 func TestApplyLabelReplaceRuntimeValueAddsLabel(t *testing.T) {

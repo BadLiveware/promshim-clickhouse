@@ -3,9 +3,9 @@ package storage
 import (
 	"fmt"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/emit"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage/schema"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/emit"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/sqlb"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage/schema"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 )
 
 func TestClassifyEntireQueryDelegationAcceptsAllowedRoots(t *testing.T) {

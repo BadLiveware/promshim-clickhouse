@@ -3,7 +3,7 @@ package renderer
 import (
 	"testing"
 
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 

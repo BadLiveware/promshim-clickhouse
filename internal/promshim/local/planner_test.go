@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
-	nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
+	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 

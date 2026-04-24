@@ -1449,7 +1449,7 @@ func TestExplainPlanDescribesNativeAggregationStrategy(t *testing.T) {
 	if len(explain.Children) != 1 || explain.Children[0].Strategy != "delegated_promql" {
 		t.Fatalf("expected delegated leaf child explain, got %#v", explain.Children)
 	}
-	if explain.Children[0].Lowering == nil || explain.Children[0].Lowering.FragmentKind == "" {
+	if explain.Children[0].Lowering == nil || explain.Children[0].Lowering.SubtreeShape == "" {
 		t.Fatalf("expected lowering metadata on delegated child explain, got %#v", explain.Children)
 	}
 	if len(explain.RulesApplied) == 0 || explain.RenderedSQL == "" {

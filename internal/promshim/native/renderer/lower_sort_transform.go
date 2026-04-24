@@ -9,12 +9,12 @@ import (
 
 // lowerSortTransform renders sort/sort_desc/sort_by_label/sort_by_label_desc
 // directly. Range mode is a passthrough (sort is a no-op over matrix data);
-// instant mode wraps the Lower-rendered child in the SORT outer SELECT,
-// shared with the Fragment path via renderSortTransformInstantFromSource.
+// instant mode wraps the Lower-rendered child in the SORT outer SELECT via
+// renderSortTransformInstantFromSource.
 //
 // Hierarchical fallback: if the child kind isn't yet direct-renderable,
 // Lower returns errUnsupportedLowerNode and we propagate it so the caller
-// falls back to the Fragment rendering path wholesale.
+// falls back to the next execution tier.
 func lowerSortTransform(ctx LoweringCtx, n *logicalpkg.SortPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerSortTransform called with nil")

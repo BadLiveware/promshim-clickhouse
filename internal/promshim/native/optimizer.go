@@ -225,7 +225,7 @@ func applyCommonMatcherInference(state *optimizerState) error {
 	if selector == nil {
 		return nil
 	}
-	// Task 13c-9: Analyze has pre-populated InferredMatchers on the leaf
+	// Analyze has pre-populated InferredMatchers on the leaf
 	// selector. This pass is pure report-emission.
 	state.report.InferredPredicates = mergeUniqueStrings(state.report.InferredPredicates, matcherStrings(selector.InferredMatchers)...)
 	return nil
@@ -236,8 +236,8 @@ func applyLabelPredicatePushdown(state *optimizerState) error {
 	if selector == nil {
 		return nil
 	}
-	// Task 13c-9: PushedMatchers is pre-populated by Analyze on the
-	// production path. Pure report-emission.
+	// PushedMatchers is pre-populated by Analyze on the production
+	// path. Pure report-emission.
 	state.report.PushedPredicates = mergeUniqueStrings(state.report.PushedPredicates, matcherStrings(selector.PushedMatchers)...)
 	return nil
 }
@@ -471,9 +471,7 @@ func semanticBarriersFromTimeRequirements(info *LoweringInfo) []string {
 //     "metric_name_lineage_change" barrier.
 //   - For aggregation nodes, info.Children[0].LabelLineage covers the
 //     "parent aggregation + metric-dropping child" shape.
-//   - absent_over_time reads info.Fragment.Absent.Func — absent-func
-//     has not yet been lifted onto a LoweringInfo field (14d
-//     territory).
+//   - absent_over_time is identified via info.AbsentFunc.
 func semanticBarriersFromLogical(node logicalpkg.Node, analysis *Analysis) []string {
 	if node == nil || analysis == nil {
 		return nil

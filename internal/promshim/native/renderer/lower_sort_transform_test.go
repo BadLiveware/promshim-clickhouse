@@ -21,9 +21,8 @@ var sortTransformCases = []struct {
 }
 
 // TestLowerSortTransformGolden locks in the exact SQL for a subset of
-// the differential cases. Run with -update to regenerate. We lock the
-// sort and sort_by_label cases in both render modes; the other variants
-// are covered by the differential guard alone.
+// sortTransformCases. Run with -update to regenerate. We lock the sort
+// and sort_by_label cases in both render modes.
 func TestLowerSortTransformGolden(t *testing.T) {
 	goldenCases := []struct {
 		name  string

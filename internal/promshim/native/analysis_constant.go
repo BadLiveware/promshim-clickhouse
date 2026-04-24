@@ -7,10 +7,10 @@ import (
 )
 
 // syntheticLiteralValue reports whether info corresponds to a folded
-// scalar literal (FragmentKindSyntheticSeries / OutputKindScalar with
+// scalar literal (synthetic series with OutputKindScalar and
 // SyntheticSeries.Func == "literal"), returning the literal value. It
 // drives the Analyze walk's constant-folding branches for unary and
-// binary plans without dereferencing NativeFragment.
+// binary plans.
 func syntheticLiteralValue(info *LoweringInfo) (float64, bool) {
 	if info == nil || info.SyntheticSeries == nil {
 		return 0, false

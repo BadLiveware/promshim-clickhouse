@@ -22,9 +22,8 @@ var labelTransformCases = []struct {
 }
 
 // TestLowerLabelTransformGolden locks in the exact SQL for a representative
-// subset of the differential cases. Run with -update to regenerate. We lock
-// label_replace_simple and label_join_two in both render modes; the other
-// variants are covered by the differential guard alone.
+// subset of labelTransformCases. Run with -update to regenerate. We lock
+// label_replace_simple and label_join_two in both render modes.
 func TestLowerLabelTransformGolden(t *testing.T) {
 	goldenCases := []struct {
 		name  string

@@ -89,26 +89,22 @@ type AggregationSupport struct {
 	// Nil when the aggregation has no native source (ineligible, or the
 	// child did not produce a lowerable source expression).
 	SourceInfo *LoweringInfo
-	// SourceView captures the four-field slice of the aggregation source
-	// that nativeAggregationSourceFromLowering currently reads off
-	// Source (SourcePromQL / ValueExpr / TagsExpr / DropsMetric) —
-	// mirrored here so the reader can drop the Fragment dereference.
-	// Nil when the aggregation has no native source (Eligible=false or
-	// the source fragment carries no SourcePromQL — the reader's gate).
+	// SourceView carries the four source fields
+	// nativeAggregationSourceFromLowering consumes: SourcePromQL,
+	// ValueExpr, TagsExpr, DropsMetric. Nil when the aggregation has
+	// no native source (Eligible=false or the source carries no
+	// SourcePromQL — the reader's gate).
 	SourceView *AggregationSourceView
-	// EmitZeroOnEmpty mirrors AggregationFragment.EmitZeroOnEmpty. Populated
-	// during the Analyze walk for the `sum(... or vector(0))` zero-fill
-	// shape so renderAggregationLogicalBody can branch on it without
-	// dereferencing info.Fragment.Aggregation.
+	// EmitZeroOnEmpty is set for the `sum(... or vector(0))` zero-fill
+	// shape so renderAggregationLogicalBody can branch on it.
 	EmitZeroOnEmpty bool
 }
 
-// AggregationSourceView mirrors the four NativeFragment fields that
-// the tier-3 aggregation-pushdown reader
-// (nativeAggregationSourceFromLowering) currently dereferences off
-// info.Aggregation.Source: SourcePromQL, ValueExpr, TagsExpr,
-// DropsMetric. Populated during the Analyze walk when the aggregation
-// has a native-lowerable source fragment whose SourcePromQL is
+// AggregationSourceView carries the four source fields the tier-3
+// aggregation-pushdown reader (nativeAggregationSourceFromLowering)
+// consumes off info.Aggregation.SourceInfo: SourcePromQL, ValueExpr,
+// TagsExpr, DropsMetric. Populated during the Analyze walk when the
+// aggregation has a native-lowerable source whose SourcePromQL is
 // non-nil (the reader's gate). Nil otherwise.
 type AggregationSourceView struct {
 	SourcePromQL parser.Expr
@@ -138,37 +134,31 @@ type LoweringInfo struct {
 	// SubtreeShape.
 	DropsMetric bool
 
-	// AbsentFunc mirrors Fragment.Absent.Func ("absent" or
-	// "absent_over_time"). Populated on AbsentPlan / AbsentOverTimePlan
-	// nodes so semanticBarriersFromLogical can distinguish the two
-	// without reading info.Fragment.
+	// AbsentFunc is "absent" or "absent_over_time". Populated on
+	// AbsentPlan / AbsentOverTimePlan nodes so semanticBarriersFromLogical
+	// can distinguish the two.
 	AbsentFunc string
 
-	// HistogramFunc mirrors Fragment.HistogramFunction.Func
-	// ("histogram_quantile", "histogram_fraction", "histogram_quantiles").
-	// Populated alongside SubtreeShapeHistogramFunction so tier-3
-	// dispatchers can gate on the specific histogram variant without
-	// reading info.Fragment.
+	// HistogramFunc is "histogram_quantile", "histogram_fraction", or
+	// "histogram_quantiles". Populated alongside
+	// SubtreeShapeHistogramFunction so tier-3 dispatchers can gate on
+	// the specific histogram variant.
 	HistogramFunc string
 
 	LabelLineage     LabelLineage
 	TimeRequirements TimeRequirements
 	Children         []*LoweringInfo
 
-	// Shape lifts selector-derived structural information off the
-	// Fragment sub-struct onto the logical-side analysis record so
-	// tier-2 helpers can eventually read it without dereferencing
-	// NativeFragment. Populated during Analyze; the corresponding
-	// Fragment fields remain authoritative until Task 13a-d ports
-	// consumers over. See SelectorShape for field semantics.
+	// Shape carries selector-derived structural information consumed by
+	// tier-2 helpers. Populated during Analyze. See SelectorShape for
+	// field semantics.
 	Shape SelectorShape
 
-	// JoinShape mirrors fragment.BinaryJoin.JoinShape for nodes that
-	// lower through the BinaryVectorJoin path. Non-empty only when the
-	// node corresponds to a supported vector-vector join
+	// JoinShape describes the join cardinality for nodes that lower
+	// through the BinaryVectorJoin path. Non-empty only when the node
+	// corresponds to a supported vector-vector join
 	// (isSupportedNativeVectorJoinOp true + SupportedNativeVectorJoinShape
-	// returned (shape, true)). Consumed by explain() to surface the
-	// join cardinality without dereferencing NativeFragment.
+	// returned (shape, true)). Consumed by explain().
 	JoinShape string
 
 	// JoinLabels mirrors VectorMatching.MatchingLabels on the binary
@@ -176,39 +166,35 @@ type LoweringInfo struct {
 	// non-empty.
 	JoinLabels []string
 
-	// RuntimeValueTransform mirrors fragment.ValueTransform.RuntimeTransform
-	// for nodes whose ValueTransform fragment carries a post-SQL runtime
-	// correction (currently: PromQL modulo correction on scalar-involving
-	// modulo expressions). Consumed by nativeSubtreePlan.execute() to
-	// apply the correction to decoded samples without dereferencing
-	// NativeFragment.
+	// RuntimeValueTransform carries a post-SQL runtime correction for
+	// nodes whose ValueTransform view needs one (currently: PromQL
+	// modulo correction on scalar-involving modulo expressions).
+	// Consumed by nativeSubtreePlan.execute() to apply the correction to
+	// decoded samples.
 	RuntimeValueTransform *RuntimeValueTransform
 
-	// SubtreeShape mirrors Fragment.Kind for this node's analysis-time
-	// Fragment, but typed as a distinct SubtreeShape so tier-3 consumers
-	// no longer depend on the FragmentKind enum. Populated by a single
-	// post-walk pass in Analyze. Reflects the pre-optimize Kind
-	// (OptimizeFragment operates on a clone, so info.Fragment.Kind is
-	// never mutated). Empty ("") when Fragment is nil.
+	// SubtreeShape classifies this node's lowered SQL shape for tier-3
+	// consumers. Populated by a single post-walk pass in Analyze. Empty
+	// ("") when the node is not lowerable.
 	SubtreeShape SubtreeShape
 
-	// LeafSelector mirrors fragment.Selector on the base leaf (Vector/
-	// Matrix) selector reached from this node. Populated during the
-	// Analyze walk for LeafExprPlan nodes so Lower can read the cached
-	// selector without dereferencing info.Fragment.
+	// LeafSelector is the base leaf (Vector/Matrix) selector reached
+	// from this node. Populated during the Analyze walk for LeafExprPlan
+	// nodes so Lower can read the cached selector.
 	//
-	// After 13c-14e native.SelectorSource carries no narrowing state;
-	// tag-narrowing flows purely through RenderParams at render time.
-	// The LeafSelector pointer is stable across a query's Analyze pass
-	// and not cloned for rendering. Nil when the node is not a leaf
-	// selector or when selector-source analysis failed.
+	// native.SelectorSource carries no narrowing state; tag-narrowing
+	// flows purely through RenderParams at render time. The LeafSelector
+	// pointer is stable across a query's Analyze pass and not cloned
+	// for rendering. Nil when the node is not a leaf selector or when
+	// selector-source analysis failed.
 	LeafSelector *SelectorSource
 
-	// SourceExpr captures the "source expression" view the renderer needs
-	// to emit SQL for nodes that lower through renderSourceFragment —
-	// specifically LeafSource, UnarySourceExpr, and BinaryScalarSourceExpr
-	// kinds. Populated during the Analyze walk for each lowerable node
-	// of these shapes. Nil otherwise. See SourceExprView.
+	// SourceExpr captures the "source expression" view the renderer
+	// reads to emit SQL for nodes that lower through the
+	// source-expression shapes (LeafSource, UnarySourceExpr,
+	// BinaryScalarSourceExpr). Populated during the Analyze walk for
+	// each lowerable node of these shapes. Nil otherwise. See
+	// SourceExprView.
 	SourceExpr *SourceExprView
 
 	// ValueTransform mirrors the renderer's ValueTransform wrapping view
@@ -222,58 +208,44 @@ type LoweringInfo struct {
 
 	// SyntheticSeries captures the scalar-literal fold for BinaryPlan
 	// nodes whose two sides fold to a constant (e.g. `1 + 2`, `pi() +
-	// pi()` via syntheticLiteralValue). The lowerer dispatches off this
-	// view to renderScalarLiteralFragment without dereferencing
-	// info.Fragment. Populated alongside
-	// FragmentKindSyntheticSeries/OutputKindScalar with Func=="literal".
-	// Nil otherwise. See SyntheticSeriesView.
+	// pi()` via syntheticLiteralValue) as well as synthetic-builtin
+	// series (time(), pi(), date functions). Lower dispatches off this
+	// view to render without re-running the fold. Populated alongside
+	// SubtreeShapeSyntheticSeries. Nil otherwise. See SyntheticSeriesView.
 	SyntheticSeries *SyntheticSeriesView
 
-	// RangeFunctionSubquery mirrors RangeFunctionFragment.Child when the
-	// range-function's child is a subquery fragment
-	// (FragmentKindSubquery). Populated during the Analyze walk on each
+	// RangeFunctionSubquery is populated during the Analyze walk on each
 	// of the seven range-function plan kinds (RangeFunctionPlan, RatePlan,
 	// IncreasePlan, DeltaPlan, ChangesPlan, DerivPlan, QuantileOverTimePlan)
-	// whenever that child is a Subquery fragment. Holds the same
-	// *SubqueryFragment pointer stored in info.Fragment.RangeFunction.Child.
-	// Subquery so the renderer can drive the subquery-fast-path branches
-	// without dereferencing info.Fragment.RangeFunction. Nil otherwise.
+	// whenever that range-function's child is a subquery. Holds the
+	// pre-computed subquery descriptor so the renderer can drive the
+	// subquery-fast-path branches. Nil otherwise.
 	RangeFunctionSubquery *SubqueryFragment
 }
 
-// SourceExprView is the analysis-side mirror of the Selector / ValueExpr /
-// TagsExpr / SourcePromQL / DropsMetric fields on NativeFragment for the
-// source-expression kinds (LeafSource, UnarySourceExpr,
-// BinaryScalarSourceExpr). It lets Lower render those shapes without
-// dereferencing info.Fragment.
-//
-// Selector holds the same *SelectorSource pointer stored in
-// info.Fragment.Selector; the remaining fields are value-typed and
-// captured at Analyze time. After 13c-14e the selector carries no
-// narrowing state — RenderParams is the single source of truth.
+// SourceExprView is the analysis-side view for nodes that lower
+// through the source-expression shapes (LeafSource, UnarySourceExpr,
+// BinaryScalarSourceExpr). Selector carries no narrowing state —
+// RenderParams is the single source of truth for narrowing.
 type SourceExprView struct {
-	// Selector mirrors fragment.Selector (same pointer).
 	Selector *SelectorSource
-	// ValueExpr mirrors fragment.ValueExpr. For LeafSource this is
-	// "{value}"; for UnarySourceExpr it is the composed pointwise template
-	// (e.g. "abs({value})"); for BinaryScalarSourceExpr it carries the
-	// scalar-involving operator template.
+	// ValueExpr is the per-sample value template. For LeafSource this is
+	// "{value}"; for UnarySourceExpr it is the composed pointwise
+	// template (e.g. "abs({value})"); for BinaryScalarSourceExpr it
+	// carries the scalar-involving operator template.
 	ValueExpr string
-	// TagsExpr mirrors fragment.TagsExpr.
+	// TagsExpr is the per-sample tags template.
 	TagsExpr string
-	// SourcePromQL mirrors fragment.SourcePromQL — non-nil only for
-	// ResolveSourcePromQL-driven fallback paths that do not have a
-	// native Selector. Rare in practice.
+	// SourcePromQL is non-nil only for ResolveSourcePromQL-driven
+	// fallback paths that do not have a native Selector. Rare in practice.
 	SourcePromQL parser.Expr
-	// DropsMetric mirrors fragment.DropsMetric.
+	// DropsMetric governs whether the outer SELECT strips __name__ from
+	// the tags column.
 	DropsMetric bool
 }
 
-// ValueTransformView is the analysis-side mirror of the ValueExpr /
-// FilterExpr / DropsMetric fields on ValueTransformFragment for BinaryPlan
-// nodes whose scalar-involving shape lowers via
-// renderValueTransformFromSource. It lets Lower render those shapes
-// without dereferencing info.Fragment.
+// ValueTransformView is the analysis-side view for BinaryPlan nodes
+// whose scalar-involving shape lowers via renderValueTransformFromSource.
 //
 // VectorChildOnLeft identifies which side of the enclosing BinaryPlan
 // carries the non-scalar child whose SQL the ValueTransform wraps. When
@@ -282,44 +254,39 @@ type SourceExprView struct {
 // flag to pick which child to recurse through for the wrapper's inner
 // SELECT.
 type ValueTransformView struct {
-	// VectorChildOnLeft reports which BinaryPlan side carries the non-
-	// scalar child (see struct doc).
 	VectorChildOnLeft bool
-	// ValueExpr mirrors ValueTransformFragment.ValueExpr — the inner
-	// value template wrapped around the child's "value" column.
+	// ValueExpr is the inner value template wrapped around the child's
+	// "value" column.
 	ValueExpr string
-	// FilterExpr mirrors ValueTransformFragment.FilterExpr — the filter
-	// template for comparison-filter arms (empty otherwise).
+	// FilterExpr is the filter template for comparison-filter arms
+	// (empty otherwise).
 	FilterExpr string
-	// DropsMetric mirrors ValueTransformFragment.DropsMetric. Governs
-	// whether the outer SELECT strips __name__ from the tags column.
+	// DropsMetric governs whether the outer SELECT strips __name__
+	// from the tags column.
 	DropsMetric bool
 }
 
 // SyntheticSeriesView captures the analysis-side view of a synthetic
-// series fragment: the folded scalar literal (Func=="literal") or the
-// synthetic builtin name (time/pi/minute/hour/... — the Func string on
-// the underlying SyntheticSeriesFragment). The enclosed Value is
-// populated alongside Func=="literal" (e.g. 3 for `1+2`); Lower reads
-// Func=="literal" + Value to render via renderScalarLiteralFragment
-// without dereferencing info.Fragment.
+// series: a folded scalar literal (Func=="literal") or a synthetic
+// builtin (time, pi, minute, hour, ...). Lower reads Func + Value to
+// render the right variant directly.
 type SyntheticSeriesView struct {
-	// Func mirrors SyntheticSeriesFragment.Func — "literal" for folded
-	// scalar literals (ScalarLiteralPlan / folded UnaryPlan / folded
-	// BinaryPlan), and the builtin name ("time", "pi", "minute", "hour",
-	// "day_of_week", "day_of_month", "day_of_year", "days_in_month",
-	// "month", "year") for synthetic scalar / date functions.
+	// Func is "literal" for folded scalar literals (ScalarLiteralPlan /
+	// folded UnaryPlan / folded BinaryPlan), or the builtin name
+	// ("time", "pi", "minute", "hour", "day_of_week", "day_of_month",
+	// "day_of_year", "days_in_month", "month", "year") for synthetic
+	// scalar / date functions.
 	Func string
 	// Value is the folded scalar result (e.g. 3 for `1+2`). Only
 	// meaningful when Func=="literal".
 	Value float64
 }
 
-// SelectorShape carries per-node selector/shape metadata that tier-2
-// renderer helpers currently read from NativeFragment sub-structs
-// (fragment.Selector.Kind / Lookback / Offset / Timestamp / StartOrEnd
-// and the HasFixedTemporalAnchor tree walk). It is populated during the
-// native.Analyze walk and available via Analysis.InfoFor(node).Shape.
+// SelectorShape carries per-node selector/shape metadata consumed by
+// tier-2 renderer helpers: SelectorKind / Lookback / Offset /
+// Timestamp / StartOrEnd and the HasFixedTemporalAnchor tree walk. It
+// is populated during the native.Analyze walk and available via
+// Analysis.InfoFor(node).Shape.
 //
 // HasSelector reports whether this node (directly, for leaf selectors)
 // or its descendants carry a base selector whose Kind/Lookback/Offset
@@ -335,44 +302,38 @@ type SelectorShape struct {
 	// zero-valued.
 	HasSelector bool
 
-	// SelectorKind mirrors fragment.Selector.Kind for the base
-	// selector reached from this node (InstantVector for plain vector
-	// selectors, RangeVector for matrix selectors).
+	// SelectorKind is InstantVector for plain vector selectors and
+	// RangeVector for matrix selectors reached from this node.
 	SelectorKind SelectorKind
 
-	// SelectorLookback mirrors fragment.Selector.Lookback on the base
-	// selector. For instant-vector selectors this is
-	// DefaultInstantSelectorLookback (the staleness window). For
-	// range-vector selectors this is the matrix range.
+	// SelectorLookback is the base selector's lookback. For
+	// instant-vector selectors this is DefaultInstantSelectorLookback
+	// (the staleness window). For range-vector selectors this is the
+	// matrix range.
 	SelectorLookback time.Duration
 
-	// SelectorOffset mirrors fragment.Selector.Offset on the base
-	// selector (VectorSelector.OriginalOffset).
+	// SelectorOffset is VectorSelector.OriginalOffset on the base
+	// selector.
 	SelectorOffset time.Duration
 
-	// SelectorTimestamp mirrors fragment.Selector.Timestamp (nil unless
-	// the selector uses an @ anchor).
+	// SelectorTimestamp is set when the selector uses an @ anchor; nil
+	// otherwise.
 	SelectorTimestamp *int64
 
-	// SelectorStartOrEnd mirrors fragment.Selector.StartOrEnd
-	// (parser.START / parser.END for start()/end() anchors, zero
-	// otherwise).
+	// SelectorStartOrEnd is parser.START / parser.END for start()/end()
+	// anchors, zero otherwise.
 	SelectorStartOrEnd parser.ItemType
 
-	// HasFixedTemporalAnchor mirrors native.HasFixedTemporalAnchor on
-	// the Fragment subtree rooted at this node: true when any node in
-	// the subtree pins evaluation to an @ timestamp or start()/end().
-	// Computed transitively during Analyze using child InfoFor lookups
-	// so later tier-2 ports can drop the Fragment-side recursion.
+	// HasFixedTemporalAnchor is true when any node in the subtree
+	// rooted at this node pins evaluation to an @ timestamp or
+	// start()/end(). Computed transitively during Analyze.
 	HasFixedTemporalAnchor bool
 
 	// OutputHasMetricName is structurally true whenever HasSelector is
-	// true. After 13c-14e native.SelectorSource carries no narrowing
-	// state — a base selector always emits __name__ as part of its
-	// tags; render-time RenderParams narrowing strips it later. The
-	// field is retained so existing callers (OutputHasMetricNameNode
-	// and its tests) keep their signature, but it is no longer a
-	// shape-dependent signal.
+	// true. native.SelectorSource carries no narrowing state — a base
+	// selector always emits __name__ as part of its tags; render-time
+	// RenderParams narrowing strips it later. The field is retained so
+	// existing callers keep their signature.
 	OutputHasMetricName bool
 }
 
@@ -405,7 +366,7 @@ type ExplainInfo struct {
 	OutputKind                  string               `json:"outputKind,omitempty"`
 	NativeLowerable             bool                 `json:"nativeLowerable"`
 	Reason                      string               `json:"reason,omitempty"`
-	FragmentKind                string               `json:"fragmentKind,omitempty"`
+	SubtreeShape                string               `json:"subtreeShape,omitempty"`
 	AggregationPushdownEligible bool                 `json:"aggregationPushdownEligible,omitempty"`
 	AggregationReason           string               `json:"aggregationReason,omitempty"`
 	RequiredLookbackSeconds     float64              `json:"requiredLookbackSeconds,omitempty"`
@@ -428,7 +389,7 @@ func (info *LoweringInfo) ExplainInfo() *ExplainInfo {
 		NeedsSubqueryStepGrid:   info.TimeRequirements.NeedsSubqueryStepGrid,
 	}
 	if info.SubtreeShape != "" {
-		explain.FragmentKind = string(info.SubtreeShape)
+		explain.SubtreeShape = string(info.SubtreeShape)
 	}
 	if info.Aggregation != nil {
 		explain.AggregationPushdownEligible = info.Aggregation.Eligible
@@ -460,11 +421,10 @@ func HasFixedTemporalAnchorNode(analysis *Analysis, node logicalpkg.Node) bool {
 }
 
 // OutputHasMetricNameNode reports whether the base selector reachable
-// from node emits __name__. After 13c-14e narrowing flows purely
-// through RenderParams at render time, so this is structurally true
-// whenever a base selector is reachable (HasSelector=true) and also
-// true when no selector is discoverable (matches the fragment-side
-// nil-selector default).
+// from node emits __name__. Narrowing flows purely through RenderParams
+// at render time, so this is structurally true whenever a base
+// selector is reachable (HasSelector=true) and also true when no
+// selector is discoverable (the conservative default).
 func OutputHasMetricNameNode(analysis *Analysis, node logicalpkg.Node) bool {
 	info := analysis.InfoFor(node)
 	if info == nil || !info.Shape.HasSelector {
@@ -473,12 +433,10 @@ func OutputHasMetricNameNode(analysis *Analysis, node logicalpkg.Node) bool {
 	return info.Shape.OutputHasMetricName
 }
 
-// RangeFunctionChildIsLeafSelector reports whether the RangeFunctionPlan's
-// child is a LeafExprPlan wrapping a selector expression (the "leaf
-// selector" structural predicate tier-2 range helpers pattern-match on
-// via fragment.Kind == FragmentKindLeafSource). It peers through the
-// logical tree via a Go type switch; a later port can drop the
-// corresponding fragment-kind checks in favor of this helper.
+// RangeFunctionChildIsLeafSelector reports whether the
+// RangeFunctionPlan's child is a LeafExprPlan wrapping a selector
+// expression (a Vector or Matrix selector). Peers through the logical
+// tree via a Go type switch.
 func RangeFunctionChildIsLeafSelector(child logicalpkg.Node) bool {
 	leaf, ok := child.(*logicalpkg.LeafExprPlan)
 	if !ok || leaf == nil {

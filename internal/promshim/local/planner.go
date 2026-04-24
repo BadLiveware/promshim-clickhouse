@@ -189,9 +189,8 @@ func BuildPlanWithContextAndAnalysis(expr parser.Expr, ctx PlanContext) (Plan, *
 	}
 	// Tier-2 whole-query router wiring: if the root plan is a
 	// nativeSubtreePlan, thread the logical root + analysis in so
-	// execute() can attempt renderer.Lower before falling back to
-	// renderer.RenderFragment. Subtree-pushdown sites (tier 3a) leave
-	// these nil and stay on the Fragment path.
+	// execute() can drive SQL via renderer.Lower. Subtree-pushdown
+	// sites (tier 3a) leave these nil.
 	attachLogicalRootForLower(plan, logicalRoot, logicalAnalysis)
 	return plan, analysis, nil
 }

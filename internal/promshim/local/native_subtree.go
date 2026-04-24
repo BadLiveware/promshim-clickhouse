@@ -32,20 +32,15 @@ type nativeSubtreePlan struct {
 	OptimizationReport *nativeplan.OptimizationReport
 	Info               *nativeplan.LoweringInfo
 	// LogicalRoot and LogicalAnalysis are populated only for the
-	// whole-query tier-2 plan. When set, execute() attempts
-	// renderer.Lower(ctx, LogicalRoot) first and falls back to
-	// renderer.RenderFragment on the errUnsupportedLowerNode sentinel.
-	// Subtree-pushdown construction sites (tier 3a) leave these nil
-	// and stay on the Fragment path unconditionally.
+	// whole-query tier-2 plan. When set, execute() calls
+	// renderer.Lower(ctx, LogicalRoot) to produce SQL directly from
+	// the logical tree. Subtree-pushdown construction sites (tier 3a)
+	// leave these nil and use the per-subtree Node/Analysis pair below.
 	LogicalRoot     logicalpkg.Node
 	LogicalAnalysis *logicalpkg.Analysis
 	// Node and Analysis carry the logical node and native analysis for
-	// this subtree. Populated at construction by every
-	// maybeBuildNative*Plan site so a later 13b-d port can flip the
-	// renderSQL path to consume the logical plan directly via
-	// renderer.RenderLogical instead of renderer.RenderFragment.
-	// Distinct from LogicalRoot/LogicalAnalysis which are set only for
-	// the whole-query tier-2 plan.
+	// this subtree; distinct from LogicalRoot/LogicalAnalysis which
+	// are set only for the whole-query tier-2 plan.
 	Node     logicalpkg.Node
 	Analysis *nativeplan.Analysis
 }
@@ -171,7 +166,7 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 //     from p.Analysis.
 //
 // When Lower reports errUnsupportedLowerNode, the call falls through
-// to the Fragment path so the query still renders correctly.
+// to the next execution tier so the query still renders correctly.
 func (p *nativeSubtreePlan) renderSQL(cfg storage.QueryConfig, renderParams renderer.RenderParams) (renderer.RenderedQuery, error) {
 	var (
 		lowerNode        logicalpkg.Node
@@ -285,9 +280,9 @@ func renderModeForPlanContext(ctx PlanContext) nativeplan.RenderMode {
 }
 
 // rejectRangeModeFixedTemporalAnchor is a no-op hook reserved for future
-// range-mode plan gating. It accepts the OptimizedFragment so tier-3
-// construction callers can drive range-mode rejection without reading
-// info.Fragment themselves.
+// range-mode plan gating. Tier-3 construction callers pass their
+// OptimizedFragment so rejection logic can be added later without
+// touching call sites.
 func rejectRangeModeFixedTemporalAnchor(ctx PlanContext, optimized *nativeplan.OptimizedFragment) bool {
 	_ = ctx
 	_ = optimized

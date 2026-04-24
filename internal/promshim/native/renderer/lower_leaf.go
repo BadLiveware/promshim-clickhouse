@@ -9,22 +9,16 @@ import (
 )
 
 // renderLeafLogical renders a top-level LeafExprPlan directly to a
-// renderedFragment without constructing an intermediate NativeFragment.
-// It replicates the non-folded LeafSource branch of renderSourceFragment,
-// reusing buildSelectorSource and the storage.Build*QuerySQL helpers to
-// lock byte-identity with the Fragment path.
+// renderedFragment via BuildSelectorSource and the storage.Build*QuerySQL
+// helpers.
 //
 // Pure (non-folded) leaves always have ValueExpr="{value}" and
-// TagsExpr="{tags}", which means sourceWrapperIsIdentity returns true
-// and the wrap step is skipped. This function produces the same SQL as
-// the "identity wrapper" branch of renderSourceFragment.
+// TagsExpr="{tags}", so no output wrapper is applied.
 //
 // When cachedSelector is non-nil it is preferred over a freshly built
-// one. Callers thread the cached leaf selector from NativeAnalysis so
-// tag-narrowing mutations (applied in-place by upstream passes such as
-// applySelectorProjection) flow through to the rendered SQL. Histogram
-// tag-narrowing flows through RenderParams instead (see
-// applyRenderParamsNarrowing).
+// one. Callers thread the cached leaf selector from NativeAnalysis to
+// avoid re-running BuildSelectorSource. Tag-narrowing flows through
+// RenderParams and is layered on via applyRenderParamsNarrowing.
 func renderLeafLogical(cfg storage.QueryConfig, leaf *logicalpkg.LeafExprPlan, params RenderParams, cachedSelector *native.SelectorSource) (renderedFragment, error) {
 	if leaf == nil {
 		return renderedFragment{}, fmt.Errorf("renderer: renderLeafLogical called with nil leaf")
@@ -50,9 +44,11 @@ func renderLeafLogical(cfg storage.QueryConfig, leaf *logicalpkg.LeafExprPlan, p
 			}
 			return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 		}
-		// Delegated PromQL leaf — mirrors renderSourceFragment lines 33-45.
-		// renderSourceFragment always calls wrapInstantSourceQuery for the
-		// delegated path (no identity check), so we match that here.
+		// Delegated PromQL leaf: the wrapper is always applied, even
+		// when ValueExpr/TagsExpr are the identity pair, because
+		// wrapInstantSourceQuery is the only way to pull the leaf's
+		// rows through the standard {tags, timestamp, value} column
+		// shape the rest of the renderer expects.
 		if params.ResolveSourcePromQL == nil {
 			return renderedFragment{}, fmt.Errorf("native fragment render requires a source PromQL resolver")
 		}
@@ -77,7 +73,8 @@ func renderLeafLogical(cfg storage.QueryConfig, leaf *logicalpkg.LeafExprPlan, p
 			}
 			return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 		}
-		// Delegated PromQL leaf — mirrors renderSourceFragment lines 61-73.
+		// Delegated PromQL leaf: same wrapper-always-applied rule as
+		// the instant branch above.
 		if params.ResolveSourcePromQL == nil {
 			return renderedFragment{}, fmt.Errorf("native fragment render requires a source PromQL resolver")
 		}
@@ -134,16 +131,10 @@ func applyRenderParamsNarrowing(sel *storage.SelectorSource, params RenderParams
 	}
 }
 
-// renderAggregationSourceView is the pure-logical analog of
-// renderAggregationSource. Instead of dereferencing a NativeFragment's
-// Selector / ValueExpr / TagsExpr / SourcePromQL fields, it reads them
-// from a SourceExprView on the analysis-side LoweringInfo.
-//
-// The returned storage.AggregationSource is byte-identical to what
-// renderAggregationSource produces for the equivalent Fragment (the
-// view's Selector is the same *SelectorSource pointer stored in
-// info.Fragment.Selector, and the remaining fields are value-typed
-// mirrors captured at Analyze time).
+// renderAggregationSourceView reads Selector / ValueExpr / TagsExpr /
+// SourcePromQL from a SourceExprView on the analysis-side LoweringInfo
+// and returns a storage.AggregationSource suitable for the storage SQL
+// builders.
 func renderAggregationSourceView(view *native.SourceExprView, params RenderParams) (storage.AggregationSource, error) {
 	if view == nil {
 		return storage.AggregationSource{}, fmt.Errorf("aggregation source view is nil")
@@ -172,12 +163,10 @@ func renderAggregationSourceView(view *native.SourceExprView, params RenderParam
 
 // renderSourceExprView renders a source-expression view (LeafSource,
 // UnarySourceExpr, or BinaryScalarSourceExpr) directly from the
-// analysis-side SourceExprView without constructing a NativeFragment.
-// Mirrors renderSourceFragment in source.go byte-for-byte: the shape of
-// the generated SQL depends on whether the view carries a Selector (the
-// selector-backed path) or only a SourcePromQL leaf (the delegated-
-// resolver path), and whether the wrapper is the identity ({value},
-// {tags}, !DropsMetric).
+// analysis-side SourceExprView. The shape of the generated SQL depends
+// on whether the view carries a Selector (the selector-backed path) or
+// only a SourcePromQL leaf (the delegated-resolver path), and whether
+// the wrapper is the identity ({value}, {tags}, !DropsMetric).
 func renderSourceExprView(cfg storage.QueryConfig, view *native.SourceExprView, params RenderParams) (renderedFragment, error) {
 	if view == nil {
 		return renderedFragment{}, fmt.Errorf("renderer: renderSourceExprView called with nil view")

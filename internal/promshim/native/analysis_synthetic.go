@@ -7,9 +7,8 @@ import (
 )
 
 // isSyntheticScalarInfo reports whether info is a synthetic scalar
-// series fragment for a supported builtin ("time" / "pi"). It drives
-// BinaryPlan Analyze's synthetic-scalar/vector fast paths without
-// dereferencing NativeFragment.
+// series for a supported builtin ("time" / "pi"). It drives BinaryPlan
+// Analyze's synthetic-scalar/vector fast paths.
 func isSyntheticScalarInfo(info *LoweringInfo) bool {
 	if info == nil || info.SyntheticSeries == nil {
 		return false

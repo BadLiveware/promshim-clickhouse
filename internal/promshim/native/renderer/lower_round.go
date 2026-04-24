@@ -7,16 +7,14 @@ import (
 )
 
 // lowerRound renders round(v[, nearest]) directly. The value-transform outer
-// SELECT is shared with the Fragment path via renderValueTransformFromSource;
-// the value expression is computed from n.Decimals by buildRoundValueExpr,
-// byte-identical to applyRoundValueTransform in native/analysis_binary.go.
+// SELECT is emitted via renderValueTransformFromSource; the value expression
+// is computed from n.Decimals by buildRoundValueExpr.
 //
 // Hierarchical fallback: if the child kind isn't yet direct-renderable,
 // Lower returns errUnsupportedLowerNode and we propagate it so the caller
-// falls back to the Fragment rendering path wholesale. An invalid toNearest
-// (0, NaN, Inf) also triggers the sentinel — matching the Fragment-path
-// gate in applyRoundValueTransform so native-lowerability semantics are
-// preserved.
+// falls back to the next execution tier. An invalid toNearest (0, NaN, Inf)
+// also triggers the sentinel so native-lowerability semantics match the
+// analysis-time gate.
 func lowerRound(ctx LoweringCtx, n *logicalpkg.RoundPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerRound called with nil")

@@ -12,9 +12,7 @@ import (
 //   - clamp_min with a literal lower bound over a range function (range)
 //   - clamp_max with a literal upper bound over a direct selector (instant)
 //
-// The differential guard runs each query × mode through both Lower and the
-// Fragment path and fails on any SQL diff. Golden files lock a representative
-// subset.
+// Golden files lock a representative subset of SQL outputs from Lower.
 var clampCases = []struct {
 	name  string
 	query string
@@ -26,9 +24,8 @@ var clampCases = []struct {
 }
 
 // TestLowerClampGolden locks in the exact SQL for a representative subset of
-// the differential cases. Run with -update to regenerate. We lock clamp_up_0_10
-// and clamp_max_node_load1 in both render modes; the other variants are covered
-// by the differential guard alone.
+// clampCases. Run with -update to regenerate. We lock clamp_up_0_10 and
+// clamp_max_node_load1 in both render modes.
 func TestLowerClampGolden(t *testing.T) {
 	goldenCases := []struct {
 		name  string

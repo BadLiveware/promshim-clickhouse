@@ -45,9 +45,9 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 		}
 		info.NativeLowerable = selector != nil
 		if selector != nil {
-			// Task 13c-9: Pre-compute InferredMatchers/PushedMatchers at Analyze
-			// time so renderers consulting info.LeafSelector see the enriched
-			// matchers without the optimizer having to mutate a cloned selector.
+			// Pre-compute InferredMatchers/PushedMatchers at Analyze time
+			// so renderers consulting info.LeafSelector see the enriched
+			// matchers without the optimizer mutating a cloned selector.
 			populateSelectorInferredAndPushedMatchers(selector)
 			info.NativeReason = "selector leaf can seed repo-owned native SQL source lowering"
 			info.SubtreeShape = SubtreeShapeLeafSource
@@ -992,10 +992,9 @@ func computeSelectorShape(a *Analysis, node logicalpkg.Node, info *LoweringInfo)
 	}
 
 	// For composite nodes, inherit the base selector shape from the
-	// descendant via the side-map. The chosen descendant matches the
-	// fragment-side BaseSelectorSource/HasFixedTemporalAnchor walk
-	// (first selector-carrying child wins for Kind/Lookback/Offset;
-	// any descendant with a fixed anchor propagates).
+	// descendant via the side-map: the first selector-carrying child
+	// wins for Kind/Lookback/Offset, and any descendant with a fixed
+	// anchor propagates it upward.
 	switch n := node.(type) {
 	case *logicalpkg.SubqueryPlan:
 		childShape := childSelectorShape(a, n.Child)
@@ -1274,19 +1273,11 @@ func sortedKeys(values map[string]LabelLineageState) []string {
 }
 
 // rangeFunctionSubqueryChild returns the subquery context view carried
-// by the child info when the child is a subquery. Populated onto
-// LoweringInfo.RangeFunctionSubquery at each of the seven range-function
-// Analyze emission sites.
-//
-// After NativeFragment retirement we lower via the logical tree, so no
-// Fragment subquery payload is attached to the info side-map; instead,
-// range helpers look up the child's SubtreeShape and, when it is a
-// subquery, walk the logical tree to recover the range/step/offset
-// parameters. This helper therefore returns nil today — the branches
-// that previously depended on the subquery payload (range_logical.go)
-// now drive directly off the child logical node. Retained as a no-op
-// to keep emission sites uniform; planner tests assert presence via
-// SubtreeShape rather than pointer identity.
+// by the child info when the child is a subquery. Range helpers look up
+// the child's SubtreeShape and, when it is a subquery, walk the logical
+// tree to recover the range/step/offset parameters, so this helper
+// returns nil today; emission sites retain the call for uniformity and
+// planner tests assert presence via SubtreeShape.
 func rangeFunctionSubqueryChild(child *LoweringInfo) *SubqueryFragment {
 	if child == nil || child.SubtreeShape != SubtreeShapeSubquery {
 		return nil
@@ -1316,16 +1307,13 @@ func (info *LoweringInfo) String() string {
 }
 
 // populateSelectorInferredAndPushedMatchers pre-computes the
-// InferredMatchers and PushedMatchers slices on selector at Analyze time.
-// Historically these were produced by the optimizer's
-// CommonMatcherInference and LabelPredicatePushdown passes, which mutated
-// a cloned SelectorSource. Task 13c-9 lifts that work into Analyze so the
-// enriched matchers are already visible through info.LeafSelector before
-// any optimizer pass runs.
+// InferredMatchers and PushedMatchers slices on selector at Analyze time,
+// so the enriched matchers are already visible through info.LeafSelector
+// before any optimizer pass runs.
 //
 // A fresh matcherInterner scopes pointer-sharing to this single leaf so
 // Matchers/InferredMatchers/PushedMatchers share pointers for equal
-// matcher keys — matching the optimizer's historical interning behavior.
+// matcher keys.
 func populateSelectorInferredAndPushedMatchers(selector *SelectorSource) {
 	if selector == nil {
 		return

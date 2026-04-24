@@ -9,10 +9,9 @@
 // does not model query structure — that is the job of the logical-plan
 // layer (internal/promshim/plan) and its consumers.
 //
-// Stability: every helper must produce byte-identical SQL to the
-// hand-written strings it replaced at introduction time. Callers rely on
-// this for renderer test assertions; downstream performance work will
-// amend helpers in lockstep with their consumers.
+// Stability: callers rely on the exact SQL phrasing for renderer test
+// assertions; performance work amends helpers in lockstep with their
+// consumers.
 package emit
 
 import (

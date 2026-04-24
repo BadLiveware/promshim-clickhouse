@@ -27,7 +27,7 @@ type matrixRow struct {
 	PlanReason           string   `json:"planReason,omitempty"`
 	NativeLowerable      bool     `json:"nativeLowerable"`
 	NativeReason         string   `json:"nativeReason,omitempty"`
-	FragmentKind         string   `json:"fragmentKind,omitempty"`
+	SubtreeShape         string   `json:"subtreeShape,omitempty"`
 	AggregationEligible  bool     `json:"aggregationEligible,omitempty"`
 	Notes                []string `json:"notes,omitempty"`
 }
@@ -141,7 +141,7 @@ func buildRow(spec featureSpec) (matrixRow, error) {
 		PlanReason:           snapshot.PlanReason,
 		NativeLowerable:      snapshot.NativeLowerable,
 		NativeReason:         snapshot.NativeReason,
-		FragmentKind:         snapshot.FragmentKind,
+		SubtreeShape:         snapshot.SubtreeShape,
 		AggregationEligible:  snapshot.AggregationEligible,
 		Notes:                append([]string(nil), spec.Notes...),
 	}

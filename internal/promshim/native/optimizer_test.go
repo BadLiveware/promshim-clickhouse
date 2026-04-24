@@ -11,9 +11,7 @@ import (
 )
 
 // optimizeLogical drives the optimizer pass pipeline against a logical
-// plan node. After Task 13c-14c retired BuildOptimizedFragment /
-// BuildOptimizedFragmentWithContext, the tests drive OptimizeFromInfo
-// directly via an Analyze + InfoFor lookup.
+// plan node via an Analyze + InfoFor lookup into OptimizeFromInfo.
 func optimizeLogical(t *testing.T, node logicalpkg.Node, ctx OptimizationContext) (*OptimizedFragment, error) {
 	t.Helper()
 	analysis := Analyze(node)
@@ -195,9 +193,9 @@ func TestOptimizeFromInfoDeduplicatesInferredMetricMatcherInPushdown(t *testing.
 func TestOptimizeFromInfoInternsEquivalentMatchersAcrossSelectorFields(t *testing.T) {
 	// Analyze interns Matchers/InferredMatchers/PushedMatchers via the
 	// per-leaf interner in populateSelectorInferredAndPushedMatchers.
-	// After Task 13c-14d-2 retired NativeFragment, we look up the
-	// analyzed selector via baseSelectorFromInfo on the root
-	// LoweringInfo (the info side-map carries the intern-shared pointers).
+	// The analyzed selector is looked up via baseSelectorFromInfo on the
+	// root LoweringInfo (the info side-map carries the intern-shared
+	// pointers).
 	aggExpr := mustParseExpr(t, `sum(up{job="api"})`)
 	agg, ok := aggExpr.(*parser.AggregateExpr)
 	if !ok {

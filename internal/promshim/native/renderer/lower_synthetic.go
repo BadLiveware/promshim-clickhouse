@@ -15,36 +15,27 @@ import (
 // synthetic date/time functions (minute, hour, day_of_week,
 // day_of_month, day_of_year, days_in_month, month, year) handled
 // directly via renderSyntheticDateFragment. All other Funcs return
-// errUnsupportedLowerNode so the caller falls back to Fragment
-// rendering for the whole query.
-//
-// SQL output is byte-identical to the corresponding Fragment path for
-// each kind — both paths call through to the shared syntheticSeriesValueSQL
-// helper so whitespace, column order, and parameter naming stay in lockstep.
+// errUnsupportedLowerNode so the caller falls back to the next
+// execution tier.
 func lowerPointwiseFunction(ctx LoweringCtx, n *logicalpkg.PointwiseFunctionPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerPointwiseFunction called with nil node")
 	}
-	// Clamp dispatch: clamp/clamp_min/clamp_max are lowered by lowerClamp
-	// which reads the pre-computed Fragment from NativeAnalysis. Check this
-	// before the synthetic-date path so a zero-arg hypothetical clamp never
-	// accidentally falls through.
+	// Clamp dispatch: clamp/clamp_min/clamp_max are lowered by lowerClamp.
+	// Check this before the synthetic-date path so a zero-arg hypothetical
+	// clamp never accidentally falls through.
 	if isClampFuncName(n.Func) {
 		return lowerClamp(ctx, n)
 	}
 	// Unary source-expression shape (e.g. abs(foo), sqrt(foo)): analysis
 	// produced a SourceExprView on LoweringInfo carrying Selector +
 	// ValueExpr/TagsExpr. Render off that view directly via
-	// renderSourceExprView (the pure-logical analog of renderSourceFragment)
-	// so Lower no longer dereferences info.Fragment. Keeps Lower off the
-	// sentinel path so tier-3 callers no longer need a Fragment fallback.
+	// renderSourceExprView.
 	//
-	// Anchored range handling mirrors renderFragment's top-level gate (see
-	// renderer.go:54): when the outer mode is Range and the subtree pins
-	// evaluation to a fixed temporal anchor (@/start/end), the instant
-	// render at the anchor is broadcast across the range step grid via
-	// renderAnchoredRangeSourceExprView. This replaces renderFragment's
-	// dispatch through renderAnchoredRangeFragment for this shape.
+	// Anchored range handling: when the outer mode is Range and the
+	// subtree pins evaluation to a fixed temporal anchor
+	// (@/start/end), the instant render at the anchor is broadcast
+	// across the range step grid via renderAnchoredRangeSourceExprView.
 	if n.Child != nil {
 		if ctx.NativeAnalysis == nil {
 			return RenderedQuery{}, errUnsupportedLowerNode
@@ -89,12 +80,8 @@ func lowerPointwiseFunction(ctx LoweringCtx, n *logicalpkg.PointwiseFunctionPlan
 	return finalizeRenderedFragment(rf)
 }
 
-// renderSyntheticDateFragment renders a synthetic date function directly
-// without constructing an intermediate NativeFragment. It produces
-// byte-identical SQL to what renderSyntheticFragment produces for
-// FragmentKindSyntheticSeries / OutputKindInstantVector with the same
-// funcName, because both paths call through to the shared
-// syntheticSeriesValueSQL helper.
+// renderSyntheticDateFragment renders a synthetic date function via
+// the shared syntheticSeriesValueSQL helper.
 func renderSyntheticDateFragment(funcName string, params RenderParams) (renderedFragment, error) {
 	if !isSupportedNativeSyntheticDateFuncName(funcName) {
 		return renderedFragment{}, fmt.Errorf("renderer: %q is not a supported synthetic date function", funcName)

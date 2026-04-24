@@ -77,9 +77,9 @@ func renderInstantScalarBindingFromLogical(ctx LoweringCtx, node logicalpkg.Node
 	return "SELECT if(count() = 1, any(value), nan) AS value FROM (" + sql + ") AS " + prefix, queryParams, prefix + ".value", nil
 }
 
-// renderRangeScalarBindingFromLogical is the logical-node counterpart of
-// renderRangeScalarBinding. Literals short-circuit to inline floats; other
-// shapes lower via Lower so SQL stays byte-identical to the Fragment path.
+// renderRangeScalarBindingFromLogical binds a scalar parameter node to SQL
+// for range-function arguments. Literals short-circuit to inline floats; other
+// shapes lower via Lower.
 func renderRangeScalarBindingFromLogical(ctx LoweringCtx, node logicalpkg.Node, prefix string) (string, map[string]string, string, error) {
 	if node == nil {
 		return "", nil, "", nil

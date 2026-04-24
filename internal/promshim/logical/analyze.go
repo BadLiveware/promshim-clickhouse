@@ -23,9 +23,7 @@ type Analysis struct {
 }
 
 // Analyze walks `root` bottom-up and fills in a NodeInfo for each
-// visited node. Called parallel to native.Analyze during Phase 1-3 so
-// consumers can start reading enrichment without touching Fragment
-// construction.
+// visited node.
 func Analyze(root Node) *Analysis {
 	a := &Analysis{Root: root, Info: map[Node]*NodeInfo{}}
 	a.walk(root)
@@ -183,8 +181,8 @@ func fillLeaf(info *NodeInfo, n *LeafExprPlan) {
 		info.TimeDomain = DomainScalar
 		info.DropsMetric = true
 	default:
-		// Unknown shapes default to DomainUnknown; Phase 1-3 scope
-		// does not require richer analysis here.
+		// Unknown shapes default to DomainUnknown; richer analysis
+		// is not required here.
 		info.TimeDomain = DomainUnknown
 	}
 }
@@ -219,7 +217,7 @@ func fillBinary(info *NodeInfo, n *BinaryPlan, lhs, rhs *NodeInfo) {
 	case lhsVec && rhsVec:
 		// Schema is tricky for vector-vector joins. Keep Possible as
 		// the union; Guaranteed stays empty — the match side owns
-		// label semantics and Phase 1-3 scope does not model it.
+		// label semantics and we do not model it here.
 		for label := range lhs.Schema.Possible {
 			info.Schema.AddPossible(label)
 		}
@@ -436,8 +434,8 @@ func fillSubquery(info *NodeInfo, rangeDur, offset time.Duration, child *NodeInf
 }
 
 // schemaFromSelector fills `schema` with label guarantees derived from
-// a vector selector's matchers. See the Phase 1-3 plan for the
-// guaranteed-vs-possible classification rules.
+// a vector selector's matchers: equality matchers produce guaranteed
+// labels, non-equality and regex matchers produce possible labels.
 func schemaFromSelector(schema *Schema, selector *parser.VectorSelector) {
 	if selector == nil {
 		return
@@ -460,10 +458,10 @@ func schemaFromSelector(schema *Schema, selector *parser.VectorSelector) {
 	}
 }
 
-// binaryDomain combines two child domains per Phase 1-3 rules:
-// scalar+scalar stays scalar; scalar+vector becomes vector; otherwise
-// the wider of the two domains wins (Range > Instant > Scalar >
-// Unknown) so a binary over a range selector keeps the range shape.
+// binaryDomain combines two child domains: scalar+scalar stays scalar;
+// scalar+vector becomes vector; otherwise the wider of the two domains
+// wins (Range > Instant > Scalar > Unknown) so a binary over a range
+// selector keeps the range shape.
 func binaryDomain(lhs, rhs *NodeInfo) TimeDomain {
 	if lhs == nil && rhs == nil {
 		return DomainUnknown

@@ -12,8 +12,7 @@ import (
 )
 
 // leafCases covers the selector-backed LeafExprPlan shapes that lower
-// natively. These are the canonical inputs validated by both the
-// differential guard and the golden test.
+// natively. These are the canonical inputs validated by the golden test.
 //
 //   - "up"                          — bare metric name (instant selector)
 //   - `up{job="prometheus"}`        — metric name + label matcher

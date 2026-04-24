@@ -10,8 +10,7 @@ import (
 // lowerInfoJoin renders an InfoPlan directly from the logical tree. The
 // child is lowered via Lower (bubbling errUnsupportedLowerNode if the child
 // kind isn't yet directly renderable), namespaced under "info_lhs", and
-// handed to assembleInfoJoinSQL — the same shared helper the Fragment path
-// calls — so SQL stays byte-identical.
+// handed to assembleInfoJoinSQL.
 //
 // Info-series metadata (metric name fast path, selector matchers, label
 // copies, DropUnmatched) is derived directly from InfoPlan.SelectorMatchers
@@ -20,8 +19,7 @@ import (
 //
 // Hierarchical fallback: if logical analysis is missing or the child's
 // recursive Lower returns errUnsupportedLowerNode, that sentinel bubbles
-// up and the caller falls back to the Fragment rendering path for the
-// whole query.
+// up so the caller falls back to the next execution tier.
 func lowerInfoJoin(ctx LoweringCtx, n *logicalpkg.InfoPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerInfoJoin called with nil")

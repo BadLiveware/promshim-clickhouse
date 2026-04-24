@@ -14,9 +14,8 @@ import (
 //   - count_values (synthesizes a new label dimension)
 //   - aggregation-range-fused paths (sum/avg without over rate/range functions)
 //
-// The differential guard runs each query × mode through both Lower and the
-// Fragment path and fails on any SQL diff. Golden files lock a representative
-// subset (first 5 canonical + both fused cases).
+// Golden files lock a representative subset of SQL outputs from Lower
+// (first 5 canonical + both fused cases).
 var aggregationCases = []struct {
 	name  string
 	query string

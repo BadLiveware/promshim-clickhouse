@@ -290,12 +290,18 @@ upstream ClickHouse changes easier to audit.
 | Variable | Default | Meaning |
 |---|---:|---|
 | `PROM_SHIM_LISTEN_ADDR` | `:9090` | HTTP listen address. |
-| `PROM_SHIM_CLICKHOUSE_ENDPOINT` | `http://127.0.0.1:8123/` | ClickHouse HTTP endpoint. |
+| `PROM_SHIM_CLICKHOUSE_TRANSPORT` | `http` | ClickHouse transport: `http` for the legacy JSONEachRow path or `native` for the ClickHouse Go driver. HTTP remains the rollback/default mode. |
+| `PROM_SHIM_CLICKHOUSE_ENDPOINT` | `http://127.0.0.1:8123/` | ClickHouse HTTP endpoint, still required for HTTP mode and delegated-PromQL compatibility fallback while native delegation decoding is incomplete. |
+| `PROM_SHIM_CLICKHOUSE_NATIVE_ADDR` | `127.0.0.1:9000` | ClickHouse native TCP address used when `PROM_SHIM_CLICKHOUSE_TRANSPORT=native`. |
 | `PROM_SHIM_CLICKHOUSE_DATABASE` | `observability` | ClickHouse database containing the `TimeSeries` table. |
 | `PROM_SHIM_CLICKHOUSE_TABLE` | `prometheus` | ClickHouse `TimeSeries` table name. |
 | `PROM_SHIM_CLICKHOUSE_USERNAME` | `default` | ClickHouse user. |
 | `PROM_SHIM_CLICKHOUSE_PASSWORD` | `otel` | ClickHouse password. |
-| `PROM_SHIM_REQUEST_TIMEOUT_SECONDS` | `30` | ClickHouse HTTP client timeout. |
+| `PROM_SHIM_CLICKHOUSE_COMPRESSION` | `off` | Native driver compression: `off`, `lz4`, or `zstd`. |
+| `PROM_SHIM_CLICKHOUSE_MAX_OPEN_CONNS` | `10` | Native driver maximum open connections. |
+| `PROM_SHIM_CLICKHOUSE_MAX_IDLE_CONNS` | `10` | Native driver maximum idle connections. |
+| `PROM_SHIM_CLICKHOUSE_CONN_MAX_LIFETIME_SECONDS` | `3600` | Native driver connection maximum lifetime. |
+| `PROM_SHIM_REQUEST_TIMEOUT_SECONDS` | `30` | ClickHouse request timeout. |
 | `PROM_SHIM_CLICKHOUSE_VERSION` | `26.3` | Version used by the delegation capability classifier. |
 | `PROM_SHIM_NATIVE_LOWERING_MODE` | `prefer` | Global lowering mode; see execution modes above. |
 | `PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES` | `50000` | Reject range queries above this point count per series. |
@@ -309,6 +315,10 @@ Per-request knobs:
 - `explain=1` or `explain=true`
 - `X-Promshim-Log-Comment: ...` to forward a ClickHouse `log_comment` for query
   log/profile correlation.
+
+Successful query responses include `X-Promshim-CH-Transport: http|native` so
+transport rollout can be correlated with strategy, round-trip, and duration
+headers. Explain responses include the same value as `clickHouseTransport`.
 
 ## Quick start for local development
 
@@ -352,7 +362,7 @@ Useful variants:
 ### Start a stack and query promshim manually
 
 The compliance stack exposes Prometheus on `:29090`, promshim on `:29091`, and
-ClickHouse on `:28123`:
+ClickHouse HTTP on `:28123` and native TCP on `:29000`:
 
 ```bash
 ./scripts/run-compliance.sh --keep-up --skip-native
@@ -363,6 +373,20 @@ curl 'http://localhost:29091/api/v1/query_explain?query=sum%20by%20(job)%20(up)'
 
 curl 'http://localhost:29091/api/v1/query?query=sum%20by%20(job)%20(up)&explain=1'
 ```
+
+To run the same stack with the native driver transport enabled for promshim:
+
+```bash
+PROM_SHIM_CLICKHOUSE_TRANSPORT=native ./scripts/run-compliance.sh --keep-up --skip-native
+
+curl -i 'http://localhost:29091/api/v1/query?query=up'
+```
+
+During the migration, native mode serves repository-owned native SQL and
+metadata queries through the driver. Whole-query ClickHouse PromQL delegation is
+kept on an HTTP/JSON compatibility path until the delegated result schema is
+fully typed; this is a transport fallback only, not an execution-strategy
+fallback.
 
 When finished:
 

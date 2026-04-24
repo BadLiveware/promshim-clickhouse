@@ -11,17 +11,16 @@ import (
 // FragmentKindRangeFunction to a RenderedQuery via the existing Fragment
 // renderer internals.
 //
-// Surface 7 uses the "Approach A" dispatch port: rather than rewriting the
-// renderer body, the lowerer reads the pre-computed Fragment from
-// ctx.NativeAnalysis.InfoFor(n).Fragment, validates the kind, then delegates
-// to renderRangeFunctionFragment so SQL stays byte-identical to the Fragment
-// path. The render body retires with the final cleanup commit once all surfaces
-// have ported.
+// Transitional dispatch port: the lowerer builds the Fragment on demand via
+// native.BuildFragment (which reuses the analysis side-map when present or
+// rebuilds it otherwise), validates the kind, then delegates to
+// renderRangeFunctionFragment so SQL stays byte-identical to the Fragment
+// path. Once renderRangeFunctionFragment and its structural fast paths port
+// to logical children, this lowerer can drop the Fragment materialization.
 //
-// Hierarchical fallback: if native.Analyze didn't mark this node as
-// native-lowerable (e.g. because the child selector isn't lowerable yet),
-// nativeInfo.Fragment will be nil and we return errUnsupportedLowerNode so the
-// caller falls back to the Fragment rendering path wholesale.
+// Hierarchical fallback: if BuildFragment rejects the node (e.g. because the
+// child selector isn't lowerable yet) we return errUnsupportedLowerNode so
+// the caller falls back to the Fragment rendering path wholesale.
 //
 // All seven plan kinds map to this single shared lowerer:
 //   - RangeFunctionPlan  (avg_over_time, sum_over_time, min_over_time, max_over_time,
@@ -40,14 +39,14 @@ func lowerRangeFunction(ctx LoweringCtx, n logicalpkg.Node) (RenderedQuery, erro
 	if ctx.Analysis == nil || ctx.Analysis.InfoFor(n) == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: range function missing logical analysis")
 	}
-	if ctx.NativeAnalysis == nil {
+	fragment, err := native.BuildFragment(n, ctx.NativeAnalysis)
+	if err != nil {
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}
-	nativeInfo := ctx.NativeAnalysis.InfoFor(n)
-	if nativeInfo == nil || nativeInfo.Fragment == nil || nativeInfo.Fragment.Kind != native.FragmentKindRangeFunction {
+	if fragment == nil || fragment.Kind != native.FragmentKindRangeFunction {
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}
-	rendered, err := renderRangeFunctionFragment(ctx.Config, nativeInfo.Fragment, ctx.Params)
+	rendered, err := renderRangeFunctionFragment(ctx.Config, fragment, ctx.Params)
 	if err != nil {
 		return RenderedQuery{}, err
 	}

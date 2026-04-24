@@ -11,11 +11,12 @@ import (
 // node kind that produces FragmentKindAggregation) to a RenderedQuery via the
 // existing Fragment renderer internals.
 //
-// Surface 8 uses the "Approach A" dispatch port: the lowerer reads the
-// pre-computed Fragment from ctx.NativeAnalysis.InfoFor(n).Fragment, validates
-// the kind, then delegates to renderAggregationFragment so SQL stays
-// byte-identical to the Fragment path. The render body retires with the final
-// cleanup commit once all surfaces have ported.
+// Transitional dispatch port: the lowerer builds the Fragment on demand via
+// native.BuildFragment (which reuses the analysis side-map when present or
+// rebuilds it otherwise), validates the kind, then delegates to
+// renderAggregationFragment so SQL stays byte-identical to the Fragment path.
+// Once renderAggregationFragment and the fused range-aggregation helpers port
+// to logical children, this lowerer can drop the Fragment materialization.
 //
 // The aggregation-range-fused path (where the aggregation's source fragment is
 // a FragmentKindRangeFunction) is handled naturally inside
@@ -25,10 +26,9 @@ import (
 // Covered ops: sum, avg, count, min, max, stddev, stdvar, topk, bottomk,
 // quantile, group, count_values, with or without label groupings.
 //
-// Hierarchical fallback: if native.Analyze didn't mark this node as
-// native-lowerable, nativeInfo.Fragment will be nil and we return
-// errUnsupportedLowerNode so the caller falls back to the Fragment rendering
-// path wholesale.
+// Hierarchical fallback: if BuildFragment rejects the node (e.g. because the
+// child selector isn't lowerable) we return errUnsupportedLowerNode so the
+// caller falls back to the Fragment rendering path wholesale.
 func lowerAggregation(ctx LoweringCtx, n *logicalpkg.AggregationPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerAggregation called with nil")
@@ -36,14 +36,14 @@ func lowerAggregation(ctx LoweringCtx, n *logicalpkg.AggregationPlan) (RenderedQ
 	if ctx.Analysis == nil || ctx.Analysis.InfoFor(n) == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: aggregation missing logical analysis")
 	}
-	if ctx.NativeAnalysis == nil {
+	fragment, err := native.BuildFragment(n, ctx.NativeAnalysis)
+	if err != nil {
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}
-	nativeInfo := ctx.NativeAnalysis.InfoFor(n)
-	if nativeInfo == nil || nativeInfo.Fragment == nil || nativeInfo.Fragment.Kind != native.FragmentKindAggregation {
+	if fragment == nil || fragment.Kind != native.FragmentKindAggregation {
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}
-	rendered, err := renderAggregationFragment(ctx.Config, nativeInfo.Fragment, ctx.Params)
+	rendered, err := renderAggregationFragment(ctx.Config, fragment, ctx.Params)
 	if err != nil {
 		return RenderedQuery{}, err
 	}

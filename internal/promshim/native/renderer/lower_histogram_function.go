@@ -12,17 +12,16 @@ import (
 // HistogramQuantilesPlan) to a RenderedQuery via the existing Fragment
 // renderer internals.
 //
-// Surface 10 uses the "Approach A" dispatch port: the lowerer reads the
-// pre-computed Fragment from ctx.NativeAnalysis.InfoFor(n).Fragment,
-// validates the kind is FragmentKindHistogramFunction, then delegates to
-// renderHistogramFunctionFragment so SQL stays byte-identical to the
-// Fragment path. The render body retires with the final cleanup commit
-// once all surfaces have ported.
+// Transitional dispatch port: the lowerer builds the Fragment on demand via
+// native.BuildFragment (which reuses the analysis side-map when present or
+// rebuilds it otherwise), validates the kind is FragmentKindHistogramFunction,
+// then delegates to renderHistogramFunctionFragment so SQL stays
+// byte-identical to the Fragment path. Once the histogram body ports to
+// logical children, this lowerer can drop the Fragment materialization.
 //
-// Hierarchical fallback: if native.Analyze didn't mark this node as
-// native-lowerable (e.g. because the child selector isn't lowerable),
-// nativeInfo.Fragment will be nil and we return errUnsupportedLowerNode
-// so the caller falls back to the Fragment rendering path wholesale.
+// Hierarchical fallback: if BuildFragment rejects the node (e.g. because the
+// child selector isn't lowerable) we return errUnsupportedLowerNode so the
+// caller falls back to the Fragment rendering path wholesale.
 //
 // Supported functions: histogram_quantile, histogram_fraction,
 // histogram_quantiles.
@@ -33,14 +32,14 @@ func lowerHistogramFunction(ctx LoweringCtx, n logicalpkg.Node) (RenderedQuery, 
 	if ctx.Analysis == nil || ctx.Analysis.InfoFor(n) == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: histogram function missing logical analysis")
 	}
-	if ctx.NativeAnalysis == nil {
+	fragment, err := native.BuildFragment(n, ctx.NativeAnalysis)
+	if err != nil {
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}
-	nativeInfo := ctx.NativeAnalysis.InfoFor(n)
-	if nativeInfo == nil || nativeInfo.Fragment == nil || nativeInfo.Fragment.Kind != native.FragmentKindHistogramFunction {
+	if fragment == nil || fragment.Kind != native.FragmentKindHistogramFunction {
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}
-	rendered, err := renderHistogramFunctionFragment(ctx.Config, nativeInfo.Fragment, ctx.Params)
+	rendered, err := renderHistogramFunctionFragment(ctx.Config, fragment, ctx.Params)
 	if err != nil {
 		return RenderedQuery{}, err
 	}

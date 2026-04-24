@@ -85,28 +85,57 @@ func lowerBinaryScalarInvolvingDirect(ctx LoweringCtx, n *logicalpkg.BinaryPlan)
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerBinaryScalarInvolvingDirect: neither side is scalar")
 	}
 
-	// The three scalar-involving variants all route through the same
-	// Fragment-side rendering surface (renderFragment's top-level
-	// switch) because Analyze synthesizes the correct downstream
-	// fragment kind (BinaryScalarSourceExpr / ValueTransform /
-	// SyntheticSeries / folded LeafSource) for each variant during its
-	// BinaryPlan walk. Phase 6f reads that cached fragment off the
-	// native Analysis side-map rather than re-running BuildFragment's
-	// walk at the lowerer boundary — the two are equivalent by
-	// construction (BuildFragment == CloneFragment(InfoFor.Fragment)),
-	// and consolidating on the cached read shrinks the retirement
-	// surface for Task 13 Step 2/3.
+	// Scalar-involving BinaryPlan lowers to one of four downstream shapes
+	// (see analysis.go:124+):
 	//
-	// Note on the scalar-scalar branch: when both sides are
-	// ScalarLiteralPlan, Analyze's walk folds the pair into a
-	// FragmentKindSyntheticSeries via foldBinaryScalarLiteral — the
-	// cached Fragment already reflects that fold.
+	//   - BinaryScalarSourceExpr: scalar-vector / vector-scalar arithmetic
+	//     over a pushdownable selector child. Lowers via SourceExprView
+	//     (source-expression semantics identical to UnarySourceExpr).
+	//   - SyntheticSeries: folded scalar-scalar pair, or synthetic-scalar
+	//     arm that doesn't wrap the vector side. Lowers via
+	//     renderSyntheticDateFragment / renderScalarLiteralFragment.
+	//   - ValueTransform: comparison filters/bool, scalar-expression arms,
+	//     synthetic-scalar/vector arms that wrap the vector side in a
+	//     value-transform outer SELECT. Currently still reads info.Fragment;
+	//     retires in a follow-up commit once ValueTransformView is lifted.
+	//   - LeafSource (folded): the rare folded-literal shortcut where the
+	//     entire expression collapses to a plain selector leaf.
+	//
+	// The SourceExpr-bearing cases are served pure-logical via
+	// renderSourceExprView; the remaining cases still clone info.Fragment
+	// and dispatch through renderFragment.
 	if ctx.NativeAnalysis == nil {
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}
 	info := ctx.NativeAnalysis.InfoFor(n)
 	if info == nil || info.Fragment == nil {
 		return RenderedQuery{}, errUnsupportedLowerNode
+	}
+	// BinaryScalarSourceExpr / LeafSource (folded): render off SourceExprView
+	// with the same anchored-range gate lowerPointwiseFunction uses, keeping
+	// these cases off the Fragment path entirely.
+	if info.SourceExpr != nil {
+		var rf renderedFragment
+		var err error
+		if ctx.Params.Mode == native.RenderModeRange && info.Shape.HasFixedTemporalAnchor {
+			anchorMS, ok := logicalResolvedAnchorTimeMS(n, native.OptimizationContext{
+				Mode:             native.RenderModeRange,
+				EvaluationTimeMS: ctx.Params.EvaluationTimeMS,
+				StartMS:          ctx.Params.StartMS,
+				EndMS:            ctx.Params.EndMS,
+				StepMS:           ctx.Params.StepMS,
+			})
+			if !ok {
+				return RenderedQuery{}, fmt.Errorf("anchored native range rendering requires a resolved anchor")
+			}
+			rf, err = renderAnchoredRangeSourceExprView(ctx.Config, info.SourceExpr, info.OutputKind, ctx.Params, anchorMS)
+		} else {
+			rf, err = renderSourceExprView(ctx.Config, info.SourceExpr, ctx.Params)
+		}
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		return finalizeRenderedFragment(rf)
 	}
 	fragment := native.CloneFragment(info.Fragment)
 	rf, err := renderFragment(ctx.Config, fragment, ctx.Params)

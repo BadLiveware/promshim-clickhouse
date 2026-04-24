@@ -33,19 +33,43 @@ func lowerPointwiseFunction(ctx LoweringCtx, n *logicalpkg.PointwiseFunctionPlan
 		return lowerClamp(ctx, n)
 	}
 	// Unary source-expression shape (e.g. abs(foo), sqrt(foo)): analysis
-	// produced a FragmentKindUnarySourceExpr carrying Selector +
-	// ValueExpr/TagsExpr. Render off that cached fragment directly — same
-	// pattern as lowerBinaryScalarInvolving. Keeps Lower off the sentinel
-	// path so tier-3 callers no longer need a Fragment fallback.
+	// produced a SourceExprView on LoweringInfo carrying Selector +
+	// ValueExpr/TagsExpr. Render off that view directly via
+	// renderSourceExprView (the pure-logical analog of renderSourceFragment)
+	// so Lower no longer dereferences info.Fragment. Keeps Lower off the
+	// sentinel path so tier-3 callers no longer need a Fragment fallback.
+	//
+	// Anchored range handling mirrors renderFragment's top-level gate (see
+	// renderer.go:54): when the outer mode is Range and the subtree pins
+	// evaluation to a fixed temporal anchor (@/start/end), the instant
+	// render at the anchor is broadcast across the range step grid via
+	// renderAnchoredRangeSourceExprView. This replaces renderFragment's
+	// dispatch through renderAnchoredRangeFragment for this shape.
 	if n.Child != nil {
 		if ctx.NativeAnalysis == nil {
 			return RenderedQuery{}, errUnsupportedLowerNode
 		}
 		info := ctx.NativeAnalysis.InfoFor(n)
-		if info == nil || info.Fragment == nil || info.Fragment.Kind != native.FragmentKindUnarySourceExpr {
+		if info == nil || info.SourceExpr == nil {
 			return RenderedQuery{}, errUnsupportedLowerNode
 		}
-		rf, err := renderFragment(ctx.Config, info.Fragment, ctx.Params)
+		var rf renderedFragment
+		var err error
+		if ctx.Params.Mode == native.RenderModeRange && info.Shape.HasFixedTemporalAnchor {
+			anchorMS, ok := logicalResolvedAnchorTimeMS(n, native.OptimizationContext{
+				Mode:             native.RenderModeRange,
+				EvaluationTimeMS: ctx.Params.EvaluationTimeMS,
+				StartMS:          ctx.Params.StartMS,
+				EndMS:            ctx.Params.EndMS,
+				StepMS:           ctx.Params.StepMS,
+			})
+			if !ok {
+				return RenderedQuery{}, fmt.Errorf("anchored native range rendering requires a resolved anchor")
+			}
+			rf, err = renderAnchoredRangeSourceExprView(ctx.Config, info.SourceExpr, info.OutputKind, ctx.Params, anchorMS)
+		} else {
+			rf, err = renderSourceExprView(ctx.Config, info.SourceExpr, ctx.Params)
+		}
 		if err != nil {
 			return RenderedQuery{}, err
 		}

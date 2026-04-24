@@ -60,6 +60,13 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 			// info.Fragment. Same pointer so upstream in-place mutations
 			// (narrowHistogramChildAnalysisInPlace) are visible via both.
 			info.LeafSelector = selector
+			info.SourceExpr = &SourceExprView{
+				Selector:     selector,
+				ValueExpr:    "{value}",
+				TagsExpr:     "{tags}",
+				SourcePromQL: n.Expr,
+				DropsMetric:  false,
+			}
 		} else {
 			info.NativeReason = "delegatable leaf expression is not a selector-backed native source"
 		}
@@ -660,7 +667,17 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 			if template, ok := NativePointwiseSourceTemplate(n.Func, n.ParamNumbers); ok && child.Fragment != nil && isSupportedAggregationSourceFragment(child.Fragment) {
 				info.NativeLowerable = true
 				info.NativeReason = fmt.Sprintf("%s can lower to a native SQL source expression", n.Func)
-				info.Fragment = &NativeFragment{Kind: FragmentKindUnarySourceExpr, OutputKind: child.Fragment.OutputKind, SourcePromQL: child.Fragment.SourcePromQL, Selector: cloneSelectorSource(child.Fragment.Selector), ValueExpr: composePointwiseSourceTemplate(template, child.Fragment.ValueExpr), TagsExpr: tagsExprForMetricDrop(true), DropsMetric: true}
+				clonedSelector := cloneSelectorSource(child.Fragment.Selector)
+				composedValueExpr := composePointwiseSourceTemplate(template, child.Fragment.ValueExpr)
+				tagsExpr := tagsExprForMetricDrop(true)
+				info.Fragment = &NativeFragment{Kind: FragmentKindUnarySourceExpr, OutputKind: child.Fragment.OutputKind, SourcePromQL: child.Fragment.SourcePromQL, Selector: clonedSelector, ValueExpr: composedValueExpr, TagsExpr: tagsExpr, DropsMetric: true}
+				info.SourceExpr = &SourceExprView{
+					Selector:     clonedSelector,
+					ValueExpr:    composedValueExpr,
+					TagsExpr:     tagsExpr,
+					SourcePromQL: child.Fragment.SourcePromQL,
+					DropsMetric:  true,
+				}
 				return info
 			}
 		} else if isSupportedNativeSyntheticDateFunction(n.Func) {

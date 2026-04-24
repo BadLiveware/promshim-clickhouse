@@ -270,6 +270,41 @@ type LoweringInfo struct {
 	// mutate this pointer. Nil when the node is not a leaf selector or
 	// when selector-source analysis failed.
 	LeafSelector *SelectorSource
+
+	// SourceExpr captures the "source expression" view the renderer needs
+	// to emit SQL for nodes that lower through renderSourceFragment —
+	// specifically LeafSource, UnarySourceExpr, and BinaryScalarSourceExpr
+	// kinds. Populated during the Analyze walk for each lowerable node
+	// of these shapes. Nil otherwise. See SourceExprView.
+	SourceExpr *SourceExprView
+}
+
+// SourceExprView is the analysis-side mirror of the Selector / ValueExpr /
+// TagsExpr / SourcePromQL / DropsMetric fields on NativeFragment for the
+// source-expression kinds (LeafSource, UnarySourceExpr,
+// BinaryScalarSourceExpr). It lets Lower render those shapes without
+// dereferencing info.Fragment.
+//
+// Selector holds the same *SelectorSource pointer stored in
+// info.Fragment.Selector so upstream in-place mutations
+// (narrowHistogramChildAnalysisInPlace) remain visible; the remaining
+// fields are value-typed and captured at Analyze time.
+type SourceExprView struct {
+	// Selector mirrors fragment.Selector (same pointer).
+	Selector *SelectorSource
+	// ValueExpr mirrors fragment.ValueExpr. For LeafSource this is
+	// "{value}"; for UnarySourceExpr it is the composed pointwise template
+	// (e.g. "abs({value})"); for BinaryScalarSourceExpr it carries the
+	// scalar-involving operator template.
+	ValueExpr string
+	// TagsExpr mirrors fragment.TagsExpr.
+	TagsExpr string
+	// SourcePromQL mirrors fragment.SourcePromQL — non-nil only for
+	// ResolveSourcePromQL-driven fallback paths that do not have a
+	// native Selector. Rare in practice.
+	SourcePromQL parser.Expr
+	// DropsMetric mirrors fragment.DropsMetric.
+	DropsMetric bool
 }
 
 // SelectorShape carries per-node selector/shape metadata that tier-2

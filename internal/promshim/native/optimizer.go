@@ -20,26 +20,20 @@ const (
 type OptimizerPass string
 
 const (
-	PassTrivialExpressionNormalization      OptimizerPass = "trivial_expression_normalization"
 	PassEvaluationRangePropagation          OptimizerPass = "evaluation_range_propagation"
 	PassCommonMatcherInference              OptimizerPass = "common_matcher_inference"
 	PassLabelPredicatePushdown              OptimizerPass = "label_predicate_pushdown"
 	PassProjectionPushdown                  OptimizerPass = "projection_pushdown"
-	PassFunctionPatternRewrites             OptimizerPass = "function_pattern_rewrites"
 	PassJoinNormalizationDuplicateDetection OptimizerPass = "join_normalization_and_duplicate_detection"
-	PassFlattenRedundantWrappers            OptimizerPass = "flatten_redundant_wrappers"
 	PassFinalSQLShapingLateMaterialization  OptimizerPass = "final_sql_shaping_and_late_materialization"
 )
 
 var FixedPassOrder = []OptimizerPass{
-	PassTrivialExpressionNormalization,
 	PassEvaluationRangePropagation,
 	PassCommonMatcherInference,
 	PassLabelPredicatePushdown,
 	PassProjectionPushdown,
-	PassFunctionPatternRewrites,
 	PassJoinNormalizationDuplicateDetection,
-	PassFlattenRedundantWrappers,
 	PassFinalSQLShapingLateMaterialization,
 }
 
@@ -87,14 +81,11 @@ type optimizerPassSpec struct {
 }
 
 var optimizerPasses = []optimizerPassSpec{
-	{ID: PassTrivialExpressionNormalization, Layer: OptimizerLayerLogical, Mutates: mutationStructural, Apply: applyTrivialExpressionNormalization},
 	{ID: PassEvaluationRangePropagation, Layer: OptimizerLayerLogical, Mutates: mutationNone, Apply: applyEvaluationRangePropagation},
 	{ID: PassCommonMatcherInference, Layer: OptimizerLayerLogical, Mutates: mutationSelectorFields, Apply: applyCommonMatcherInference},
 	{ID: PassLabelPredicatePushdown, Layer: OptimizerLayerFragment, Mutates: mutationSelectorFields, Apply: applyLabelPredicatePushdown},
 	{ID: PassProjectionPushdown, Layer: OptimizerLayerFragment, Mutates: mutationSelectorFields, Apply: applyProjectionPushdown},
-	{ID: PassFunctionPatternRewrites, Layer: OptimizerLayerFragment, Mutates: mutationNone, Apply: applyFunctionPatternRewrites},
 	{ID: PassJoinNormalizationDuplicateDetection, Layer: OptimizerLayerFragment, Mutates: mutationNone, Apply: applyJoinNormalizationDuplicateDetection},
-	{ID: PassFlattenRedundantWrappers, Layer: OptimizerLayerFragment, Mutates: mutationStructural, Apply: applyFlattenRedundantWrappers},
 	{ID: PassFinalSQLShapingLateMaterialization, Layer: OptimizerLayerFinalSQL, Mutates: mutationNone, Apply: applyFinalSQLShapingLateMaterialization},
 }
 
@@ -148,11 +139,9 @@ func OptimizeFromInfo(info *LoweringInfo, node logicalpkg.Node, analysis *Analys
 }
 
 // OptimizeFragment retains its historical signature so fragment-only
-// tests (TestOptimizeFragmentFlattensTrivialUnaryWrapper,
-// TestOptimizeFragmentDoesNotMutateInputFragment,
-// TestOptimizeFragmentMatcherInternerDoesNotLeakAcrossRuns) keep
-// working; they pass info=nil and drive the pass pipeline against a
-// pre-built fragment. Production callers should use OptimizeFromInfo
+// tests (TestOptimizeFragmentMatcherInternerDoesNotLeakAcrossRuns)
+// keep working; they pass info=nil and drive the pass pipeline against
+// a pre-built fragment. Production callers should use OptimizeFromInfo
 // / BuildOptimizedFragment, which carry a logical node + analysis so
 // the report is computed by walking the logical tree rather than the
 // fragment.
@@ -283,11 +272,6 @@ func (m *matcherInterner) internSlice(matchers []*labels.Matcher) []*labels.Matc
 	return interned
 }
 
-func applyTrivialExpressionNormalization(state *optimizerState) error {
-	normalizeTrivialSourceExpressionsInPlace(state.fragment)
-	return nil
-}
-
 func applyEvaluationRangePropagation(state *optimizerState) error {
 	startMS, endMS, ok := requiredInputBounds(state.fragment, state.info, state.ctx)
 	if !ok {
@@ -338,15 +322,6 @@ func applyProjectionPushdown(state *optimizerState) error {
 	return nil
 }
 
-func applyFunctionPatternRewrites(state *optimizerState) error {
-	// The current native subset has no typed function fragments yet, but the pass and
-	// catalog are explicit so later function-native work plugs into a defined stage.
-	if state.fragment.Kind == FragmentKindAggregation && state.fragment.Aggregation != nil {
-		return nil
-	}
-	return nil
-}
-
 func applyJoinNormalizationDuplicateDetection(state *optimizerState) error {
 	if state.hasLogicalContext() {
 		state.report.JoinNormalization = joinNormalizationFromInfo(state.info)
@@ -360,11 +335,6 @@ func applyJoinNormalizationDuplicateDetection(state *optimizerState) error {
 	return nil
 }
 
-func applyFlattenRedundantWrappers(state *optimizerState) error {
-	flattenRedundantWrappersInPlace(state.fragment)
-	return nil
-}
-
 func applyFinalSQLShapingLateMaterialization(state *optimizerState) error {
 	if state.hasLogicalContext() {
 		state.report.MaterializedColumns = mergeUniqueStrings(state.report.MaterializedColumns, baseMaterializedColumnsFromInfo(state.info)...)
@@ -375,66 +345,6 @@ func applyFinalSQLShapingLateMaterialization(state *optimizerState) error {
 		state.report.SemanticBarriers = mergeUniqueStrings(state.report.SemanticBarriers, "late_tag_materialization")
 	}
 	return nil
-}
-
-func applyIdentityUnaryWrapperRewrite(fragment *NativeFragment) {
-	if fragment == nil {
-		return
-	}
-	if fragment.Kind == FragmentKindUnarySourceExpr && fragment.ValueExpr == "{value}" && fragment.TagsExpr == "{tags}" && !fragment.DropsMetric {
-		fragment.Kind = FragmentKindLeafSource
-	}
-}
-
-func walkChildFragments(fragment *NativeFragment, visit func(*NativeFragment)) {
-	if fragment == nil || visit == nil {
-		return
-	}
-	if fragment.Aggregation != nil {
-		visit(fragment.Aggregation.Source)
-	}
-	if fragment.Absent != nil {
-		visit(fragment.Absent.Child)
-	}
-	if fragment.HistogramProjection != nil {
-		visit(fragment.HistogramProjection.Child)
-	}
-	if fragment.HistogramFunction != nil {
-		visit(fragment.HistogramFunction.Child)
-		for _, quantile := range fragment.HistogramFunction.Quantiles {
-			visit(quantile)
-		}
-	}
-	if fragment.SortTransform != nil {
-		visit(fragment.SortTransform.Child)
-	}
-	if fragment.LabelTransform != nil {
-		visit(fragment.LabelTransform.Child)
-	}
-	if fragment.ClampTransform != nil {
-		visit(fragment.ClampTransform.Child)
-		visit(fragment.ClampTransform.Min)
-		visit(fragment.ClampTransform.Max)
-	}
-	if fragment.ValueTransform != nil {
-		visit(fragment.ValueTransform.Child)
-	}
-}
-
-func normalizeTrivialSourceExpressionsInPlace(fragment *NativeFragment) {
-	if fragment == nil {
-		return
-	}
-	walkChildFragments(fragment, normalizeTrivialSourceExpressionsInPlace)
-	applyIdentityUnaryWrapperRewrite(fragment)
-}
-
-func flattenRedundantWrappersInPlace(fragment *NativeFragment) {
-	if fragment == nil {
-		return
-	}
-	walkChildFragments(fragment, flattenRedundantWrappersInPlace)
-	applyIdentityUnaryWrapperRewrite(fragment)
 }
 
 func RequiredInputBounds(fragment *NativeFragment, info *LoweringInfo, ctx OptimizationContext) (int64, int64, bool) {

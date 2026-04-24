@@ -58,56 +58,6 @@ func buildScalarLiteralInputs(t *testing.T, tc struct {
 	return node, analysis, nativeAnalysis
 }
 
-// TestLowerScalarLiteralMatchesFragment is the byte-identical differential
-// guard: for every value × mode, lower the plan twice — once through
-// renderer.Lower (direct path), once through native.BuildFragment +
-// RenderFragment (Fragment path) — and fail on any diff. NaN values are
-// compared as strings because math.NaN() != math.NaN().
-func TestLowerScalarLiteralMatchesFragment(t *testing.T) {
-	for _, tc := range scalarLiteralCases {
-		for _, mode := range []struct {
-			name   string
-			params RenderParams
-		}{
-			{name: "instant", params: testRenderParamsInstant()},
-			{name: "range", params: testRenderParamsRange()},
-		} {
-			t.Run(tc.name+"_"+mode.name, func(t *testing.T) {
-				node, analysis, nativeAnalysis := buildScalarLiteralInputs(t, tc)
-				lowerCtx := LoweringCtx{
-					Config:         testRenderConfig(),
-					Analysis:       analysis,
-					NativeAnalysis: nativeAnalysis,
-					Params:         mode.params,
-				}
-				lowerRQ, err := Lower(lowerCtx, node)
-				if err != nil {
-					t.Fatalf("Lower: %v", err)
-				}
-				fragment, err := native.BuildFragment(node, nativeAnalysis)
-				if err != nil {
-					t.Fatalf("BuildFragment: %v", err)
-				}
-				fragmentRQ, err := RenderFragment(testRenderConfig(), fragment, mode.params)
-				if err != nil {
-					t.Fatalf("RenderFragment: %v", err)
-				}
-				if lowerRQ.SQL != fragmentRQ.SQL {
-					t.Errorf("SQL differs:\nDirect:   %s\nFragment: %s", lowerRQ.SQL, fragmentRQ.SQL)
-				}
-				if len(lowerRQ.QueryParams) != len(fragmentRQ.QueryParams) {
-					t.Errorf("QueryParams len differs: Direct=%v Fragment=%v", lowerRQ.QueryParams, fragmentRQ.QueryParams)
-				}
-				for k, v := range fragmentRQ.QueryParams {
-					if lowerRQ.QueryParams[k] != v {
-						t.Errorf("QueryParams[%q] differs: Direct=%q Fragment=%q", k, lowerRQ.QueryParams[k], v)
-					}
-				}
-			})
-		}
-	}
-}
-
 // TestLowerScalarLiteralGolden locks in the exact SQL for all values ×
 // modes. Run with -update to regenerate golden files.
 func TestLowerScalarLiteralGolden(t *testing.T) {

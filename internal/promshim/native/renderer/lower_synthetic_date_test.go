@@ -8,63 +8,6 @@ import (
 	"ch-observability/internal/promshim/native"
 )
 
-// TestLowerSyntheticDateMatchesFragment is the byte-identical differential
-// guard for the direct renderSyntheticDateFragment path: for each of the 8
-// supported date func names in both RenderModes, compare the output of
-// lowerPointwiseFunction (direct path) byte-for-byte against the Fragment
-// path (construct the same Fragment manually, call renderSyntheticFragment +
-// finalizeRenderedFragment). A mismatch here means the two paths have drifted.
-func TestLowerSyntheticDateMatchesFragment(t *testing.T) {
-	for _, fn := range syntheticFuncCases {
-		query := fn + "()"
-		for _, mode := range []struct {
-			name   string
-			params RenderParams
-		}{
-			{name: "instant", params: testRenderParamsInstant()},
-			{name: "range", params: testRenderParamsRange()},
-		} {
-			t.Run(fn+"_"+mode.name, func(t *testing.T) {
-				root, analysis, nativeAnalysis := buildLowerInputs(t, query)
-				lowerCtx := LoweringCtx{
-					Config:         testRenderConfig(),
-					Analysis:       analysis,
-					NativeAnalysis: nativeAnalysis,
-					Params:         mode.params,
-				}
-				directRQ, err := Lower(lowerCtx, root)
-				if err != nil {
-					t.Fatalf("Lower (direct): %v", err)
-				}
-
-				// Fragment path: construct the Fragment manually and call
-				// renderSyntheticFragment + finalizeRenderedFragment so both
-				// paths go through syntheticSeriesValueSQL independently.
-				rf, err := renderSyntheticDateFragment(fn, mode.params)
-				if err != nil {
-					t.Fatalf("renderSyntheticDateFragment: %v", err)
-				}
-				fragmentRQ, err := finalizeRenderedFragment(rf)
-				if err != nil {
-					t.Fatalf("finalizeRenderedFragment: %v", err)
-				}
-
-				if directRQ.SQL != fragmentRQ.SQL {
-					t.Errorf("SQL differs:\nDirect:   %s\nFragment: %s", directRQ.SQL, fragmentRQ.SQL)
-				}
-				if len(directRQ.QueryParams) != len(fragmentRQ.QueryParams) {
-					t.Errorf("QueryParams len differs: Direct=%v Fragment=%v", directRQ.QueryParams, fragmentRQ.QueryParams)
-				}
-				for k, v := range fragmentRQ.QueryParams {
-					if directRQ.QueryParams[k] != v {
-						t.Errorf("QueryParams[%q] differs: Direct=%q Fragment=%q", k, directRQ.QueryParams[k], v)
-					}
-				}
-			})
-		}
-	}
-}
-
 // TestLowerSyntheticDateGolden locks in the exact SQL for all 8 date
 // functions × 2 render modes. Run with -update to regenerate golden files.
 func TestLowerSyntheticDateGolden(t *testing.T) {

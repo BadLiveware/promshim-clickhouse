@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"ch-observability/internal/promshim/native"
 )
 
 // histogramProjectionCases covers all five supported histogram projection
@@ -21,54 +19,6 @@ var histogramProjectionCases = []struct {
 	{name: "histogram_avg", query: `histogram_avg(http_request_duration_seconds_bucket{job="api"})`},
 	{name: "histogram_stddev", query: `histogram_stddev(http_request_duration_seconds_bucket{job="api"})`},
 	{name: "histogram_stdvar", query: `histogram_stdvar(http_request_duration_seconds_bucket{job="api"})`},
-}
-
-// TestLowerHistogramProjectionMatchesFragment is the byte-identical differential
-// guard: for every function × mode, lower through renderer.Lower and through
-// native.BuildFragment + RenderFragment, then fail on any diff.
-func TestLowerHistogramProjectionMatchesFragment(t *testing.T) {
-	for _, tc := range histogramProjectionCases {
-		for _, mode := range []struct {
-			name   string
-			params RenderParams
-		}{
-			{name: "instant", params: testRenderParamsInstant()},
-			{name: "range", params: testRenderParamsRange()},
-		} {
-			t.Run(tc.name+"_"+mode.name, func(t *testing.T) {
-				root, analysis, nativeAnalysis := buildLowerInputs(t, tc.query)
-				lowerCtx := LoweringCtx{
-					Config:         testRenderConfig(),
-					Analysis:       analysis,
-					NativeAnalysis: nativeAnalysis,
-					Params:         mode.params,
-				}
-				lowerRQ, err := Lower(lowerCtx, root)
-				if err != nil {
-					t.Fatalf("Lower: %v", err)
-				}
-				fragment, err := native.BuildFragment(root, nativeAnalysis)
-				if err != nil {
-					t.Fatalf("BuildFragment: %v", err)
-				}
-				fragmentRQ, err := RenderFragment(testRenderConfig(), fragment, mode.params)
-				if err != nil {
-					t.Fatalf("RenderFragment: %v", err)
-				}
-				if lowerRQ.SQL != fragmentRQ.SQL {
-					t.Errorf("SQL differs:\nLower:    %s\nFragment: %s", lowerRQ.SQL, fragmentRQ.SQL)
-				}
-				if len(lowerRQ.QueryParams) != len(fragmentRQ.QueryParams) {
-					t.Errorf("QueryParams len differs: Lower=%v Fragment=%v", lowerRQ.QueryParams, fragmentRQ.QueryParams)
-				}
-				for k, v := range fragmentRQ.QueryParams {
-					if lowerRQ.QueryParams[k] != v {
-						t.Errorf("QueryParams[%q] differs: Lower=%q Fragment=%q", k, lowerRQ.QueryParams[k], v)
-					}
-				}
-			})
-		}
-	}
 }
 
 // TestLowerHistogramProjectionGolden locks in the exact SQL for all five

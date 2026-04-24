@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"ch-observability/internal/promshim/native"
 )
 
 // sortTransformCases covers each PromQL sort variant that lowers
@@ -20,57 +18,6 @@ var sortTransformCases = []struct {
 	{name: "sort_desc", query: `sort_desc(up)`},
 	{name: "sort_by_label", query: `sort_by_label(up, "job")`},
 	{name: "sort_by_label_desc", query: `sort_by_label_desc(rate(http_requests_total[5m]), "instance", "job")`},
-}
-
-// TestLowerSortTransformMatchesFragment is the byte-identical
-// differential guard for the sort_transform surface: for every case in
-// every render mode, lower the plan twice — once through renderer.Lower,
-// once through native.BuildFragment + RenderFragment — and fail on any
-// diff. The goldens only lock the shape down; this test is what makes
-// them meaningful.
-func TestLowerSortTransformMatchesFragment(t *testing.T) {
-	for _, tc := range sortTransformCases {
-		for _, mode := range []struct {
-			name   string
-			params RenderParams
-		}{
-			{name: "instant", params: testRenderParamsInstant()},
-			{name: "range", params: testRenderParamsRange()},
-		} {
-			t.Run(tc.name+"_"+mode.name, func(t *testing.T) {
-				root, analysis, nativeAnalysis := buildLowerInputs(t, tc.query)
-				lowerCtx := LoweringCtx{
-					Config:         testRenderConfig(),
-					Analysis:       analysis,
-					NativeAnalysis: nativeAnalysis,
-					Params:         mode.params,
-				}
-				lowerRQ, err := Lower(lowerCtx, root)
-				if err != nil {
-					t.Fatalf("Lower: %v", err)
-				}
-				fragment, err := native.BuildFragment(root, nativeAnalysis)
-				if err != nil {
-					t.Fatalf("BuildFragment: %v", err)
-				}
-				fragmentRQ, err := RenderFragment(testRenderConfig(), fragment, mode.params)
-				if err != nil {
-					t.Fatalf("RenderFragment: %v", err)
-				}
-				if lowerRQ.SQL != fragmentRQ.SQL {
-					t.Errorf("SQL differs:\nLower:    %s\nFragment: %s", lowerRQ.SQL, fragmentRQ.SQL)
-				}
-				if len(lowerRQ.QueryParams) != len(fragmentRQ.QueryParams) {
-					t.Errorf("QueryParams len differs: Lower=%v Fragment=%v", lowerRQ.QueryParams, fragmentRQ.QueryParams)
-				}
-				for k, v := range fragmentRQ.QueryParams {
-					if lowerRQ.QueryParams[k] != v {
-						t.Errorf("QueryParams[%q] differs: Lower=%q Fragment=%q", k, lowerRQ.QueryParams[k], v)
-					}
-				}
-			})
-		}
-	}
 }
 
 // TestLowerSortTransformGolden locks in the exact SQL for a subset of

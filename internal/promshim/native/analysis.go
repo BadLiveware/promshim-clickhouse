@@ -45,6 +45,16 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 		}
 		info.NativeLowerable = selector != nil
 		if selector != nil {
+			// Task 13c-9: Pre-compute InferredMatchers/PushedMatchers at Analyze
+			// time so renderers consulting info.LeafSelector see the enriched
+			// matchers without the optimizer having to mutate a cloned selector.
+			// The three optimizer passes that historically produced these fields
+			// (CommonMatcherInference, LabelPredicatePushdown, ProjectionPushdown)
+			// now collapse to pure report-emission; selector-field mutation lives
+			// here in the deterministic Analyze walk. Use a fresh interner so
+			// Matchers/InferredMatchers/PushedMatchers share pointers for equal
+			// matcher keys (matches the optimizer's historical interning behavior).
+			populateSelectorInferredAndPushedMatchers(selector)
 			info.NativeReason = "selector leaf can seed repo-owned native SQL source lowering"
 			info.Fragment = &NativeFragment{
 				Kind:         FragmentKindLeafSource,
@@ -1387,4 +1397,30 @@ func (info *LoweringInfo) String() string {
 		parts = append(parts, strings.Join(labels, ","))
 	}
 	return strings.Join(parts, " | ")
+}
+
+// populateSelectorInferredAndPushedMatchers pre-computes the
+// InferredMatchers and PushedMatchers slices on selector at Analyze time.
+// Historically these were produced by the optimizer's
+// CommonMatcherInference and LabelPredicatePushdown passes, which mutated
+// a cloned SelectorSource. Task 13c-9 lifts that work into Analyze so the
+// enriched matchers are already visible through info.LeafSelector (and
+// through CloneFragment's cloneSelectorSource copy onto the optimizer's
+// working fragment) before any optimizer pass runs.
+//
+// A fresh matcherInterner scopes pointer-sharing to this single leaf so
+// Matchers/InferredMatchers/PushedMatchers share pointers for equal
+// matcher keys — matching the optimizer's historical interning behavior
+// that TestOptimizeFragmentInternsEquivalentMatchersAcrossSelectorFields
+// asserts. The optimizer's post-clone internMatchersInFragment re-interns
+// against its own interner, which preserves pointer-equivalence within a
+// single optimize run.
+func populateSelectorInferredAndPushedMatchers(selector *SelectorSource) {
+	if selector == nil {
+		return
+	}
+	interner := newMatcherInterner()
+	selector.Matchers = interner.internSlice(selector.Matchers)
+	selector.InferredMatchers = interner.internSlice(inferSourceMatchers(selector))
+	selector.PushedMatchers = mergeMatchers(interner, selector.Matchers, selector.InferredMatchers)
 }

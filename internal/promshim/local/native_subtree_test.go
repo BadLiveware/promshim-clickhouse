@@ -27,6 +27,14 @@ func TestNativeSubtreePlanNormalizesInstantVectorTimestampToEvaluationTime(t *te
 		t.Fatalf("new client: %v", err)
 	}
 
+	exprUp, err := logical.ParseExpression("up")
+	if err != nil {
+		t.Fatalf("parse expression: %v", err)
+	}
+	nodeUp, err := BuildLogicalPlan(exprUp)
+	if err != nil {
+		t.Fatalf("build logical plan: %v", err)
+	}
 	plan := &nativeSubtreePlan{
 		Kind: "leaf",
 		Expr: "up",
@@ -39,6 +47,8 @@ func TestNativeSubtreePlanNormalizesInstantVectorTimestampToEvaluationTime(t *te
 		},
 		Info:               &nativeplan.LoweringInfo{OutputKind: nativeplan.OutputKindInstantVector},
 		OptimizationReport: &nativeplan.OptimizationReport{RequiredInputStartMS: 0, RequiredInputEndMS: 0},
+		Node:               nodeUp,
+		Analysis:           nativeplan.Analyze(nodeUp),
 	}
 
 	evalTime := time.Unix(1234, 0).UTC()
@@ -75,6 +85,14 @@ func TestNativeSubtreePlanAppliesRuntimeModuloCorrectionToInstantVectors(t *test
 		Op:     nativeplan.RuntimeValueTransformPromQLModulo,
 		Scalar: &scalar,
 	}
+	exprMod, err := logical.ParseExpression("demo_memory_usage_bytes % (1 * 2 + 4 / 6 - 10)")
+	if err != nil {
+		t.Fatalf("parse expression: %v", err)
+	}
+	nodeMod, err := BuildLogicalPlan(exprMod)
+	if err != nil {
+		t.Fatalf("build logical plan: %v", err)
+	}
 	plan := &nativeSubtreePlan{
 		Kind: "binary",
 		Expr: "demo_memory_usage_bytes % (1 * 2 + 4 / 6 - 10)",
@@ -96,6 +114,8 @@ func TestNativeSubtreePlanAppliesRuntimeModuloCorrectionToInstantVectors(t *test
 		},
 		Info:               &nativeplan.LoweringInfo{OutputKind: nativeplan.OutputKindInstantVector, RuntimeValueTransform: runtimeTransform},
 		OptimizationReport: &nativeplan.OptimizationReport{RequiredInputStartMS: 0, RequiredInputEndMS: 0},
+		Node:               nodeMod,
+		Analysis:           nativeplan.Analyze(nodeMod),
 	}
 
 	evalTime := time.Unix(1776807862, 0).UTC()
@@ -132,6 +152,14 @@ func TestNativeSubtreePlanAppliesRuntimeModuloCorrectionToRangeMatrices(t *testi
 		Op:     nativeplan.RuntimeValueTransformPromQLModulo,
 		Scalar: &scalar,
 	}
+	exprModRange, err := logical.ParseExpression("demo_memory_usage_bytes % (1 * 2 + 4 / 6 - 10)")
+	if err != nil {
+		t.Fatalf("parse expression: %v", err)
+	}
+	nodeModRange, err := BuildLogicalPlan(exprModRange)
+	if err != nil {
+		t.Fatalf("build logical plan: %v", err)
+	}
 	plan := &nativeSubtreePlan{
 		Kind: "binary",
 		Expr: "demo_memory_usage_bytes % (1 * 2 + 4 / 6 - 10)",
@@ -153,6 +181,8 @@ func TestNativeSubtreePlanAppliesRuntimeModuloCorrectionToRangeMatrices(t *testi
 		},
 		Info:               &nativeplan.LoweringInfo{OutputKind: nativeplan.OutputKindInstantVector, RuntimeValueTransform: runtimeTransform},
 		OptimizationReport: &nativeplan.OptimizationReport{RequiredInputStartMS: 0, RequiredInputEndMS: 0},
+		Node:               nodeModRange,
+		Analysis:           nativeplan.Analyze(nodeModRange),
 	}
 
 	value, err := plan.execute(context.Background(), &Evaluator{database: "observability", table: "prometheus", client: client}, EvalParams{Mode: EvalModeRange, Start: time.Unix(1776807862, 0).UTC(), End: time.Unix(1776807872, 0).UTC(), Step: 10 * time.Second})

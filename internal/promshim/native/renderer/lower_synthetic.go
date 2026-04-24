@@ -32,11 +32,27 @@ func lowerPointwiseFunction(ctx LoweringCtx, n *logicalpkg.PointwiseFunctionPlan
 	if isClampFuncName(n.Func) {
 		return lowerClamp(ctx, n)
 	}
-	// Synthetic lowering only applies to zero-arg synthetic date
-	// functions. If the plan carries a child or param children, it's a
-	// unary source-expression shape (e.g. abs(foo)) or another
-	// variant — not part of this surface. Fall back to Fragment.
-	if n.Child != nil || !isSupportedNativeSyntheticDateFuncName(n.Func) {
+	// Unary source-expression shape (e.g. abs(foo), sqrt(foo)): analysis
+	// produced a FragmentKindUnarySourceExpr carrying Selector +
+	// ValueExpr/TagsExpr. Render off that cached fragment directly — same
+	// pattern as lowerBinaryScalarInvolving. Keeps Lower off the sentinel
+	// path so tier-3 callers no longer need a Fragment fallback.
+	if n.Child != nil {
+		if ctx.NativeAnalysis == nil {
+			return RenderedQuery{}, errUnsupportedLowerNode
+		}
+		info := ctx.NativeAnalysis.InfoFor(n)
+		if info == nil || info.Fragment == nil || info.Fragment.Kind != native.FragmentKindUnarySourceExpr {
+			return RenderedQuery{}, errUnsupportedLowerNode
+		}
+		rf, err := renderFragment(ctx.Config, info.Fragment, ctx.Params)
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		return finalizeRenderedFragment(rf)
+	}
+	// Zero-arg: only synthetic date functions lower here.
+	if !isSupportedNativeSyntheticDateFuncName(n.Func) {
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}
 	if len(n.ParamChildren) != 0 {

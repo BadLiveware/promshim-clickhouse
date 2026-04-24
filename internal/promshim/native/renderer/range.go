@@ -423,17 +423,26 @@ func rangeFunctionTagsExprFromInput(fn string, inputHasMetricName bool) string {
 	return rangeFunctionTagsExpr(fn)
 }
 
-func selectorOutputHasMetricName(selector *native.SelectorSource) bool {
-	if selector == nil {
+// paramsInputHasMetricName reports whether the storage selector produced
+// under the given RenderParams narrowing retains __name__ in its tags
+// output. After 13c-14e native.SelectorSource no longer narrows; the
+// tag-set observable at a range-function boundary is therefore a pure
+// function of RenderParams:
+//
+//   - params.RequireFullTags=true or no narrowing at all → the selector
+//     emits full tags (base path in selector_sql.go:selectorTagsExpr),
+//     which include __name__.
+//   - params.RequiredTagLabels non-empty → the selector narrows to
+//     exactly that label set, so __name__ is present iff the set
+//     contains "__name__".
+func paramsInputHasMetricName(params RenderParams) bool {
+	if params.RequireFullTags {
 		return true
 	}
-	if selector.RequireFullTags {
+	if len(params.RequiredTagLabels) == 0 {
 		return true
 	}
-	if len(selector.RequiredTagLabels) == 0 {
-		return false
-	}
-	for _, label := range selector.RequiredTagLabels {
+	for _, label := range params.RequiredTagLabels {
 		if label == "__name__" {
 			return true
 		}

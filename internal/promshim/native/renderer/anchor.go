@@ -60,6 +60,8 @@ func renderAnchoredRangeSourceExprView(cfg storage.QueryConfig, view *native.Sou
 		RequiredStartMS:     params.RequiredStartMS,
 		RequiredEndMS:       params.RequiredEndMS,
 		ResolveSourcePromQL: params.ResolveSourcePromQL,
+		RequireFullTags:     params.RequireFullTags,
+		RequiredTagLabels:   params.RequiredTagLabels,
 	})
 	if err != nil {
 		return renderedFragment{}, err

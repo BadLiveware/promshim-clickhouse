@@ -19,16 +19,19 @@ type RenderParams struct {
 	RequiredEndMS       int64
 	ResolveSourcePromQL func(parser.Expr) (string, error)
 	// RequireFullTags indicates whether a parent renderer (histogram function or
-	// projection) has explicitly declared that full tags are required from the
-	// underlying selector. Default (false) means no explicit requirement from the
-	// parent — the selector's own SelectorSource.RequireFullTags still governs.
-	// In Phase A direct-render code, these fields will be merged with the
-	// SelectorSource equivalents.
+	// projection, or a selection / count_values aggregation) has explicitly
+	// declared that full tags are required from the underlying selector.
+	// After 13c-14e native.SelectorSource no longer carries narrowing state,
+	// so RenderParams is the single source of truth: true forces the storage
+	// SelectorSource's RequireFullTags=true, overriding any
+	// RequiredTagLabels narrowing. Default (false) means the storage
+	// selector's own (zero-valued) narrowing state applies.
 	RequireFullTags bool
 	// RequiredTagLabels is the set of labels the parent requires from the
 	// underlying selector. When RequireFullTags is false (indicating a grouping
 	// aggregation child), this is a fresh copy of the child's Grouping labels.
-	// Default (nil) means no explicit tag requirement from the parent.
+	// Default (nil) means no explicit tag requirement from the parent; the
+	// storage selector falls through to the full-tags base path.
 	RequiredTagLabels []string
 }
 

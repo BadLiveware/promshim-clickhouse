@@ -99,28 +99,29 @@ func renderLeafLogical(cfg storage.QueryConfig, leaf *logicalpkg.LeafExprPlan, p
 
 // nativeSelectorToStorage converts a native.SelectorSource (from the
 // native analysis package) into a storage.SelectorSource (used by the
-// storage SQL builders). This mirrors what renderAggregationSource does
-// in source.go, but operates directly on the logical leaf's selector.
+// storage SQL builders). Tag-narrowing is not copied here — narrowing
+// now flows exclusively through RenderParams and is layered on top by
+// applyRenderParamsNarrowing. When no RenderParams narrowing is present
+// the storage selector's zero-valued RequireFullTags / RequiredTagLabels
+// fall through selectorTagsExpr to the full-tags base path, matching the
+// Prometheus default.
 func nativeSelectorToStorage(sel *native.SelectorSource) storage.SelectorSource {
 	return storage.SelectorSource{
-		Kind:              storage.SelectorKind(sel.Kind),
-		MetricName:        sel.MetricName,
-		Matchers:          selectorEffectiveMatchers(sel),
-		NeedTags:          selectorNeedsTags(sel),
-		RequireFullTags:   sel.RequireFullTags,
-		RequiredTagLabels: append([]string(nil), sel.RequiredTagLabels...),
-		LookbackMS:        sel.Lookback.Milliseconds(),
-		OffsetMS:          sel.Offset.Milliseconds(),
+		Kind:       storage.SelectorKind(sel.Kind),
+		MetricName: sel.MetricName,
+		Matchers:   selectorEffectiveMatchers(sel),
+		NeedTags:   true,
+		LookbackMS: sel.Lookback.Milliseconds(),
+		OffsetMS:   sel.Offset.Milliseconds(),
 	}
 }
 
 // applyRenderParamsNarrowing mutates a storage.SelectorSource to honor
-// the tag-narrowing carried on RenderParams. When params carry no
-// narrowing the storage selector is left unchanged (preserving whatever
-// nativeSelectorToStorage already populated). Parents that grouping-
+// the tag-narrowing carried on RenderParams. Parents that grouping-
 // narrow the child (histogram projection/function) set RequireFullTags=
-// false + RequiredTagLabels=grouping on params; RenderParams is then the
-// single source of truth for narrowing on the Logical path.
+// false + RequiredTagLabels=grouping on params, or (selection /
+// count_values aggregations) force RequireFullTags=true. RenderParams
+// is the single source of truth for narrowing on the Logical path.
 func applyRenderParamsNarrowing(sel *storage.SelectorSource, params RenderParams) {
 	if params.RequireFullTags {
 		sel.RequireFullTags = true

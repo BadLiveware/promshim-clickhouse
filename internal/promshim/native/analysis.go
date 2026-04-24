@@ -964,7 +964,7 @@ func computeSelectorShape(a *Analysis, node logicalpkg.Node, info *LoweringInfo)
 			shape.SelectorOffset = sel.OriginalOffset
 			shape.SelectorTimestamp = cloneInt64Pointer(sel.Timestamp)
 			shape.SelectorStartOrEnd = sel.StartOrEnd
-			shape.OutputHasMetricName = selectorShapeOutputHasMetricName(info)
+			shape.OutputHasMetricName = true
 			shape.HasFixedTemporalAnchor = selectorShapeHasFixedAnchor(shape)
 			return shape
 		case *parser.MatrixSelector:
@@ -978,7 +978,7 @@ func computeSelectorShape(a *Analysis, node logicalpkg.Node, info *LoweringInfo)
 			shape.SelectorOffset = vec.OriginalOffset
 			shape.SelectorTimestamp = cloneInt64Pointer(vec.Timestamp)
 			shape.SelectorStartOrEnd = vec.StartOrEnd
-			shape.OutputHasMetricName = selectorShapeOutputHasMetricName(info)
+			shape.OutputHasMetricName = true
 			shape.HasFixedTemporalAnchor = selectorShapeHasFixedAnchor(shape)
 			return shape
 		}
@@ -1090,11 +1090,12 @@ func computeSelectorShape(a *Analysis, node logicalpkg.Node, info *LoweringInfo)
 		}
 	}
 
-	// Refresh OutputHasMetricName from the (possibly wrapped) fragment
-	// so it reflects the current narrowing state. Only meaningful when
-	// we successfully carried through a base selector.
+	// After 13c-14e native.SelectorSource no longer carries narrowing
+	// fields; a base selector's output always retains __name__ until the
+	// render-time RenderParams narrowing strips it. OutputHasMetricName
+	// is therefore a function of HasSelector alone.
 	if shape.HasSelector {
-		shape.OutputHasMetricName = selectorShapeOutputHasMetricNameInherited(info, shape)
+		shape.OutputHasMetricName = true
 	}
 	return shape
 }
@@ -1105,66 +1106,6 @@ func childSelectorShape(a *Analysis, child logicalpkg.Node) SelectorShape {
 		return SelectorShape{}
 	}
 	return info.Shape
-}
-
-// selectorShapeOutputHasMetricName mirrors
-// renderer.selectorOutputHasMetricName for the base-selector case (leaf
-// with a direct info.LeafSelector). A nil info/selector defaults to true
-// (selector-less paths render full tags).
-func selectorShapeOutputHasMetricName(info *LoweringInfo) bool {
-	if info == nil || info.LeafSelector == nil {
-		return true
-	}
-	sel := info.LeafSelector
-	if sel.RequireFullTags {
-		return true
-	}
-	if len(sel.RequiredTagLabels) == 0 {
-		return false
-	}
-	for _, label := range sel.RequiredTagLabels {
-		if label == "__name__" {
-			return true
-		}
-	}
-	return false
-}
-
-// selectorShapeOutputHasMetricNameInherited determines OutputHasMetricName
-// for composite nodes. When the composite's info still carries a selector
-// pointer (via cloneSelectorSource in unary/binary source expressions via
-// SourceExpr.Selector), we prefer its narrowing state. Otherwise we fall
-// back to the child's computed value so ancestors without a direct
-// selector pointer still reflect the chain's narrowing.
-func selectorShapeOutputHasMetricNameInherited(info *LoweringInfo, childShape SelectorShape) bool {
-	if info != nil && info.SourceExpr != nil && info.SourceExpr.Selector != nil {
-		return selectorShapeOutputHasMetricNameFromSelector(info.SourceExpr.Selector)
-	}
-	if info != nil && info.LeafSelector != nil {
-		return selectorShapeOutputHasMetricName(info)
-	}
-	if !childShape.HasSelector {
-		return true
-	}
-	return childShape.OutputHasMetricName
-}
-
-func selectorShapeOutputHasMetricNameFromSelector(sel *SelectorSource) bool {
-	if sel == nil {
-		return true
-	}
-	if sel.RequireFullTags {
-		return true
-	}
-	if len(sel.RequiredTagLabels) == 0 {
-		return false
-	}
-	for _, label := range sel.RequiredTagLabels {
-		if label == "__name__" {
-			return true
-		}
-	}
-	return false
 }
 
 func selectorShapeHasFixedAnchor(shape SelectorShape) bool {

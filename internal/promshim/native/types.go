@@ -197,13 +197,11 @@ type LoweringInfo struct {
 	// Analyze walk for LeafExprPlan nodes so Lower can read the cached
 	// selector without dereferencing info.Fragment.
 	//
-	// Holds the same *SelectorSource pointer stored in info.Fragment.
-	// Selector, so in-place mutations by upstream passes — specifically
-	// narrowHistogramChildAnalysisInPlace, which flips RequireFullTags /
-	// RequiredTagLabels on the cached selector — flow through both fields
-	// identically. OptimizeFragment operates on a clone and does not
-	// mutate this pointer. Nil when the node is not a leaf selector or
-	// when selector-source analysis failed.
+	// After 13c-14e native.SelectorSource carries no narrowing state;
+	// tag-narrowing flows purely through RenderParams at render time.
+	// The LeafSelector pointer is stable across a query's Analyze pass
+	// and not cloned for rendering. Nil when the node is not a leaf
+	// selector or when selector-source analysis failed.
 	LeafSelector *SelectorSource
 
 	// SourceExpr captures the "source expression" view the renderer needs
@@ -250,9 +248,9 @@ type LoweringInfo struct {
 // dereferencing info.Fragment.
 //
 // Selector holds the same *SelectorSource pointer stored in
-// info.Fragment.Selector so upstream in-place mutations
-// (narrowHistogramChildAnalysisInPlace) remain visible; the remaining
-// fields are value-typed and captured at Analyze time.
+// info.Fragment.Selector; the remaining fields are value-typed and
+// captured at Analyze time. After 13c-14e the selector carries no
+// narrowing state — RenderParams is the single source of truth.
 type SourceExprView struct {
 	// Selector mirrors fragment.Selector (same pointer).
 	Selector *SelectorSource
@@ -319,9 +317,8 @@ type SyntheticSeriesView struct {
 
 // SelectorShape carries per-node selector/shape metadata that tier-2
 // renderer helpers currently read from NativeFragment sub-structs
-// (fragment.Selector.Kind / Lookback / Offset / Timestamp / StartOrEnd,
-// fragment.Selector.RequireFullTags / RequiredTagLabels, and the
-// HasFixedTemporalAnchor tree walk). It is populated during the
+// (fragment.Selector.Kind / Lookback / Offset / Timestamp / StartOrEnd
+// and the HasFixedTemporalAnchor tree walk). It is populated during the
 // native.Analyze walk and available via Analysis.InfoFor(node).Shape.
 //
 // HasSelector reports whether this node (directly, for leaf selectors)
@@ -369,12 +366,13 @@ type SelectorShape struct {
 	// so later tier-2 ports can drop the Fragment-side recursion.
 	HasFixedTemporalAnchor bool
 
-	// OutputHasMetricName mirrors renderer.selectorOutputHasMetricName
-	// for the base selector reached from this node: true when the
-	// selector's output retains __name__ (RequireFullTags=true or
-	// RequiredTagLabels contains __name__). False for narrowed
-	// selectors that explicitly drop __name__. Only meaningful when
-	// HasSelector is true.
+	// OutputHasMetricName is structurally true whenever HasSelector is
+	// true. After 13c-14e native.SelectorSource carries no narrowing
+	// state — a base selector always emits __name__ as part of its
+	// tags; render-time RenderParams narrowing strips it later. The
+	// field is retained so existing callers (OutputHasMetricNameNode
+	// and its tests) keep their signature, but it is no longer a
+	// shape-dependent signal.
 	OutputHasMetricName bool
 }
 
@@ -461,13 +459,12 @@ func HasFixedTemporalAnchorNode(analysis *Analysis, node logicalpkg.Node) bool {
 	return info.Shape.HasFixedTemporalAnchor
 }
 
-// OutputHasMetricNameNode mirrors the renderer's
-// selectorOutputHasMetricName helper on the logical tree: it returns
-// true when the base selector reachable from node still emits
-// __name__ (RequireFullTags=true or RequiredTagLabels contains
-// __name__). Returns true (the fragment-side default) when no selector
-// is discoverable from this node, matching renderer behavior when the
-// selector pointer is nil.
+// OutputHasMetricNameNode reports whether the base selector reachable
+// from node emits __name__. After 13c-14e narrowing flows purely
+// through RenderParams at render time, so this is structurally true
+// whenever a base selector is reachable (HasSelector=true) and also
+// true when no selector is discoverable (matches the fragment-side
+// nil-selector default).
 func OutputHasMetricNameNode(analysis *Analysis, node logicalpkg.Node) bool {
 	info := analysis.InfoFor(node)
 	if info == nil || !info.Shape.HasSelector {

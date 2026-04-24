@@ -22,10 +22,9 @@ import (
 // When cachedSelector is non-nil it is preferred over a freshly built
 // one. Callers thread the cached leaf selector from NativeAnalysis so
 // tag-narrowing mutations (applied in-place by upstream passes such as
-// narrowHistogramChildAnalysisInPlace or applySelectorProjection) flow
-// through to the rendered SQL. This mirrors the Fragment-side behavior
-// where RenderFragment on the cached leaf Fragment picks up the same
-// narrowed SelectorSource.
+// applySelectorProjection) flow through to the rendered SQL. Histogram
+// tag-narrowing flows through RenderParams instead (see
+// applyRenderParamsNarrowing).
 func renderLeafLogical(cfg storage.QueryConfig, leaf *logicalpkg.LeafExprPlan, params RenderParams, cachedSelector *native.SelectorSource) (renderedFragment, error) {
 	if leaf == nil {
 		return renderedFragment{}, fmt.Errorf("renderer: renderLeafLogical called with nil leaf")
@@ -44,6 +43,7 @@ func renderLeafLogical(cfg storage.QueryConfig, leaf *logicalpkg.LeafExprPlan, p
 	case native.RenderModeInstant:
 		if selector != nil {
 			storageSel := nativeSelectorToStorage(selector)
+			applyRenderParamsNarrowing(&storageSel, params)
 			sql, queryParams, err := storage.BuildInstantSelectorQuerySQL(cfg, storageSel, params.RequiredStartMS, params.RequiredEndMS)
 			if err != nil {
 				return renderedFragment{}, err
@@ -70,6 +70,7 @@ func renderLeafLogical(cfg storage.QueryConfig, leaf *logicalpkg.LeafExprPlan, p
 	case native.RenderModeRange:
 		if selector != nil {
 			storageSel := nativeSelectorToStorage(selector)
+			applyRenderParamsNarrowing(&storageSel, params)
 			sql, queryParams, err := storage.BuildRangeSelectorQuerySQL(cfg, storageSel, params.RequiredStartMS, params.RequiredEndMS, params.StartMS, params.EndMS, params.StepMS)
 			if err != nil {
 				return renderedFragment{}, err
@@ -113,6 +114,25 @@ func nativeSelectorToStorage(sel *native.SelectorSource) storage.SelectorSource 
 	}
 }
 
+// applyRenderParamsNarrowing mutates a storage.SelectorSource to honor
+// the tag-narrowing carried on RenderParams. When params carry no
+// narrowing the storage selector is left unchanged (preserving whatever
+// nativeSelectorToStorage already populated). Parents that grouping-
+// narrow the child (histogram projection/function) set RequireFullTags=
+// false + RequiredTagLabels=grouping on params; RenderParams is then the
+// single source of truth for narrowing on the Logical path.
+func applyRenderParamsNarrowing(sel *storage.SelectorSource, params RenderParams) {
+	if params.RequireFullTags {
+		sel.RequireFullTags = true
+		sel.RequiredTagLabels = nil
+		return
+	}
+	if len(params.RequiredTagLabels) > 0 {
+		sel.RequireFullTags = false
+		sel.RequiredTagLabels = append([]string(nil), params.RequiredTagLabels...)
+	}
+}
+
 // renderAggregationSourceView is the pure-logical analog of
 // renderAggregationSource. Instead of dereferencing a NativeFragment's
 // Selector / ValueExpr / TagsExpr / SourcePromQL fields, it reads them
@@ -129,6 +149,7 @@ func renderAggregationSourceView(view *native.SourceExprView, params RenderParam
 	}
 	if view.Selector != nil {
 		storageSel := nativeSelectorToStorage(view.Selector)
+		applyRenderParamsNarrowing(&storageSel, params)
 		return storage.AggregationSource{
 			Selector:  &storageSel,
 			ValueExpr: view.ValueExpr,
@@ -165,6 +186,7 @@ func renderSourceExprView(cfg storage.QueryConfig, view *native.SourceExprView, 
 	case native.RenderModeInstant:
 		if view.Selector != nil {
 			storageSel := nativeSelectorToStorage(view.Selector)
+			applyRenderParamsNarrowing(&storageSel, params)
 			sql, queryParams, err := storage.BuildInstantSelectorQuerySQL(cfg, storageSel, params.RequiredStartMS, params.RequiredEndMS)
 			if err != nil {
 				return renderedFragment{}, err
@@ -194,6 +216,7 @@ func renderSourceExprView(cfg storage.QueryConfig, view *native.SourceExprView, 
 	case native.RenderModeRange:
 		if view.Selector != nil {
 			storageSel := nativeSelectorToStorage(view.Selector)
+			applyRenderParamsNarrowing(&storageSel, params)
 			sql, queryParams, err := storage.BuildRangeSelectorQuerySQL(cfg, storageSel, params.RequiredStartMS, params.RequiredEndMS, params.StartMS, params.EndMS, params.StepMS)
 			if err != nil {
 				return renderedFragment{}, err

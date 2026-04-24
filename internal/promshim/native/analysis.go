@@ -88,6 +88,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 		info.NativeLowerable = true
 		info.NativeReason = "scalar literal can lower to a native synthetic scalar series"
 		info.Fragment = &NativeFragment{Kind: FragmentKindSyntheticSeries, OutputKind: OutputKindScalar, DropsMetric: true, Synthetic: &SyntheticSeriesFragment{Func: "literal", Value: cloneFloat64Pointer(&n.Value)}}
+		info.SyntheticSeries = &SyntheticSeriesView{Func: "literal", Value: n.Value}
 		return info
 	case *logicalpkg.UnaryPlan:
 		child := a.walk(n.Child)
@@ -100,6 +101,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 				info.NativeLowerable = true
 				info.NativeReason = "scalar-only unary expression can fold to a native synthetic scalar series"
 				info.Fragment = &NativeFragment{Kind: FragmentKindSyntheticSeries, OutputKind: OutputKindScalar, DropsMetric: true, Synthetic: &SyntheticSeriesFragment{Func: "literal", Value: cloneFloat64Pointer(&folded)}}
+				info.SyntheticSeries = &SyntheticSeriesView{Func: "literal", Value: folded}
 				return info
 			}
 		}
@@ -145,7 +147,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 					info.NativeLowerable = true
 					info.NativeReason = "scalar-only expression can fold to a native synthetic scalar series"
 					info.Fragment = &NativeFragment{Kind: FragmentKindSyntheticSeries, OutputKind: OutputKindScalar, DropsMetric: true, Synthetic: &SyntheticSeriesFragment{Func: "literal", Value: cloneFloat64Pointer(&folded)}}
-					info.SyntheticSeries = &SyntheticSeriesView{Value: folded}
+					info.SyntheticSeries = &SyntheticSeriesView{Func: "literal", Value: folded}
 					return info
 				}
 			}
@@ -396,13 +398,16 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 			reason = "count_values can lower to native SQL by synthesizing the destination label from sample values before grouped counting"
 		}
 		sourceFragment := child.Fragment
+		sourceInfo := child
 		emitZeroOnEmpty := false
-		if zeroFillSource, ok := zeroFillAggregationSource(n.Op, n.Grouping, n.Without, n.Child, a); ok {
+		if zeroFillSource, zeroFillInfo, ok := zeroFillAggregationSource(n.Op, n.Grouping, n.Without, n.Child, a); ok {
 			sourceFragment = zeroFillSource
+			sourceInfo = zeroFillInfo
 			emitZeroOnEmpty = true
 			reason = "sum(... or vector(0)) can lower by aggregating the native child and emitting zero when the aggregate would otherwise be empty"
 		} else if sourceFragment == nil || child.OutputKind != OutputKindInstantVector {
 			sourceFragment = nil
+			sourceInfo = nil
 		}
 		eligible := true
 		if !isSupportedNativeAggregation(n.Op) {
@@ -412,7 +417,19 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 			eligible = false
 			reason = "aggregation child is not pushdown-safe; native pushdown currently requires a native-lowerable instant-vector child"
 		}
-		info.Aggregation = &AggregationSupport{Eligible: eligible, Reason: reason, Source: sourceFragment, EmitZeroOnEmpty: emitZeroOnEmpty}
+		if !eligible {
+			sourceInfo = nil
+		}
+		var sourceView *AggregationSourceView
+		if sourceFragment != nil && sourceFragment.SourcePromQL != nil {
+			sourceView = &AggregationSourceView{
+				SourcePromQL: sourceFragment.SourcePromQL,
+				ValueExpr:    sourceFragment.ValueExpr,
+				TagsExpr:     sourceFragment.TagsExpr,
+				DropsMetric:  sourceFragment.DropsMetric,
+			}
+		}
+		info.Aggregation = &AggregationSupport{Eligible: eligible, Reason: reason, Source: sourceFragment, SourceInfo: sourceInfo, SourceView: sourceView, EmitZeroOnEmpty: emitZeroOnEmpty}
 		if eligible {
 			info.Fragment = &NativeFragment{
 				Kind:       FragmentKindAggregation,
@@ -732,6 +749,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 			info.NativeLowerable = true
 			info.NativeReason = fmt.Sprintf("%s can lower to a native synthetic series", n.Func)
 			info.Fragment = &NativeFragment{Kind: FragmentKindSyntheticSeries, OutputKind: OutputKindInstantVector, DropsMetric: true, Synthetic: &SyntheticSeriesFragment{Func: n.Func}}
+			info.SyntheticSeries = &SyntheticSeriesView{Func: n.Func}
 			return info
 		}
 		if child == nil {
@@ -747,6 +765,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 			info.NativeLowerable = true
 			info.NativeReason = fmt.Sprintf("%s can lower to a native synthetic scalar series", n.Func)
 			info.Fragment = &NativeFragment{Kind: FragmentKindSyntheticSeries, OutputKind: OutputKindScalar, DropsMetric: true, Synthetic: &SyntheticSeriesFragment{Func: n.Func}}
+			info.SyntheticSeries = &SyntheticSeriesView{Func: n.Func}
 			return info
 		}
 		info.NativeReason = fmt.Sprintf("%s currently stays on the local execution path", n.Func)
@@ -1279,27 +1298,27 @@ func isVectorZeroLogicalPlan(node logicalpkg.Node) bool {
 	return scalar.Value == 0
 }
 
-func zeroFillAggregationSource(op parser.ItemType, grouping []string, without bool, child logicalpkg.Node, analysis *Analysis) (*NativeFragment, bool) {
+func zeroFillAggregationSource(op parser.ItemType, grouping []string, without bool, child logicalpkg.Node, analysis *Analysis) (*NativeFragment, *LoweringInfo, bool) {
 	if op != parser.SUM || without || len(grouping) != 0 {
-		return nil, false
+		return nil, nil, false
 	}
 	binary, ok := child.(*logicalpkg.BinaryPlan)
 	if !ok || binary == nil || binary.Op != parser.LOR || binary.ReturnBool {
-		return nil, false
+		return nil, nil, false
 	}
 	switch {
 	case isVectorZeroLogicalPlan(binary.LHS):
 		info := analysis.InfoFor(binary.RHS)
 		if info != nil && info.Fragment != nil && info.OutputKind == OutputKindInstantVector {
-			return info.Fragment, true
+			return info.Fragment, info, true
 		}
 	case isVectorZeroLogicalPlan(binary.RHS):
 		info := analysis.InfoFor(binary.LHS)
 		if info != nil && info.Fragment != nil && info.OutputKind == OutputKindInstantVector {
-			return info.Fragment, true
+			return info.Fragment, info, true
 		}
 	}
-	return nil, false
+	return nil, nil, false
 }
 
 func describeLogicalPlan(node logicalpkg.Node) (string, OutputKind) {

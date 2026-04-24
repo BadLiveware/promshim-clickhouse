@@ -198,13 +198,22 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 				info.LabelLineage = withMetricNameState(passthroughLabelLineage(rhs.LabelLineage), boolState(dropsMetric, LabelLineageDropped, rhs.LabelLineage.MetricName))
 				if rhs.Fragment.Selector != nil || rhs.Fragment.SourcePromQL != nil {
 					info.NativeReason = "scalar-vector arithmetic can be applied inside a native SQL source expression"
+					clonedSelector := cloneSelectorSource(rhs.Fragment.Selector)
+					tagsExpr := tagsExprForMetricDrop(dropsMetric)
 					info.Fragment = &NativeFragment{
 						Kind:         FragmentKindBinaryScalarSourceExpr,
 						OutputKind:   rhs.Fragment.OutputKind,
 						SourcePromQL: rhs.Fragment.SourcePromQL,
-						Selector:     cloneSelectorSource(rhs.Fragment.Selector),
+						Selector:     clonedSelector,
 						ValueExpr:    valueExpr,
-						TagsExpr:     tagsExprForMetricDrop(dropsMetric),
+						TagsExpr:     tagsExpr,
+						DropsMetric:  dropsMetric,
+					}
+					info.SourceExpr = &SourceExprView{
+						Selector:     clonedSelector,
+						ValueExpr:    valueExpr,
+						TagsExpr:     tagsExpr,
+						SourcePromQL: rhs.Fragment.SourcePromQL,
 						DropsMetric:  dropsMetric,
 					}
 				} else if frag, lineage, ok := applyScalarValueTransform(n.Op, rhs.Fragment, rhs.LabelLineage, lhsScalar.Value, true); ok {
@@ -236,13 +245,22 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 				info.LabelLineage = withMetricNameState(passthroughLabelLineage(lhs.LabelLineage), boolState(dropsMetric, LabelLineageDropped, lhs.LabelLineage.MetricName))
 				if lhs.Fragment.Selector != nil || lhs.Fragment.SourcePromQL != nil {
 					info.NativeReason = "vector-scalar arithmetic can be applied inside a native SQL source expression"
+					clonedSelector := cloneSelectorSource(lhs.Fragment.Selector)
+					tagsExpr := tagsExprForMetricDrop(dropsMetric)
 					info.Fragment = &NativeFragment{
 						Kind:         FragmentKindBinaryScalarSourceExpr,
 						OutputKind:   lhs.Fragment.OutputKind,
 						SourcePromQL: lhs.Fragment.SourcePromQL,
-						Selector:     cloneSelectorSource(lhs.Fragment.Selector),
+						Selector:     clonedSelector,
 						ValueExpr:    valueExpr,
-						TagsExpr:     tagsExprForMetricDrop(dropsMetric),
+						TagsExpr:     tagsExpr,
+						DropsMetric:  dropsMetric,
+					}
+					info.SourceExpr = &SourceExprView{
+						Selector:     clonedSelector,
+						ValueExpr:    valueExpr,
+						TagsExpr:     tagsExpr,
+						SourcePromQL: lhs.Fragment.SourcePromQL,
 						DropsMetric:  dropsMetric,
 					}
 				} else if frag, lineage, ok := applyScalarValueTransform(n.Op, lhs.Fragment, lhs.LabelLineage, rhsScalar.Value, false); ok {

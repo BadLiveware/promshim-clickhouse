@@ -10,16 +10,16 @@ import (
 // lowerHistogramProjection lowers a HistogramProjectionPlan to a RenderedQuery
 // via the existing Fragment renderer internals.
 //
-// Surface 9 uses the "Approach A" dispatch port: rather than rewriting the
-// renderer body, the lowerer reads the pre-computed Fragment from
-// ctx.NativeAnalysis.InfoFor(n).Fragment, validates the kind, then delegates
-// to renderHistogramProjectionFragment so SQL stays byte-identical to the
-// Fragment path. The render body retires with the final cleanup commit once
-// all surfaces have ported.
+// Transitional dispatch port: the lowerer builds the Fragment on demand from
+// the logical node via native.BuildFragment (which reuses the analysis
+// side-map when present or rebuilds it otherwise), validates the kind, then
+// delegates to renderHistogramProjectionFragment so SQL stays byte-identical
+// to the Fragment path. Once renderClassicHistogramGroupsQuery and friends
+// port to logical children, this lowerer can drop the Fragment materialization
+// and recurse via Lower on n.Child.
 //
-// Hierarchical fallback: if native.Analyze didn't mark this node as
-// native-lowerable (e.g. because the child selector isn't lowerable yet),
-// nativeInfo.Fragment will be nil and we return errUnsupportedLowerNode so
+// Hierarchical fallback: if BuildFragment rejects the node (e.g. because the
+// child selector isn't lowerable yet) we return errUnsupportedLowerNode so
 // the caller falls back to the Fragment rendering path wholesale.
 //
 // Supported functions: histogram_count, histogram_sum, histogram_avg,
@@ -31,14 +31,14 @@ func lowerHistogramProjection(ctx LoweringCtx, n *logicalpkg.HistogramProjection
 	if ctx.Analysis == nil || ctx.Analysis.InfoFor(n) == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: histogram projection missing logical analysis")
 	}
-	if ctx.NativeAnalysis == nil {
+	fragment, err := native.BuildFragment(n, ctx.NativeAnalysis)
+	if err != nil {
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}
-	nativeInfo := ctx.NativeAnalysis.InfoFor(n)
-	if nativeInfo == nil || nativeInfo.Fragment == nil || nativeInfo.Fragment.Kind != native.FragmentKindHistogramProjection {
+	if fragment == nil || fragment.Kind != native.FragmentKindHistogramProjection {
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}
-	rendered, err := renderHistogramProjectionFragment(ctx.Config, nativeInfo.Fragment, ctx.Params)
+	rendered, err := renderHistogramProjectionFragment(ctx.Config, fragment, ctx.Params)
 	if err != nil {
 		return RenderedQuery{}, err
 	}

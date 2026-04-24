@@ -267,6 +267,172 @@ func logicalBaseSelectorBounds(n logicalpkg.Node) (lookbackMS, offsetMS int64, o
 	}
 }
 
+// logicalResolvedAnchorTimeMS mirrors native.resolvedFragmentAnchorTimeMS on
+// the logical plan tree. When any node in the subtree pins evaluation to an @
+// timestamp or start()/end(), the pinned time is returned; otherwise the
+// boolean is false and the outer range envelope is used unchanged. The walk
+// covers every plan kind that native.resolvedFragmentAnchorTimeMS descends
+// into on the fragment side.
+func logicalResolvedAnchorTimeMS(n logicalpkg.Node, ctx native.OptimizationContext) (int64, bool) {
+	switch p := n.(type) {
+	case nil:
+		return 0, false
+	case *logicalpkg.LeafExprPlan:
+		switch sel := p.Expr.(type) {
+		case *parser.MatrixSelector:
+			vec, matches := sel.VectorSelector.(*parser.VectorSelector)
+			if !matches {
+				return 0, false
+			}
+			return resolvedVectorSelectorAnchorTimeMS(vec, ctx)
+		case *parser.VectorSelector:
+			return resolvedVectorSelectorAnchorTimeMS(sel, ctx)
+		default:
+			return 0, false
+		}
+	case *logicalpkg.SubqueryPlan:
+		if p.Timestamp != nil {
+			return *p.Timestamp, true
+		}
+		switch p.StartOrEnd {
+		case parser.START:
+			if ctx.Mode == native.RenderModeRange {
+				return ctx.StartMS, true
+			}
+			return ctx.EvaluationTimeMS, true
+		case parser.END:
+			if ctx.Mode == native.RenderModeRange {
+				return ctx.EndMS, true
+			}
+			return ctx.EvaluationTimeMS, true
+		}
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.AggregationPlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.RangeFunctionPlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.RatePlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.IncreasePlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.DeltaPlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.ChangesPlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.DerivPlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.QuantileOverTimePlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.ScalarConvertPlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.InfoPlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.AbsentPlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.AbsentOverTimePlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.HistogramProjectionPlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.HistogramQuantilePlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.HistogramFractionPlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.HistogramQuantilesPlan:
+		if ts, ok := logicalResolvedAnchorTimeMS(p.Child, ctx); ok {
+			return ts, true
+		}
+		for _, q := range p.ParamChildren {
+			if ts, ok := logicalResolvedAnchorTimeMS(q, ctx); ok {
+				return ts, true
+			}
+		}
+		return 0, false
+	case *logicalpkg.SortPlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.RoundPlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.LabelReplacePlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.LabelJoinPlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.PointwiseFunctionPlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.UnaryPlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.VectorPlan:
+		return logicalResolvedAnchorTimeMS(p.Child, ctx)
+	case *logicalpkg.BinaryPlan:
+		if ts, ok := logicalResolvedAnchorTimeMS(p.LHS, ctx); ok {
+			return ts, true
+		}
+		return logicalResolvedAnchorTimeMS(p.RHS, ctx)
+	default:
+		return 0, false
+	}
+}
+
+func resolvedVectorSelectorAnchorTimeMS(sel *parser.VectorSelector, ctx native.OptimizationContext) (int64, bool) {
+	if sel == nil {
+		return 0, false
+	}
+	if sel.Timestamp != nil {
+		return *sel.Timestamp, true
+	}
+	switch sel.StartOrEnd {
+	case parser.START:
+		if ctx.Mode == native.RenderModeRange {
+			return ctx.StartMS, true
+		}
+		return ctx.EvaluationTimeMS, true
+	case parser.END:
+		if ctx.Mode == native.RenderModeRange {
+			return ctx.EndMS, true
+		}
+		return ctx.EvaluationTimeMS, true
+	}
+	return 0, false
+}
+
+// logicalRequiredInputBounds mirrors native.RequiredInputBounds on the logical
+// plan tree. It derives lookback/offset via logicalBaseSelectorBounds and
+// anchor resolution via logicalResolvedAnchorTimeMS, producing the same
+// [startMS, endMS] envelope the fragment-side helper yields. Returns ok=false
+// when the subtree has no discoverable selector leaf (matching the
+// fragment-side nil branch that causes the caller to fall back on the outer
+// envelope).
+func logicalRequiredInputBounds(n logicalpkg.Node, ctx native.OptimizationContext) (int64, int64, bool) {
+	lookbackMS, offsetMS, ok := logicalBaseSelectorBounds(n)
+	if !ok {
+		return 0, 0, false
+	}
+	switch ctx.Mode {
+	case native.RenderModeInstant:
+		anchorMS := ctx.EvaluationTimeMS
+		if resolved, resolvedOK := logicalResolvedAnchorTimeMS(n, ctx); resolvedOK {
+			anchorMS = resolved
+		}
+		endMS := anchorMS - offsetMS
+		startMS := endMS - lookbackMS
+		return startMS, endMS, true
+	case native.RenderModeRange:
+		if anchorMS, resolvedOK := logicalResolvedAnchorTimeMS(n, ctx); resolvedOK {
+			endMS := anchorMS - offsetMS
+			startMS := endMS - lookbackMS
+			return startMS, endMS, true
+		}
+		endMS := ctx.EndMS - offsetMS
+		startMS := ctx.StartMS - offsetMS - lookbackMS
+		return startMS, endMS, true
+	default:
+		if ctx.EvaluationTimeMS == 0 && ctx.StartMS == 0 && ctx.EndMS == 0 {
+			return 0, 0, false
+		}
+		endMS := ctx.EvaluationTimeMS - offsetMS
+		startMS := endMS - lookbackMS
+		return startMS, endMS, true
+	}
+}
+
 func renderFragmentSubquery(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams, prefix string) (string, map[string]string, error) {
 	rendered, err := RenderFragment(cfg, fragment, params)
 	if err != nil {

@@ -158,43 +158,86 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 // to the Fragment path so the query still renders correctly.
 func (p *nativeSubtreePlan) renderSQL(cfg storage.QueryConfig, renderParams renderer.RenderParams) (renderer.RenderedQuery, error) {
 	var (
-		lowerNode logicalpkg.Node
-		lowerCtx  renderer.LoweringCtx
+		lowerNode        logicalpkg.Node
+		lowerAnalysis    *logicalpkg.Analysis
+		lowerNativeAnaly *nativeplan.Analysis
 	)
 	switch {
 	case p.LogicalRoot != nil && p.LogicalAnalysis != nil:
 		lowerNode = p.LogicalRoot
-		lowerCtx = renderer.LoweringCtx{
-			Config:         cfg,
-			Analysis:       p.LogicalAnalysis,
-			NativeAnalysis: nativeplan.Analyze(p.LogicalRoot),
-			Params:         renderParams,
-		}
+		lowerAnalysis = p.LogicalAnalysis
+		lowerNativeAnaly = nativeplan.Analyze(p.LogicalRoot)
 	case p.Node != nil && p.Analysis != nil:
 		lowerNode = p.Node
-		lowerCtx = renderer.LoweringCtx{
-			Config:         cfg,
-			Analysis:       logicalpkg.Analyze(p.Node),
-			NativeAnalysis: p.Analysis,
-			Params:         renderParams,
-		}
+		lowerAnalysis = logicalpkg.Analyze(p.Node)
+		lowerNativeAnaly = p.Analysis
 	}
-	if lowerNode != nil {
-		rq, err := renderer.Lower(lowerCtx, lowerNode)
-		if err == nil {
-			return rq, nil
-		}
-		if !renderer.IsUnsupportedByLower(err) {
-			return renderer.RenderedQuery{}, WithInternalContext(err, "lowering native subtree for %q", p.Expr)
-		}
-		// Fallthrough: Lower can't handle this node kind yet — use
-		// Fragment dispatch for the whole query.
-	}
-	rq, err := renderer.RenderFragment(cfg, p.Fragment, renderParams)
+	rq, err := renderNativeSubtreeSQL(cfg, renderParams, p.Fragment, lowerNode, lowerAnalysis, lowerNativeAnaly)
 	if err != nil {
 		return renderer.RenderedQuery{}, WithInternalContext(err, "rendering native subtree SQL for %q", p.Expr)
 	}
 	return rq, nil
+}
+
+// renderNativeSubtreeSQL is the shared Lower-first render dispatch
+// used by both construction-time pre-render (for explain metadata)
+// and execute-time renderSQL. When (node, analysis, nativeAnalysis)
+// are all non-nil, renderer.Lower is attempted first; if Lower
+// reports errUnsupportedLowerNode, the call falls through to
+// renderer.RenderFragment so the query still renders correctly.
+// With node == nil, only the Fragment path is used.
+func renderNativeSubtreeSQL(cfg storage.QueryConfig, renderParams renderer.RenderParams, fragment *nativeplan.NativeFragment, node logicalpkg.Node, analysis *logicalpkg.Analysis, nativeAnalysis *nativeplan.Analysis) (renderer.RenderedQuery, error) {
+	if node != nil && analysis != nil && nativeAnalysis != nil {
+		lowerCtx := renderer.LoweringCtx{
+			Config:         cfg,
+			Analysis:       analysis,
+			NativeAnalysis: nativeAnalysis,
+			Params:         renderParams,
+		}
+		rq, err := renderer.Lower(lowerCtx, node)
+		if err == nil {
+			return rq, nil
+		}
+		if !renderer.IsUnsupportedByLower(err) {
+			return renderer.RenderedQuery{}, err
+		}
+	}
+	return renderer.RenderFragment(cfg, fragment, renderParams)
+}
+
+// preRenderNativeSubtreePlanSQL pre-renders the optimized fragment
+// at plan-construction time using preview db/table placeholders and
+// populates the OptimizationReport's RenderedSQL + MaterializedColumns
+// via ApplyRenderedSQLMetadata. This keeps explain-only endpoints
+// (query_explain) able to surface the SQL without executing the query.
+//
+// The render dispatches through renderNativeSubtreeSQL so the Lower
+// path is used when the node supports it, matching the execute-time
+// dispatch in renderSQL.
+func preRenderNativeSubtreePlanSQL(node logicalpkg.Node, analysis *nativeplan.Analysis, optimized *nativeplan.OptimizedFragment, ctx PlanContext) error {
+	renderMode := renderModeForPlanContext(ctx)
+	cfg := storage.QueryConfig{Database: "preview", Table: "preview"}
+	renderParams := renderer.RenderParams{
+		Mode:             renderMode,
+		EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(),
+		StartMS:          ctx.Start.UnixMilli(),
+		EndMS:            ctx.End.UnixMilli(),
+		StepMS:           ctx.Step.Milliseconds(),
+		RequiredStartMS:  optimized.Report.RequiredInputStartMS,
+		RequiredEndMS:    optimized.Report.RequiredInputEndMS,
+		ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
+			return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+		},
+	}
+	var logicalAnalysis *logicalpkg.Analysis
+	if node != nil {
+		logicalAnalysis = logicalpkg.Analyze(node)
+	}
+	rendered, err := renderNativeSubtreeSQL(cfg, renderParams, optimized.Fragment, node, logicalAnalysis, analysis)
+	if err != nil {
+		return err
+	}
+	return nativeplan.ApplyRenderedSQLMetadata(optimized.Report, renderMode, rendered.SQL)
 }
 
 func (p *nativeSubtreePlan) explain() ExplainNode {

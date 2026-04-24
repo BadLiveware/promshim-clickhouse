@@ -18,14 +18,26 @@ import (
 // TagsExpr="{tags}", which means sourceWrapperIsIdentity returns true
 // and the wrap step is skipped. This function produces the same SQL as
 // the "identity wrapper" branch of renderSourceFragment.
-func renderLeafLogical(cfg storage.QueryConfig, leaf *logicalpkg.LeafExprPlan, params RenderParams) (renderedFragment, error) {
+//
+// When cachedSelector is non-nil it is preferred over a freshly built
+// one. Callers thread the cached leaf selector from NativeAnalysis so
+// tag-narrowing mutations (applied in-place by upstream passes such as
+// narrowHistogramChildAnalysisInPlace or applySelectorProjection) flow
+// through to the rendered SQL. This mirrors the Fragment-side behavior
+// where RenderFragment on the cached leaf Fragment picks up the same
+// narrowed SelectorSource.
+func renderLeafLogical(cfg storage.QueryConfig, leaf *logicalpkg.LeafExprPlan, params RenderParams, cachedSelector *native.SelectorSource) (renderedFragment, error) {
 	if leaf == nil {
 		return renderedFragment{}, fmt.Errorf("renderer: renderLeafLogical called with nil leaf")
 	}
 
-	selector, err := native.BuildSelectorSource(leaf.Expr)
-	if err != nil {
-		return renderedFragment{}, fmt.Errorf("renderer: leaf selector analysis failed: %w", err)
+	selector := cachedSelector
+	if selector == nil {
+		built, err := native.BuildSelectorSource(leaf.Expr)
+		if err != nil {
+			return renderedFragment{}, fmt.Errorf("renderer: leaf selector analysis failed: %w", err)
+		}
+		selector = built
 	}
 
 	switch params.Mode {

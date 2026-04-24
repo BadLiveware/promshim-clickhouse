@@ -304,7 +304,15 @@ func applyCommonMatcherInference(state *optimizerState) error {
 	if selector == nil {
 		return nil
 	}
-	selector.InferredMatchers = state.interner.internSlice(inferSourceMatchers(selector))
+	// Task 13c-9: In the production path (logical context), Analyze has
+	// already populated InferredMatchers on the leaf selector and
+	// CloneFragment has copied them onto state.fragment's selector. This
+	// pass is pure report-emission. The fragment-only legacy entrypoint
+	// (OptimizeFragment with info=nil, used by a handful of tests) does
+	// not run Analyze, so we fall back to compute-and-populate here.
+	if len(selector.InferredMatchers) == 0 {
+		selector.InferredMatchers = state.interner.internSlice(inferSourceMatchers(selector))
+	}
 	state.report.InferredPredicates = mergeUniqueStrings(state.report.InferredPredicates, matcherStrings(selector.InferredMatchers)...)
 	return nil
 }
@@ -314,7 +322,12 @@ func applyLabelPredicatePushdown(state *optimizerState) error {
 	if selector == nil {
 		return nil
 	}
-	selector.PushedMatchers = mergeMatchers(state.interner, selector.Matchers, selector.InferredMatchers)
+	// Task 13c-9: mirrors applyCommonMatcherInference — PushedMatchers
+	// is pre-populated by Analyze on the production path. The compute
+	// fallback keeps OptimizeFragment (info=nil) byte-identical.
+	if len(selector.PushedMatchers) == 0 {
+		selector.PushedMatchers = mergeMatchers(state.interner, selector.Matchers, selector.InferredMatchers)
+	}
 	state.report.PushedPredicates = mergeUniqueStrings(state.report.PushedPredicates, matcherStrings(selector.PushedMatchers)...)
 	return nil
 }

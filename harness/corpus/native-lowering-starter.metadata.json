@@ -1,8 +1,6 @@
 {
   "name": "native-lowering-starter",
   "purpose": "Focused Prometheus-backed differential corpus for the native SQL lowering roadmap through Phase 6 range functions and subqueries.",
-  "sourcePlan": ".pi/native-sql-lowering-plan/01-context-and-guardrails.md",
-  "baselineDoc": ".pi/native-sql-lowering-plan/phase-0-baseline.md",
   "notes": [
     "This is intentionally narrower than harness/corpus/queries.json.",
     "It is meant for frequent execution while native lowering analysis/types/selector lowering are in flight.",

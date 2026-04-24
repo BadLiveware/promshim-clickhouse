@@ -56,8 +56,8 @@ const prometheusVersion = "v0.311.2"
 var partialOverrides = map[string][]string{}
 
 func main() {
-	jsonOut := flag.String("json-out", filepath.FromSlash(".pi/path2-compliance-matrix.json"), "JSON output path")
-	mdOut := flag.String("md-out", filepath.FromSlash(".pi/path2-compliance-matrix.md"), "Markdown output path")
+	jsonOut := flag.String("json-out", filepath.FromSlash("path2-compliance-matrix.json"), "JSON output path")
+	mdOut := flag.String("md-out", filepath.FromSlash("path2-compliance-matrix.md"), "Markdown output path")
 	flag.Parse()
 
 	rows, err := buildRows()

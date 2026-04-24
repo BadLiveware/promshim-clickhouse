@@ -5,9 +5,7 @@ ClickHouse's experimental `TimeSeries` table engine.
 
 It lets existing Prometheus clients — most importantly Grafana dashboards and
 PromQL-based tooling — continue to ask Prometheus-shaped questions while the
-samples live in ClickHouse. It is the active part of this repository; the older
-`chart/` work is the local ClickHouse + OpenTelemetry playground that promshim
-was built to query.
+samples live in ClickHouse.
 
 Promshim is **not** a Prometheus server, a scraper, a remote-write receiver, an
 Alertmanager, or a replacement for every TSDB responsibility. It is a read-side
@@ -225,8 +223,8 @@ hide in the allowlist.
 The compatibility claim is checked continuously against Prometheus, not inferred
 from a few examples:
 
-- `go run ./cmd/promshim-matrix` generates `.pi/path2-compliance-matrix.md` and
-  `.pi/path2-compliance-matrix.json` from the parser-visible feature surface.
+- `go run ./cmd/promshim-matrix` generates `path2-compliance-matrix.md` and
+  `path2-compliance-matrix.json` from the parser-visible feature surface.
 - `./scripts/run-compliance.sh` runs the full upstream
   `prometheus/compliance` PromQL suite against reference Prometheus and promshim
   on the same frozen fixture.
@@ -463,8 +461,7 @@ Cost-based execution (CBE) routing is also planned. The intended first version i
 not a dynamic black-box optimizer; it should use static, pre-known heuristics
 calibrated from this bench suite to decide when a lower tier is predictably
 faster for a bounded small-query class, while keeping strict tier priority as the
-default and preserving native-only compliance visibility. The working plan lives
-in `.pi/cost-based-routing-plan.md`.
+default and preserving native-only compliance visibility.
 
 For native SQL optimization work, preserve before/after artifacts and inspect
 ClickHouse profile counters rather than relying on wall-clock noise alone. The
@@ -550,7 +547,6 @@ That design chooses an explicit set of trade-offs:
 | `harness/` | Deterministic differential harness and query corpora. |
 | `harness/compliance/` | Upstream PromQL compliance harness integration. |
 | `scripts/` | Local validation, benchmark, profile, and stack helpers. |
-| `chart/` | Original ClickHouse + OTel playground charts. |
 
 ## Development rules of thumb
 

@@ -1,12 +1,11 @@
-# Project AGENTS (ch-observability)
+# Project AGENTS (promshim-ch)
 
 ## Purpose
 
-The repo's original goal was a migration path from Tradera's `example-namespace`
-Prometheus+Thanos stack to an OpenTelemetry + ClickHouse stack. That
-groundwork landed (see `chart/` and `ROADMAP.md`); the active work has
-shifted into `promshim` — a Go service that speaks the Prometheus HTTP API
-and executes PromQL against ClickHouse's `TimeSeries` table.
+`promshim` is a Prometheus HTTP API compatibility layer for metrics stored
+in ClickHouse's experimental `TimeSeries` table engine. It parses PromQL
+with the upstream Prometheus parser and executes it against ClickHouse via
+a hierarchical execution strategy.
 
 ## Execution priority — READ THIS FIRST
 
@@ -69,20 +68,6 @@ and ask.
   compliance gaps, improve rendered-SQL performance.
 - **Harness & validation** — `harness/`, `scripts/`, `cmd/promshim-*`,
   `cmd/promharness-*`. Keep gaps visible, reproducible, and fast.
-- **Chart** — operational/scaling fixes only.
-
-## Chart (`chart/`)
-
-`chart/ch-observability-poc` (plus `chart/ch-observability-cnpg` for the
-CNPG-backed variant) renders the HA stack: ClickHouse, OTel operator +
-scrape collectors, Grafana, CloudBeaver. Deployment is
-`helm template | kubectl apply --server-side` via
-`scripts/bootstrap-kind.sh` — not `helm install`. Environment differences
-are scaling knobs only (replica counts, resource sizing). SSO, Thanos
-backfill, and legacy compatibility are out of scope. OpenTelemetry is
-operator-only in this chart; no legacy chart-managed Deployment/Service
-fallbacks. The chart is stable; most active edits today live in
-`internal/promshim/**` and `harness/**`, not here.
 
 ## Promshim (`internal/promshim/`, `cmd/promshim/`)
 
@@ -138,10 +123,6 @@ via `native_lowering_mode=...`:
 - `cmd/promshim-bench`, `cmd/promshim-matrix`,
   `cmd/promshim-promql-compliance`, `cmd/promharness-compare`,
   `cmd/promharness-seed` — Go drivers behind the above scripts.
-- `.pi/skills/running-compliance/SKILL.md` — compact runbook for
-  running the compliance suite, the "gaps stay visible" policy, the
-  three-category allowlist rule, and native-gap triage. Read it before
-  running compliance or editing `expected-failures.json`.
 
 ### Working in this area
 
@@ -192,16 +173,11 @@ Useful upstream sources when evolving the shim. Read first, reinvent second.
   optimization patterns; reference for tier-2 plan rewrites.
 - **`calcite`** — canonical SQL relational algebra / optimizer rules;
   deepest reference for non-trivial planner transforms.
-- **`hyperdx`** — ClickHouse-backed observability product; product-side
-  comparator for dashboard expectations.
 
 ## Must-nots / constraints
 
 - SSO is out of scope.
 - Read-only agent querying uses the ClickHouse MCP server.
-- Metric backfill from Thanos is desirable but not required for V1.
-- Do not maintain compatibility with older versions of this PoC itself —
-  recreate instances from scratch if the stack shape changes.
 - We use the first-party ClickHouse operator
   (`https://github.com/ClickHouse/clickhouse-operator`), **not** the
   Altinity operator. Web search results for "clickhouse operator" mostly
@@ -213,5 +189,3 @@ Useful upstream sources when evolving the shim. Read first, reinvent second.
 - `internal/promshim/` — the service itself.
 - `harness/README.md`, `harness/compliance/README.md` — validation flow
   and the "gaps stay visible" policy.
-- `ROADMAP.md` — the original migration phase plan.
-- `chart/ch-observability-poc/README.md` — Helm template/apply flow.

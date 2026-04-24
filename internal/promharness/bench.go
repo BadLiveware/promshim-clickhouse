@@ -1,10 +1,9 @@
 package promharness
 
 // Benchmark driver for the Prom-vs-promshim rung-drift and wall-clock
-// tripwire. See plan: .pi/benchmark-native-lowering.md (and the generated
-// plan file under ~/.claude/plans). Non-goals: statistical rigor beyond
-// p50/p95, CI gating, or long-term trend analysis. The goal is to catch
-// complexity regressions on the native-SQL lowering path before they land.
+// tripwire. Non-goals: statistical rigor beyond p50/p95, CI gating, or
+// long-term trend analysis. The goal is to catch complexity regressions
+// on the native-SQL lowering path before they land.
 
 import (
 	"encoding/json"

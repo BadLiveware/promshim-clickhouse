@@ -13,12 +13,6 @@ coverage.out
 .idea/
 .vscode/
 
-# Legacy root assets moved under chart/ch-observability-poc/files
-cloudbeaver/
-grafana/
-otel/
-sql/
-
 scratch/**/*
 .tmp/
 
@@ -26,3 +20,9 @@ scratch/**/*
 harness/artifacts/*
 !harness/artifacts/.gitkeep
 harness/compliance/artifacts/*
+
+# Generated compliance/matrix reports
+path2-compliance-matrix.json
+path2-compliance-matrix.md
+path2-promql-compliance-alignment.json
+path2-promql-compliance-alignment.md

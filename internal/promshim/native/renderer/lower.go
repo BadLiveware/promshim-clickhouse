@@ -117,7 +117,20 @@ func lowerLeaf(ctx LoweringCtx, n *logicalpkg.LeafExprPlan) (RenderedQuery, erro
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerLeaf called with nil")
 	}
-	rf, err := renderLeafLogical(ctx.Config, n, ctx.Params)
+	// Prefer the cached leaf selector from NativeAnalysis when available.
+	// Upstream passes (narrowHistogramChildAnalysisInPlace,
+	// applySelectorProjection) mutate that cached selector in place to
+	// record tag-narrowing decisions; re-using the cached pointer here
+	// lets the narrowed shape flow into the rendered SQL, which matches
+	// the Fragment-side behavior where RenderFragment on the cached leaf
+	// Fragment renders off the same narrowed SelectorSource.
+	var cachedSelector *native.SelectorSource
+	if ctx.NativeAnalysis != nil {
+		if info := ctx.NativeAnalysis.InfoFor(n); info != nil && info.Fragment != nil {
+			cachedSelector = info.Fragment.Selector
+		}
+	}
+	rf, err := renderLeafLogical(ctx.Config, n, ctx.Params, cachedSelector)
 	if err != nil {
 		return RenderedQuery{}, err
 	}

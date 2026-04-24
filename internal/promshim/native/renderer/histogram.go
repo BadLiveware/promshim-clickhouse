@@ -311,6 +311,58 @@ func renderHistogramQuantilesFragment(cfg storage.QueryConfig, fragment *native.
 	return renderedFragment{RawSQL: trimRenderedQuerySQL(wrapHistogramRowsForMode(unionSQL, params.Mode, "histogram_quantiles_rows")), ExtraParams: queryParams}, nil
 }
 
+// renderHistogramQuantilesLogical is the logical-node counterpart of
+// renderHistogramQuantilesFragment. It iterates the per-quantile scalar
+// children from the HistogramQuantilesPlan logical node (n.ParamChildren),
+// lowering each through renderInstantScalarBindingFromLogical /
+// renderRangeScalarBindingFromLogical so SQL stays byte-identical to the
+// Fragment path while the top-level HistogramFunctionFragment is no longer
+// materialized at this boundary. The label literal comes from n.Label,
+// matching HistogramFunctionFragment.Label.
+func renderHistogramQuantilesLogical(ctx LoweringCtx, n *logicalpkg.HistogramQuantilesPlan, params RenderParams, prepared RenderedQuery) (renderedFragment, error) {
+	if n == nil {
+		return renderedFragment{}, fmt.Errorf("histogram_quantiles logical node is missing metadata")
+	}
+	preparedSQL := trimRenderedQuerySQL(prepared.SQL)
+	queries := make([]string, 0, len(n.ParamChildren))
+	queryParams := map[string]string{}
+	mergeRenderedQueryParams(queryParams, prepared.QueryParams)
+	for i, quantile := range n.ParamChildren {
+		alias := fmt.Sprintf("histogram_quantile_%d", i)
+		var joinSQL string
+		var quantileValueExpr string
+		switch params.Mode {
+		case native.RenderModeInstant:
+			instantBindingSQL, instantParams, valueExpr, err := renderInstantScalarBindingFromLogical(ctx, quantile, alias)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			mergeRenderedQueryParams(queryParams, instantParams)
+			quantileValueExpr = valueExpr
+			if instantBindingSQL != "" {
+				joinSQL = " CROSS JOIN (" + instantBindingSQL + ") AS " + alias
+			}
+		case native.RenderModeRange:
+			rangeBindingSQL, rangeParams, valueExpr, err := renderRangeScalarBindingFromLogical(ctx, quantile, alias)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			mergeRenderedQueryParams(queryParams, rangeParams)
+			quantileValueExpr = valueExpr
+			if rangeBindingSQL != "" {
+				joinSQL = " LEFT JOIN (" + rangeBindingSQL + ") AS " + alias + " ON " + alias + ".timestamp = prepared_histograms.timestamp"
+			}
+		default:
+			return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
+		}
+		quantileLabelExpr := openMetricsFloatExpr(quantileValueExpr)
+		rowsSQL := renderHistogramQuantileRowsSQL(preparedSQL, quantileValueExpr, joinSQL, alias)
+		queries = append(queries, "SELECT arrayPushBack(tags, tuple("+sqlStringLiteral(n.Label)+", "+quantileLabelExpr+")) AS tags, timestamp AS timestamp, value AS value FROM ("+rowsSQL+") AS "+alias+"_rows")
+	}
+	unionSQL := strings.Join(queries, " UNION ALL ")
+	return renderedFragment{RawSQL: trimRenderedQuerySQL(wrapHistogramRowsForMode(unionSQL, params.Mode, "histogram_quantiles_rows")), ExtraParams: queryParams}, nil
+}
+
 func openMetricsFloatExpr(valueExpr string) string {
 	valueExpr = strings.TrimSpace(valueExpr)
 	return "multiIf(isNaN(" + valueExpr + "), 'NaN', isInfinite(" + valueExpr + ") AND (" + valueExpr + ") > 0, '+Inf', isInfinite(" + valueExpr + ") AND (" + valueExpr + ") < 0, '-Inf', (" + valueExpr + ") = 1, '1.0', (" + valueExpr + ") = 0, '0.0', (" + valueExpr + ") = -1, '-1.0', if(position(toString(" + valueExpr + "), '.') > 0 OR position(lower(toString(" + valueExpr + ")), 'e') > 0, toString(" + valueExpr + "), concat(toString(" + valueExpr + "), '.0')))"

@@ -29,11 +29,11 @@ import (
 // lowerable yet) or the resulting fragment is the wrong kind, we return
 // errUnsupportedLowerNode so the caller falls back to the Fragment
 // rendering path wholesale.
-func renderAggregationLogical(cfg storage.QueryConfig, analysis *native.Analysis, n *logicalpkg.AggregationPlan, params RenderParams) (renderedFragment, error) {
+func renderAggregationLogical(cfg storage.QueryConfig, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, n *logicalpkg.AggregationPlan, params RenderParams) (renderedFragment, error) {
 	if n == nil {
 		return renderedFragment{}, fmt.Errorf("renderer: aggregation requires a node")
 	}
-	return renderAggregationLogicalDirect(cfg, n, analysis, params)
+	return renderAggregationLogicalDirect(cfg, n, logicalAnalysis, analysis, params)
 }
 
 // renderAggregationLogicalDirect is the Phase-4 direct-render counterpart
@@ -58,14 +58,14 @@ func renderAggregationLogical(cfg storage.QueryConfig, analysis *native.Analysis
 // or the resulting fragment is the wrong kind, we return
 // errUnsupportedLowerNode so the caller falls back to the Fragment
 // rendering path wholesale.
-func renderAggregationLogicalDirect(cfg storage.QueryConfig, n *logicalpkg.AggregationPlan, analysis *native.Analysis, params RenderParams) (renderedFragment, error) {
+func renderAggregationLogicalDirect(cfg storage.QueryConfig, n *logicalpkg.AggregationPlan, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams) (renderedFragment, error) {
 	// Fused range+aggregation: route through the logical-plan fused helper
 	// so the lowerer boundary never BuildFragment's on this branch. The
 	// capability check is purely structural on the logical plan and the
 	// fused helper's remaining internal BuildFragment retires in Phase 6
 	// together with tryRenderFusedRangeAggregationFragment.
 	if canFuseRangeAggregationLogicalDirect(n, params) {
-		if rendered, ok, err := tryRenderFusedRangeAggregationLogicalDirect(cfg, n, analysis, params); err != nil {
+		if rendered, ok, err := tryRenderFusedRangeAggregationLogicalDirect(cfg, n, logicalAnalysis, analysis, params); err != nil {
 			return renderedFragment{}, err
 		} else if ok {
 			return rendered, nil

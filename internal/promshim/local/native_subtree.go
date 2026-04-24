@@ -102,32 +102,26 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 	if err != nil {
 		return nil, err
 	}
-	response, err := Evaluator.client.Execute(ctx, rendered.SQL, rendered.QueryParams)
-	if err != nil {
-		return nil, WithInternalContext(NormalizeInternalError(err), "executing native subtree query for %q", p.Expr)
-	}
-	defer response.Body.Close()
-
 	switch {
 	case params.Mode == EvalModeInstant && p.Info != nil && p.Info.OutputKind == nativeplan.OutputKindRangeMatrix:
-		series, err := DecodeRangeSeries(response.Body)
+		series, err := executeStorageRangeSeries(ctx, Evaluator.client, rendered.SQL, rendered.QueryParams, storage.QueryPurposeRange)
 		if err != nil {
-			return nil, WithInternalContext(err, "decoding native subtree instant matrix result for %q", p.Expr)
+			return nil, WithInternalContext(NormalizeInternalError(err), "executing/decoding native subtree instant matrix result for %q", p.Expr)
 		}
 		return model.MatrixValue{Series: series}, nil
 	case params.Mode == EvalModeInstant && p.Info != nil && p.Info.OutputKind == nativeplan.OutputKindScalar:
-		samples, err := DecodeInstantSamples(response.Body)
+		samples, err := executeStorageInstantSamples(ctx, Evaluator.client, rendered.SQL, rendered.QueryParams, storage.QueryPurposeInstant)
 		if err != nil {
-			return nil, WithInternalContext(err, "decoding native subtree instant scalar result for %q", p.Expr)
+			return nil, WithInternalContext(NormalizeInternalError(err), "executing/decoding native subtree instant scalar result for %q", p.Expr)
 		}
 		if len(samples) != 1 {
 			return nil, NewExecutionErrorf("native subtree scalar result for %q returned %d samples, expected exactly 1", p.Expr, len(samples))
 		}
 		return model.ScalarValue{Timestamp: samples[0].Timestamp, Value: applyNativeRuntimeTransform(samples[0].Value, runtimeValueTransformForPlan(p))}, nil
 	case params.Mode == EvalModeInstant:
-		samples, err := DecodeInstantSamples(response.Body)
+		samples, err := executeStorageInstantSamples(ctx, Evaluator.client, rendered.SQL, rendered.QueryParams, storage.QueryPurposeInstant)
 		if err != nil {
-			return nil, WithInternalContext(err, "decoding native subtree instant result for %q", p.Expr)
+			return nil, WithInternalContext(NormalizeInternalError(err), "executing/decoding native subtree instant result for %q", p.Expr)
 		}
 		evalTimestamp := float64(params.EvaluationTime.UnixNano()) / float64(time.Second)
 		runtimeTransform := runtimeValueTransformForPlan(p)
@@ -137,9 +131,9 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 		}
 		return model.VectorValue{Samples: samples}, nil
 	case params.Mode == EvalModeRange:
-		series, err := DecodeRangeSeries(response.Body)
+		series, err := executeStorageRangeSeries(ctx, Evaluator.client, rendered.SQL, rendered.QueryParams, storage.QueryPurposeRange)
 		if err != nil {
-			return nil, WithInternalContext(err, "decoding native subtree range result for %q", p.Expr)
+			return nil, WithInternalContext(NormalizeInternalError(err), "executing/decoding native subtree range result for %q", p.Expr)
 		}
 		runtimeTransform := runtimeValueTransformForPlan(p)
 		for i := range series {

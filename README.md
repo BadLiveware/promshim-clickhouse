@@ -290,12 +290,18 @@ upstream ClickHouse changes easier to audit.
 | Variable | Default | Meaning |
 |---|---:|---|
 | `PROM_SHIM_LISTEN_ADDR` | `:9090` | HTTP listen address. |
-| `PROM_SHIM_CLICKHOUSE_ENDPOINT` | `http://127.0.0.1:8123/` | ClickHouse HTTP endpoint. |
+| `PROM_SHIM_CLICKHOUSE_TRANSPORT` | `native` | ClickHouse transport: `native` for the ClickHouse Go driver or `http` for the legacy JSONEachRow rollback path. |
+| `PROM_SHIM_CLICKHOUSE_ENDPOINT` | `http://127.0.0.1:8123/` | ClickHouse HTTP endpoint used by HTTP transport mode and retained as rollback configuration. |
+| `PROM_SHIM_CLICKHOUSE_NATIVE_ADDR` | `127.0.0.1:9000` | ClickHouse native TCP address used when `PROM_SHIM_CLICKHOUSE_TRANSPORT=native`. |
 | `PROM_SHIM_CLICKHOUSE_DATABASE` | `observability` | ClickHouse database containing the `TimeSeries` table. |
 | `PROM_SHIM_CLICKHOUSE_TABLE` | `prometheus` | ClickHouse `TimeSeries` table name. |
 | `PROM_SHIM_CLICKHOUSE_USERNAME` | `default` | ClickHouse user. |
 | `PROM_SHIM_CLICKHOUSE_PASSWORD` | `otel` | ClickHouse password. |
-| `PROM_SHIM_REQUEST_TIMEOUT_SECONDS` | `30` | ClickHouse HTTP client timeout. |
+| `PROM_SHIM_CLICKHOUSE_COMPRESSION` | `off` | Native driver compression: `off`, `lz4`, or `zstd`. |
+| `PROM_SHIM_CLICKHOUSE_MAX_OPEN_CONNS` | `10` | Native driver maximum open connections. |
+| `PROM_SHIM_CLICKHOUSE_MAX_IDLE_CONNS` | `10` | Native driver maximum idle connections. |
+| `PROM_SHIM_CLICKHOUSE_CONN_MAX_LIFETIME_SECONDS` | `3600` | Native driver connection maximum lifetime. |
+| `PROM_SHIM_REQUEST_TIMEOUT_SECONDS` | `30` | ClickHouse request timeout. |
 | `PROM_SHIM_CLICKHOUSE_VERSION` | `26.3` | Version used by the delegation capability classifier. |
 | `PROM_SHIM_NATIVE_LOWERING_MODE` | `prefer` | Global lowering mode; see execution modes above. |
 | `PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES` | `50000` | Reject range queries above this point count per series. |
@@ -309,6 +315,10 @@ Per-request knobs:
 - `explain=1` or `explain=true`
 - `X-Promshim-Log-Comment: ...` to forward a ClickHouse `log_comment` for query
   log/profile correlation.
+
+Successful query responses include `X-Promshim-CH-Transport: http|native` so
+transport rollout can be correlated with strategy, round-trip, and duration
+headers. Explain responses include the same value as `clickHouseTransport`.
 
 ## Quick start for local development
 
@@ -352,7 +362,8 @@ Useful variants:
 ### Start a stack and query promshim manually
 
 The compliance stack exposes Prometheus on `:29090`, promshim on `:29091`, and
-ClickHouse on `:28123`:
+ClickHouse HTTP on `:28123` plus native TCP on `:29000`. Promshim uses the
+native driver transport by default:
 
 ```bash
 ./scripts/run-compliance.sh --keep-up --skip-native
@@ -363,6 +374,23 @@ curl 'http://localhost:29091/api/v1/query_explain?query=sum%20by%20(job)%20(up)'
 
 curl 'http://localhost:29091/api/v1/query?query=sum%20by%20(job)%20(up)&explain=1'
 ```
+
+To run the same stack with the legacy HTTP/JSON transport for rollback testing:
+
+```bash
+PROM_SHIM_CLICKHOUSE_TRANSPORT=http ./scripts/run-compliance.sh --keep-up --skip-native
+
+curl -i 'http://localhost:29091/api/v1/query?query=up'
+```
+
+Native mode serves repository-owned native SQL, metadata, and whole-query
+ClickHouse PromQL delegation through the driver. HTTP remains an explicit
+rollback transport and ClickHouse remote-write ingestion remains HTTP.
+
+Release note for the transport change: deployments upgrading from an earlier
+HTTP-default build should ensure ClickHouse native TCP is reachable at
+`PROM_SHIM_CLICKHOUSE_NATIVE_ADDR`, or set `PROM_SHIM_CLICKHOUSE_TRANSPORT=http`
+to keep the previous transport while investigating driver rollout issues.
 
 When finished:
 
@@ -399,6 +427,10 @@ long-range data to be seeded first:
 ```
 
 Benchmark matrices below were refreshed after the native-lowering IR migration.
+Transport-flip benchmark artifacts from the native-driver rollout are preserved
+locally under `harness/artifacts/transport-http-bench-report*.json` and
+`harness/artifacts/transport-native-bench-report*.json` when the benchmark
+commands in this section are run.
 They are not a claim that native SQL is always faster than Prometheus; they are a
 tripwire and CBE calibration source. `N/P` is `native_p50 / prom_p50`, so values
 below `1×` mean native SQL beat Prometheus. `F/N` is

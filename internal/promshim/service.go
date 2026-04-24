@@ -23,13 +23,24 @@ type queryService struct {
 	shadow    *shadow.Runner
 }
 
+func (h *queryService) ClickHouseTransport() string {
+	return string(h.opts.ClickHouseTransport)
+}
+
 func NewHandler(opts Options) (http.Handler, error) {
 	opts = normalizeOptions(opts)
 	client, err := storage.NewClient(storage.Config{
-		Endpoint:       opts.ClickHouseEndpoint,
-		Username:       opts.Username,
-		Password:       opts.Password,
-		RequestTimeout: opts.RequestTimeout,
+		Endpoint:        opts.ClickHouseEndpoint,
+		NativeAddr:      opts.ClickHouseNativeAddr,
+		Database:        opts.Database,
+		Username:        opts.Username,
+		Password:        opts.Password,
+		Compression:     opts.ClickHouseCompression,
+		RequestTimeout:  opts.RequestTimeout,
+		Transport:       opts.ClickHouseTransport,
+		MaxOpenConns:    opts.ClickHouseMaxOpenConns,
+		MaxIdleConns:    opts.ClickHouseMaxIdleConns,
+		ConnMaxLifetime: opts.ClickHouseConnMaxLifetime,
 	})
 	if err != nil {
 		return nil, err
@@ -75,6 +86,7 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
 			"status":                "success",
 			"nativeLoweringMode":    string(mode),
+			"clickHouseTransport":   h.ClickHouseTransport(),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
 			"plan":                  explain,
@@ -114,6 +126,7 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
 			"status":                "success",
 			"nativeLoweringMode":    string(mode),
+			"clickHouseTransport":   h.ClickHouseTransport(),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
 			"plan":                  explain,
@@ -152,6 +165,7 @@ func (h *queryService) instantQueryShadow(ctx context.Context, req httpapi.Insta
 		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
 			"status":                "success",
 			"nativeLoweringMode":    string(local.NativeLoweringModeShadow),
+			"clickHouseTransport":   h.ClickHouseTransport(),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
 			"plan":                  explain,
@@ -192,6 +206,7 @@ func (h *queryService) rangeQueryShadow(ctx context.Context, req httpapi.RangeQu
 		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
 			"status":                "success",
 			"nativeLoweringMode":    string(local.NativeLoweringModeShadow),
+			"clickHouseTransport":   h.ClickHouseTransport(),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
 			"plan":                  explain,
@@ -219,6 +234,7 @@ func (h *queryService) ExplainInstant(_ context.Context, req httpapi.InstantQuer
 		"data": map[string]any{
 			"mode":                  string(local.EvalModeInstant),
 			"nativeLoweringMode":    string(mode),
+			"clickHouseTransport":   h.ClickHouseTransport(),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(query),
 			"query":                 query,
 			"evaluationTime":        evaluationTime.UTC().Format(time.RFC3339Nano),
@@ -242,6 +258,7 @@ func (h *queryService) ExplainRange(_ context.Context, req httpapi.RangeQueryReq
 		"data": map[string]any{
 			"mode":                  string(local.EvalModeRange),
 			"nativeLoweringMode":    string(mode),
+			"clickHouseTransport":   h.ClickHouseTransport(),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(query),
 			"query":                 query,
 			"start":                 start.UTC().Format(time.RFC3339Nano),
@@ -261,14 +278,23 @@ func (h *queryService) Labels(ctx context.Context, req httpapi.MetadataRequest) 
 	if err != nil {
 		return nil, local.BadRequestHTTPError(err.Error())
 	}
-	response, err := h.client.Execute(ctx, sql, params)
-	if err != nil {
-		return nil, local.ApiErrorToHTTP(local.NormalizeInternalError(err))
-	}
-	defer response.Body.Close()
-	labels, decErr := local.DecodeStringRows[local.LabelRow](response.Body, func(row local.LabelRow) string { return row.Label })
-	if decErr != nil {
-		return nil, local.ApiErrorPtr(local.ToHTTPAPIError(*decErr))
+	var labels []string
+	if h.client.TransportKind() == storage.TransportNative {
+		labels, err = h.client.QueryStringRows(ctx, storage.QueryRequest{SQL: sql, Params: params, Purpose: storage.QueryPurposeMetadataLabels})
+		if err != nil {
+			return nil, local.ApiErrorToHTTP(local.NormalizeInternalError(err))
+		}
+	} else {
+		response, err := h.client.Execute(ctx, sql, params)
+		if err != nil {
+			return nil, local.ApiErrorToHTTP(local.NormalizeInternalError(err))
+		}
+		defer response.Body.Close()
+		var decErr *local.APIError
+		labels, decErr = local.DecodeStringRows[local.LabelRow](response.Body, func(row local.LabelRow) string { return row.Label })
+		if decErr != nil {
+			return nil, local.ApiErrorPtr(local.ToHTTPAPIError(*decErr))
+		}
 	}
 	return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{"status": "success", "data": labels}}, nil
 }
@@ -282,14 +308,23 @@ func (h *queryService) LabelValues(ctx context.Context, req httpapi.LabelValuesR
 	if err != nil {
 		return nil, local.BadRequestHTTPError(err.Error())
 	}
-	response, err := h.client.Execute(ctx, sql, params)
-	if err != nil {
-		return nil, local.ApiErrorToHTTP(local.NormalizeInternalError(err))
-	}
-	defer response.Body.Close()
-	values, decErr := local.DecodeStringRows[local.ValueRow](response.Body, func(row local.ValueRow) string { return row.Value })
-	if decErr != nil {
-		return nil, local.ApiErrorPtr(local.ToHTTPAPIError(*decErr))
+	var values []string
+	if h.client.TransportKind() == storage.TransportNative {
+		values, err = h.client.QueryStringRows(ctx, storage.QueryRequest{SQL: sql, Params: params, Purpose: storage.QueryPurposeMetadataLabelValues})
+		if err != nil {
+			return nil, local.ApiErrorToHTTP(local.NormalizeInternalError(err))
+		}
+	} else {
+		response, err := h.client.Execute(ctx, sql, params)
+		if err != nil {
+			return nil, local.ApiErrorToHTTP(local.NormalizeInternalError(err))
+		}
+		defer response.Body.Close()
+		var decErr *local.APIError
+		values, decErr = local.DecodeStringRows[local.ValueRow](response.Body, func(row local.ValueRow) string { return row.Value })
+		if decErr != nil {
+			return nil, local.ApiErrorPtr(local.ToHTTPAPIError(*decErr))
+		}
 	}
 	return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{"status": "success", "data": values}}, nil
 }
@@ -303,14 +338,23 @@ func (h *queryService) Series(ctx context.Context, req httpapi.MetadataRequest) 
 	if err != nil {
 		return nil, local.BadRequestHTTPError(err.Error())
 	}
-	response, err := h.client.Execute(ctx, sql, params)
-	if err != nil {
-		return nil, local.ApiErrorToHTTP(local.NormalizeInternalError(err))
-	}
-	defer response.Body.Close()
-	rows, decErr := local.DecodeSeriesRows(response.Body)
-	if decErr != nil {
-		return nil, local.ApiErrorPtr(local.ToHTTPAPIError(*decErr))
+	var rows []map[string]string
+	if h.client.TransportKind() == storage.TransportNative {
+		rows, err = h.client.QuerySeriesRows(ctx, storage.QueryRequest{SQL: sql, Params: params, Purpose: storage.QueryPurposeMetadataSeries})
+		if err != nil {
+			return nil, local.ApiErrorToHTTP(local.NormalizeInternalError(err))
+		}
+	} else {
+		response, err := h.client.Execute(ctx, sql, params)
+		if err != nil {
+			return nil, local.ApiErrorToHTTP(local.NormalizeInternalError(err))
+		}
+		defer response.Body.Close()
+		var decErr *local.APIError
+		rows, decErr = local.DecodeSeriesRows(response.Body)
+		if decErr != nil {
+			return nil, local.ApiErrorPtr(local.ToHTTPAPIError(*decErr))
+		}
 	}
 	return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{"status": "success", "data": rows}}, nil
 }

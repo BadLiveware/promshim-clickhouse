@@ -1,30 +1,29 @@
 package storage
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"fmt"
-	"mime/multipart"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
-
-	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/obs"
 )
 
 type Config struct {
-	Endpoint       string
-	Username       string
-	Password       string
-	RequestTimeout time.Duration
+	Endpoint        string
+	NativeAddr      string
+	Database        string
+	Username        string
+	Password        string
+	Compression     string
+	RequestTimeout  time.Duration
+	Transport       TransportKind
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
 }
 
 type Client struct {
-	baseURL    *url.URL
-	basicAuth  string
-	httpClient *http.Client
+	transportKind TransportKind
+	transport     Transport
 }
 
 type QueryError struct {
@@ -38,74 +37,63 @@ func (e *QueryError) Error() string {
 }
 
 func NewClient(cfg Config) (*Client, error) {
-	parsed, err := url.Parse(cfg.Endpoint)
+	transportKind, err := ParseTransportKind(string(cfg.Transport))
 	if err != nil {
 		return nil, err
 	}
 
-	query := parsed.Query()
-	query.Set("allow_experimental_time_series_table", "1")
-	query.Set("output_format_json_quote_denormals", "1")
-	parsed.RawQuery = query.Encode()
+	switch transportKind {
+	case TransportHTTP:
+		transport, err := NewHTTPJSONTransport(HTTPJSONTransportConfig{
+			Endpoint:       cfg.Endpoint,
+			Username:       cfg.Username,
+			Password:       cfg.Password,
+			RequestTimeout: cfg.RequestTimeout,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return &Client{transportKind: TransportHTTP, transport: transport}, nil
+	case TransportNative:
+		transport, err := NewNativeDriverTransport(NativeDriverTransportConfig{
+			Addr:            cfg.NativeAddr,
+			Database:        cfg.Database,
+			Username:        cfg.Username,
+			Password:        cfg.Password,
+			Compression:     cfg.Compression,
+			RequestTimeout:  cfg.RequestTimeout,
+			MaxOpenConns:    cfg.MaxOpenConns,
+			MaxIdleConns:    cfg.MaxIdleConns,
+			ConnMaxLifetime: cfg.ConnMaxLifetime,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return &Client{transportKind: TransportNative, transport: transport}, nil
+	default:
+		return nil, fmt.Errorf("unsupported clickhouse transport %q", transportKind)
+	}
+}
 
-	credentials := base64.StdEncoding.EncodeToString([]byte(cfg.Username + ":" + cfg.Password))
-	return &Client{
-		baseURL:   parsed,
-		basicAuth: "Basic " + credentials,
-		httpClient: &http.Client{
-			Timeout: cfg.RequestTimeout,
-		},
-	}, nil
+func (c *Client) TransportKind() TransportKind {
+	return c.transportKind
+}
+
+func (c *Client) Query(ctx context.Context, req QueryRequest) (Rows, error) {
+	return c.transport.Query(ctx, req)
 }
 
 func (c *Client) Execute(ctx context.Context, sql string, params map[string]string) (*http.Response, error) {
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	if err := writer.WriteField("query", sql); err != nil {
-		return nil, err
-	}
-	for key, value := range params {
-		if err := writer.WriteField(key, value); err != nil {
-			return nil, err
-		}
-	}
-	if err := writer.Close(); err != nil {
-		return nil, err
-	}
-
-	requestURL := c.baseURL.String()
-	if tag := obs.LogCommentFromContext(ctx); tag != "" {
-		u := *c.baseURL
-		q := u.Query()
-		q.Set("log_comment", tag)
-		u.RawQuery = q.Encode()
-		requestURL = u.String()
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, &body)
+	rows, err := c.Query(ctx, QueryRequest{SQL: sql, Params: params, Format: ResultFormatJSONEachRow})
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set("Authorization", c.basicAuth)
-	request.Header.Set("Content-Type", writer.FormDataContentType())
+	if httpRows, ok := rows.(*httpRows); ok {
+		return httpRows.response, nil
+	}
+	return &http.Response{StatusCode: http.StatusOK, Body: rows}, nil
+}
 
-	start := time.Now()
-	response, err := c.httpClient.Do(request)
-	obs.FromContext(ctx).Observe(time.Since(start))
-	if err != nil {
-		return nil, err
-	}
-	if response.StatusCode >= 400 {
-		defer response.Body.Close()
-		var payload bytes.Buffer
-		_, _ = payload.ReadFrom(response.Body)
-		message := strings.TrimSpace(payload.String())
-		if message == "" {
-			message = response.Status
-		}
-		if response.StatusCode < 500 {
-			return nil, &QueryError{StatusCode: http.StatusBadRequest, ErrorType: "bad_data", Message: message}
-		}
-		return nil, &QueryError{StatusCode: http.StatusBadGateway, ErrorType: "execution", Message: message}
-	}
-	return response, nil
+func (c *Client) Close() error {
+	return c.transport.Close()
 }

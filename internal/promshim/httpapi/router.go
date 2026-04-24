@@ -64,6 +64,10 @@ type Service interface {
 	Series(context.Context, MetadataRequest) (*Response, *APIError)
 }
 
+type clickHouseTransporter interface {
+	ClickHouseTransport() string
+}
+
 type Handler struct {
 	service Service
 	mux     *http.ServeMux
@@ -108,7 +112,7 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 		Explain:            wantsExplain(r),
 		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
 	})
-	writeServiceResult(w, resp, apiErr, metrics)
+	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
 }
 
 func (h *Handler) handleQueryRange(w http.ResponseWriter, r *http.Request) {
@@ -121,7 +125,7 @@ func (h *Handler) handleQueryRange(w http.ResponseWriter, r *http.Request) {
 		Explain:            wantsExplain(r),
 		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
 	})
-	writeServiceResult(w, resp, apiErr, metrics)
+	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
 }
 
 func (h *Handler) handleQueryExplain(w http.ResponseWriter, r *http.Request) {
@@ -132,7 +136,7 @@ func (h *Handler) handleQueryExplain(w http.ResponseWriter, r *http.Request) {
 		Explain:            true,
 		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
 	})
-	writeServiceResult(w, resp, apiErr, metrics)
+	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
 }
 
 func (h *Handler) handleQueryRangeExplain(w http.ResponseWriter, r *http.Request) {
@@ -145,7 +149,7 @@ func (h *Handler) handleQueryRangeExplain(w http.ResponseWriter, r *http.Request
 		Explain:            true,
 		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
 	})
-	writeServiceResult(w, resp, apiErr, metrics)
+	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
 }
 
 func (h *Handler) handleLabels(w http.ResponseWriter, r *http.Request) {
@@ -155,7 +159,7 @@ func (h *Handler) handleLabels(w http.ResponseWriter, r *http.Request) {
 		Start:    r.URL.Query().Get("start"),
 		End:      r.URL.Query().Get("end"),
 	})
-	writeServiceResult(w, resp, apiErr, metrics)
+	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
 }
 
 func (h *Handler) handleLabelValues(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +172,7 @@ func (h *Handler) handleLabelValues(w http.ResponseWriter, r *http.Request) {
 			End:      r.URL.Query().Get("end"),
 		},
 	})
-	writeServiceResult(w, resp, apiErr, metrics)
+	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
 }
 
 func (h *Handler) handleSeries(w http.ResponseWriter, r *http.Request) {
@@ -178,10 +182,17 @@ func (h *Handler) handleSeries(w http.ResponseWriter, r *http.Request) {
 		Start:    r.URL.Query().Get("start"),
 		End:      r.URL.Query().Get("end"),
 	})
-	writeServiceResult(w, resp, apiErr, metrics)
+	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
 }
 
-func writeServiceResult(w http.ResponseWriter, resp *Response, apiErr *APIError, metrics *obs.CHMetrics) {
+func (h *Handler) clickHouseTransport() string {
+	if provider, ok := h.service.(clickHouseTransporter); ok {
+		return provider.ClickHouseTransport()
+	}
+	return ""
+}
+
+func writeServiceResult(w http.ResponseWriter, resp *Response, apiErr *APIError, metrics *obs.CHMetrics, clickHouseTransport string) {
 	if apiErr != nil {
 		writePromError(w, *apiErr)
 		return
@@ -190,7 +201,7 @@ func writeServiceResult(w http.ResponseWriter, resp *Response, apiErr *APIError,
 		writePromError(w, APIError{StatusCode: http.StatusInternalServerError, ErrorType: "execution", Error: "service returned no response"})
 		return
 	}
-	setPromshimHeaders(w, resp, metrics)
+	setPromshimHeaders(w, resp, metrics, clickHouseTransport)
 	if resp.Stream != nil {
 		if err := resp.Stream(w); err != nil {
 			writePromError(w, APIError{StatusCode: http.StatusBadGateway, ErrorType: "execution", Error: err.Error()})
@@ -204,12 +215,15 @@ func writeServiceResult(w http.ResponseWriter, resp *Response, apiErr *APIError,
 	writeJSON(w, statusCode, resp.Body)
 }
 
-func setPromshimHeaders(w http.ResponseWriter, resp *Response, metrics *obs.CHMetrics) {
+func setPromshimHeaders(w http.ResponseWriter, resp *Response, metrics *obs.CHMetrics, clickHouseTransport string) {
 	if resp.Strategy != "" {
 		w.Header().Set("X-Promshim-Strategy", resp.Strategy)
 	}
 	if resp.FallbackReason != "" {
 		w.Header().Set("X-Promshim-Fallback-Reason", resp.FallbackReason)
+	}
+	if clickHouseTransport != "" {
+		w.Header().Set("X-Promshim-CH-Transport", clickHouseTransport)
 	}
 	if metrics != nil {
 		w.Header().Set("X-Promshim-CH-Roundtrips", strconv.FormatInt(metrics.Roundtrips(), 10))

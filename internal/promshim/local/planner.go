@@ -98,26 +98,20 @@ func (e *Evaluator) executeDelegated(ctx context.Context, expr parser.Expr, para
 	switch params.Mode {
 	case EvalModeInstant:
 		sql, queryParams := storage.BuildInstantQuerySQL(storage.QueryConfig{Database: e.database, Table: e.table}, promQL, params.EvaluationTime.UnixMilli())
-		response, err := e.client.Execute(ctx, sql, queryParams)
-		if err != nil {
-			return nil, WithInternalContext(NormalizeInternalError(err), "executing delegated ClickHouse instant query for %q", expr.String())
-		}
-		defer response.Body.Close()
-
 		switch expr.Type() {
 		case parser.ValueTypeVector:
-			samples, err := DecodeInstantSamples(response.Body)
+			samples, err := e.executeDelegatedInstantSamples(ctx, sql, queryParams)
 			if err != nil {
-				return nil, WithInternalContext(err, "decoding delegated instant vector result for %q", expr.String())
+				return nil, WithInternalContext(NormalizeInternalError(err), "executing/decoding delegated instant vector result for %q", expr.String())
 			}
 			if isBareSelectorExpr(expr) {
 				samples = dropNaNInstantSamples(samples)
 			}
 			return model.VectorValue{Samples: samples}, nil
 		case parser.ValueTypeMatrix:
-			series, err := DecodeRangeSeries(response.Body)
+			series, err := e.executeDelegatedRangeSeries(ctx, sql, queryParams)
 			if err != nil {
-				return nil, WithInternalContext(err, "decoding delegated instant matrix result for %q", expr.String())
+				return nil, WithInternalContext(NormalizeInternalError(err), "executing/decoding delegated instant matrix result for %q", expr.String())
 			}
 			if isBareSelectorExpr(expr) {
 				series = dropNaNRangePoints(series)
@@ -128,15 +122,9 @@ func (e *Evaluator) executeDelegated(ctx context.Context, expr parser.Expr, para
 		}
 	case EvalModeRange:
 		sql, queryParams := storage.BuildRangeQuerySQL(storage.QueryConfig{Database: e.database, Table: e.table}, promQL, params.Start.UnixMilli(), params.End.UnixMilli(), params.Step.Milliseconds())
-		response, err := e.client.Execute(ctx, sql, queryParams)
+		series, err := e.executeDelegatedRangeSeries(ctx, sql, queryParams)
 		if err != nil {
-			return nil, WithInternalContext(NormalizeInternalError(err), "executing delegated ClickHouse range query for %q", expr.String())
-		}
-		defer response.Body.Close()
-
-		series, err := DecodeRangeSeries(response.Body)
-		if err != nil {
-			return nil, WithInternalContext(err, "decoding delegated range matrix result for %q", expr.String())
+			return nil, WithInternalContext(NormalizeInternalError(err), "executing/decoding delegated range matrix result for %q", expr.String())
 		}
 		if isBareSelectorExpr(expr) {
 			series = dropNaNRangePoints(series)
@@ -145,6 +133,30 @@ func (e *Evaluator) executeDelegated(ctx context.Context, expr parser.Expr, para
 	default:
 		return nil, NewExecutionErrorf("unknown evaluation mode %q", params.Mode)
 	}
+}
+
+func (e *Evaluator) executeDelegatedInstantSamples(ctx context.Context, sql string, params map[string]string) ([]model.InstantSample, error) {
+	if e.client.TransportKind() == storage.TransportNative {
+		return e.client.QueryInstantSamples(ctx, storage.QueryRequest{SQL: sql, Params: params, Purpose: storage.QueryPurposeDelegatedInstant})
+	}
+	response, err := e.client.Execute(ctx, sql, params)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	return DecodeInstantSamples(response.Body)
+}
+
+func (e *Evaluator) executeDelegatedRangeSeries(ctx context.Context, sql string, params map[string]string) ([]model.RangeSeries, error) {
+	if e.client.TransportKind() == storage.TransportNative {
+		return e.client.QueryRangeSeries(ctx, storage.QueryRequest{SQL: sql, Params: params, Purpose: storage.QueryPurposeDelegatedRange})
+	}
+	response, err := e.client.Execute(ctx, sql, params)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	return DecodeRangeSeries(response.Body)
 }
 
 func buildPlan(expr parser.Expr) (Plan, error) {

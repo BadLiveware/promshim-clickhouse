@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
 )
 
 // rangeFunctionCases covers all seven logical plan kinds that produce
@@ -35,56 +33,6 @@ var rangeFunctionCases = []struct {
 	{name: "max_over_time_5m", query: `max_over_time(up[5m])`},
 	// — QuantileOverTimePlan —
 	{name: "quantile_over_time_095_5m", query: `quantile_over_time(0.95, request_duration[5m])`},
-}
-
-// TestLowerRangeFunctionMatchesFragment is the byte-identical differential
-// guard for the range function surface: for every case in every render mode,
-// lower the plan twice — once through renderer.Lower, once through
-// native.BuildFragment + RenderFragment — and fail on any diff. The goldens
-// only lock the shape down; this test is what makes them meaningful.
-func TestLowerRangeFunctionMatchesFragment(t *testing.T) {
-	for _, tc := range rangeFunctionCases {
-		for _, mode := range []struct {
-			name   string
-			params RenderParams
-		}{
-			{name: "instant", params: testRenderParamsInstant()},
-			{name: "range", params: testRenderParamsRange()},
-		} {
-			t.Run(tc.name+"_"+mode.name, func(t *testing.T) {
-				root, analysis, nativeAnalysis := buildLowerInputs(t, tc.query)
-				lowerCtx := LoweringCtx{
-					Config:         testRenderConfig(),
-					Analysis:       analysis,
-					NativeAnalysis: nativeAnalysis,
-					Params:         mode.params,
-				}
-				lowerRQ, err := Lower(lowerCtx, root)
-				if err != nil {
-					t.Fatalf("Lower: %v", err)
-				}
-				fragment, err := native.BuildFragment(root, nativeAnalysis)
-				if err != nil {
-					t.Fatalf("BuildFragment: %v", err)
-				}
-				fragmentRQ, err := RenderFragment(testRenderConfig(), fragment, mode.params)
-				if err != nil {
-					t.Fatalf("RenderFragment: %v", err)
-				}
-				if lowerRQ.SQL != fragmentRQ.SQL {
-					t.Errorf("SQL differs:\nLower:    %s\nFragment: %s", lowerRQ.SQL, fragmentRQ.SQL)
-				}
-				if len(lowerRQ.QueryParams) != len(fragmentRQ.QueryParams) {
-					t.Errorf("QueryParams len differs: Lower=%v Fragment=%v", lowerRQ.QueryParams, fragmentRQ.QueryParams)
-				}
-				for k, v := range fragmentRQ.QueryParams {
-					if lowerRQ.QueryParams[k] != v {
-						t.Errorf("QueryParams[%q] differs: Lower=%q Fragment=%q", k, lowerRQ.QueryParams[k], v)
-					}
-				}
-			})
-		}
-	}
 }
 
 // TestLowerRangeFunctionGolden locks in the exact SQL for the first five

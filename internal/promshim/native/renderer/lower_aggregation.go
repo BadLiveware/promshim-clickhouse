@@ -29,7 +29,7 @@ func lowerAggregation(ctx LoweringCtx, n *logicalpkg.AggregationPlan) (RenderedQ
 	if ctx.Analysis == nil || ctx.Analysis.InfoFor(n) == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: aggregation missing logical analysis")
 	}
-	rendered, err := renderAggregationLogical(ctx.Config, ctx.NativeAnalysis, n, ctx.Params)
+	rendered, err := renderAggregationLogical(ctx.Config, ctx.Analysis, ctx.NativeAnalysis, n, ctx.Params)
 	if err != nil {
 		return RenderedQuery{}, err
 	}

@@ -133,12 +133,22 @@ func TestFusedRangeAggregationLogicalMatchesFragment(t *testing.T) {
 		`sum (rate(foo[5m]))`,
 		`sum by (x) (increase(foo[5m]))`,
 		`sum by (x) (avg_over_time(foo[5m]))`,
+		// Param-carrying range functions (exercises rangeFunctionParamNumbers
+		// extracting ParamNumber from RangeFunctionPlan and from
+		// QuantileOverTimePlan in the logical port).
+		`sum by (x) (quantile_over_time(0.9, foo[5m]))`,
+		`sum by (x) (predict_linear(foo[5m], 60))`,
+		`sum by (x) (holt_winters(foo[5m], 0.8, 0.9))`,
 		// Subquery-child range-function fused under sum.
 		`sum by (x) (rate(sum by (x) (foo)[5m:30s]))`,
+		`sum (rate(sum by (x) (foo)[5m:30s]))`,
+		`sum by (x) (increase(sum by (x) (foo)[5m:30s]))`,
+		`sum by (x) (avg_over_time(sum by (x) (foo)[5m:30s]))`,
+		`sum by (x) (quantile_over_time(0.9, sum by (x) (foo)[5m:30s]))`,
 	}
 	for _, query := range fusable {
 		t.Run("fusable/"+query, func(t *testing.T) {
-			root, _, nativeAnalysis := buildLowerInputs(t, query)
+			root, logicalAnalysis, nativeAnalysis := buildLowerInputs(t, query)
 			agg, ok := root.(*logicalpkg.AggregationPlan)
 			if !ok {
 				t.Fatalf("expected AggregationPlan, got %T", root)
@@ -161,7 +171,7 @@ func TestFusedRangeAggregationLogicalMatchesFragment(t *testing.T) {
 
 			// Byte-equal SQL between direct and fragment rendering of the
 			// fused shape.
-			gotRF, gotOK, gotErr := tryRenderFusedRangeAggregationLogicalDirect(testRenderConfig(), agg, nativeAnalysis, params)
+			gotRF, gotOK, gotErr := tryRenderFusedRangeAggregationLogicalDirect(testRenderConfig(), agg, logicalAnalysis, nativeAnalysis, params)
 			if gotErr != nil {
 				t.Fatalf("tryRenderFusedRangeAggregationLogicalDirect: %v", gotErr)
 			}
@@ -206,7 +216,7 @@ func TestFusedRangeAggregationLogicalMatchesFragment(t *testing.T) {
 	}
 	for _, tc := range notFusable {
 		t.Run("notFusable/"+tc.name, func(t *testing.T) {
-			root, _, nativeAnalysis := buildLowerInputs(t, tc.query)
+			root, logicalAnalysis, nativeAnalysis := buildLowerInputs(t, tc.query)
 			agg, ok := root.(*logicalpkg.AggregationPlan)
 			if !ok {
 				// If the root is not an aggregation at all, the helpers
@@ -228,7 +238,7 @@ func TestFusedRangeAggregationLogicalMatchesFragment(t *testing.T) {
 			if canFuseRangeAggregationFragment(fragment, params) {
 				t.Fatalf("canFuseRangeAggregationFragment=true for non-fusable %q", tc.query)
 			}
-			if _, got, err := tryRenderFusedRangeAggregationLogicalDirect(testRenderConfig(), agg, nativeAnalysis, params); err != nil || got {
+			if _, got, err := tryRenderFusedRangeAggregationLogicalDirect(testRenderConfig(), agg, logicalAnalysis, nativeAnalysis, params); err != nil || got {
 				t.Fatalf("tryRenderFusedRangeAggregationLogicalDirect: got=(ok=%v err=%v) for non-fusable %q, want (ok=false err=nil)", got, err, tc.query)
 			}
 		})

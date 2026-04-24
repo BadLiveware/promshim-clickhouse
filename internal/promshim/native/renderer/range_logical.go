@@ -164,43 +164,28 @@ func canFuseRangeAggregationLogicalDirect(agg *logicalpkg.AggregationPlan, param
 	return false
 }
 
-// tryRenderFusedRangeAggregationLogical renders the fused range+aggregation
-// SQL directly from a logical AggregationPlan without constructing a
-// top-level NativeFragment at the lowerer boundary. It is the logical-plan
-// analog of tryRenderFusedRangeAggregationFragment and is consumed by the
-// AggregationPlan lowerer (Phase 4).
+// tryRenderFusedRangeAggregationLogicalDirect is the Phase-6c direct-render
+// counterpart of tryRenderFusedRangeAggregationFragment. It consumes the
+// logical AggregationPlan without materializing the aggregation Fragment at
+// the lowerer boundary: the capability check is pure-logical
+// (canFuseRangeAggregationLogicalDirect) and the SQL synthesis runs entirely
+// on the logical plan through tryRenderFusedRangeAggregationLogical.
 //
-// Phase 3 (Task 13a Phase 3): the top-level BuildFragment call has been
-// moved out of this function and into
-// tryRenderFusedRangeAggregationLogicalDirect. The capability check is now
-// purely logical (canFuseRangeAggregationLogicalDirect). Fragment
-// materialization is scoped to a single internal BuildFragment inside the
-// direct helper, which still feeds the existing
-// tryRenderFusedRangeAggregationFragment body. That Fragment machinery
-// retires in Phase 6.
-func tryRenderFusedRangeAggregationLogical(cfg storage.QueryConfig, analysis *native.Analysis, agg *logicalpkg.AggregationPlan, params RenderParams) (renderedFragment, bool, error) {
-	return tryRenderFusedRangeAggregationLogicalDirect(cfg, agg, analysis, params)
-}
-
-// tryRenderFusedRangeAggregationLogicalDirect is the Phase-3 direct-render
-// counterpart of tryRenderFusedRangeAggregationFragment. It guards the
-// downstream Fragment rendering with a pure-logical fusion shape check
-// (canFuseRangeAggregationLogicalDirect) so no Fragment is built for
-// non-fusable aggregations. When the shape does fuse, it materializes the
-// AggregationPlan Fragment once internally and delegates to
-// tryRenderFusedRangeAggregationFragment for byte-identical SQL. The
-// internal BuildFragment retires in Phase 6 together with
-// tryRenderFusedRangeAggregationFragment.
-func tryRenderFusedRangeAggregationLogicalDirect(cfg storage.QueryConfig, agg *logicalpkg.AggregationPlan, analysis *native.Analysis, params RenderParams) (renderedFragment, bool, error) {
-	if !canFuseRangeAggregationLogicalDirect(agg, params) {
-		return renderedFragment{}, false, nil
+// Phase 6c (Task 13a Phase 6c): the transitional BuildFragment call that
+// previously re-materialized the AggregationPlan Fragment here and
+// delegated to tryRenderFusedRangeAggregationFragment has retired. The
+// body now just packages the (config, analyses, params) bundle into a
+// LoweringCtx and hands it to the logical-port helper.
+//
+// The public signature is stable so the existing
+// TestFusedRangeAggregationLogicalMatchesFragment byte-equality guard
+// keeps calling this function unchanged.
+func tryRenderFusedRangeAggregationLogicalDirect(cfg storage.QueryConfig, agg *logicalpkg.AggregationPlan, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams) (renderedFragment, bool, error) {
+	ctx := LoweringCtx{
+		Config:         cfg,
+		Analysis:       logicalAnalysis,
+		NativeAnalysis: analysis,
+		Params:         params,
 	}
-	fragment, err := native.BuildFragment(agg, analysis)
-	if err != nil {
-		return renderedFragment{}, false, nil
-	}
-	if fragment == nil || fragment.Kind != native.FragmentKindAggregation {
-		return renderedFragment{}, false, nil
-	}
-	return tryRenderFusedRangeAggregationFragment(cfg, fragment, params)
+	return tryRenderFusedRangeAggregationLogical(ctx, agg)
 }

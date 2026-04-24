@@ -6,6 +6,11 @@ and routes each query through tiered execution: whole-query ClickHouse PromQL
 delegation, native ClickHouse SQL lowering, and compatibility-preserving local
 fallback.
 
+> **Status:** experimental / preview. `promshim` targets ClickHouse's
+> experimental `TimeSeries` table engine. It is heavily compatibility-tested,
+> but production use should be validated against your own workloads and
+> ClickHouse version.
+
 It lets existing Prometheus clients — most importantly Grafana dashboards and
 PromQL-based tooling — continue to ask Prometheus-shaped questions while the
 samples live in ClickHouse.

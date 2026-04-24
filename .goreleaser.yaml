@@ -1,0 +1,79 @@
+version: 2
+
+project_name: promshim-clickhouse
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: promshim
+    main: ./cmd/promshim
+    binary: promshim
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .Commit }} -X main.date={{ .Date }}
+
+archives:
+  - id: promshim
+    ids:
+      - promshim
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: '{{ incpatch .Version }}-next'
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+
+dockers_v2:
+  - id: promshim
+    dockerfile: Dockerfile.release
+    ids:
+      - promshim
+    images:
+      - ghcr.io/badliveware/promshim-clickhouse
+    tags:
+      - '{{ .Tag }}'
+      - latest
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    sbom: false
+    labels:
+      org.opencontainers.image.title: promshim-clickhouse
+      org.opencontainers.image.description: PromQL compatibility layer for ClickHouse TimeSeries
+      org.opencontainers.image.licenses: Apache-2.0
+      org.opencontainers.image.source: https://github.com/BadLiveware/promshim-clickhouse
+      org.opencontainers.image.created: '{{ .Date }}'
+      org.opencontainers.image.name: '{{ .ProjectName }}'
+      org.opencontainers.image.revision: '{{ .Commit }}'
+      org.opencontainers.image.version: '{{ .Version }}'
+
+release:
+  github:
+    owner: BadLiveware
+    name: promshim-clickhouse
+  draft: false
+  replace_existing_draft: true
+  prerelease: auto

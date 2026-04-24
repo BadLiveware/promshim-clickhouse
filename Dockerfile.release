@@ -1,0 +1,16 @@
+# syntax=docker/dockerfile:1
+
+FROM gcr.io/distroless/static-debian12:nonroot AS runtime
+
+ARG TARGETPLATFORM
+
+LABEL org.opencontainers.image.title="promshim-clickhouse"
+LABEL org.opencontainers.image.description="PromQL compatibility layer for ClickHouse TimeSeries"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.source="https://github.com/BadLiveware/promshim-clickhouse"
+
+COPY --link ${TARGETPLATFORM}/promshim /usr/local/bin/promshim
+
+EXPOSE 9090
+USER nonroot:nonroot
+ENTRYPOINT ["/usr/local/bin/promshim"]

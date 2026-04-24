@@ -11,14 +11,13 @@ import (
 // lowerSubquery lowers a SubqueryPlan (PromQL subquery expressions like
 // `up[5m:1m]`) directly from the logical tree. The subquery's job is to
 // render its child over a step-grid carved out of the outer request bounds;
-// we compute that envelope from the SubqueryPlan fields (shared with the
-// Fragment path via subqueryRenderEnvelopeLogical) and recurse into Lower
-// with a RenderParams set to RangeMode over that envelope. The child's own
-// lowerer handles everything from there.
+// we compute that envelope via subqueryRenderEnvelopeLogical and recurse
+// into Lower with a RenderParams set to RangeMode over that envelope.
+// The child's own lowerer handles everything from there.
 //
 // Hierarchical fallback: Lower returns errUnsupportedLowerNode when the
-// child kind isn't directly renderable yet, which bubbles up so the whole
-// query falls back to the Fragment path.
+// child kind isn't directly renderable, which bubbles up so the whole
+// query falls back to the next execution tier.
 func lowerSubquery(ctx LoweringCtx, n *logicalpkg.SubqueryPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerSubquery called with nil node")
@@ -52,10 +51,9 @@ func lowerSubquery(ctx LoweringCtx, n *logicalpkg.SubqueryPlan) (RenderedQuery, 
 }
 
 // subqueryRenderEnvelopeLogical computes the (startMS, endMS, stepMS)
-// envelope for a subquery from the logical plan fields. The logic mirrors
-// subqueryRenderEnvelope's Fragment-side body — we carve out the child
-// step-grid over either the current instant (RenderModeInstant) or the outer
-// range envelope (RenderModeRange).
+// envelope for a subquery from the logical plan fields. It carves out
+// the child step-grid over either the current instant
+// (RenderModeInstant) or the outer range envelope (RenderModeRange).
 func subqueryRenderEnvelopeLogical(n *logicalpkg.SubqueryPlan, params RenderParams) (int64, int64, int64, error) {
 	if n == nil {
 		return 0, 0, 0, fmt.Errorf("subquery plan is missing metadata")

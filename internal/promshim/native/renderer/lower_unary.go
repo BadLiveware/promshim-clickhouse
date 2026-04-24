@@ -10,8 +10,7 @@ import (
 // lowerUnary renders a UnaryPlan directly from the logical tree. The
 // child is lowered via Lower (bubbling errUnsupportedLowerNode if the
 // child kind isn't yet directly renderable), and handed to
-// renderValueTransformFromSource — the same shared helper the Fragment
-// path uses — so SQL stays byte-identical for the non-fused path.
+// renderValueTransformFromSource.
 //
 // Supported ops:
 //   - parser.ADD: identity. Returns the child's RenderedQuery unchanged;
@@ -19,20 +18,17 @@ import (
 //   - parser.SUB: wraps child with a value-transform outer SELECT that
 //     negates value and drops __name__.
 //
-// Scalar literal fast path: when the child is a *ScalarLiteralPlan, fold
-// the op into the literal value and emit the resulting synthetic scalar
-// series directly via renderScalarLiteralFragment (byte-identical to
-// the Fragment path's fold-and-synth route).
+// Scalar literal fast path: when the child is a *ScalarLiteralPlan,
+// fold the op into the literal value and emit the resulting synthetic
+// scalar series directly via renderScalarLiteralFragment.
 //
 // Double-negation: the opt.constantFoldUnaryNegation pass runs on every
 // production query (local/planner.go), so -(-x) reaches Lower already
 // folded to x. Tests that bypass opt may observe a double-wrap here;
-// that is expected and matches what production queries would see if the
-// opt pass were disabled.
+// that is expected.
 //
 // Operator outside {ADD, SUB}: errUnsupportedLowerNode so the caller
-// falls back wholesale — matches the Fragment path's gate on
-// applyUnarySourceTransform returning ok=false.
+// falls back to the next execution tier.
 func lowerUnary(ctx LoweringCtx, n *logicalpkg.UnaryPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerUnary called with nil")

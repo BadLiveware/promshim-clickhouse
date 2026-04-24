@@ -11,13 +11,8 @@ import (
 // HistogramQuantilesPlan) to a RenderedQuery by delegating to
 // renderHistogramFunctionLogical in histogram_logical.go.
 //
-// The lowerer no longer calls the Fragment builder at the boundary; Fragment
-// materialization is performed transitionally inside
-// renderHistogramFunctionLogical (Phase A2 scaffolding; retires in Phase C).
-//
 // Hierarchical fallback: if renderHistogramFunctionLogical returns
-// errUnsupportedLowerNode the caller falls back to the Fragment rendering
-// path wholesale.
+// errUnsupportedLowerNode the caller falls back to the next execution tier.
 //
 // Supported functions: histogram_quantile, histogram_fraction,
 // histogram_quantiles.

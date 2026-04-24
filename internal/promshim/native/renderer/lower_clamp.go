@@ -12,13 +12,11 @@ import (
 // lowered via Lower and namespaced under "clamp_child"; each scalar bound
 // (min/max) is bound via renderClampBoundBindingLogical (literals short-circuit
 // to inline floats; other shapes lower via Lower). The final SQL is assembled
-// by the shared assembleClampSQL helper — the Fragment path calls the same
-// helper with clampBoundBindings produced by renderClampBoundBindingFragment,
-// so SQL stays byte-identical.
+// by assembleClampSQL.
 //
 // Hierarchical fallback: any nested Lower call may return
 // errUnsupportedLowerNode (child shape not yet directly renderable), which
-// bubbles up so the whole query falls back to the Fragment path.
+// bubbles up so the whole query falls back to the next execution tier.
 func lowerClamp(ctx LoweringCtx, n *logicalpkg.PointwiseFunctionPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerClamp called with nil")

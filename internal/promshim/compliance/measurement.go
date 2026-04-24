@@ -16,7 +16,7 @@ type NativeMeasurementSnapshot struct {
 	PlanReason          string `json:"planReason,omitempty"`
 	NativeLowerable     bool   `json:"nativeLowerable"`
 	NativeReason        string `json:"nativeReason,omitempty"`
-	FragmentKind        string `json:"fragmentKind,omitempty"`
+	SubtreeShape        string `json:"subtreeShape,omitempty"`
 	AggregationEligible bool   `json:"aggregationEligible,omitempty"`
 }
 
@@ -135,7 +135,7 @@ func MeasureNativeSupport(query string) (NativeMeasurementSnapshot, error) {
 	snapshot.NativeLowerable = root.NativeLowerable
 	snapshot.NativeReason = root.NativeReason
 	if root.SubtreeShape != "" {
-		snapshot.FragmentKind = string(root.SubtreeShape)
+		snapshot.SubtreeShape = string(root.SubtreeShape)
 	}
 	if root.Aggregation != nil {
 		snapshot.AggregationEligible = root.Aggregation.Eligible

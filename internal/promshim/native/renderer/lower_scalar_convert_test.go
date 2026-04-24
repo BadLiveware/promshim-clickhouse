@@ -16,9 +16,7 @@ var updateLowerGolden = flag.Bool("update", false, "rewrite golden .sql files fo
 
 // scalarConvertCases covers a sampling of PromQL scalar() inputs that
 // all lower natively: a bare leaf selector (no rate), a selector with
-// label matchers, and scalar() over a range function (rate). The
-// differential guard runs each query through both Lower and the
-// Fragment path and fails on any SQL diff.
+// label matchers, and scalar() over a range function (rate).
 var scalarConvertCases = []struct {
 	name  string
 	query string
@@ -29,9 +27,8 @@ var scalarConvertCases = []struct {
 }
 
 // TestLowerScalarConvertGolden locks in the exact SQL for a subset of
-// the differential cases. Run with -update to regenerate. We lock both
-// the bare and labelled cases in both render modes; the rate variant
-// is covered by the differential guard alone.
+// scalarConvertCases. Run with -update to regenerate. We lock both the
+// bare and labelled cases in both render modes.
 func TestLowerScalarConvertGolden(t *testing.T) {
 	goldenCases := scalarConvertCases[:2] // bare + labelled
 	for _, tc := range goldenCases {

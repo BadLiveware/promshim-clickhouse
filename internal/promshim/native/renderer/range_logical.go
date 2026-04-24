@@ -9,25 +9,12 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-// renderRangeFunctionLogical renders any of the seven logical node kinds that
-// produce FragmentKindRangeFunction without constructing a top-level
-// NativeFragment at the lowerer boundary. It is the public entry point for
-// lower_range_function.go.
+// renderRangeFunctionLogical is the public entry point for range-function
+// rendering from the logical plan. It walks the tree directly and
+// recurses through Lower for child sub-trees.
 //
-// Phase 6d (Task 13a Phase 6d): the scoped Fragment-builder call that
-// previously materialized the range-function Fragment inside
-// renderRangeFunctionLogicalDirect has been retired. The body now hands
-// the node straight to renderRangeFunctionLogicalBody, which walks the
-// logical plan directly and replaces the two Fragment-side RenderFragment
-// calls (instant-mode fallback and range-mode selector/subquery fallbacks)
-// with recursive renderer.Lower calls on the equivalent logical child.
-// Because the body now recurses through Lower (which requires the logical
-// Analysis), the helper takes a LoweringCtx rather than the narrower
-// (cfg, analysis, params) bundle it accepted prior to Phase 6d.
-//
-// Hierarchical fallback: if the logical body encounters a node shape it
-// cannot lower it returns errUnsupportedLowerNode so the caller falls back
-// to the Fragment rendering path wholesale.
+// If a node shape cannot be lowered it returns errUnsupportedLowerNode so
+// the caller falls back to the next execution tier.
 //
 // The seven plan kinds covered here are RangeFunctionPlan, RatePlan,
 // IncreasePlan, DeltaPlan, ChangesPlan, DerivPlan, and QuantileOverTimePlan.
@@ -38,21 +25,19 @@ func renderRangeFunctionLogical(ctx LoweringCtx, n logicalpkg.Node) (renderedFra
 	return renderRangeFunctionLogicalDirect(ctx, n)
 }
 
-// renderRangeFunctionLogicalDirect is the Phase-6d direct-render counterpart
-// of renderRangeFunctionFragment. It reads the range-function child and
-// function identity from the logical plan via rangeFunctionChildNode and
-// drives the SQL rendering from the logical tree through
-// renderRangeFunctionLogicalBody — no BuildFragment call remains on this
-// path.
+// renderRangeFunctionLogicalDirect reads the range-function child and
+// function identity from the logical plan via rangeFunctionChildNode
+// and drives SQL rendering from the logical tree through
+// renderRangeFunctionLogicalBody.
 //
 // The fast-path branches that need SelectorSource data (for the
 // BuildRangeMatrixSelectorRowsQuerySQL,
 // BuildRangeWindowSelectorDirectAggregateQuerySQLWithFinalTags, and
 // BuildRangeWindowSelectorQuerySQLWithFinalTags helpers) read the
-// applySelectorProjection-narrowed Selector off the leaf's LoweringInfo
-// (LeafSelector + SourceExprView) directly. Subquery-child fast paths
-// read the cached SubqueryFragment off the range-function node's own
-// LoweringInfo.RangeFunctionSubquery (Task 13c-7b).
+// cached Selector off the leaf's LoweringInfo (LeafSelector +
+// SourceExprView). Subquery-child fast paths read the cached subquery
+// info off the range-function node's own
+// LoweringInfo.RangeFunctionSubquery.
 func renderRangeFunctionLogicalDirect(ctx LoweringCtx, n logicalpkg.Node) (renderedFragment, error) {
 	childNode, _, ok := rangeFunctionChildNode(n)
 	if !ok || childNode == nil {
@@ -61,9 +46,8 @@ func renderRangeFunctionLogicalDirect(ctx LoweringCtx, n logicalpkg.Node) (rende
 	return renderRangeFunctionLogicalBody(ctx, n)
 }
 
-// renderRangeFunctionLogicalBody is the logical-plan port of
-// renderRangeFunctionFragment (range.go:75-245). It mirrors the Fragment-side
-// branches one-for-one in both instant and range modes:
+// renderRangeFunctionLogicalBody renders a range-function plan from
+// the logical tree in both instant and range modes:
 //
 // Instant mode:
 //  1. leaf range-vector selector + identity wrapper + fn=="rate":
@@ -89,15 +73,10 @@ func renderRangeFunctionLogicalDirect(ctx LoweringCtx, n logicalpkg.Node) (rende
 //     Lower on the subquery + buildRangeFunctionOverWindowedArraysSQL.
 //
 // The fast-path branches that carry SelectorSource data read the
-// applySelectorProjection-narrowed Selector off the leaf's LoweringInfo
-// (LeafSelector + SourceExprView) directly. Subquery-child fast paths
-// read the cached SubqueryFragment off LoweringInfo.RangeFunctionSubquery
-// — populated during native.Analyze at each of the seven range-function
-// emission sites. No info.Fragment dereference remains on this path.
-//
-// Phase 6d (Task 13a Phase 6d): branches 4 (instant) and 4, 5-fallback
-// (range) are the RenderFragment call sites retired in this phase — they
-// now recurse via renderer.Lower on the equivalent logical child.
+// cached Selector off the leaf's LoweringInfo (LeafSelector +
+// SourceExprView). Subquery-child fast paths read the cached subquery
+// info off LoweringInfo.RangeFunctionSubquery (populated during
+// native.Analyze at each of the seven range-function emission sites).
 func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (renderedFragment, error) {
 	childNode, fn, ok := rangeFunctionChildNode(n)
 	if !ok || childNode == nil {
@@ -112,9 +91,9 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 		switch child := childNode.(type) {
 		case *logicalpkg.LeafExprPlan:
 			if _, isMatrix := child.Expr.(*parser.MatrixSelector); isMatrix {
-				// Pure-logical read: the leaf's LoweringInfo carries
-				// LeafSelector (applySelectorProjection-narrowed) and
-				// SourceExpr (identity wrapper for LeafSource/range-vector).
+				// The leaf's LoweringInfo carries LeafSelector
+				// (narrowed) and SourceExpr (identity wrapper for
+				// range-vector leaves).
 				leafInfo := ctx.NativeAnalysis.InfoFor(child)
 				if leafInfo != nil && leafInfo.LeafSelector != nil && leafInfo.SourceExpr != nil &&
 					leafInfo.LeafSelector.Kind == native.SelectorKindRangeVector &&
@@ -155,12 +134,10 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 			}
 		case *logicalpkg.SubqueryPlan:
 			if child != nil && child.Child != nil && canUseInstantRangeFunctionRowsFastPath(fn) {
-				// Pure-logical read: the subquery's child is inspected via
+				// The subquery's child is inspected via
 				// tryRenderSubqueryRowsSourceLogical, which matches the
-				// aggregation-over-range-function fused shape directly off
-				// the logical plan. Task 13c-14d-1 retires the Fragment-
-				// backed tryRenderSubqueryRowsSource/RangeFunctionSubquery
-				// read here.
+				// aggregation-over-range-function fused shape directly
+				// off the logical plan.
 				if childRowsSQL, childParams, ok, err := tryRenderSubqueryRowsSourceLogical(ctx, child); err != nil {
 					return renderedFragment{}, err
 				} else if ok {
@@ -172,11 +149,9 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 				}
 			}
 		}
-		// Instant-mode fallback (Phase-6d retirement of the Fragment-side
-		// RenderFragment at range.go:124). Lower the logical child directly
-		// so the SQL is driven off the logical tree. The tags expression
-		// still prefers the narrowed selector data when available, matching
-		// the Fragment-side behavior on leaf children.
+		// Instant-mode fallback: Lower the logical child directly.
+		// The tags expression still prefers the narrowed selector
+		// data when available.
 		childCtx := ctx
 		childRendered, err := Lower(childCtx, childNode)
 		if err != nil {
@@ -207,12 +182,9 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 		switch child := childNode.(type) {
 		case *logicalpkg.LeafExprPlan:
 			if _, isMatrix := child.Expr.(*parser.MatrixSelector); isMatrix {
-				// Pure-logical read: LeafSelector mirrors
-				// fragment.Selector (applySelectorProjection-narrowed)
-				// and SourceExpr mirrors fragment.{ValueExpr,TagsExpr,
-				// DropsMetric}. For LeafSource/range-vector leaves the
-				// wrapper is always identity; we still check explicitly
-				// so the fast-path gate is visible at the call site.
+				// For range-vector leaves the wrapper is always
+				// identity; we still check explicitly so the
+				// fast-path gate is visible at the call site.
 				leafInfo := ctx.NativeAnalysis.InfoFor(child)
 				if leafInfo != nil && leafInfo.LeafSelector != nil && leafInfo.SourceExpr != nil &&
 					leafInfo.LeafSelector.Kind == native.SelectorKindRangeVector {
@@ -268,10 +240,9 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						}
 						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 					}
-					// Range-mode leaf catch-all (Phase-6d retirement of the
-					// Fragment-side RenderFragment at range.go:188). Lower the
-					// logical leaf directly with a RangeMode child context
-					// widened by the selector's lookback/offset.
+					// Range-mode leaf catch-all: Lower the logical leaf
+					// directly with a RangeMode child context widened by
+					// the selector's lookback/offset.
 					childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
 					childCtx := ctx
 					childCtx.Params = RenderParams{
@@ -299,12 +270,10 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 			}
 		case *logicalpkg.SubqueryPlan:
 			if child != nil && child.Child != nil {
-				// Subquery-child fast path first: the logical
-				// tryRenderSubqueryRowsSourceLogical helper inspects the
+				// Subquery-child fast path first:
+				// tryRenderSubqueryRowsSourceLogical inspects the
 				// logical subquery child directly for the fused
-				// aggregation-over-range-function shape. Task 13c-14d-1
-				// retires the Fragment-backed tryRenderSubqueryRowsSource
-				// / RangeFunctionSubquery read here.
+				// aggregation-over-range-function shape.
 				if childRowsSQL, childParams, ok, err := tryRenderSubqueryRowsSourceLogical(ctx, child); err != nil {
 					return renderedFragment{}, err
 				} else if ok {
@@ -320,10 +289,9 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 					}
 					return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childParams}, nil
 				}
-				// Subquery fallback (Phase-6d retirement of the Fragment-side
-				// RenderFragment at range.go:223). Lower the logical subquery
-				// node directly; lowerSubquery carves out the child step-grid
-				// over the outer range envelope.
+				// Subquery fallback: Lower the logical subquery node
+				// directly; lowerSubquery carves out the child
+				// step-grid over the outer range envelope.
 				childCtx := ctx
 				childCtx.Params = RenderParams{
 					Mode:                native.RenderModeRange,
@@ -360,9 +328,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 //
 // The function name matches the PromQL builtin name the logical plan was
 // synthesized from (e.g. "rate", "increase", "avg_over_time",
-// "quantile_over_time", "predict_linear"). It mirrors the fragment-side
-// RangeFunction.Func field, so downstream consumers that previously read
-// fragment.RangeFunction.Func can switch to this helper.
+// "quantile_over_time", "predict_linear").
 func rangeFunctionChildNode(n logicalpkg.Node) (logicalpkg.Node, string, bool) {
 	switch r := n.(type) {
 	case *logicalpkg.RangeFunctionPlan:
@@ -385,37 +351,25 @@ func rangeFunctionChildNode(n logicalpkg.Node) (logicalpkg.Node, string, bool) {
 }
 
 // canFuseRangeAggregationLogical reports whether a logical AggregationPlan
-// can be fused with its range-function child into a single SQL pass. It is
-// the logical-plan analog of canFuseRangeAggregationFragment and is
-// consumed by the AggregationPlan lowerer (Phase 4).
-//
-// Phase 3 (Task 13a Phase 3): the helper now walks the logical tree
-// directly — no BuildFragment call is needed. The capability check mirrors
-// the Fragment-side shape discrimination one-for-one:
+// can be fused with its range-function child into a single SQL pass.
+// Consumed by the AggregationPlan lowerer. Capability shape:
 //
 //   - range-mode only (params.Mode == RenderModeRange),
 //   - the aggregation is a SUM (agg.Op == parser.SUM),
 //   - the aggregation's child is one of the seven range-function plan
-//     kinds (equivalent to fragment.Aggregation.Source.Kind ==
-//     FragmentKindRangeFunction),
+//     kinds,
 //   - that range-function's child is either a LeafExprPlan wrapping a
-//     parser.MatrixSelector (equivalent to FragmentKindLeafSource with
-//     SelectorKindRangeVector) or a *SubqueryPlan with a non-nil Child
-//     (equivalent to FragmentKindSubquery with a child).
+//     parser.MatrixSelector or a *SubqueryPlan with a non-nil Child.
 //
-// The function name identity and shape of the range-function child match
-// what canFuseRangeAggregationFragment checks via fragment.Kind and
-// fragment.Selector.Kind. Non-matching nodes return false, falling through
-// to the non-fused aggregation rendering path.
+// Non-matching nodes return false, falling through to the non-fused
+// aggregation rendering path.
 func canFuseRangeAggregationLogical(agg *logicalpkg.AggregationPlan, params RenderParams) bool {
 	return canFuseRangeAggregationLogicalDirect(agg, params)
 }
 
-// canFuseRangeAggregationLogicalDirect is the Phase-3 direct-render
-// counterpart of canFuseRangeAggregationFragment. It is a pure logical-plan
-// shape predicate: no Fragment materialization, no analysis side-info. The
-// check is equivalent to the Fragment-side test — see the doc comment on
-// canFuseRangeAggregationLogical above for the one-for-one mapping.
+// canFuseRangeAggregationLogicalDirect is a pure logical-plan shape
+// predicate; see canFuseRangeAggregationLogical above for the shape
+// requirements.
 func canFuseRangeAggregationLogicalDirect(agg *logicalpkg.AggregationPlan, params RenderParams) bool {
 	if params.Mode != native.RenderModeRange || agg == nil || agg.Child == nil {
 		return false
@@ -441,22 +395,10 @@ func canFuseRangeAggregationLogicalDirect(agg *logicalpkg.AggregationPlan, param
 	return false
 }
 
-// tryRenderFusedRangeAggregationLogicalDirect is the Phase-6c direct-render
-// counterpart of tryRenderFusedRangeAggregationFragment. It consumes the
-// logical AggregationPlan without materializing the aggregation Fragment at
-// the lowerer boundary: the capability check is pure-logical
-// (canFuseRangeAggregationLogicalDirect) and the SQL synthesis runs entirely
-// on the logical plan through tryRenderFusedRangeAggregationLogical.
-//
-// Phase 6c (Task 13a Phase 6c): the transitional BuildFragment call that
-// previously re-materialized the AggregationPlan Fragment here and
-// delegated to tryRenderFusedRangeAggregationFragment has retired. The
-// body now just packages the (config, analyses, params) bundle into a
-// LoweringCtx and hands it to the logical-port helper.
-//
-// The public signature is stable so the existing
-// TestFusedRangeAggregationLogicalMatchesFragment byte-equality guard
-// keeps calling this function unchanged.
+// tryRenderFusedRangeAggregationLogicalDirect consumes the logical
+// AggregationPlan directly: the capability check is pure-logical
+// (canFuseRangeAggregationLogicalDirect) and the SQL synthesis runs on
+// the logical plan through tryRenderFusedRangeAggregationLogical.
 func tryRenderFusedRangeAggregationLogicalDirect(cfg storage.QueryConfig, agg *logicalpkg.AggregationPlan, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams) (renderedFragment, bool, error) {
 	ctx := LoweringCtx{
 		Config:         cfg,
@@ -467,9 +409,8 @@ func tryRenderFusedRangeAggregationLogicalDirect(cfg storage.QueryConfig, agg *l
 	return tryRenderFusedRangeAggregationLogical(ctx, agg)
 }
 
-// tryRenderSubqueryRowsSourceLogical is the logical-plan port of
-// tryRenderSubqueryRowsSource. It inspects the SubqueryPlan's logical child:
-// when that child is an AggregationPlan whose shape matches
+// tryRenderSubqueryRowsSourceLogical inspects the SubqueryPlan's logical
+// child: when that child is an AggregationPlan whose shape matches
 // canFuseRangeAggregationLogicalDirect, it renders the fused
 // range+aggregation rows via renderFusedRangeAggregationLogicalRowsSQL over
 // a child-rendering envelope carved from the subquery bounds. Non-matching
@@ -512,8 +453,7 @@ func tryRenderSubqueryRowsSourceLogical(ctx LoweringCtx, n *logicalpkg.SubqueryP
 	return trimRenderedQuerySQL(rowsSQL), rowParams, true, nil
 }
 
-// subqueryRowsOutputHasMetricNameLogical mirrors
-// subqueryRowsOutputHasMetricName. It walks the logical subquery child
+// subqueryRowsOutputHasMetricNameLogical walks the logical subquery child
 // (expected to be an AggregationPlan wrapping a range-function plan) and
 // returns whether the inner range function preserves the metric name.
 // Falls back to true (conservative) for shapes that do not match the
@@ -533,8 +473,8 @@ func subqueryRowsOutputHasMetricNameLogical(n *logicalpkg.SubqueryPlan) bool {
 	return native.RangeFunctionPreservesMetricName(fn)
 }
 
-// subqueryRowsOutputTagsExprLogical is the logical-plan counterpart of
-// subqueryRowsOutputTagsExpr.
+// subqueryRowsOutputTagsExprLogical returns the tags expression for the
+// rows emitted by a subquery child, given the outer range function name.
 func subqueryRowsOutputTagsExprLogical(n *logicalpkg.SubqueryPlan, outerFn string) string {
 	return rangeFunctionTagsExprFromInput(outerFn, subqueryRowsOutputHasMetricNameLogical(n))
 }

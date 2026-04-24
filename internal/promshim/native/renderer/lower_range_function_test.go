@@ -7,10 +7,8 @@ import (
 	"testing"
 )
 
-// rangeFunctionCases covers all seven logical plan kinds that produce
-// FragmentKindRangeFunction. Each row is tested in both instant and range
-// render modes by the differential guard. The first five canonical shapes are
-// also locked by golden files.
+// rangeFunctionCases covers all seven logical range-function plan kinds.
+// The first five canonical shapes are locked by golden files.
 var rangeFunctionCases = []struct {
 	name  string
 	query string
@@ -37,8 +35,7 @@ var rangeFunctionCases = []struct {
 
 // TestLowerRangeFunctionGolden locks in the exact SQL for the first five
 // canonical shapes (rate, increase, delta, deriv, changes) in both render
-// modes. The remaining variants are covered by the differential guard alone.
-// Run with -update to regenerate golden files.
+// modes. Run with -update to regenerate golden files.
 func TestLowerRangeFunctionGolden(t *testing.T) {
 	goldenCases := rangeFunctionCases[:5] // rate, increase, delta, deriv, changes
 	for _, tc := range goldenCases {

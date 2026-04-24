@@ -145,7 +145,7 @@ func applyUnarySourceTransform(op parser.ItemType, valueExpr string, childDropsM
 // apply*Transform helper. Each helper populates an info.ValueTransform
 // view, the DropsMetric flag, an optional RuntimeValueTransform, and
 // the resulting LabelLineage so the Analyze caller can flip those onto
-// the LoweringInfo without any NativeFragment allocation.
+// the LoweringInfo.
 type valueTransformResult struct {
 	View       ValueTransformView
 	OutputKind OutputKind

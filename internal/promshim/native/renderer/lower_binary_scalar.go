@@ -7,12 +7,9 @@ import (
 	"ch-observability/internal/promshim/native"
 )
 
-// lowerBinaryScalarInvolving lowers a BinaryPlan where at least one side
-// is DomainScalar (scalar-vector, vector-scalar, or scalar-scalar).
-//
-// Task 13c-3b: the last info.Fragment reader on this Lower path has
-// retired. All four downstream shapes now dispatch off pure-logical
-// LoweringInfo side-maps:
+// lowerBinaryScalarInvolving lowers a BinaryPlan where at least one
+// side is DomainScalar (scalar-vector, vector-scalar, or scalar-scalar).
+// All four downstream shapes dispatch off LoweringInfo side-maps:
 //
 //   - BinaryScalarSourceExpr / folded LeafSource: served via
 //     info.SourceExpr through renderSourceExprView (anchored-range
@@ -23,9 +20,6 @@ import (
 //     synthetic-scalar/vector arms wrapping the vector side): served
 //     via info.ValueTransform — recurse Lower through the vector-side
 //     child and wrap with renderValueTransformFromSource.
-//
-// The public signature is unchanged so the lower.go dispatch keeps
-// consuming it without any change.
 func lowerBinaryScalarInvolving(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerBinaryScalarInvolving called with nil")
@@ -36,36 +30,14 @@ func lowerBinaryScalarInvolving(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (Rend
 	return lowerBinaryScalarInvolvingDirect(ctx, n)
 }
 
-// lowerBinaryScalarInvolvingDirect is the pure-logical render path for
-// a scalar-involving BinaryPlan. It inspects the scalar/vector domain
+// lowerBinaryScalarInvolvingDirect inspects the scalar/vector domain
 // of the two sides via the logical Analysis side-map (LHS/RHS
-// TimeDomain) and dispatches directly off the view fields populated on
-// LoweringInfo by Analyze's BinaryPlan walk (analysis.go:112+).
-//
-// The scalar-involving BinaryPlan shape lowers via four downstream
-// shapes depending on the child shape and op:
-//
-//   - BinaryScalarSourceExpr: scalar-vector / vector-scalar arithmetic
-//     over a pushdownable selector child. Served via info.SourceExpr
-//     through renderSourceExprView, with the anchored-range gate that
-//     lowerPointwiseFunction uses for the same shape.
-//   - SyntheticSeries: folded scalar-scalar pair (e.g. `1 + 2`). Served
-//     via info.SyntheticSeries through renderScalarLiteralFragment.
-//   - ValueTransform: comparison filters/bool, scalar-expression arms,
-//     synthetic-scalar (pi()/time()) arms that wrap the vector side in
-//     a value-transform outer SELECT. Served via info.ValueTransform —
-//     Lower recurses through the side identified by VectorChildOnLeft
-//     and the shared renderValueTransformFromSource wraps the child
-//     SQL.
-//   - LeafSource (folded): the rare folded-literal shortcut where the
-//     entire expression collapses to a plain selector leaf. Also served
-//     via info.SourceExpr.
-//
-// Hierarchical fallback: if none of the view fields are populated
-// (e.g. `foo / scalar(sum(bar))` — scalar() children outside of
-// ScalarLiteralPlan are not yet lowerable to a native fragment), we
-// return errUnsupportedLowerNode so Lower falls back to the Fragment
-// rendering path wholesale.
+// TimeDomain) and dispatches directly off the view fields on
+// LoweringInfo populated by Analyze's BinaryPlan walk. If none of the
+// view fields are populated (e.g. `foo / scalar(sum(bar))` — scalar()
+// children outside of ScalarLiteralPlan are not lowerable here), we
+// return errUnsupportedLowerNode so Lower falls back to the next
+// execution tier.
 func lowerBinaryScalarInvolvingDirect(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQuery, error) {
 	lhsInfo := ctx.Analysis.InfoFor(n.LHS)
 	rhsInfo := ctx.Analysis.InfoFor(n.RHS)
@@ -81,26 +53,22 @@ func lowerBinaryScalarInvolvingDirect(ctx LoweringCtx, n *logicalpkg.BinaryPlan)
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerBinaryScalarInvolvingDirect: neither side is scalar")
 	}
 
-	// Scalar-involving BinaryPlan lowers to one of four downstream shapes
-	// (see analysis.go:124+):
+	// Scalar-involving BinaryPlan lowers to one of four downstream
+	// shapes:
 	//
-	//   - BinaryScalarSourceExpr: scalar-vector / vector-scalar arithmetic
-	//     over a pushdownable selector child. Served via info.SourceExpr
-	//     through renderSourceExprView (source-expression semantics
-	//     identical to UnarySourceExpr).
+	//   - BinaryScalarSourceExpr: scalar-vector / vector-scalar
+	//     arithmetic over a pushdownable selector child. Served via
+	//     info.SourceExpr through renderSourceExprView.
 	//   - SyntheticSeries: folded scalar-scalar pair. Served via
 	//     info.SyntheticSeries through renderScalarLiteralFragment.
-	//   - ValueTransform: comparison filters/bool, scalar-expression arms,
-	//     synthetic-scalar/vector arms that wrap the vector side in a
-	//     value-transform outer SELECT. Served via info.ValueTransform —
-	//     Lower recurses through the vector-side child, and the wrap is
-	//     applied via renderValueTransformFromSource.
-	//   - LeafSource (folded): the rare folded-literal shortcut where the
-	//     entire expression collapses to a plain selector leaf. Served
-	//     via info.SourceExpr.
-	//
-	// All four cases are served pure-logical — no info.Fragment reads
-	// remain on this path.
+	//   - ValueTransform: comparison filters/bool, scalar-expression
+	//     arms, synthetic-scalar/vector arms that wrap the vector side
+	//     in a value-transform outer SELECT. Served via
+	//     info.ValueTransform — Lower recurses through the vector-side
+	//     child and renderValueTransformFromSource applies the wrap.
+	//   - LeafSource (folded): the rare folded-literal shortcut where
+	//     the entire expression collapses to a plain selector leaf.
+	//     Served via info.SourceExpr.
 	if ctx.NativeAnalysis == nil {
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}
@@ -109,8 +77,7 @@ func lowerBinaryScalarInvolvingDirect(ctx LoweringCtx, n *logicalpkg.BinaryPlan)
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}
 	// BinaryScalarSourceExpr / LeafSource (folded): render off SourceExprView
-	// with the same anchored-range gate lowerPointwiseFunction uses, keeping
-	// these cases off the Fragment path entirely.
+	// with the same anchored-range gate lowerPointwiseFunction uses.
 	if info.SourceExpr != nil {
 		var rf renderedFragment
 		var err error
@@ -136,10 +103,8 @@ func lowerBinaryScalarInvolvingDirect(ctx LoweringCtx, n *logicalpkg.BinaryPlan)
 	}
 	// SyntheticSeries (folded scalar-scalar): both BinaryPlan sides folded to
 	// numeric literals (e.g. `1 + 2`, `pi() + pi()` via syntheticLiteralValue).
-	// The analysis-time shape that used to drop into renderSyntheticFragment's
-	// literal branch is now captured as a SyntheticSeriesView, and we render
-	// it directly via renderScalarLiteralFragment — the same byte-identical
-	// helper renderSyntheticFragment delegates to for "literal" synthetics.
+	// The analysis-time shape is captured as a SyntheticSeriesView and
+	// rendered directly via renderScalarLiteralFragment.
 	if info.SyntheticSeries != nil {
 		rf, err := renderScalarLiteralFragment(info.SyntheticSeries.Value, ctx.Params)
 		if err != nil {
@@ -153,9 +118,7 @@ func lowerBinaryScalarInvolvingDirect(ctx LoweringCtx, n *logicalpkg.BinaryPlan)
 	// ValueExpr / FilterExpr / DropsMetric plus a VectorChildOnLeft flag
 	// that identifies which BinaryPlan side carries the non-scalar child.
 	// Recurse Lower through that side to produce the child SQL, then
-	// wrap via the shared renderValueTransformFromSource helper — the
-	// same byte-identical helper renderValueTransformFragment delegates
-	// to.
+	// wrap via the shared renderValueTransformFromSource helper.
 	if info.ValueTransform != nil {
 		childNode := n.RHS
 		if info.ValueTransform.VectorChildOnLeft {

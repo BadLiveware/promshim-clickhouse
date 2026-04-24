@@ -10,21 +10,11 @@ import (
 	"ch-observability/internal/promshim/storage"
 )
 
-// renderHistogramProjectionLogical renders a HistogramProjectionPlan
-// without constructing a top-level NativeFragment at the lowerer
-// boundary. Tag-narrowing for a grouping-aggregation child is threaded
-// through RenderParams using decideHistogramChildNarrowing.
-//
-// Phase 6a (Task 13a Phase 6a): the downstream helper
-// renderClassicHistogramGroupsQueryLogical now consumes a logical.Node
-// via renderer.Lower instead of a materialized child Fragment. The
-// caller threads both the logical and native Analysis side-maps so Lower
-// can dispatch and BuildFragment can still be used for the narrow set of
-// shapes that require it (histogram_quantiles scalar bindings, subtree
-// aggregation rendering that still reads the native analysis cache).
-// Narrowing is applied in-place on the native analysis Fragment cache so
-// the cloned Fragment any downstream BuildFragment produces is already
-// narrowed.
+// renderHistogramProjectionLogical renders a HistogramProjectionPlan.
+// Tag-narrowing for a grouping-aggregation child is threaded through
+// RenderParams using decideHistogramChildNarrowing; non-aggregation
+// children leave params untouched so the underlying SelectorSource
+// keeps governing.
 func renderHistogramProjectionLogical(cfg storage.QueryConfig, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, n *logicalpkg.HistogramProjectionPlan, params RenderParams) (renderedFragment, error) {
 	if n == nil || n.Child == nil {
 		return renderedFragment{}, fmt.Errorf("renderer: histogram projection requires a child")
@@ -52,24 +42,11 @@ func renderHistogramProjectionLogical(cfg storage.QueryConfig, logicalAnalysis *
 }
 
 // renderHistogramFunctionLogical renders a histogram-function plan node
-// (HistogramQuantilePlan, HistogramFractionPlan, or HistogramQuantilesPlan)
-// without constructing a top-level NativeFragment at the lowerer boundary.
+// (HistogramQuantilePlan, HistogramFractionPlan, or HistogramQuantilesPlan).
 // Tag-narrowing for a grouping-aggregation child is threaded through
 // RenderParams using histogramFunctionChildAggregation +
 // decideHistogramChildNarrowing, mirroring the projection approach in
 // renderHistogramProjectionLogical.
-//
-// Phase 2 (Task 13a Phase 2): the top-level BuildFragment call has been
-// moved out of this function. The child histograms are now rendered via
-// renderClassicHistogramGroupsQueryLogical (the Phase-1 helper) which
-// consumes a logical.Node + analysis directly. Per-function scalar
-// parameters (quantile, lower/upper bounds, quantiles list) are read
-// from the logical plan. The histogram_quantiles variant still needs a
-// materialized HistogramFunctionFragment to feed
-// renderHistogramQuantilesFragment (which iterates the scalar-binding
-// Quantiles children); that single internal BuildFragment call is the
-// only Fragment materialization remaining at this tier. It retires in
-// Phase 6 together with renderHistogramQuantilesFragment.
 func renderHistogramFunctionLogical(cfg storage.QueryConfig, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, n logicalpkg.Node, params RenderParams) (renderedFragment, error) {
 	if n == nil {
 		return renderedFragment{}, fmt.Errorf("renderer: histogram function requires a node")
@@ -77,20 +54,13 @@ func renderHistogramFunctionLogical(cfg storage.QueryConfig, logicalAnalysis *lo
 	return renderHistogramFunctionLogicalDirect(cfg, n, logicalAnalysis, analysis, params)
 }
 
-// renderHistogramFunctionLogicalDirect is the Phase-2 direct-render
-// counterpart of renderHistogramFunctionFragment. It reads the child and
-// per-function scalars from the logical plan, delegates the child
-// histogram materialization to renderClassicHistogramGroupsQueryLogical,
-// and dispatches on the histogram-function kind.
-//
-// Phase 6b (Task 13a Phase 6b): the last scoped native.BuildFragment call
-// inside the histogram_quantiles branch is now gone. The per-quantile
-// scalar bindings are iterated off the logical HistogramQuantilesPlan
-// (n.ParamChildren) and lowered through renderHistogramQuantilesLogical,
-// which calls renderInstantScalarBindingFromLogical /
-// renderRangeScalarBindingFromLogical. All three histogram-function
-// shapes now render off the logical plan with no Fragment materialization
-// at this tier.
+// renderHistogramFunctionLogicalDirect reads the child and per-function
+// scalars from the logical plan, delegates the child histogram
+// materialization to renderClassicHistogramGroupsQueryLogical, and
+// dispatches on the histogram-function kind. The histogram_quantiles
+// branch iterates per-quantile scalar bindings off
+// HistogramQuantilesPlan.ParamChildren and lowers them through
+// renderHistogramQuantilesLogical.
 func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams) (renderedFragment, error) {
 	childNode, funcName, ok := histogramFunctionChildNode(node)
 	if !ok || childNode == nil {
@@ -128,13 +98,6 @@ func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalp
 		}
 		return renderedFragment{RawSQL: trimRenderedQuerySQL(finalSQL), ExtraParams: prepared.QueryParams}, nil
 	case "histogram_quantiles":
-		// Phase 6b (Task 13a Phase 6b): the per-quantile scalar bindings
-		// are now iterated off the logical HistogramQuantilesPlan
-		// (n.ParamChildren) and lowered via renderInstantScalarBinding /
-		// renderRangeScalarBindingFromLogical inside
-		// renderHistogramQuantilesLogical, so no NativeFragment is
-		// materialized at this boundary. SQL stays byte-identical to
-		// the Fragment path (guarded by TestHistogramFunctionLogicalMatchesFragment).
 		q, qok := node.(*logicalpkg.HistogramQuantilesPlan)
 		if !qok {
 			return renderedFragment{}, errUnsupportedLowerNode
@@ -227,16 +190,13 @@ func histogramChildUsesOnlyLETagsLogical(childNode logicalpkg.Node) bool {
 
 // renderClassicHistogramGroupsQueryLogical normalizes classic histogram
 // bucket vectors into one grouped row per histogram identity and timestamp.
-// It is the logical-plan entry point that mirrors
-// renderClassicHistogramGroupsQuery; it reads the child via a
-// logical.Node + analysis rather than a pre-built NativeFragment.
+// It reads the child via a logical.Node + analysis.
 //
 // Tag-narrowing for a grouping aggregation child flows through
 // RenderParams (set by decideHistogramChildNarrowing on the caller
 // side), which the downstream SQL builders honor via
 // applyRenderParamsNarrowing in renderLeafLogical / renderSourceExprView /
-// renderAggregationSourceView. The classic-histogram helper itself no
-// longer touches selector state.
+// renderAggregationSourceView.
 func renderClassicHistogramGroupsQueryLogical(cfg storage.QueryConfig, childNode logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams, prefix string) (renderedFragment, error) {
 	if childNode == nil {
 		return renderedFragment{}, fmt.Errorf("classic histogram materialization requires a child")

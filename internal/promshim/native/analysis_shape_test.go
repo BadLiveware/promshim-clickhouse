@@ -144,8 +144,7 @@ func TestAnalyzeShapeLiftsStartEndAnchor(t *testing.T) {
 
 // TestAnalyzeShapePropagatesFixedAnchorThroughAggregation verifies that
 // a fixed temporal anchor on a leaf selector is visible on an
-// aggregation ancestor's Shape — matching the fragment-side
-// HasFixedTemporalAnchor recursion.
+// aggregation ancestor's Shape.
 func TestAnalyzeShapePropagatesFixedAnchorThroughAggregation(t *testing.T) {
 	expr := mustParseExpr(t, `sum(up @ 1000)`)
 	agg := expr.(*parser.AggregateExpr)

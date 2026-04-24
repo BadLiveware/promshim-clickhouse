@@ -34,7 +34,7 @@ type reportRow struct {
 	PlanReason           string   `json:"planReason,omitempty"`
 	NativeLowerable      bool     `json:"nativeLowerable"`
 	NativeReason         string   `json:"nativeReason,omitempty"`
-	FragmentKind         string   `json:"fragmentKind,omitempty"`
+	SubtreeShape         string   `json:"subtreeShape,omitempty"`
 	AggregationEligible  bool     `json:"aggregationEligible,omitempty"`
 	OutputKind           string   `json:"outputKind,omitempty"`
 	Notes                []string `json:"notes,omitempty"`
@@ -142,7 +142,7 @@ func buildReport(source string, maxExamples int) (complianceReport, error) {
 			PlanReason:          snapshot.PlanReason,
 			NativeLowerable:     snapshot.NativeLowerable,
 			NativeReason:        snapshot.NativeReason,
-			FragmentKind:        snapshot.FragmentKind,
+			SubtreeShape:        snapshot.SubtreeShape,
 			AggregationEligible: snapshot.AggregationEligible,
 			OutputKind:          snapshot.OutputKind,
 		}

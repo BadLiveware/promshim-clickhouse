@@ -27,8 +27,7 @@ import (
 //
 // Hierarchical fallback: if either child is missing logical analysis or the
 // operator/matching shape isn't natively supported, we return
-// errUnsupportedLowerNode so the caller falls back to the Fragment rendering
-// path for the whole query.
+// errUnsupportedLowerNode so the caller falls back to the next execution tier.
 func lowerBinaryVectorJoin(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerBinaryVectorJoin called with nil")
@@ -87,10 +86,10 @@ func lowerBinaryVectorJoin(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQ
 	}
 }
 
-// lowerBinaryVectorJoinSide lowers one side of a vector-vector binary join
-// and namespaces the result under the given alias ("lhs" or "rhs") so the
-// rendered SQL is embeddable as a FROM source inside the join body. Matches
-// what renderFragmentSubquery does on the Fragment path.
+// lowerBinaryVectorJoinSide lowers one side of a vector-vector binary
+// join and namespaces the result under the given alias ("lhs" or "rhs")
+// so the rendered SQL is embeddable as a FROM source inside the join
+// body.
 func lowerBinaryVectorJoinSide(ctx LoweringCtx, child logicalpkg.Node, prefix string) (string, map[string]string, error) {
 	rendered, err := Lower(ctx, child)
 	if err != nil {

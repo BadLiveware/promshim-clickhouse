@@ -20,11 +20,9 @@ const (
 )
 
 // Schema records the labels that must (Guaranteed) or may (Possible)
-// appear on a node's output series. Two-valued schema tracking is the
-// Phase 1-3 enrichment contract; see the design spec for the
-// motivation — instant aliasing, join safety, and correct groupby
-// lowering all depend on knowing which labels are certain vs
-// speculative.
+// appear on a node's output series. Two-valued tracking is required for
+// instant aliasing, join safety, and correct groupby lowering — each
+// depends on knowing which labels are certain vs speculative.
 //
 // Invariant: Guaranteed ⊆ Possible. AddGuaranteed maintains it by
 // writing to both maps; AddPossible writes to Possible only.
@@ -65,9 +63,8 @@ type GroupingKey struct {
 // LabelLineageState enumerates what happened to a label between a
 // node's input and its output.
 //
-// Values use the names specified in the Phase 1-3 plan; the native
-// package uses a separate LabelLineageState enum with different
-// values, and the two are not interchangeable.
+// The native package uses a separate LabelLineageState enum with
+// different values, and the two are not interchangeable.
 type LabelLineageState int
 
 const (

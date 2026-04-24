@@ -10,18 +10,10 @@ import (
 )
 
 // lowerScalarBuiltin lowers a ScalarBuiltinPlan (time(), pi()) to a
-// RenderedQuery directly, without constructing an intermediate
-// NativeFragment. ScalarBuiltinPlan carries no children, so this
-// surface is complete: there is no sub-tree that could require falling
-// back to the Fragment path.
-//
-// Byte-identity with the Fragment path (FragmentKindSyntheticSeries /
-// OutputKindScalar for the same funcName) is locked by calling the
-// shared syntheticSeriesValueSQL helper to produce the per-sample value
-// expression. renderSyntheticFragment remains the source of SQL for
-// Fragment-path consumers (vector(time()) wrap, constant-fold landing
-// spots, tier-3 subtrees) and can retire only when every surface has
-// migrated off NativeFragment.
+// RenderedQuery. ScalarBuiltinPlan carries no children, so this surface
+// is complete: there is no sub-tree that could require falling back to
+// another execution tier. The per-sample value expression is produced
+// by the shared syntheticSeriesValueSQL helper.
 func lowerScalarBuiltin(ctx LoweringCtx, n *logicalpkg.ScalarBuiltinPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerScalarBuiltin called with nil")
@@ -34,12 +26,9 @@ func lowerScalarBuiltin(ctx LoweringCtx, n *logicalpkg.ScalarBuiltinPlan) (Rende
 }
 
 // renderScalarBuiltinLogical renders a scalar-builtin synthetic series
-// (time(), pi()) directly without constructing an intermediate
-// NativeFragment. It produces byte-identical SQL to what
-// renderSyntheticFragment produces for FragmentKindSyntheticSeries /
-// OutputKindScalar with the same funcName — both paths dispatch the
-// per-sample value through syntheticSeriesValueSQL, which stays the
-// canonical SQL source.
+// (time(), pi()) directly. The per-sample value is dispatched through
+// syntheticSeriesValueSQL, which is the canonical SQL source for these
+// builtins.
 func renderScalarBuiltinLogical(funcName string, params RenderParams) (renderedFragment, error) {
 	if !isSupportedNativeScalarBuiltinFuncName(funcName) {
 		return renderedFragment{}, fmt.Errorf("renderer: %q is not a supported synthetic scalar builtin", funcName)

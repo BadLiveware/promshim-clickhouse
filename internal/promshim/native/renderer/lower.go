@@ -10,11 +10,10 @@ import (
 )
 
 // errUnsupportedLowerNode is returned by Lower when the node kind is
-// not yet handled by the new lowering dispatcher. Callers inspect this
-// with IsUnsupportedByLower and fall back to the existing Fragment
-// rendering path for the whole query — Lower and Fragment are never
-// mixed within a single query.
-var errUnsupportedLowerNode = errors.New("renderer: node kind not yet supported by Lower — fall back to Fragment path")
+// not handled by the lowering dispatcher. Callers inspect this with
+// IsUnsupportedByLower and fall back hierarchically to the next
+// execution tier.
+var errUnsupportedLowerNode = errors.New("renderer: node kind not supported by Lower")
 
 // LoweringCtx bundles the per-query inputs Lower needs. It is
 // immutable for the duration of a Lower call; per-kind lowerers treat
@@ -29,11 +28,7 @@ type LoweringCtx struct {
 // Lower translates a logical.Node into a RenderedQuery via a
 // type-switch dispatch. Unsupported kinds return
 // errUnsupportedLowerNode so callers can fall back hierarchically to
-// Fragment dispatch for the whole query.
-//
-// Phase 1 scope: LeafExprPlan, ScalarLiteralPlan, and scalar-trivial
-// BinaryPlan. Everything else (including vector-vector BinaryPlan)
-// returns the sentinel.
+// the next execution tier.
 func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 	if node == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: Lower called with nil node")
@@ -104,25 +99,22 @@ func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 }
 
 // IsUnsupportedByLower reports whether err is the Lower fallback
-// sentinel — i.e. the caller should dispatch through the Fragment
-// rendering path instead.
+// sentinel — i.e. the caller should fall back to the next execution
+// tier.
 func IsUnsupportedByLower(err error) bool { return errors.Is(err, errUnsupportedLowerNode) }
 
 // lowerLeaf handles a top-level LeafExprPlan by rendering SQL directly
-// from the logical plan, without constructing an intermediate NativeFragment.
-// renderLeafLogical replicates the non-folded LeafSource branch of
-// renderSourceFragment, reusing buildSelectorSource and the
-// storage.Build*QuerySQL helpers to lock byte-identity with the Fragment path.
+// from the logical plan via renderLeafLogical, which uses
+// buildSelectorSource and the storage.Build*QuerySQL helpers.
 func lowerLeaf(ctx LoweringCtx, n *logicalpkg.LeafExprPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerLeaf called with nil")
 	}
-	// Prefer the cached leaf selector from NativeAnalysis when available.
-	// After 13c-14e the cached SelectorSource is immutable across the
-	// render pass (no more narrowHistogramChildAnalysisInPlace) — the
-	// pointer is reused purely to avoid re-running BuildSelectorSource.
-	// Tag-narrowing is carried on RenderParams and merged onto the
-	// storage selector inside renderLeafLogical via
+	// Prefer the cached leaf selector from NativeAnalysis when
+	// available: the cached SelectorSource is immutable across the
+	// render pass, so reusing the pointer avoids re-running
+	// BuildSelectorSource. Tag-narrowing is carried on RenderParams and
+	// merged onto the storage selector inside renderLeafLogical via
 	// applyRenderParamsNarrowing.
 	var cachedSelector *native.SelectorSource
 	if ctx.NativeAnalysis != nil {
@@ -138,11 +130,12 @@ func lowerLeaf(ctx LoweringCtx, n *logicalpkg.LeafExprPlan) (RenderedQuery, erro
 }
 
 // lowerBinary handles BinaryPlan in two branches:
-//   - Scalar-involving (at least one side is DomainScalar): delegates to the
-//     existing BuildFragment + RenderFragment pipeline, unchanged from Phase 1.
+//   - Scalar-involving (at least one side is DomainScalar): delegates
+//     to lowerBinaryScalarInvolving.
 //   - Vector-vector (both sides are non-scalar): delegates to
-//     lowerBinaryVectorJoin, which direct-renders each side via Lower and
-//     assembles the join via storage.Build{Instant,Range}BinaryVectorJoinSQL.
+//     lowerBinaryVectorJoin, which direct-renders each side via Lower
+//     and assembles the join via
+//     storage.Build{Instant,Range}BinaryVectorJoinSQL.
 func lowerBinary(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerBinary called with nil")

@@ -6,26 +6,14 @@ import (
 	logicalpkg "ch-observability/internal/promshim/logical"
 )
 
-// lowerAggregation lowers any *logicalpkg.AggregationPlan (the single logical
-// node kind that produces FragmentKindAggregation) to a RenderedQuery by
-// delegating to renderAggregationLogical in aggregation_logical.go.
-//
-// Phase 6e (Task 13a Phase 6e): renderAggregationLogical no longer
-// materializes the aggregation Fragment at the lowerer boundary. The
-// fused range+aggregation branch routes through
-// tryRenderFusedRangeAggregationLogicalDirect and the non-fused branch
-// routes through renderAggregationLogicalBody — both consume the
-// AggregationPlan directly.
-//
-// Hierarchical fallback: if renderAggregationLogical returns
-// errUnsupportedLowerNode the caller falls back to the Fragment rendering
-// path wholesale.
+// lowerAggregation lowers any *logicalpkg.AggregationPlan to a
+// RenderedQuery by delegating to renderAggregationLogical in
+// aggregation_logical.go. The fused range+aggregation branch routes
+// through tryRenderFusedRangeAggregationLogicalDirect and the
+// non-fused branch through renderAggregationLogicalBody.
 //
 // Covered ops: sum, avg, count, min, max, stddev, stdvar, topk, bottomk,
-// quantile, group, count_values, with or without label groupings. The
-// aggregation-range-fused path is handled transparently inside
-// renderAggregationLogicalDirect via
-// tryRenderFusedRangeAggregationLogicalDirect.
+// quantile, group, count_values, with or without label groupings.
 func lowerAggregation(ctx LoweringCtx, n *logicalpkg.AggregationPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerAggregation called with nil")

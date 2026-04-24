@@ -10,18 +10,13 @@ import (
 // RenderedQuery by direct-rendering from the logical plan via
 // renderHistogramProjectionLogical.
 //
-// Phase A1 (Task 8) removed the top-level Fragment construction from
-// this lowerer. Tag-narrowing for a grouping-aggregation child is
-// threaded through RenderParams inside renderHistogramProjectionLogical.
-// The renderer still builds the child Fragment on demand transitionally
-// so the legacy renderClassicHistogramGroupsQuery helper can emit
-// byte-identical SQL; that materialization retires with the helper in
-// Phase C (Task 13).
+// Tag-narrowing for a grouping-aggregation child is threaded through
+// RenderParams inside renderHistogramProjectionLogical.
 //
 // Hierarchical fallback: if the child cannot be materialized (e.g. an
 // unsupported subtree), renderHistogramProjectionLogical returns
-// errUnsupportedLowerNode so the caller falls back to the Fragment
-// rendering path wholesale.
+// errUnsupportedLowerNode so the caller falls back to the next
+// execution tier.
 //
 // Supported functions: histogram_count, histogram_sum, histogram_avg,
 // histogram_stddev, histogram_stdvar.

@@ -10,8 +10,9 @@ import (
 
 // lowerAbsent dispatches to either the AbsentPlan or AbsentOverTimePlan
 // direct lowerer. Both fully lower from the logical tree without reading
-// ctx.NativeAnalysis — Lower on the child may return errUnsupportedLowerNode,
-// which bubbles up so the whole query falls back to Fragment.
+// ctx.NativeAnalysis — Lower on the child may return
+// errUnsupportedLowerNode, which bubbles up so the whole query falls
+// back to the next execution tier.
 func lowerAbsent(ctx LoweringCtx, n logicalpkg.Node) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerAbsent called with nil")
@@ -29,11 +30,9 @@ func lowerAbsent(ctx LoweringCtx, n logicalpkg.Node) (RenderedQuery, error) {
 	}
 }
 
-// lowerAbsentPlanDirect renders AbsentPlan without constructing an
-// intermediate NativeFragment. It lowers the child via Lower (bubbling the
+// lowerAbsentPlanDirect lowers the child via Lower (bubbling the
 // fallback sentinel), namespaces the result under "absent_child", and
-// delegates to renderAbsentFromNamespacedChild so SQL stays byte-identical
-// to the Fragment path.
+// delegates to renderAbsentFromNamespacedChild.
 func lowerAbsentPlanDirect(ctx LoweringCtx, n *logicalpkg.AbsentPlan) (RenderedQuery, error) {
 	if n.Child == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: absent missing child")
@@ -54,10 +53,10 @@ func lowerAbsentPlanDirect(ctx LoweringCtx, n *logicalpkg.AbsentPlan) (RenderedQ
 	return finalizeRenderedFragment(rf)
 }
 
-// lowerAbsentOverTimePlanDirect renders AbsentOverTimePlan directly. In
-// instant mode the child is lowered with current params and wrapped in a
-// zero-sample probe (matching the Fragment-side instant branch). In range
-// mode, rendering goes through renderAbsentOverTimeWindowedSourceLogical,
+// lowerAbsentOverTimePlanDirect renders AbsentOverTimePlan. In instant
+// mode the child is lowered with current params and wrapped in a
+// zero-sample probe. In range mode, rendering goes through
+// renderAbsentOverTimeWindowedSourceLogical,
 // which dispatches on the child's logical kind: LeafExprPlan with a range
 // selector emits a windowed-arrays source over the raw selector samples;
 // SubqueryPlan emits a windowed-arrays source over the subquery's rendered

@@ -9,8 +9,7 @@ import (
 
 // subqueryCases covers subquery inputs that all lower natively: a bare leaf
 // selector subquery, a subquery with label matchers, and a subquery over a
-// scalar-transformed child. The differential guard runs each query through
-// both Lower and the Fragment path and fails on any SQL diff.
+// scalar-transformed child.
 var subqueryCases = []struct {
 	name  string
 	query string
@@ -21,10 +20,9 @@ var subqueryCases = []struct {
 	{name: "no_step", query: `up[5m:]`},
 }
 
-// TestLowerSubqueryGolden locks in the exact SQL for a subset of the
-// differential cases. Run with -update to regenerate. We lock the bare and
-// labelled cases in both render modes; the other variants are covered by
-// the differential guard alone.
+// TestLowerSubqueryGolden locks in the exact SQL for a subset of
+// subqueryCases. Run with -update to regenerate. We lock the bare and
+// labelled cases in both render modes.
 func TestLowerSubqueryGolden(t *testing.T) {
 	goldenCases := subqueryCases[:2] // bare + labelled
 	for _, tc := range goldenCases {

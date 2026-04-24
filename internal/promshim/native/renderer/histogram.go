@@ -365,9 +365,7 @@ func buildHistogramIdentityTagAggregationRowsSQL(sourceSQL string, params map[st
 
 // tryRenderHistogramChildRowsSQLLogical is the logical-plan entry to the
 // histogram child-rows fast path. The capability check is keyed on the
-// logical plan shape alone — no NativeFragment is required at the
-// boundary. The structural detection covers exactly the same shapes as
-// the Fragment-side check used to:
+// logical plan shape alone. Supported shapes:
 //
 //   - Range mode: the child is a SUM grouping aggregation whose source is a
 //     range function over a leaf range-vector selector or a supported
@@ -377,16 +375,9 @@ func buildHistogramIdentityTagAggregationRowsSQL(sourceSQL string, params map[st
 //     lowerable instant-vector child.
 //
 // For non-matching shapes the helper returns ok=false so the caller
-// falls through to the full renderLogicalSubquery path.
-//
-// Task 13c-14d-1: the scoped native.BuildFragment / CloneFragment hop
-// and the downstream *NativeFragment-taking helper have been retired.
-// The range-mode branches now recurse through
-// renderRangeFunctionRowsLogicalSQL / renderFusedRangeAggregationLogicalRowsSQL
-// directly off the AggregationPlan, and the instant-mode branch reads
-// Op / Grouping / Without / ParamNumber / ParamString straight off the
-// logical plan. The "only-le-tags" shape check is performed on the
-// logical tree via histogramChildUsesOnlyLETagsLogical.
+// falls through to the full renderLogicalSubquery path. The
+// "only-le-tags" shape check is performed on the logical tree via
+// histogramChildUsesOnlyLETagsLogical.
 func tryRenderHistogramChildRowsSQLLogical(cfg storage.QueryConfig, childNode logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams, prefix string) (string, map[string]string, bool, error) {
 	if childNode == nil {
 		return "", nil, false, nil

@@ -138,13 +138,10 @@ func alignSubqueryStepStart(windowStartMS, stepMS int64) int64 {
 	return aligned
 }
 
-// logicalRangeRequiredBoundsForChild mirrors rangeRequiredBoundsForChild but
-// walks the logical plan tree directly rather than reading the NativeFragment
-// side-map. The walker descends through the same plan shapes that
-// native.BaseSelectorSource unwinds on the fragment side, returning the
-// range envelope widened by the base range-vector selector's lookback/offset.
-// Plan shapes without a discoverable base range-vector selector leave the
-// (startMS, endMS) envelope unchanged, matching the fragment-side nil branch.
+// logicalRangeRequiredBoundsForChild walks the logical plan tree
+// returning the range envelope widened by the base range-vector
+// selector's lookback/offset. Plan shapes without a discoverable base
+// range-vector selector leave the (startMS, endMS) envelope unchanged.
 func logicalRangeRequiredBoundsForChild(child logicalpkg.Node, startMS, endMS int64) (int64, int64) {
 	lookbackMS, offsetMS, ok := logicalBaseSelectorBounds(child)
 	if !ok {
@@ -457,17 +454,15 @@ func resolvedVectorSelectorAnchorTimeMS(sel *parser.VectorSelector, ctx native.O
 	return 0, false
 }
 
-// logicalRequiredInputBounds mirrors native.RequiredInputBounds on the logical
-// plan tree. It derives lookback/offset via logicalBaseSelectorBounds and
-// anchor resolution via logicalResolvedAnchorTimeMS, producing the same
-// [startMS, endMS] envelope the fragment-side helper yields. Returns ok=false
-// when the subtree has no discoverable selector leaf (matching the
-// fragment-side nil branch that causes the caller to fall back on the outer
-// envelope).
+// logicalRequiredInputBounds derives the [startMS, endMS] envelope for a
+// logical subtree: lookback/offset via logicalBaseSelectorBounds and anchor
+// resolution via logicalResolvedAnchorTimeMS. Returns ok=false when the
+// subtree has no discoverable selector leaf, so the caller falls back on the
+// outer envelope.
 // LogicalRequiredInputBounds is the exported wrapper around
 // logicalRequiredInputBounds. External callers (e.g. local/native_subtree)
 // use it to derive the required [startMS, endMS] envelope from a logical
-// plan tree without touching NativeFragment.
+// plan tree.
 func LogicalRequiredInputBounds(n logicalpkg.Node, ctx native.OptimizationContext) (int64, int64, bool) {
 	return logicalRequiredInputBounds(n, ctx)
 }

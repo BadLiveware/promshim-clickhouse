@@ -22,8 +22,7 @@ var histogramProjectionCases = []struct {
 }
 
 // TestLowerHistogramProjectionGolden locks in the exact SQL for all five
-// functions in instant mode. Range mode is covered by the differential guard
-// alone. Run with -update to regenerate golden files.
+// functions in instant mode. Run with -update to regenerate golden files.
 func TestLowerHistogramProjectionGolden(t *testing.T) {
 	for _, tc := range histogramProjectionCases {
 		for _, mode := range []struct {

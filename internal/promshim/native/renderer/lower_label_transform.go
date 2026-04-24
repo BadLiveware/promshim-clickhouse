@@ -10,12 +10,11 @@ import (
 // vector is lowered via Lower(ctx, child); the mutated tags expression is
 // derived from the logical node's Config fields via
 // buildLabelTransformTagsExprFromLogical; and the outer SELECT wrapping is
-// shared with the Fragment path via renderLabelTransformFromSource, which
-// locks byte-identity between the two paths structurally.
+// emitted by renderLabelTransformFromSource.
 //
 // Hierarchical fallback: if the child kind isn't yet direct-renderable,
 // Lower returns errUnsupportedLowerNode and we propagate it so the caller
-// falls back to the Fragment rendering path wholesale.
+// falls back to the next execution tier.
 //
 // Both logical node kinds (LabelReplacePlan and LabelJoinPlan) flow through
 // here and are disambiguated by buildLabelTransformTagsExprFromLogical /

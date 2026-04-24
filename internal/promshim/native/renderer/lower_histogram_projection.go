@@ -32,7 +32,7 @@ func lowerHistogramProjection(ctx LoweringCtx, n *logicalpkg.HistogramProjection
 	if ctx.Analysis == nil || ctx.Analysis.InfoFor(n) == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: histogram projection missing logical analysis")
 	}
-	rendered, err := renderHistogramProjectionLogical(ctx.Config, ctx.NativeAnalysis, n, ctx.Params)
+	rendered, err := renderHistogramProjectionLogical(ctx.Config, ctx.Analysis, ctx.NativeAnalysis, n, ctx.Params)
 	if err != nil {
 		return RenderedQuery{}, err
 	}

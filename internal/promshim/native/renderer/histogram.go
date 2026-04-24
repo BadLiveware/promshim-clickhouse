@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/emit"
+	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
@@ -593,6 +594,58 @@ func buildHistogramIdentityTagAggregationRowsSQL(sourceSQL string, params map[st
 		clonedParams[key] = value
 	}
 	return sql + schema.QuerySuffix, clonedParams, nil
+}
+
+// tryRenderHistogramChildRowsSQLLogical is the logical-plan entry to the
+// histogram child-rows fast path. It mirrors tryRenderHistogramChildRowsSQL
+// but keys the capability check on the logical plan shape alone — no
+// NativeFragment is required at the boundary. When the shape matches,
+// the function materializes the child Fragment once via BuildFragment
+// and delegates to tryRenderHistogramChildRowsSQL for byte-identical
+// SQL. The structural detection covers exactly the same shapes as the
+// Fragment-side check:
+//
+//   - Range mode: the child is a SUM grouping aggregation whose source is a
+//     range function over a leaf range-vector selector or a supported
+//     subquery child — detected via canFuseRangeAggregationLogicalDirect.
+//   - Instant mode: the child is a SUM aggregation (logical
+//     AggregationPlan with Op=SUM). The inner source can be any
+//     lowerable instant-vector child; the Fragment path still succeeds
+//     when BuildFragment produces an aggregation fragment with a usable
+//     source.
+//
+// For non-matching shapes the helper returns ok=false so the caller
+// falls through to the full renderFragmentSubquery/renderLogicalSubquery
+// path. The internal BuildFragment retires in a later phase together
+// with tryRenderHistogramChildRowsSQL.
+func tryRenderHistogramChildRowsSQLLogical(cfg storage.QueryConfig, childNode logicalpkg.Node, analysis *native.Analysis, params RenderParams, prefix string) (string, map[string]string, bool, error) {
+	if childNode == nil {
+		return "", nil, false, nil
+	}
+	agg, ok := childNode.(*logicalpkg.AggregationPlan)
+	if !ok || agg == nil {
+		return "", nil, false, nil
+	}
+	switch params.Mode {
+	case native.RenderModeRange:
+		if !canFuseRangeAggregationLogicalDirect(agg, params) {
+			return "", nil, false, nil
+		}
+	case native.RenderModeInstant:
+		if agg.Op != parser.SUM {
+			return "", nil, false, nil
+		}
+	default:
+		return "", nil, false, nil
+	}
+	child, err := native.BuildFragment(childNode, analysis)
+	if err != nil {
+		return "", nil, false, nil
+	}
+	if child == nil {
+		return "", nil, false, nil
+	}
+	return tryRenderHistogramChildRowsSQL(cfg, child, params, prefix)
 }
 
 func tryRenderHistogramChildRowsSQL(cfg storage.QueryConfig, child *native.NativeFragment, params RenderParams, prefix string) (string, map[string]string, bool, error) {

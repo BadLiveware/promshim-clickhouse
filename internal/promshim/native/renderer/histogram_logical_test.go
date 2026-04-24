@@ -35,6 +35,15 @@ func TestHistogramProjectionLogicalMatchesFragment(t *testing.T) {
 		// renderClassicHistogramGroupsQueryLogical.
 		`histogram_count(sum without (instance) (http_request_duration_seconds_bucket{job="api"}))`,
 		`histogram_sum(sum (http_request_duration_seconds_bucket{job="api"}))`,
+		// Phase 6a: grouping aggregation with non-SUM op. The child-rows
+		// fast path only triggers for SUM in instant mode (and for the
+		// fused range+sum shape in range mode); a non-SUM op drops into
+		// the renderLogicalSubquery branch that replaces the previous
+		// renderFragmentSubquery call, so this guards that branch.
+		`histogram_avg(avg by (le) (http_request_duration_seconds_bucket{job="api"}))`,
+		// Phase 6a: multi-label grouping exercises the narrowed-selector
+		// pipeline on the non-fast-path branch in range mode.
+		`histogram_stddev(sum by (le, job) (http_request_duration_seconds_bucket{job="api"}))`,
 	}
 
 	for _, query := range queries {
@@ -139,6 +148,12 @@ func TestHistogramFunctionLogicalMatchesFragment(t *testing.T) {
 		// selector shape. Guards against regressions in the non-narrowed
 		// branch of renderClassicHistogramGroupsQueryLogical.
 		`histogram_quantile(0.9, sum without (instance) (rate(foo_bucket[5m])))`,
+		// Phase 6a: grouping aggregation with non-SUM op (avg/max). The
+		// child-rows fast path detects only SUM, so avg/max drops into
+		// the renderLogicalSubquery branch and exercises the Lower-based
+		// child rendering that replaced renderFragmentSubquery.
+		`histogram_quantile(0.9, avg by (le) (rate(foo_bucket[5m])))`,
+		`histogram_quantile(0.5, max by (le, job) (rate(foo_bucket[1m])))`,
 	}
 
 	for _, query := range queries {

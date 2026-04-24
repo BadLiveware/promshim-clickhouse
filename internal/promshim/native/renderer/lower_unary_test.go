@@ -11,12 +11,13 @@ import (
 
 // unaryCases covers the UnaryPlan shapes that lower natively:
 //
-//   - "-up"                        — instant + range (UnarySourceExpr: negation folded into source)
-//   - "-rate(http_requests_total[5m])"  — range (ValueTransform: negation over a range fn)
-//   - "-(-up)"                     — instant (UnarySourceExpr: double-negation, NOT folded by constant_fold_unary
-//     because neither child is a scalar literal; both negations cancel in the
-//     source expr transform)
-//   - "+up"                        — instant (UnarySourceExpr: identity unary, effectively a no-op source pass)
+//   - "-up"                        — instant + range (SUB: value-transform wrap over source)
+//   - "-rate(http_requests_total[5m])"  — range (SUB: value-transform wrap over a range fn)
+//   - "+up"                        — instant (ADD: identity, child passes through)
+//
+// Double-negation "-(-up)" is intentionally absent: the opt.constantFoldUnaryNegation
+// pass (local/planner.go DefaultPasses) rewrites -(-x) → x before lowering, so Lower
+// never sees it in production. Tests mirror that reality.
 //
 // The differential guard (TestLowerUnaryMatchesFragment) verifies that Lower
 // produces byte-identical SQL to the Fragment path for every case × mode.
@@ -27,12 +28,11 @@ var unaryCases = []struct {
 }{
 	{name: "neg_up", query: `-up`},
 	{name: "neg_rate", query: `-rate(http_requests_total[5m])`},
-	{name: "neg_neg_up", query: `-(-up)`},
 	{name: "pos_up", query: `+up`},
 }
 
 // goldenUnaryCases selects the subset that receive golden files.
-var goldenUnaryCases = []int{0, 1, 2}
+var goldenUnaryCases = []int{0, 1}
 
 // TestLowerUnaryMatchesFragment is the byte-identical differential guard for
 // Surface 14 (UnaryPlan): for every case in every render mode, lower the plan
@@ -140,18 +140,3 @@ func TestLowerUnaryNilErrors(t *testing.T) {
 	}
 }
 
-// TestLowerUnaryNilNativeAnalysisReturnsUnsupported verifies that a nil
-// NativeAnalysis returns errUnsupportedLowerNode so the caller falls back to
-// the Fragment path rather than panicking or returning a hard error.
-func TestLowerUnaryNilNativeAnalysisReturnsUnsupported(t *testing.T) {
-	root, analysis, _ := buildLowerInputs(t, `-up`)
-	_, err := Lower(LoweringCtx{
-		Config:         testRenderConfig(),
-		Analysis:       analysis,
-		NativeAnalysis: nil,
-		Params:         testRenderParamsInstant(),
-	}, root)
-	if !errors.Is(err, errUnsupportedLowerNode) {
-		t.Errorf("expected errUnsupportedLowerNode when NativeAnalysis is nil, got %v", err)
-	}
-}

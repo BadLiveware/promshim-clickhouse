@@ -4,42 +4,85 @@ import (
 	"fmt"
 
 	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
+	"github.com/prometheus/prometheus/promql/parser"
 )
 
-// lowerUnary lowers a UnaryPlan to a RenderedQuery via the existing
-// Fragment renderer internals.
+// lowerUnary renders a UnaryPlan directly from the logical tree. The
+// child is lowered via Lower (bubbling errUnsupportedLowerNode if the
+// child kind isn't yet directly renderable), and handed to
+// renderValueTransformFromSource — the same shared helper the Fragment
+// path uses — so SQL stays byte-identical for the non-fused path.
 //
-// Surface 14 uses the "Approach A" dispatch port: rather than rewriting
-// the renderer body, the lowerer reads the pre-computed Fragment from
-// ctx.NativeAnalysis.InfoFor(n).Fragment, then delegates to renderFragment
-// so SQL stays byte-identical to the Fragment path.
+// Supported ops:
+//   - parser.ADD: identity. Returns the child's RenderedQuery unchanged;
+//     TagsExpr and ValueExpr pass through.
+//   - parser.SUB: wraps child with a value-transform outer SELECT that
+//     negates value and drops __name__.
 //
-// UnaryPlan can produce multiple Fragment kinds depending on child shape:
-//   - FragmentKindUnarySourceExpr  — unary applied inline in source select
-//   - FragmentKindValueTransform   — unary wrapping a non-source child
-//   - FragmentKindSyntheticSeries  — constant-fold of a scalar literal
+// Scalar literal fast path: when the child is a *ScalarLiteralPlan, fold
+// the op into the literal value and emit the resulting synthetic scalar
+// series directly via renderScalarLiteralFragment (byte-identical to
+// the Fragment path's fold-and-synth route).
 //
-// We do NOT hard-code a Kind check; we accept whatever Fragment native.Analyze
-// computed. If no Fragment is present (node not natively lowerable),
-// errUnsupportedLowerNode is returned so the caller falls back to the Fragment
-// rendering path for the whole query.
+// Double-negation: the opt.constantFoldUnaryNegation pass runs on every
+// production query (local/planner.go), so -(-x) reaches Lower already
+// folded to x. Tests that bypass opt may observe a double-wrap here;
+// that is expected and matches what production queries would see if the
+// opt pass were disabled.
+//
+// Operator outside {ADD, SUB}: errUnsupportedLowerNode so the caller
+// falls back wholesale — matches the Fragment path's gate on
+// applyUnarySourceTransform returning ok=false.
 func lowerUnary(ctx LoweringCtx, n *logicalpkg.UnaryPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerUnary called with nil")
 	}
+	if n.Child == nil {
+		return RenderedQuery{}, fmt.Errorf("renderer: unary missing child node")
+	}
 	if ctx.Analysis == nil || ctx.Analysis.InfoFor(n) == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: unary missing logical analysis")
 	}
-	if ctx.NativeAnalysis == nil {
+	if lit, ok := n.Child.(*logicalpkg.ScalarLiteralPlan); ok {
+		folded, ok := foldUnaryScalarLiteralLogical(n.Op, lit.Value)
+		if !ok {
+			return RenderedQuery{}, errUnsupportedLowerNode
+		}
+		rf, err := renderScalarLiteralFragment(folded, ctx.Params)
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		return finalizeRenderedFragment(rf)
+	}
+	switch n.Op {
+	case parser.ADD:
+		return Lower(ctx, n.Child)
+	case parser.SUB:
+		childRQ, err := Lower(ctx, n.Child)
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		rf, err := renderValueTransformFromSource(trimRenderedQuerySQL(childRQ.SQL), childRQ.QueryParams, "-({value})", "", true, ctx.Params)
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		return finalizeRenderedFragment(rf)
+	default:
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}
-	nativeInfo := ctx.NativeAnalysis.InfoFor(n)
-	if nativeInfo == nil || nativeInfo.Fragment == nil {
-		return RenderedQuery{}, errUnsupportedLowerNode
+}
+
+// foldUnaryScalarLiteralLogical mirrors native.foldUnaryScalarLiteral.
+// Duplicated here so the renderer's direct-render path does not depend
+// on the unexported native helper; both return the same constants for
+// ADD (identity) and SUB (negate), and reject every other op.
+func foldUnaryScalarLiteralLogical(op parser.ItemType, value float64) (float64, bool) {
+	switch op {
+	case parser.ADD:
+		return value, true
+	case parser.SUB:
+		return -value, true
+	default:
+		return 0, false
 	}
-	rendered, err := renderFragment(ctx.Config, nativeInfo.Fragment, ctx.Params)
-	if err != nil {
-		return RenderedQuery{}, err
-	}
-	return finalizeRenderedFragment(rendered)
 }

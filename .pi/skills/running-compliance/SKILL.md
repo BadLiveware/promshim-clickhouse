@@ -13,9 +13,22 @@ The compliance suite is a two-pass differential run between promshim and referen
 
 ## Running the suite
 
+For compliance-only triage, run the low-level compliance script directly:
+
 ```bash
 scripts/run-compliance.sh
 ```
+
+For a named combined compliance + benchmark run, prefer the sweep workflow:
+
+```bash
+./scripts/run-sweep.sh --name pr-42-default
+```
+
+Use `./scripts/run-sweep.sh --skip-bench --name compliance-only` when you want
+compliance results recorded under a sweep artifact directory. Use
+`run-compliance.sh` directly when debugging an individual compliance failure,
+using `--keep-up`, or inspecting the native gap report.
 
 Foreground run. **~15s warm, ~60s cold** (image build + stack up). Do not wrap in minute-long timeouts — the script explicitly warns against it.
 
@@ -26,6 +39,12 @@ What happens:
 4. Tears the stack down (add `--keep-up` to iterate).
 
 Reports land in `harness/compliance/artifacts/compliance-report-{prefer,native}-<stamp>.json`. Useful flags: `--no-build`, `--skip-native`, `--skip-prefer`, `--keep-up`. See `scripts/run-compliance.sh --help` for the full list.
+
+Sweep artifacts land under `harness/artifacts/sweeps/<run-name>/` and include
+`manifest.json`, `summary.md`, `summary.json`, and any benchmark/memory artifacts
+when the benchmark pass is enabled. The compliance pass still uses the frozen
+compliance stack; benchmark long-range/dense data uses the isolated benchmark
+stack.
 
 ## The allowlist — `expected-failures.json`
 
@@ -79,5 +98,6 @@ If a compliance fix can live in tier 1 or 2, put it there. A compliance failure 
 
 - `harness/compliance/README.md` — full harness layout, fixture window, "gaps stay visible" policy.
 - `AGENTS.md` § "Execution priority" — strict tier ordering and frozen-tier rule.
-- `scripts/run-compliance.sh --help` — flag reference.
+- `scripts/run-compliance.sh --help` — low-level compliance flag reference.
+- `scripts/run-sweep.sh --help` — named combined compliance/benchmark sweep workflow.
 - `harness/compliance/expected-failures.json` — the live allowlist (keep it short).

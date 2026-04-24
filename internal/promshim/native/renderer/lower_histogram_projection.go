@@ -4,23 +4,24 @@ import (
 	"fmt"
 
 	logicalpkg "ch-observability/internal/promshim/logical"
-	"ch-observability/internal/promshim/native"
 )
 
-// lowerHistogramProjection lowers a HistogramProjectionPlan to a RenderedQuery
-// via the existing Fragment renderer internals.
+// lowerHistogramProjection lowers a HistogramProjectionPlan to a
+// RenderedQuery by direct-rendering from the logical plan via
+// renderHistogramProjectionLogical.
 //
-// Transitional dispatch port: the lowerer builds the Fragment on demand from
-// the logical node via native.BuildFragment (which reuses the analysis
-// side-map when present or rebuilds it otherwise), validates the kind, then
-// delegates to renderHistogramProjectionFragment so SQL stays byte-identical
-// to the Fragment path. Once renderClassicHistogramGroupsQuery and friends
-// port to logical children, this lowerer can drop the Fragment materialization
-// and recurse via Lower on n.Child.
+// Phase A1 (Task 8) removed the top-level Fragment construction from
+// this lowerer. Tag-narrowing for a grouping-aggregation child is
+// threaded through RenderParams inside renderHistogramProjectionLogical.
+// The renderer still builds the child Fragment on demand transitionally
+// so the legacy renderClassicHistogramGroupsQuery helper can emit
+// byte-identical SQL; that materialization retires with the helper in
+// Phase C (Task 13).
 //
-// Hierarchical fallback: if BuildFragment rejects the node (e.g. because the
-// child selector isn't lowerable yet) we return errUnsupportedLowerNode so
-// the caller falls back to the Fragment rendering path wholesale.
+// Hierarchical fallback: if the child cannot be materialized (e.g. an
+// unsupported subtree), renderHistogramProjectionLogical returns
+// errUnsupportedLowerNode so the caller falls back to the Fragment
+// rendering path wholesale.
 //
 // Supported functions: histogram_count, histogram_sum, histogram_avg,
 // histogram_stddev, histogram_stdvar.
@@ -31,14 +32,7 @@ func lowerHistogramProjection(ctx LoweringCtx, n *logicalpkg.HistogramProjection
 	if ctx.Analysis == nil || ctx.Analysis.InfoFor(n) == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: histogram projection missing logical analysis")
 	}
-	fragment, err := native.BuildFragment(n, ctx.NativeAnalysis)
-	if err != nil {
-		return RenderedQuery{}, errUnsupportedLowerNode
-	}
-	if fragment == nil || fragment.Kind != native.FragmentKindHistogramProjection {
-		return RenderedQuery{}, errUnsupportedLowerNode
-	}
-	rendered, err := renderHistogramProjectionFragment(ctx.Config, fragment, ctx.Params)
+	rendered, err := renderHistogramProjectionLogical(ctx.Config, ctx.NativeAnalysis, n, ctx.Params)
 	if err != nil {
 		return RenderedQuery{}, err
 	}

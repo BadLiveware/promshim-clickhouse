@@ -15,7 +15,7 @@ const (
 	QueryPurposeRange   QueryPurpose = "range"
 )
 
-func (c *Client) QueryInstantSamples(ctx context.Context, req QueryRequest) ([]model.InstantSample, error) {
+func (c *Client) QueryInstantSamples(ctx context.Context, req QueryRequest) (samples []model.InstantSample, err error) {
 	nativeTransport, ok := c.transport.(*NativeDriverTransport)
 	if !ok {
 		return nil, fmt.Errorf("typed instant row decoding requires %s transport, got %s", TransportNative, c.transportKind)
@@ -26,7 +26,10 @@ func (c *Client) QueryInstantSamples(ctx context.Context, req QueryRequest) ([]m
 	}
 	defer rows.Close()
 
-	samples := make([]model.InstantSample, 0, 16)
+	start := time.Now()
+	decoded := 0
+	defer func() { observeDecode(TransportNative, req.Purpose, decoded, time.Since(start), err) }()
+	samples = make([]model.InstantSample, 0, 16)
 	columnTypes := rows.ColumnTypes()
 	if len(columnTypes) < 3 {
 		return nil, fmt.Errorf("instant rows returned %d columns, expected at least 3", len(columnTypes))
@@ -45,14 +48,15 @@ func (c *Client) QueryInstantSamples(ctx context.Context, req QueryRequest) ([]m
 			return nil, fmt.Errorf("unexpected instant row value: %w", err)
 		}
 		samples = append(samples, model.InstantSample{Metric: tagsToObject(tags), Timestamp: timestampToPromSeconds(timestamp), Value: floatValue})
+		decoded++
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read instant rows: %w", err)
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, fmt.Errorf("read instant rows: %w", rowsErr)
 	}
 	return samples, nil
 }
 
-func (c *Client) QueryRangeSeries(ctx context.Context, req QueryRequest) ([]model.RangeSeries, error) {
+func (c *Client) QueryRangeSeries(ctx context.Context, req QueryRequest) (series []model.RangeSeries, err error) {
 	nativeTransport, ok := c.transport.(*NativeDriverTransport)
 	if !ok {
 		return nil, fmt.Errorf("typed range row decoding requires %s transport, got %s", TransportNative, c.transportKind)
@@ -63,7 +67,10 @@ func (c *Client) QueryRangeSeries(ctx context.Context, req QueryRequest) ([]mode
 	}
 	defer rows.Close()
 
-	series := make([]model.RangeSeries, 0, 16)
+	start := time.Now()
+	decoded := 0
+	defer func() { observeDecode(TransportNative, req.Purpose, decoded, time.Since(start), err) }()
+	series = make([]model.RangeSeries, 0, 16)
 	for rows.Next() {
 		var (
 			tags      [][]string
@@ -77,9 +84,10 @@ func (c *Client) QueryRangeSeries(ctx context.Context, req QueryRequest) ([]mode
 			return nil, err
 		}
 		series = append(series, model.RangeSeries{Metric: tagsToObject(tags), Values: points})
+		decoded++
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read range rows: %w", err)
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, fmt.Errorf("read range rows: %w", rowsErr)
 	}
 	return series, nil
 }

@@ -91,7 +91,9 @@ func (t *NativeDriverTransport) QueryNativeRows(ctx context.Context, req QueryRe
 	ctx = t.queryContext(ctx, req)
 	start := time.Now()
 	rows, err := t.conn.Query(ctx, driverSQL(req.SQL))
-	obs.FromContext(ctx).Observe(time.Since(start))
+	duration := time.Since(start)
+	obs.FromContext(ctx).Observe(duration)
+	observeQuery(TransportNative, req.Purpose, queryStatus(err), duration)
 	return rows, err
 }
 
@@ -99,7 +101,9 @@ func (t *NativeDriverTransport) QueryNativeRow(ctx context.Context, req QueryReq
 	ctx = t.queryContext(ctx, req)
 	start := time.Now()
 	row := t.conn.QueryRow(ctx, driverSQL(req.SQL))
-	obs.FromContext(ctx).Observe(time.Since(start))
+	duration := time.Since(start)
+	obs.FromContext(ctx).Observe(duration)
+	observeQuery(TransportNative, req.Purpose, "success", duration)
 	return row
 }
 
@@ -107,7 +111,9 @@ func (t *NativeDriverTransport) Exec(ctx context.Context, req QueryRequest) erro
 	ctx = t.queryContext(ctx, req)
 	start := time.Now()
 	err := t.conn.Exec(ctx, driverSQL(req.SQL))
-	obs.FromContext(ctx).Observe(time.Since(start))
+	duration := time.Since(start)
+	obs.FromContext(ctx).Observe(duration)
+	observeQuery(TransportNative, req.Purpose, queryStatus(err), duration)
 	return err
 }
 
@@ -150,6 +156,13 @@ func normalizeNativeDriverTransportConfig(cfg NativeDriverTransportConfig) Nativ
 		cfg.ConnMaxLifetime = defaultNativeConnMaxLifetime
 	}
 	return cfg
+}
+
+func queryStatus(err error) string {
+	if err != nil {
+		return "error"
+	}
+	return "success"
 }
 
 func driverParameters(params map[string]string) clickhouse.Parameters {

@@ -11,8 +11,9 @@ import (
 )
 
 type stubService struct {
-	response *Response
-	apiErr   *APIError
+	response  *Response
+	apiErr    *APIError
+	transport string
 	// observeOnCall, if non-nil, is called on every service method with the
 	// passed context so the stub can simulate ClickHouse round-trips against
 	// the CHMetrics that the router attached to the context.
@@ -23,6 +24,10 @@ func (s *stubService) obs(ctx context.Context) {
 	if s.observeOnCall != nil {
 		s.observeOnCall(ctx)
 	}
+}
+
+func (s *stubService) ClickHouseTransport() string {
+	return s.transport
 }
 
 func (s *stubService) InstantQuery(ctx context.Context, _ InstantQueryRequest) (*Response, *APIError) {
@@ -68,6 +73,7 @@ func TestHandleQuerySetsPromshimHeaders(t *testing.T) {
 			FallbackReason: "",
 			Body:           map[string]any{"status": "success"},
 		},
+		transport: "native",
 		observeOnCall: func(ctx context.Context) {
 			obs.FromContext(ctx).Observe(7 * time.Millisecond)
 			obs.FromContext(ctx).Observe(3 * time.Millisecond)
@@ -89,6 +95,9 @@ func TestHandleQuerySetsPromshimHeaders(t *testing.T) {
 	}
 	if got := rec.Header().Get("X-Promshim-CH-Millis"); got != "10" {
 		t.Fatalf("X-Promshim-CH-Millis = %q, want 10", got)
+	}
+	if got := rec.Header().Get("X-Promshim-CH-Transport"); got != "native" {
+		t.Fatalf("X-Promshim-CH-Transport = %q, want native", got)
 	}
 }
 

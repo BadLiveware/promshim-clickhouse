@@ -23,6 +23,10 @@ type queryService struct {
 	shadow    *shadow.Runner
 }
 
+func (h *queryService) ClickHouseTransport() string {
+	return string(h.opts.ClickHouseTransport)
+}
+
 func NewHandler(opts Options) (http.Handler, error) {
 	opts = normalizeOptions(opts)
 	client, err := storage.NewClient(storage.Config{
@@ -82,6 +86,7 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
 			"status":                "success",
 			"nativeLoweringMode":    string(mode),
+			"clickHouseTransport":   h.ClickHouseTransport(),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
 			"plan":                  explain,
@@ -121,6 +126,7 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
 			"status":                "success",
 			"nativeLoweringMode":    string(mode),
+			"clickHouseTransport":   h.ClickHouseTransport(),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
 			"plan":                  explain,
@@ -159,6 +165,7 @@ func (h *queryService) instantQueryShadow(ctx context.Context, req httpapi.Insta
 		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
 			"status":                "success",
 			"nativeLoweringMode":    string(local.NativeLoweringModeShadow),
+			"clickHouseTransport":   h.ClickHouseTransport(),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
 			"plan":                  explain,
@@ -199,6 +206,7 @@ func (h *queryService) rangeQueryShadow(ctx context.Context, req httpapi.RangeQu
 		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
 			"status":                "success",
 			"nativeLoweringMode":    string(local.NativeLoweringModeShadow),
+			"clickHouseTransport":   h.ClickHouseTransport(),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
 			"plan":                  explain,
@@ -226,6 +234,7 @@ func (h *queryService) ExplainInstant(_ context.Context, req httpapi.InstantQuer
 		"data": map[string]any{
 			"mode":                  string(local.EvalModeInstant),
 			"nativeLoweringMode":    string(mode),
+			"clickHouseTransport":   h.ClickHouseTransport(),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(query),
 			"query":                 query,
 			"evaluationTime":        evaluationTime.UTC().Format(time.RFC3339Nano),
@@ -249,6 +258,7 @@ func (h *queryService) ExplainRange(_ context.Context, req httpapi.RangeQueryReq
 		"data": map[string]any{
 			"mode":                  string(local.EvalModeRange),
 			"nativeLoweringMode":    string(mode),
+			"clickHouseTransport":   h.ClickHouseTransport(),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(query),
 			"query":                 query,
 			"start":                 start.UTC().Format(time.RFC3339Nano),

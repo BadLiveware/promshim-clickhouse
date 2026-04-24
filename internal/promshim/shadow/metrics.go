@@ -3,6 +3,7 @@ package shadow
 import (
 	"net/http"
 
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -25,6 +26,7 @@ func newMetrics() *Metrics {
 		Buckets: []float64{0, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000},
 	}, []string{"path", "phase", "status", "compare_mode"})
 	registry.MustRegister(comparisons, durations)
+	storage.RegisterMetrics(registry)
 	return &Metrics{registry: registry, comparisons: comparisons, durations: durations}
 }
 

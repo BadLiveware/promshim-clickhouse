@@ -81,11 +81,14 @@ func (t *HTTPJSONTransport) Query(ctx context.Context, req QueryRequest) (Rows, 
 
 	start := time.Now()
 	response, err := t.httpClient.Do(request)
-	obs.FromContext(ctx).Observe(time.Since(start))
+	duration := time.Since(start)
+	obs.FromContext(ctx).Observe(duration)
 	if err != nil {
+		observeQuery(TransportHTTP, req.Purpose, "error", duration)
 		return nil, err
 	}
 	if response.StatusCode >= 400 {
+		observeQuery(TransportHTTP, req.Purpose, "error", duration)
 		defer response.Body.Close()
 		var payload bytes.Buffer
 		_, _ = payload.ReadFrom(response.Body)
@@ -98,6 +101,7 @@ func (t *HTTPJSONTransport) Query(ctx context.Context, req QueryRequest) (Rows, 
 		}
 		return nil, &QueryError{StatusCode: http.StatusBadGateway, ErrorType: "execution", Message: message}
 	}
+	observeQuery(TransportHTTP, req.Purpose, "success", duration)
 	return &httpRows{response: response}, nil
 }
 

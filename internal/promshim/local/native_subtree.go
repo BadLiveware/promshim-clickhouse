@@ -142,21 +142,45 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 	}
 }
 
-// renderSQL picks between the new renderer.Lower dispatcher and the
-// existing Fragment renderer. Hierarchical split: a single query
-// never mixes the two paths. Only the whole-query tier-2
-// construction populates LogicalRoot/LogicalAnalysis; without them,
-// this falls through to the Fragment path unconditionally.
+// renderSQL picks between the renderer.Lower dispatcher and the
+// Fragment renderer. Two Lower entry points are supported:
+//
+//  1. Whole-query tier-2: LogicalRoot + LogicalAnalysis are populated
+//     by attachLogicalRootForLower in the planner, so the logical
+//     analysis is already cached by BuildPlanWithContextAndAnalysis.
+//  2. Tier-3 subtree pushdown: Node + Analysis are populated at
+//     construction in every maybeBuildNative*Plan site. No logical
+//     analysis is cached upstream, so one is computed here lazily
+//     via logicalpkg.Analyze(Node); the native analysis is reused
+//     from p.Analysis.
+//
+// When Lower reports errUnsupportedLowerNode, the call falls through
+// to the Fragment path so the query still renders correctly.
 func (p *nativeSubtreePlan) renderSQL(cfg storage.QueryConfig, renderParams renderer.RenderParams) (renderer.RenderedQuery, error) {
-	if p.LogicalRoot != nil && p.LogicalAnalysis != nil {
-		nativeAnalysis := nativeplan.Analyze(p.LogicalRoot)
-		lowerCtx := renderer.LoweringCtx{
+	var (
+		lowerNode logicalpkg.Node
+		lowerCtx  renderer.LoweringCtx
+	)
+	switch {
+	case p.LogicalRoot != nil && p.LogicalAnalysis != nil:
+		lowerNode = p.LogicalRoot
+		lowerCtx = renderer.LoweringCtx{
 			Config:         cfg,
 			Analysis:       p.LogicalAnalysis,
-			NativeAnalysis: nativeAnalysis,
+			NativeAnalysis: nativeplan.Analyze(p.LogicalRoot),
 			Params:         renderParams,
 		}
-		rq, err := renderer.Lower(lowerCtx, p.LogicalRoot)
+	case p.Node != nil && p.Analysis != nil:
+		lowerNode = p.Node
+		lowerCtx = renderer.LoweringCtx{
+			Config:         cfg,
+			Analysis:       logicalpkg.Analyze(p.Node),
+			NativeAnalysis: p.Analysis,
+			Params:         renderParams,
+		}
+	}
+	if lowerNode != nil {
+		rq, err := renderer.Lower(lowerCtx, lowerNode)
 		if err == nil {
 			return rq, nil
 		}

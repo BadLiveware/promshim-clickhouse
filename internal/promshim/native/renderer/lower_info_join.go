@@ -7,18 +7,21 @@ import (
 	"ch-observability/internal/promshim/native"
 )
 
-// lowerInfoJoin lowers an InfoPlan to a RenderedQuery via the existing
-// Fragment renderer internals.
+// lowerInfoJoin renders an InfoPlan directly from the logical tree. The
+// child is lowered via Lower (bubbling errUnsupportedLowerNode if the child
+// kind isn't yet directly renderable), namespaced under "info_lhs", and
+// handed to assembleInfoJoinSQL — the same shared helper the Fragment path
+// calls — so SQL stays byte-identical.
 //
-// Surface 12 uses the "Approach A" dispatch port: the lowerer reads the
-// pre-computed Fragment from ctx.NativeAnalysis.InfoFor(n).Fragment,
-// validates the kind is FragmentKindInfoJoin, then delegates to
-// renderInfoJoinFragment so SQL stays byte-identical to the Fragment path.
+// Info-series metadata (metric name fast path, selector matchers, label
+// copies, DropUnmatched) is derived directly from InfoPlan.SelectorMatchers
+// via the native.NativeInfoSelector / InfoJoinCopyLabelNames /
+// InfoJoinDropUnmatched helpers.
 //
-// Hierarchical fallback: if native.Analyze didn't mark this node as
-// native-lowerable (e.g. because the child selector isn't lowerable),
-// nativeInfo.Fragment will be nil and we return errUnsupportedLowerNode
-// so the caller falls back to the Fragment rendering path wholesale.
+// Hierarchical fallback: if logical analysis is missing or the child's
+// recursive Lower returns errUnsupportedLowerNode, that sentinel bubbles
+// up and the caller falls back to the Fragment rendering path for the
+// whole query.
 func lowerInfoJoin(ctx LoweringCtx, n *logicalpkg.InfoPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerInfoJoin called with nil")
@@ -26,16 +29,23 @@ func lowerInfoJoin(ctx LoweringCtx, n *logicalpkg.InfoPlan) (RenderedQuery, erro
 	if ctx.Analysis == nil || ctx.Analysis.InfoFor(n) == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: info missing logical analysis")
 	}
-	if ctx.NativeAnalysis == nil {
-		return RenderedQuery{}, errUnsupportedLowerNode
+	if n.Child == nil {
+		return RenderedQuery{}, fmt.Errorf("renderer: info missing child node")
 	}
-	nativeInfo := ctx.NativeAnalysis.InfoFor(n)
-	if nativeInfo == nil || nativeInfo.Fragment == nil || nativeInfo.Fragment.Kind != native.FragmentKindInfoJoin {
-		return RenderedQuery{}, errUnsupportedLowerNode
-	}
-	rendered, err := renderInfoJoinFragment(ctx.Config, nativeInfo.Fragment, ctx.Params)
+	childRQ, err := Lower(ctx, n.Child)
 	if err != nil {
 		return RenderedQuery{}, err
 	}
-	return finalizeRenderedFragment(rendered)
+	childSQL, childParams, err := namespaceRenderedQuery(trimRenderedQuerySQL(childRQ.SQL), childRQ.QueryParams, "info_lhs")
+	if err != nil {
+		return RenderedQuery{}, err
+	}
+	infoMetricName, selectorMatchers := native.NativeInfoSelector(n.SelectorMatchers)
+	copyLabelNames := native.InfoJoinCopyLabelNames(n.SelectorMatchers)
+	dropUnmatched := native.InfoJoinDropUnmatched(n.SelectorMatchers)
+	rf, err := assembleInfoJoinSQL(ctx.Config, childSQL, childParams, infoMetricName, selectorMatchers, copyLabelNames, dropUnmatched, ctx.Params)
+	if err != nil {
+		return RenderedQuery{}, err
+	}
+	return finalizeRenderedFragment(rf)
 }

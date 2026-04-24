@@ -9,6 +9,26 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 )
 
+// NativeInfoSelector is the exported form of nativeInfoSelector, used by
+// the renderer's direct-render InfoPlan path to derive the info-series
+// metric name fast path and selector matchers straight from the logical
+// InfoPlan.SelectorMatchers without threading through NativeAnalysis.
+func NativeInfoSelector(matchers []*labels.Matcher) (string, []*labels.Matcher) {
+	return nativeInfoSelector(matchers)
+}
+
+// InfoJoinCopyLabelNames is the exported form of infoJoinCopyLabelNames,
+// used by the renderer's direct-render InfoPlan path.
+func InfoJoinCopyLabelNames(matchers []*labels.Matcher) []string {
+	return infoJoinCopyLabelNames(matchers)
+}
+
+// InfoJoinDropUnmatched is the exported form of infoJoinDropUnmatched,
+// used by the renderer's direct-render InfoPlan path.
+func InfoJoinDropUnmatched(matchers []*labels.Matcher) bool {
+	return infoJoinDropUnmatched(matchers)
+}
+
 // nativeInfoSelector returns the metric-name fast path and selector matchers
 // needed to reproduce local info() fetch semantics natively. When the effective
 // info metric selection collapses to a single equality matcher we keep using the

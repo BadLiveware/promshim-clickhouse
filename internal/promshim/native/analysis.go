@@ -294,6 +294,10 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 				info.NativeLowerable = true
 				info.NativeReason = "vector-vector binary join can lower to native SQL for the supported matching subset"
 				info.LabelLineage = resultLineage
+				info.JoinShape = joinShape
+				if n.VectorMatching != nil {
+					info.JoinLabels = append([]string(nil), n.VectorMatching.MatchingLabels...)
+				}
 				info.Fragment = &NativeFragment{
 					Kind:        FragmentKindBinaryVectorJoin,
 					OutputKind:  outputKind,

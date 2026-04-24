@@ -175,40 +175,53 @@ intended for rollout confidence, not durable audit storage.
 
 ## PromQL coverage
 
-Coverage is measured, not hand-waved. The compatibility claim above is backed
-by these gates:
+### We measure, not guess
+
+The compatibility claim above is backed by gates that compare promshim with a
+reference Prometheus instead of relying on hand-written smoke tests:
 
 - `go run ./cmd/promshim-matrix` generates `.pi/path2-compliance-matrix.md` and
   `.pi/path2-compliance-matrix.json` from the parser-visible feature surface.
-- `./scripts/run-compliance.sh` runs upstream `prometheus/compliance` against a
-  reference Prometheus and promshim on the same frozen fixture.
-- `./scripts/run-harness.sh` runs differential corpora, dashboard-focused
-  corpora, compliance, and the benchmark tripwire.
+- `./scripts/run-compliance.sh` runs the full upstream
+  `prometheus/compliance` PromQL suite against reference Prometheus and promshim
+  on the same frozen fixture.
+- `./scripts/run-harness.sh` runs repo-owned differential corpora,
+  dashboard-focused corpora, compliance, and the benchmark tripwire.
 
-Tier 2 native SQL is intended to be a complete PromQL execution path for the
-float-sample/classic-histogram query surface this repo targets. In
-`force_supported` mode, the full compliance and repo-owned harness suites are
-expected to run without unsupported native roots: selectors and matchers,
-`offset`/`@` modifiers, subqueries, aggregations including selection
-aggregations, scalar/vector arithmetic, comparisons, vector matching, set
-operators, range/counter functions, classic histogram helper functions, label
-mutation, sort functions, scalar roots, `absent`, `absent_over_time`, `info`,
-and the rest of the targeted PromQL surface are tier-2-covered.
+### Supported in tier 2 native SQL
 
-The explicit scope boundary is **native histograms**. Promshim supports classic
-Prometheus histogram bucket queries and histogram helper functions, but native
-histogram samples are not currently part of the ClickHouse `TimeSeries`/harness
-contract.
+Tier 2 native SQL is expected to be a complete PromQL execution path for the
+float-sample and classic-histogram surface this repo targets. In
+`force_supported` mode, the full upstream compliance suite and repo-owned
+harness suites are expected to run with **no unsupported native roots**.
+
+That includes the usual PromQL surface: selectors, matchers, `offset`, `@`,
+subqueries, aggregations, selection aggregations, scalar and vector arithmetic,
+comparisons, vector matching, set operators, range functions, counter functions,
+classic histogram bucket queries and histogram helper functions, label mutation,
+sort functions, scalar roots, `absent`, `absent_over_time`, `info`, and the rest
+of the targeted scalar/classic-histogram PromQL feature set.
+
+### Not supported
+
+- **Prometheus native histogram samples.** Promshim supports classic Prometheus
+  histograms represented as `_bucket`, `_sum`, and `_count` time series. Native
+  histogram sample payloads are outside the current scope because the ClickHouse
+  `TimeSeries` remote-write/read path used by this repo does not currently store
+  or round-trip those native histogram payloads.
+
+### Accepted deviations
 
 Known accepted deviations are intentionally narrow and live in
 `harness/compliance/expected-failures.json`:
 
-- `topk` exact-tie ordering can differ because Prometheus exposes TSDB iteration
-  order as a tie-breaker that is not derivable from labels alone.
-- A bounded tolerance exists for tiny ClickHouse-vs-Go modulo float drift:
-  absolute error must stay within `1e-6`, with labels and timestamps still
-  matching exactly. This accounts for ClickHouse's modulo implementation using
-  `x - trunc(x / y) * y` where Go/Prometheus uses `math.Mod`.
+- **`topk` exact-tie ordering:** Prometheus's tie-break depends on TSDB series
+  iteration order, which is a storage-engine implementation detail and is not
+  derivable from labels alone.
+- **ClickHouse-vs-Go modulo float drift:** absolute error must stay within
+  `1e-6`, with labels and timestamps still matching exactly. This accounts for
+  ClickHouse's modulo implementation using `x - trunc(x / y) * y` where
+  Go/Prometheus uses `math.Mod`.
 
 Anything else is treated as a visible bug or coverage gap, not something to
 hide in the allowlist.

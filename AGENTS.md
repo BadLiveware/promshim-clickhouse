@@ -7,185 +7,151 @@ in ClickHouse's experimental `TimeSeries` table engine. It parses PromQL
 with the upstream Prometheus parser and executes it against ClickHouse via
 a hierarchical execution strategy.
 
-## Execution priority — READ THIS FIRST
+## Playbooks — consult the matching skill before acting
 
-Promshim routes every query through the first strategy that can answer
-it. **The priority is strict and hierarchical:**
+Three project playbooks live at `.pi/skills/` (also `.claude/skills/` via
+symlink). When a trigger below fires you **must read the matching `SKILL.md`
+before running commands or making a call** — each one encodes discipline
+(signal-vs-noise rules, allowlist policy, stack-isolation gotchas) you
+cannot derive from this file or the diff alone.
 
-> **1. Whole-query delegation to ClickHouse PromQL**
-> **2. Native SQL lowering**
-> **3. Local Go executor with subtree pushdown**
->    **a. subtree native-SQL delegation**
->    **b. subtree Prometheus-query delegation**
-> **4. Full local execution**
+| Trigger | Playbook |
+|---|---|
+| Evaluating any commit/PR with a perf, CSE, alias, pushdown, or scan-reduction claim — *especially* small (<5%) wall-clock deltas, matrix bench green, or `strategy_used` changed | [`measuring-ch-optimizations`](.pi/skills/measuring-ch-optimizations/SKILL.md) |
+| Running the compliance suite, triaging a failure, the native-mode gap report, or considering **any** edit to `harness/compliance/expected-failures.json` | [`running-compliance`](.pi/skills/running-compliance/SKILL.md) |
+| Setting up or running benchmarks, seeding long-range/dense data, before/after measurement, or comparing profiles/densities/transports/modes | [`running-sweep`](.pi/skills/running-sweep/SKILL.md) |
 
-Higher tiers always beat lower tiers. Within tier 3, subtree pushdown
-(either variant) always beats leaving a subtree in Go. Full local
-(tier 4) is the unconditional fallback — it must stay correct, but
-nothing should *prefer* to land there.
+A 3% wall-clock delta is not evidence on its own; an `expected-failures.json`
+entry for a shim bug is forbidden; long-range benchmarks must not run
+against the compliance ports. The playbooks tell you why and what to do
+instead. **Read them when the trigger fires, not after a reviewer asks.**
 
-### Why this order
+## Execution priority
 
-Promshim is a bridge, not a destination. As ClickHouse's native PromQL
-catches up, tier 1 grows and the tiers below it shrink — ideally until
-tier 1 serves everything and the shim is a thin router. Everything
-targets the `TimeSeries` schema directly so retiring tiers becomes a
+Promshim routes every query through the first strategy that can answer it:
+
+> **1.** Whole-query delegation to ClickHouse PromQL
+> **2.** Native SQL lowering
+> **3.** Local Go executor with subtree pushdown (native-SQL or Prometheus-query subtree)
+> **4.** Full local execution
+
+Higher tiers always beat lower tiers. Tier 4 is the unconditional fallback —
+it must stay correct, but nothing should *prefer* to land there. As
+ClickHouse's native PromQL catches up, tier 1 grows and lower tiers shrink.
+Everything targets the `TimeSeries` schema directly so retiring tiers is a
 routing change, not a data migration.
 
 ### Hard rule: new work lives in tiers 1 and 2 only
 
-> **New work — features, coverage, refactors — is allowed only in**
-> **tier 1 (whole-query delegation) and tier 2 (native SQL lowering).**
-> **Everything below tier 2 is frozen unless the user explicitly asks.**
+> New features, coverage, and refactors are allowed only in tier 1
+> (whole-query delegation) and tier 2 (native SQL lowering). Tiers 3 and
+> 4 are frozen unless the user explicitly asks.
 
-Tiers 3 and 4 exist as fallbacks for what tiers 1 and 2 can't yet
-serve. They must stay correct, but they should not grow — the goal is
-for tiers 1+2 to cover more over time, shrinking what lands in tiers
-3+4. Expanding subtree pushdown or the full local executor is the
-opposite of that goal.
+Correctness bug fixes to tier 3/4 regressions are allowed (they keep the
+fallback honest). New coverage, new pushdown shapes, perf work, and
+refactors there are not. "Explicitly asks" means a direct instruction in
+the current conversation naming the tier, file, or feature — not a failing
+compliance test, a "why is X slow", a tempting optimization, or a "while
+I'm here" cleanup. If a fix can live in tier 1 or 2, put it there. If a
+tier 3/4 change seems unavoidable, stop and ask.
 
-"Explicitly asks" means a direct instruction in the current conversation
-naming the tier, file, or feature. It does **not** include:
+**Where new work is welcome:** tier 1 in `internal/promshim/native/`
+delegation classifier; tier 2 in `internal/promshim/native/renderer/` and
+`plan*`; harness/validation in `harness/`, `scripts/`, `cmd/promshim-*`,
+`cmd/promharness-*`.
 
-- a failing compliance/harness test that happens to live under tier 3/4,
-- a user asking "why is X slow/wrong" without naming where to fix it,
-- a tempting optimization noticed while reading the code,
-- "while I'm here" cleanups.
+## Promshim service
 
-Correctness bug fixes to tier 3/4 regressions are allowed (they keep
-the fallback honest). New coverage, new pushdown shapes, perf work,
-and refactors in tiers 3/4 are not. If a fix can live in tier 1 or
-tier 2, put it there. If a tier 3/4 change seems unavoidable, stop
-and ask.
-
-### Where new work is welcome
-
-- **Tier 1** — `internal/promshim/native/` delegation classifier and
-  capability map. Grow safe whole-query delegation as upstream lands
-  more PromQL.
-- **Tier 2** — `internal/promshim/native/renderer/`,
-  `internal/promshim/native/plan*`. Expand native SQL coverage, close
-  compliance gaps, improve rendered-SQL performance.
-- **Harness & validation** — `harness/`, `scripts/`, `cmd/promshim-*`,
-  `cmd/promharness-*`. Keep gaps visible, reproducible, and fast.
-
-## Promshim (`internal/promshim/`, `cmd/promshim/`)
-
-Promshim drops in where Prometheus used to live. It serves the standard
-Prometheus HTTP surface (`/api/v1/query`, `/api/v1/query_range`,
-`/metrics`) plus explain-only debug endpoints (`/api/v1/query_explain`,
-`/api/v1/query_range_explain`, and `explain=1` on the normal endpoints).
-Every request is parsed with the upstream Prometheus parser, planned
-into a logical tree, and routed through the execution-priority tiers
-above.
+Drops in where Prometheus used to live. Serves `/api/v1/query`,
+`/api/v1/query_range`, `/metrics`, plus explain endpoints
+(`/api/v1/query_explain`, `/api/v1/query_range_explain`, `explain=1` on
+the normal endpoints). Every request goes through the upstream Prometheus
+parser, then the priority tiers above.
 
 ### Rollout modes
 
-Controlled globally via `PROM_SHIM_NATIVE_LOWERING_MODE` and per-request
-via `native_lowering_mode=...`:
+`PROM_SHIM_NATIVE_LOWERING_MODE` (or per-request `native_lowering_mode=`):
 
 - `off` — tier 4 only.
-- `prefer` — normal adaptive: walk tiers 1→4, pick the first that fits.
-- `explain` — same planning as `prefer`, but always emits the explain plan.
-- `shadow` — serves tier 4, runs tiers 1/2 in the background, records
-  divergences in process-local metrics.
-- `force_supported` — hard fails unless the final root plan is
-  `native_sql`; used in the native-only compliance pass to keep
-  coverage gaps visible.
+- `prefer` — adaptive: walk tiers 1→4, pick the first that fits.
+- `explain` — `prefer` planning + always emit explain plan.
+- `shadow` — serves tier 4, runs tiers 1/2 in background, records divergences.
+- `force_supported` — hard fails unless the root plan is `native_sql`; the
+  native-only compliance pass uses this to keep gaps visible.
 
-### Validation harness (`harness/`, `scripts/`)
+### Validation harness
 
-- `scripts/run-compliance.sh` — two-pass upstream `prometheus/compliance`
-  run: pass #1 in `prefer` mode (allowlist-gated against
-  `harness/compliance/expected-failures.json`, which holds only
-  reference-side quirks like the `topk` tie-break); pass #2 in
-  `force_supported` (informational gap report, never gated). Full run
-  ~15s warm, ~60s cold.
-- `scripts/run-bench.sh` — native-SQL tripwire benchmark against the
-  frozen fixture (Prometheus :29090, promshim :29091). `--matrix` prints
-  a Markdown Native-vs-Prom matrix sorted by N/P ratio. `--baseline` +
-  `--update-baseline` maintain `harness/bench/baseline.json`.
-  `--long-range {7d|30d|1y|all}` runs the pinned 7d/30d/1y profiles and
-  writes one `bench-report-<profile>.json` per profile beside the default
-  report.
-- `scripts/seed-long-range.sh --profile {7d|30d|1y} [--target
-  ch|prom|both]` — seeds the matching long-range dataset into CH and/or
-  Prom's remote-write receiver. Prom accepts backdated writes because
-  `out_of_order_time_window: 10y` is set in
-  `harness/compliance/prometheus/prometheus.yml`. One-time per
-  `docker volume rm`.
-- `scripts/bench-matrix.sh` — joins multiple bench-report files by the
-  corpus `category` field and renders a cross-profile markdown matrix
-  (Prom p50 / Native p50 / N/P / F/N per profile). Defaults to
-  `bench-report-{7d,30d,1y}.json`. `--per-query` for query-level rows.
-- `scripts/run-harness.sh` — differential harness against custom query
-  corpora in `harness/corpus/`.
-- `cmd/promshim-bench`, `cmd/promshim-matrix`,
+> The `running-sweep` and `running-compliance` playbooks own the workflows
+> here. `scripts/run-sweep.sh` is the primary entry point and uses an
+> isolated benchmark stack; running `run-bench.sh --long-range` against
+> compliance ports is a known gotcha. The harness runs fast — do not wrap
+> these scripts in minute-long timeouts.
+
+Top-level scripts (full flags via `--help`):
+
+- `run-sweep.sh` — combined compliance + benchmark on isolated stack.
+- `run-compliance.sh` — two-pass compliance (`prefer` gated against
+  `expected-failures.json`, `force_supported` informational).
+- `run-bench.sh` — native-SQL tripwire bench against frozen fixture
+  (Prom :29090, promshim :29091).
+- `seed-long-range.sh`, `bench-matrix.sh`, `run-harness.sh` — supporting tools.
+- Go drivers: `cmd/promshim-bench`, `cmd/promshim-matrix`,
   `cmd/promshim-promql-compliance`, `cmd/promharness-compare`,
-  `cmd/promharness-seed` — Go drivers behind the above scripts.
+  `cmd/promharness-seed`.
 
-### Working in this area
+Cross-check upstream `prometheus/compliance` and the Prom parser when
+changing planner/delegation semantics; reproduce divergences in the
+harness first, fix second.
 
-- Cross-check upstream `prometheus/compliance` and the Prom parser when
-  changing planner/delegation semantics; reproduce divergences in the
-  harness first, fix second.
-- Any shim coverage gap is a visible failure, not an allowlist entry.
-  `harness/compliance/expected-failures.json` is reserved for **allowed
-  deviances only** — cases where matching Prometheus exactly is either
-  impossible or not worth it:
-  - **Impossible-to-replicate reference-side behavior.** The current
-    entry is `topk-tie-break-ordering`: Prom's tie-break is decided by
-    TSDB postings/scrape-discovery order, not by labels, so reproducing
-    it would mean mirroring Prom's storage layer. Each entry must match
-    a specific query and diff shape so unrelated drift surfaces as a
-    regression.
-  - **Fundamental ClickHouse vs Prometheus primitive differences with
-    negligible numeric impact.** Listed under `tolerances` with a bounded
-    float margin. The current entry is `native-modulo-small-float-drift`:
-    ClickHouse's native modulo uses `x - trunc(x/y)*y` instead of
-    Go/Prom's `math.Mod`, producing sub-1e-6 drift on large operands;
-    labels and timestamps must still match exactly.
-  - **Small deviances that significantly simplify or speed up the
-    native SQL path.** Allowed only by explicit user approval. The
-    agent must stop, describe the deviance (exact shape, expected
-    magnitude, which queries it affects), quantify the simplification
-    or speedup it unlocks, and explain why a compliant alternative is
-    infeasible. Do not preemptively add this kind of entry; always ask.
+### `expected-failures.json` policy
 
-  Anything that isn't one of these three — a shim bug, a missing
-  feature, a planner error — stays a visible failure. Don't expand the
-  allowlist to make the compliance run green.
-- The harness runs fast — do not wrap these scripts in minutes-long
-  timeouts.
+Full rules in the `running-compliance` playbook. Reserved for **allowed
+deviances only** — three valid categories:
 
-## External references (`~/code/external/`)
+1. Impossible-to-replicate reference-side behavior (e.g.
+   `topk-tie-break-ordering`: Prom's tie-break depends on TSDB postings
+   order).
+2. Fundamental CH-vs-Prom primitive differences with bounded numeric
+   impact (`tolerances[]`, e.g. `native-modulo-small-float-drift`).
+3. Small deviances that significantly simplify or speed up the native
+   SQL path — **explicit user approval required in the current
+   conversation; never preemptively**.
 
-Useful upstream sources when evolving the shim. Read first, reinvent second.
+Anything else — a shim bug, a missing feature, a planner error — stays a
+visible failure. Do not expand the allowlist to make compliance green.
 
-- **`prometheus`** — canonical PromQL parser/engine/TSDB
-  (`promql/parser`, `promql/engine.go`, `promql/functions.go`). Tier 4
-  semantics must match this; the compliance suite is derived from it.
-- **`ClickHouse`** — storage engine + the PromQL endpoint we delegate
-  to at tier 1 (`src/Functions/PromQL*`, `src/Storages/TimeSeries*`).
-- **`VictoriaMetrics`** — second-source PromQL (MetricsQL) in
-  `app/vmselect/promql/`; useful for tie-breaking edge cases.
-- **`datafusion`** — Rust logical/physical plan split and rule-based
-  optimization patterns; reference for tier-2 plan rewrites.
-- **`calcite`** — canonical SQL relational algebra / optimizer rules;
-  deepest reference for non-trivial planner transforms.
+## External references
+
+Read first, reinvent second. Browse upstream or clone locally as you prefer.
+
+- **Prometheus** (`github.com/prometheus/prometheus`) — canonical
+  parser/engine/TSDB (`promql/parser`, `promql/engine.go`,
+  `promql/functions.go`). Tier 4 semantics must match this; the compliance
+  suite derives from it.
+- **ClickHouse** (`github.com/ClickHouse/ClickHouse`) — storage + the
+  tier-1 PromQL endpoint (`src/Functions/PromQL*`, `src/Storages/TimeSeries*`).
+- **VictoriaMetrics** (`github.com/VictoriaMetrics/VictoriaMetrics`) —
+  second-source PromQL (MetricsQL) in `app/vmselect/promql/`; useful for
+  tie-breaking edges.
+- **DataFusion** (`github.com/apache/datafusion`) — logical/physical plan
+  split + rule-based optimization patterns; reference for tier-2 plan
+  rewrites.
+- **Calcite** (`github.com/apache/calcite`) — canonical SQL relational
+  algebra / optimizer rules.
 
 ## Must-nots / constraints
 
 - SSO is out of scope.
 - Read-only agent querying uses the ClickHouse MCP server.
-- We use the first-party ClickHouse operator
-  (`https://github.com/ClickHouse/clickhouse-operator`), **not** the
-  Altinity operator. Web search results for "clickhouse operator" mostly
-  return Altinity docs; filter to the first-party repo or docs.
+- First-party ClickHouse operator
+  (`github.com/ClickHouse/clickhouse-operator`), **not** Altinity. Web
+  search for "clickhouse operator" returns mostly Altinity — filter to
+  the first-party repo or docs.
 
 ## Where to look first
 
+- `.pi/skills/` — the three required playbooks (see Playbooks table).
 - `README.md` — local usage, shim endpoints, PromQL support matrix.
-- `internal/promshim/` — the service itself.
+- `internal/promshim/` — the service.
 - `harness/README.md`, `harness/compliance/README.md` — validation flow
   and the "gaps stay visible" policy.

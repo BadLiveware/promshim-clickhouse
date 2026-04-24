@@ -1,0 +1,41 @@
+{
+  "nextId": 14,
+  "tasks": [
+    {
+      "id": "11",
+      "subject": "Add release automation for binaries and GHCR images",
+      "description": "Add GoReleaser and GitHub Actions release configuration that builds promshim binaries for common platforms, publishes binaries/checksums to GitHub Releases, and publishes runtime images to ghcr.io/badliveware/promshim-clickhouse on version tags.",
+      "status": "completed",
+      "activeForm": "Adding release automation",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1777059507966,
+      "updatedAt": 1777059553195
+    },
+    {
+      "id": "12",
+      "subject": "Validate release build locally",
+      "description": "Run local non-publishing release validation (GoReleaser check/snapshot if available, Docker build, go tests/vet) and document any credentials/tag prerequisites for actual publishing.",
+      "status": "completed",
+      "activeForm": "Validating release build",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1777059512233,
+      "updatedAt": 1777059779140
+    },
+    {
+      "id": "13",
+      "subject": "Publish tagged release after version confirmation",
+      "description": "After the user confirms the release tag/version, commit the open-source cleanup and release automation changes if requested, create and push the tag, then let the GitHub Actions release workflow publish binaries to GitHub Releases and images to ghcr.io/badliveware/promshim-clickhouse. Verify the release and image after publishing.",
+      "status": "completed",
+      "activeForm": "Publishing tagged release",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1777059783230,
+      "updatedAt": 1777060140713
+    }
+  ]
+}

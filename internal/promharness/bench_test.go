@@ -162,6 +162,133 @@ func TestRunBenchEndToEnd(t *testing.T) {
 	}
 }
 
+func TestRunBenchV2ModesAndLabels(t *testing.T) {
+	promServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "success", "data": map[string]any{"resultType": "vector", "result": []any{}}})
+	}))
+	defer promServer.Close()
+
+	shimServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mode := r.URL.Query().Get("native_lowering_mode")
+		switch mode {
+		case "prefer":
+			w.Header().Set("X-Promshim-Strategy", "delegated_promql")
+			w.Header().Set("X-Promshim-CH-Roundtrips", "1")
+		case "force_supported":
+			w.Header().Set("X-Promshim-Strategy", "native_sql")
+			w.Header().Set("X-Promshim-CH-Roundtrips", "2")
+		case "off":
+			w.Header().Set("X-Promshim-Strategy", "local")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "success", "data": map[string]any{"resultType": "vector", "result": []any{}}})
+	}))
+	defer shimServer.Close()
+
+	corpusPath := filepath.Join(t.TempDir(), "corpus.json")
+	payload, _ := json.Marshal([]QuerySpec{{Name: "t", Endpoint: "query", Query: "up", TargetPromP50MS: &TargetPromP50MS{Min: 0.001, Max: 60000}}})
+	if err := os.WriteFile(corpusPath, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	artifactDir := t.TempDir()
+	report, err := RunBenchV2(BenchConfig{
+		PromURL:       promServer.URL,
+		ShimURL:       shimServer.URL,
+		CorpusPath:    corpusPath,
+		ArtifactDir:   artifactDir,
+		ArtifactName:  "custom-v2.json",
+		Repeats:       2,
+		WarmupRepeats: 0,
+		ShimModes:     []string{"prefer", "force_supported", "off"},
+		RunLabels:     map[string]string{"transport": "native", "profile": "7d"},
+		MemoryMode:    "summary",
+	})
+	if err != nil {
+		t.Fatalf("RunBenchV2: %v", err)
+	}
+	if report.SchemaVersion != 2 {
+		t.Fatalf("schemaVersion = %d, want 2", report.SchemaVersion)
+	}
+	if report.RunLabels["transport"] != "native" || report.RunLabels["profile"] != "7d" {
+		t.Fatalf("runLabels = %+v", report.RunLabels)
+	}
+	if report.MemoryMode != "summary" {
+		t.Fatalf("memoryMode = %q", report.MemoryMode)
+	}
+	row := report.Rows[0]
+	if row.Prom == nil || row.Prom.P50MS == 0 {
+		t.Fatalf("prom timing missing: %+v", row.Prom)
+	}
+	if row.PromBand != "in_band" {
+		t.Fatalf("promBand = %q, want in_band", row.PromBand)
+	}
+	if row.TargetPromP50MS == nil || row.TargetPromP50MS.Min != 0.001 {
+		t.Fatalf("targetPromP50Ms missing: %+v", row.TargetPromP50MS)
+	}
+	if got := row.Shim["prefer"].Strategy; got != "delegated_promql" {
+		t.Fatalf("prefer strategy = %q", got)
+	}
+	if got := row.Shim["force_supported"].CHRoundtrips; got != 2 {
+		t.Fatalf("force_supported roundtrips = %d", got)
+	}
+	if got := row.Shim["off"].Strategy; got != "local" {
+		t.Fatalf("off strategy = %q", got)
+	}
+	if _, ok := row.Ratios["preferProm"]; !ok {
+		t.Fatalf("missing prefer/prom ratio: %+v", row.Ratios)
+	}
+	if _, err := os.Stat(filepath.Join(artifactDir, "custom-v2.json")); err != nil {
+		t.Fatalf("custom v2 artifact not written: %v", err)
+	}
+}
+
+func TestBenchLogCommentIncludesQueryAndMode(t *testing.T) {
+	comment := benchLogComment(QuerySpec{Name: "sum rate/by job", NativeLoweringMode: "force_supported"})
+	if comment != "promshim-bench query=sum_rate_by_job mode=force_supported" {
+		t.Fatalf("comment = %q", comment)
+	}
+	promComment := benchLogComment(QuerySpec{Name: "up"})
+	if promComment != "promshim-bench query=up mode=prom" {
+		t.Fatalf("prom comment = %q", promComment)
+	}
+}
+
+func TestRunBenchV2CanSkipPrometheus(t *testing.T) {
+	shimServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Promshim-Strategy", "native_sql")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "success"})
+	}))
+	defer shimServer.Close()
+
+	corpusPath := filepath.Join(t.TempDir(), "corpus.json")
+	payload, _ := json.Marshal([]QuerySpec{{Name: "t", Endpoint: "query", Query: "up"}})
+	_ = os.WriteFile(corpusPath, payload, 0o644)
+
+	report, err := RunBenchV2(BenchConfig{
+		ShimURL:        shimServer.URL,
+		CorpusPath:     corpusPath,
+		Repeats:        1,
+		WarmupRepeats:  0,
+		ShimModes:      []string{"force_supported"},
+		IncludeProm:    false,
+		IncludePromSet: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Rows[0].Prom != nil {
+		t.Fatalf("prom timing should be omitted: %+v", report.Rows[0].Prom)
+	}
+	if len(report.Rows[0].Ratios) != 0 {
+		t.Fatalf("ratios should be omitted without prom timing: %+v", report.Rows[0].Ratios)
+	}
+}
+
 func TestRunBenchStrategyFlapDetected(t *testing.T) {
 	promServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

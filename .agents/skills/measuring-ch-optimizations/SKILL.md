@@ -85,17 +85,23 @@ if latency dropped for an unrelated reason.
 
 ## Scripted workflows
 
+Prefer `./scripts/run-sweep.sh` for benchmark/compliance sweeps and
+cross-axis comparisons. It uses isolated benchmark ports/volumes so long-range
+or dense data does not contaminate the compliance fixture. Reach for the lower
+level scripts only for focused debugging or one-off captures.
+
 All scripts live in `scripts/`. Run with `--help` for full flags.
 
 | Script | Added cost | Use when |
 |---|---:|---|
+| `run-sweep.sh --name <run> --profile 7d --density sparse --shim-modes prefer,force_supported,off --memory summary` | setup once, then query time | Primary benchmark/compliance workflow. Writes `harness/artifacts/sweeps/<run>/manifest.json`, v2 reports, matrix inputs, and memory summaries from isolated benchmark data. Use `--dry-run --estimate` before heavy/dense runs. |
 | `ch-profile-capture.sh --matrix` | ~1–2 s | Every bench run. Emits `harness/artifacts/ch-profile.json`: p50 `query_duration_ms`, `read_rows`, `read_bytes`, per-query `profile_events_sum`/`_avg` over repeats. Put it in the bench path unconditionally. **Overwritten each run** — preserve a baseline before re-capturing: `cp harness/artifacts/ch-profile.json harness/artifacts/ch-profile-<sha>.json`. |
 | `ch-profile-diff.sh before.json after.json` | <1 s | After two preserved captures. Markdown table sorted by Δp50_ms plus per-query ProfileEvents deltas. Flags: `--min-delta-ms`, `--events`, `--format json`. Joins preferentially on `log_comment` (stable across SQL-shape rewrites — set via the `X-Promshim-Log-Comment` header, which `promshim-bench` passes as `bench:<query-name>`) and falls back to `normalized_query` for older captures. |
 | `ch-explain.sh '<promql>' --mode instant` | ~2 s | One-PromQL deep dive. Runs through shim, pulls the lowered SQL from `system.query_log`, dumps `EXPLAIN SYNTAX/PLAN/PIPELINE/ESTIMATE` to `harness/artifacts/ch-explain/<ts>/`. Skip flags available. |
 | `ch-explain-diff.sh <ref-a> <ref-b> '<promql>'` | 30–180 s | Commit-to-commit verdict on a single PromQL. Builds/restarts the shim per ref; not for the inner loop. Prints "`EXPLAIN SYNTAX` is byte-identical" or "differs". |
-| `seed-long-range.sh --profile {7d\|30d\|1y} [--target ch\|prom\|both]` | 2–15 s | Once per `docker volume rm`. Seeds a non-overlapping window into CH's `observability.prometheus` and/or Prom's remote-write receiver (default both). Same deterministic generator, distinct pinned eval-time. Prom accepts backdated writes because its `out_of_order_time_window` is set to `10y` in `harness/compliance/prometheus/prometheus.yml`. |
-| `run-bench.sh --long-range {7d\|30d\|1y\|all}` | 90 / 360 / 120 / ~570 s | Scan-work / partition-pruning signal. 7d = baseline `SelectedRows` signal, 30d = crosses `PARTITION BY toYYYYMM`, 1y = 12 partitions (use `--repeats 3 --warmup 1`). Prom is compared at the same pinned eval-time when seeded via `seed-long-range.sh --target prom\|both`. Writes `bench-report-<profile>.json` beside the default `bench-report.json` so `--long-range all` leaves three artifacts for cross-profile joining. |
-| `bench-matrix.sh [profile:path]...` | <1 s | Renders a markdown matrix that traces each corpus `category` across profiles — one row per category, columns per profile (Prom p50 / Native p50 / N/P / F/N). Default inputs are `bench-report-{7d,30d,1y}.json`. `--per-query` drops to one row per query for intra-category comparisons. `--sort-by {np\|fn\|category}` picks the axis. Rows collapse via median when a (category, profile) bucket holds multiple queries. |
+| `seed-long-range.sh --profile {7d\|30d\|1y} [--target ch\|prom\|both]` | 2–15 s | Low-level/debug seeding helper. For normal benchmark data setup, use `run-sweep.sh --setup --profile ... --density ... --target both`, which points at the isolated benchmark stack by default. |
+| `run-bench.sh --long-range {7d\|30d\|1y\|all}` | 90 / 360 / 120 / ~570 s | Low-level benchmark helper. Prefer `run-sweep.sh` for long-range comparisons so artifacts include run labels, named paths, memory summaries, and sweep manifests. |
+| `bench-matrix.sh --sweep harness/artifacts/sweeps/<run>/manifest.json` | <1 s | Renders sweep matrices from v2 reports across category/query/profile/density/transport/mode. Use `--per-query` for query-level rows. Legacy `profile:path` inputs still work for old reports. |
 
 ## Serialize measurement runs via the named-lock library
 
@@ -128,7 +134,9 @@ without deadlock.
 - Direct interactive work against the stack (`curl :29091/...`,
   `docker exec`, ad-hoc ClickHouse queries). You are the serializer.
 - File-system races on `harness/artifacts/` from hand-written tools
-  not routed through the scripts.
+  not routed through the scripts. `run-sweep.sh` also takes named locks for
+  sweep/benchmark-stack operations, but manual interactive access can still
+  contaminate query-log windows.
 - Wall-clock noise from a warm-up pass or a busy host.
 
 **If an artifact looks wrong, discard it.** Mixed artifacts have been
@@ -206,7 +214,9 @@ additive and persists until `docker volume rm`.
 - Matrix bench green + latency flat + no EXPLAIN diff checked.
 - `strategy_used` change not investigated.
 - Claim of "pushdown" without a `SelectedRows` or `SelectedBytes` drop.
-- Long-range profile skipped for a commit that claims storage-side work.
+- Long-range/dense profile skipped for a commit that claims storage-side work.
+- Running long-range/dense benchmarks against compliance ports instead of the
+  isolated benchmark stack.
 - Commit message describes a different change than the diff (even if the
   diff looks good — the message is part of the review contract).
 - Only one `ch-profile.json` on disk, claimed as before/after evidence.

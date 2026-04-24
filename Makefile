@@ -1,4 +1,4 @@
-.PHONY: test vet race fmt fmt-check tidy tidy-check check harness compliance bench release-check release-snapshot
+.PHONY: test vet race fmt fmt-check tidy tidy-check check harness compliance bench sweep sweep-smoke sweep-estimate-heavy bench-status release-check release-snapshot
 
 GO ?= go
 GOFILES := $(shell find . \( -path './.git' -o -path './harness/compliance/prom-compliance' \) -prune -o -name '*.go' -print)
@@ -39,6 +39,18 @@ compliance:
 
 bench:
 	./scripts/run-bench.sh --matrix
+
+sweep:
+	./scripts/run-sweep.sh
+
+sweep-smoke:
+	./scripts/run-sweep.sh --name smoke --dry-run --estimate --skip-compliance
+
+sweep-estimate-heavy:
+	./scripts/run-sweep.sh --profile all --density dense --corpus-set processing --estimate
+
+bench-status:
+	./scripts/run-sweep.sh --bench-status
 
 release-check:
 	docker run --rm -v "$(CURDIR):/src" -w /src goreleaser/goreleaser:latest check

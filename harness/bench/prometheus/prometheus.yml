@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs: []
+
+storage:
+  tsdb:
+    # Benchmark datasets are pinned to historical windows and may be seeded
+    # repeatedly after volume resets. Keep the receiver permissive so setup can
+    # backfill 7d/30d/1y profiles without touching the compliance stack.
+    out_of_order_time_window: 10y

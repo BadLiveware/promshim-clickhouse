@@ -6,6 +6,7 @@ import (
 	"flag"
 	"log/slog"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -49,9 +50,22 @@ func main() {
 		addr = value
 	}
 
+	serverHandler := handler
+	if os.Getenv("PROM_SHIM_ENABLE_PPROF") == "1" || os.Getenv("PROM_SHIM_ENABLE_PPROF") == "true" {
+		mux := http.NewServeMux()
+		mux.Handle("/debug/pprof/", http.DefaultServeMux)
+		mux.Handle("/debug/pprof/cmdline", http.DefaultServeMux)
+		mux.Handle("/debug/pprof/profile", http.DefaultServeMux)
+		mux.Handle("/debug/pprof/symbol", http.DefaultServeMux)
+		mux.Handle("/debug/pprof/trace", http.DefaultServeMux)
+		mux.Handle("/", handler)
+		serverHandler = mux
+		logger.Warn("pprof endpoints enabled", "addr", addr)
+	}
+
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           handler,
+		Handler:           serverHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      opts.RequestTimeout + 10*time.Second,

@@ -177,6 +177,8 @@ func maybeBuildNativeRangeLikePlanAllowRange(node logicalpkg.Node, kind, expr st
 		Fragment:           optimized.Fragment,
 		OptimizationReport: optimized.Report,
 		Info:               info,
+		Node:               node,
+		Analysis:           analysis,
 	}, true, nil
 }
 
@@ -220,5 +222,5 @@ func maybeBuildNativeAbsentLikePlan(node logicalpkg.Node, kind, expr string, ctx
 		}
 		children = append(children, explainNativeAggregationSource(child))
 	}
-	return &nativeSubtreePlan{Kind: kind, Expr: expr, Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info}, true, nil
+	return &nativeSubtreePlan{Kind: kind, Expr: expr, Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info, Node: node, Analysis: analysis}, true, nil
 }

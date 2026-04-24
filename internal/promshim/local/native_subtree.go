@@ -39,6 +39,15 @@ type nativeSubtreePlan struct {
 	// and stay on the Fragment path unconditionally.
 	LogicalRoot     logicalpkg.Node
 	LogicalAnalysis *logicalpkg.Analysis
+	// Node and Analysis carry the logical node and native analysis for
+	// this subtree. Populated at construction by every
+	// maybeBuildNative*Plan site so a later 13b-d port can flip the
+	// renderSQL path to consume the logical plan directly via
+	// renderer.RenderLogical instead of renderer.RenderFragment.
+	// Distinct from LogicalRoot/LogicalAnalysis which are set only for
+	// the whole-query tier-2 plan.
+	Node     logicalpkg.Node
+	Analysis *nativeplan.Analysis
 }
 
 func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {

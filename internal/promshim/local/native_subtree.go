@@ -112,14 +112,14 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 		if len(samples) != 1 {
 			return nil, NewExecutionErrorf("native subtree scalar result for %q returned %d samples, expected exactly 1", p.Expr, len(samples))
 		}
-		return model.ScalarValue{Timestamp: samples[0].Timestamp, Value: applyNativeRuntimeTransform(samples[0].Value, runtimeValueTransformForFragment(p.Fragment))}, nil
+		return model.ScalarValue{Timestamp: samples[0].Timestamp, Value: applyNativeRuntimeTransform(samples[0].Value, runtimeValueTransformForPlan(p))}, nil
 	case params.Mode == EvalModeInstant:
 		samples, err := DecodeInstantSamples(response.Body)
 		if err != nil {
 			return nil, WithInternalContext(err, "decoding native subtree instant result for %q", p.Expr)
 		}
 		evalTimestamp := float64(params.EvaluationTime.UnixNano()) / float64(time.Second)
-		runtimeTransform := runtimeValueTransformForFragment(p.Fragment)
+		runtimeTransform := runtimeValueTransformForPlan(p)
 		for i := range samples {
 			samples[i].Timestamp = evalTimestamp
 			samples[i].Value = applyNativeRuntimeTransform(samples[i].Value, runtimeTransform)
@@ -130,7 +130,7 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 		if err != nil {
 			return nil, WithInternalContext(err, "decoding native subtree range result for %q", p.Expr)
 		}
-		runtimeTransform := runtimeValueTransformForFragment(p.Fragment)
+		runtimeTransform := runtimeValueTransformForPlan(p)
 		for i := range series {
 			for j := range series[i].Values {
 				series[i].Values[j].Value = applyNativeRuntimeTransform(series[i].Values[j].Value, runtimeTransform)
@@ -323,11 +323,11 @@ func explainNativeAggregationSource(info *nativeplan.LoweringInfo) ExplainNode {
 	}
 }
 
-func runtimeValueTransformForFragment(fragment *nativeplan.NativeFragment) *nativeplan.RuntimeValueTransform {
-	if fragment == nil || fragment.ValueTransform == nil {
+func runtimeValueTransformForPlan(p *nativeSubtreePlan) *nativeplan.RuntimeValueTransform {
+	if p == nil || p.Info == nil {
 		return nil
 	}
-	return fragment.ValueTransform.RuntimeTransform
+	return p.Info.RuntimeValueTransform
 }
 
 func applyNativeRuntimeTransform(value float64, transform *nativeplan.RuntimeValueTransform) float64 {

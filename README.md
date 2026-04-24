@@ -233,6 +233,28 @@ from a few examples:
 - `./scripts/run-harness.sh` runs repo-owned differential corpora,
   dashboard-focused corpora, compliance, and the benchmark tripwire.
 
+Current compatibility matrix, refreshed after the native-lowering IR migration:
+
+| Surface | Matrix rows | Tier-2 native SQL status | Notes |
+|---|---:|---|---|
+| Selectors and matchers | 5 | 5/5 supported | Instant selectors plus equality, inequality, regex, and negative-regex matchers. |
+| Time modifiers | 5 | 5/5 supported | `offset`, literal `@`, `@ start()`, `@ end()`, and selector subqueries. |
+| Aggregations | 14 | 14/14 supported | Includes ordinary aggregations plus `topk`, `bottomk`, `count_values`, `limitk`, and `limit_ratio`. |
+| Binary and set operators | 16 | 16/16 supported | Arithmetic, comparison, bool comparison, `and`, `or`, and `unless`. |
+| Vector matching | 5 | 5/5 supported | `on`, `ignoring`, `group_left`, `group_right`, and `fill`. |
+| Functions | 83 | 83/83 supported | Range functions, counter functions, scalar/math functions, label mutation, sort family, `absent*`, `info`, and classic-histogram helpers. |
+| **Total parser-visible matrix** | **128** | **128/128 supported** | Generated from Prometheus parser version `v0.311.2`. |
+
+Latest upstream compliance gate run:
+
+| Mode | Total queries | Passed exactly or within tolerance | Expected diff | Unsupported roots | Unexpected failures |
+|---|---:|---:|---:|---:|---:|
+| `prefer` | 539 | 538 | 1 `topk` exact-tie ordering case | 0 | 0 |
+| `force_supported` | 539 | 538 | 1 `topk` exact-tie ordering case | 0 | 0 |
+
+The single diff is the documented `topk` TSDB-order tie-break. The modulo drift
+case is handled by the explicit `1e-6` tolerance and matched during the run.
+
 ## Data model assumptions
 
 Promshim expects metrics in a ClickHouse `TimeSeries` table, normally:
@@ -370,11 +392,72 @@ long-range data to be seeded first:
 ./scripts/run-bench.sh --long-range 30d --matrix
 ```
 
-Published benchmark matrix: **pending**. The current native-lowering IR migration
-is still in flight, so the README intentionally does not freeze a performance
-matrix yet. After that migration lands, run the short and long-range benchmark
-profiles, preserve the artifacts, and add the resulting Native-vs-Prometheus
-matrix here.
+Benchmark matrices below were refreshed after the native-lowering IR migration.
+They are not a claim that native SQL is always faster than Prometheus; they are a
+tripwire and CBE calibration source. `N/P` is `native_p50 / prom_p50`, so values
+below `1×` mean native SQL beat Prometheus. `F/N` is
+`fallback_p50 / native_p50`, so values below `1×` are a signal that the current
+native SQL shape is not worth choosing for that small query class if CBE is
+allowed to override strict tier priority.
+
+### Short fixture benchmark matrix
+
+Frozen 1h30m fixture, 10 timed repeats, 2 warmups, all rows routed to
+`native_sql`:
+
+| Query | Endpoint | CH rts | CH ms | Prom p50 (ms) | Native p50 (ms) | N/P | Fallback p50 (ms) | F/N |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| vector_match_range | query_range | 1 | 77 | 0.41 | 79.05 | 194.7× | 17.20 | 0.2× |
+| topk_range | query_range | 1 | 38 | 0.25 | 39.10 | 155.8× | 10.07 | 0.3× |
+| subquery_rate_instant | query | 1 | 31 | 0.21 | 32.07 | 151.3× | 77.78 | 2.4× |
+| subquery_rate_range | query_range | 1 | 36 | 0.25 | 37.32 | 150.5× | 1748.70 | 46.9× |
+| vector_match_group_left_instant | query | 1 | 27 | 0.19 | 28.43 | 148.9× | 14.54 | 0.5× |
+| vector_match_instant | query | 1 | 30 | 0.23 | 31.94 | 135.9× | 16.02 | 0.5× |
+| sum_rate_by_job_instant | query | 1 | 23 | 0.20 | 22.99 | 114.9× | 8.46 | 0.4× |
+| sum_rate_by_job_range | query_range | 1 | 30 | 0.28 | 31.18 | 110.2× | 181.20 | 5.8× |
+| increase_instant | query | 1 | 34 | 0.34 | 34.68 | 103.2× | 14.29 | 0.4× |
+| sum_by_job_instant | query | 1 | 13 | 0.14 | 13.72 | 96.0× | 8.90 | 0.6× |
+| absent_instant | query | 1 | 11 | 0.12 | 10.85 | 94.3× | 4.78 | 0.4× |
+| rate_instant | query | 1 | 19 | 0.22 | 19.67 | 89.4× | 8.99 | 0.5× |
+| selector_matcher_instant | query | 1 | 13 | 0.14 | 11.13 | 81.3× | 6.73 | 0.6× |
+| topk_instant | query | 1 | 17 | 0.22 | 16.88 | 75.7× | 8.26 | 0.5× |
+| plain_selector_instant | query | 1 | 11 | 0.16 | 12.04 | 73.4× | 7.83 | 0.7× |
+| selector_regex_instant | query | 1 | 10 | 0.19 | 12.03 | 64.7× | 8.65 | 0.7× |
+| avg_by_instance_instant | query | 1 | 13 | 0.22 | 14.08 | 63.4× | 8.23 | 0.6× |
+| count_values_instant | query | 1 | 15 | 0.27 | 16.11 | 60.8× | 8.18 | 0.5× |
+| plain_selector_range | query_range | 1 | 27 | 0.45 | 27.34 | 60.8× | 7.68 | 0.3× |
+| negated_unary_instant | query | 1 | 12 | 0.21 | 12.32 | 59.0× | 8.86 | 0.7× |
+| histogram_quantile_instant | query | 1 | 154 | 2.71 | 154.34 | 56.9× | 63.52 | 0.4× |
+| offset_instant | query | 1 | 11 | 0.22 | 11.82 | 53.3× | 8.51 | 0.7× |
+| binop_scalar_instant | query | 1 | 11 | 0.27 | 12.02 | 45.0× | 8.41 | 0.7× |
+| histogram_quantile_range | query_range | 1 | 260 | 6.15 | 259.92 | 42.2× | 1318.98 | 5.1× |
+
+The short fixture is intentionally tiny. Prometheus often answers it from an
+in-process TSDB in sub-millisecond time, while native SQL pays at least one
+ClickHouse HTTP round trip. The useful signal here is not "native is faster";
+it is which query shapes are too small for SQL lowering to be a latency win.
+
+### Long-range benchmark matrix
+
+Category medians across the pinned 7d, 30d, and 1y profiles:
+
+| Category | Prom p50 (7d) | Native p50 (7d) | N/P (7d) | F/N (7d) | Prom p50 (30d) | Native p50 (30d) | N/P (30d) | F/N (30d) | Prom p50 (1y) | Native p50 (1y) | N/P (1y) | F/N (1y) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| range_rate | 21.87 | 556.82 | 25.5× | 5.7× | 141.66 | 5045.54 | 35.6× | 1.8× | 487.31 | 6239.82 | 12.8× | 1.2× |
+| range_avg_over_time | — | — | — | — | 143.42 | 4881.23 | 34.0× | 1.8× | 510.79 | 6260.77 | 12.3× | 1.1× |
+| instant_histogram_quantile | 8.54 | 146.13 | 17.1× | 0.2× | 7.68 | 149.92 | 19.5× | 0.2× | 9.12 | 151.53 | 16.6× | 0.2× |
+| range_sum_rate | 127.58 | 1137.10 | 8.9× | 2.7× | 89.40 | 1300.86 | 14.6× | 1.7× | 355.39 | 3139.30 | 8.8× | 1.2× |
+| instant_rate_short | 5.88 | 24.91 | 4.7× | 1.5× | 6.09 | 27.31 | 4.5× | 0.9× | — | — | — | — |
+| instant_rate_long | 21.18 | 42.28 | 2.0× | 4.5× | 22.23 | 43.63 | 2.4× | 3.5× | 13.34 | 31.96 | 2.4× | 2.4× |
+| selector_plain | 3.50 | 14.47 | 4.1× | 0.7× | 2.93 | 15.22 | 5.2× | 0.7× | 2.79 | 15.32 | 5.5× | 0.7× |
+| instant_sum_rate | 8.00 | 30.37 | 3.8× | 1.8× | 7.37 | 32.93 | 4.5× | 1.7× | 13.57 | 34.08 | 2.5× | 2.3× |
+| selector_regex | 3.80 | 14.60 | 3.8× | 0.7× | — | — | — | — | — | — | — | — |
+| instant_avg_over_time | 21.18 | 23.96 | 1.1× | 8.3× | 35.83 | 34.34 | 1.0× | 8.4× | 45.29 | 36.98 | 0.8× | 7.5× |
+
+The long-range matrix shows the current split: native SQL is especially useful
+for some long-window instant range functions where local fallback would scan far
+more data in Go, but several range-query SQL shapes still need optimization
+before they are competitive with reference Prometheus on this fixture.
 
 Cost-based execution (CBE) routing is also planned. The intended first version is
 not a dynamic black-box optimizer; it should use static, pre-known heuristics
@@ -491,7 +574,7 @@ harnesses, with only narrow documented deviations for behavior that cannot be
 reproduced exactly outside Prometheus internals. The main native SQL path has
 broad PromQL family coverage, but the project should still be read as an active
 migration/compatibility layer rather than a general-purpose Prometheus
-replacement. A published benchmark matrix will be added after the current
-native-lowering IR migration settles and the benchmark artifacts are refreshed.
-CBE routing based on static heuristics from those benchmark results is planned,
-but strict tier-priority routing remains the default today.
+replacement. The benchmark matrix above is the current post-IR-migration
+snapshot and is intentionally used as both a regression tripwire and a source of
+static heuristics for planned CBE routing. Strict tier-priority routing remains
+the default today.

@@ -197,6 +197,11 @@ type AggregationSupport struct {
 	Eligible bool
 	Reason   string
 	Source   *NativeFragment
+	// EmitZeroOnEmpty mirrors AggregationFragment.EmitZeroOnEmpty. Populated
+	// during the Analyze walk for the `sum(... or vector(0))` zero-fill
+	// shape so renderAggregationLogicalBody can branch on it without
+	// dereferencing info.Fragment.Aggregation.
+	EmitZeroOnEmpty bool
 }
 
 type TimeRequirements struct {

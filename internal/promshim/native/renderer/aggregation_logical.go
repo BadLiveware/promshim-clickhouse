@@ -115,10 +115,10 @@ func renderAggregationLogicalBody(ctx LoweringCtx, n *logicalpkg.AggregationPlan
 		return renderedFragment{}, fmt.Errorf("aggregation (logical) requires a native analysis")
 	}
 	aggInfo := ctx.NativeAnalysis.InfoFor(n)
-	if aggInfo == nil || aggInfo.Fragment == nil || aggInfo.Fragment.Aggregation == nil || aggInfo.Fragment.Aggregation.Source == nil {
+	if aggInfo == nil || aggInfo.Aggregation == nil || aggInfo.Aggregation.Source == nil {
 		return renderedFragment{}, fmt.Errorf("aggregation (logical) is missing cached aggregation metadata")
 	}
-	cachedAgg := aggInfo.Fragment.Aggregation
+	cachedAgg := aggInfo.Aggregation
 
 	// Mirror the Fragment-side clone + forceFragmentFullTags for selection
 	// aggregations and count_values: those ops synthesize output labels

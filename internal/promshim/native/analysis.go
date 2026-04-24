@@ -387,7 +387,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 			eligible = false
 			reason = "aggregation child is not pushdown-safe; native pushdown currently requires a native-lowerable instant-vector child"
 		}
-		info.Aggregation = &AggregationSupport{Eligible: eligible, Reason: reason, Source: sourceFragment}
+		info.Aggregation = &AggregationSupport{Eligible: eligible, Reason: reason, Source: sourceFragment, EmitZeroOnEmpty: emitZeroOnEmpty}
 		if eligible {
 			info.Fragment = &NativeFragment{
 				Kind:       FragmentKindAggregation,

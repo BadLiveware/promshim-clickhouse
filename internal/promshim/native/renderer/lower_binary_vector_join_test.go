@@ -164,18 +164,3 @@ func TestLowerBinaryVectorJoinNilErrors(t *testing.T) {
 	}
 }
 
-// TestLowerBinaryVectorJoinNilNativeAnalysisReturnsUnsupported verifies that
-// a nil NativeAnalysis returns errUnsupportedLowerNode (so the caller falls
-// back to the Fragment path) rather than panicking or returning a hard error.
-func TestLowerBinaryVectorJoinNilNativeAnalysisReturnsUnsupported(t *testing.T) {
-	root, analysis, _ := buildLowerInputs(t, `up and up`)
-	_, err := Lower(LoweringCtx{
-		Config:         testRenderConfig(),
-		Analysis:       analysis,
-		NativeAnalysis: nil, // intentionally nil
-		Params:         testRenderParamsInstant(),
-	}, root)
-	if !errors.Is(err, errUnsupportedLowerNode) {
-		t.Errorf("expected errUnsupportedLowerNode when NativeAnalysis is nil, got %v", err)
-	}
-}

@@ -21,15 +21,14 @@ import (
 // supported matching shapes: one-to-one (no modifier), on(...), ignoring(...),
 // group_left(...), group_right(...).
 //
-// Transitional NativeAnalysis tap: in range mode we still read the per-side
-// fragment from NativeAnalysis to compute per-child required input bounds via
-// native.RequiredInputBounds — the same helper the Fragment path uses. Once
-// bounds computation moves to a logical-side helper this tap can be dropped.
+// Per-side range bounds come from logicalRequiredInputBounds, which mirrors
+// native.RequiredInputBounds by walking the logical subtree for
+// lookback/offset + @/start()/end() anchor resolution.
 //
-// Hierarchical fallback: if NativeAnalysis is nil, either child is missing
-// analysis, or the operator/matching shape isn't natively supported, we
-// return errUnsupportedLowerNode so the caller falls back to the Fragment
-// rendering path for the whole query.
+// Hierarchical fallback: if either child is missing logical analysis or the
+// operator/matching shape isn't natively supported, we return
+// errUnsupportedLowerNode so the caller falls back to the Fragment rendering
+// path for the whole query.
 func lowerBinaryVectorJoin(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerBinaryVectorJoin called with nil")
@@ -42,14 +41,6 @@ func lowerBinaryVectorJoin(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQ
 	}
 	joinShape, ok := native.SupportedNativeVectorJoinShape(n.VectorMatching)
 	if !ok {
-		return RenderedQuery{}, errUnsupportedLowerNode
-	}
-	if ctx.NativeAnalysis == nil {
-		return RenderedQuery{}, errUnsupportedLowerNode
-	}
-	lhsNativeInfo := ctx.NativeAnalysis.InfoFor(n.LHS)
-	rhsNativeInfo := ctx.NativeAnalysis.InfoFor(n.RHS)
-	if lhsNativeInfo == nil || rhsNativeInfo == nil {
 		return RenderedQuery{}, errUnsupportedLowerNode
 	}
 	joinCfg := storage.BinaryJoinConfig{
@@ -75,9 +66,9 @@ func lowerBinaryVectorJoin(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQ
 		return finalizeRenderedFragment(renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams})
 	case native.RenderModeRange:
 		lhsBoundsCtx := ctx
-		lhsBoundsCtx.Params = rangeSideParams(ctx.Params, lhsNativeInfo.Fragment)
+		lhsBoundsCtx.Params = rangeSideParams(ctx.Params, n.LHS)
 		rhsBoundsCtx := ctx
-		rhsBoundsCtx.Params = rangeSideParams(ctx.Params, rhsNativeInfo.Fragment)
+		rhsBoundsCtx.Params = rangeSideParams(ctx.Params, n.RHS)
 		lhsSQL, lhsParams, err := lowerBinaryVectorJoinSide(lhsBoundsCtx, n.LHS, "lhs")
 		if err != nil {
 			return RenderedQuery{}, err
@@ -109,12 +100,11 @@ func lowerBinaryVectorJoinSide(ctx LoweringCtx, child logicalpkg.Node, prefix st
 }
 
 // rangeSideParams computes the per-side RenderParams for range-mode binary
-// vector join lowering, deriving RequiredStartMS/EndMS from the child's
-// fragment via native.RequiredInputBounds (same helper the Fragment path
-// uses). Transitional tap: once bounds computation has a logical-side
-// counterpart this can swap over without changing the rendered SQL.
-func rangeSideParams(outer RenderParams, childFragment *native.NativeFragment) RenderParams {
-	requiredStartMS, requiredEndMS, _ := native.RequiredInputBounds(childFragment, nil, native.OptimizationContext{Mode: native.RenderModeRange, StartMS: outer.StartMS, EndMS: outer.EndMS, StepMS: outer.StepMS})
+// vector join lowering, deriving RequiredStartMS/EndMS via
+// logicalRequiredInputBounds — the logical-tree mirror of
+// native.RequiredInputBounds.
+func rangeSideParams(outer RenderParams, child logicalpkg.Node) RenderParams {
+	requiredStartMS, requiredEndMS, _ := logicalRequiredInputBounds(child, native.OptimizationContext{Mode: native.RenderModeRange, StartMS: outer.StartMS, EndMS: outer.EndMS, StepMS: outer.StepMS})
 	return RenderParams{
 		Mode:                native.RenderModeRange,
 		StartMS:             outer.StartMS,

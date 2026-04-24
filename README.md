@@ -14,6 +14,27 @@ Alertmanager, or a replacement for every TSDB responsibility. It is a read-side
 bridge: parse PromQL, choose the best safe execution strategy, query
 ClickHouse, and return Prometheus-compatible JSON.
 
+## Compatibility at a glance
+
+Promshim aims to be **100% Prometheus-compatible for the query API surface it
+serves, as far as exact compatibility is possible outside Prometheus's own TSDB
+implementation details**.
+
+The current correctness gate is not a hand-written smoke test. Promshim passes,
+within the narrow accepted-deviation policy below:
+
+- the full upstream `prometheus/compliance` PromQL suite, run against reference
+  Prometheus and promshim on the same frozen fixture;
+- promshim's own deterministic differential harness and dashboard-focused
+  corpora; and
+- native-only coverage runs that keep tier-2 gaps visible instead of silently
+  hiding them behind fallback execution.
+
+The only accepted deviations are narrow, documented cases where exact
+Prometheus behavior depends on storage-engine internals or tiny primitive-level
+floating-point differences. Everything else is treated as a bug or visible
+coverage gap.
+
 ## Where it fits
 
 ```mermaid
@@ -154,8 +175,8 @@ intended for rollout confidence, not durable audit storage.
 
 ## PromQL coverage
 
-Coverage is measured, not hand-waved. The current repository tracks support
-with three complementary mechanisms:
+Coverage is measured, not hand-waved. The compatibility claim above is backed
+by these gates:
 
 - `go run ./cmd/promshim-matrix` generates `.pi/path2-compliance-matrix.md` and
   `.pi/path2-compliance-matrix.json` from the parser-visible feature surface.
@@ -164,19 +185,30 @@ with three complementary mechanisms:
 - `./scripts/run-harness.sh` runs differential corpora, dashboard-focused
   corpora, compliance, and the benchmark tripwire.
 
-The native SQL path currently covers the major PromQL families used by the
-harness: selectors and matchers, `offset`/`@` modifiers, subquery selectors,
-aggregations including selection aggregations, scalar/vector arithmetic,
-comparisons, vector matching, set operators, range/counter functions, histogram
-helper functions, label mutation, sort functions, scalar roots, `absent`,
-`absent_over_time`, and `info`.
+Tier 2 native SQL is intended to be a complete PromQL execution path for the
+float-sample/classic-histogram query surface this repo targets. In
+`force_supported` mode, the full compliance and repo-owned harness suites are
+expected to run without unsupported native roots: selectors and matchers,
+`offset`/`@` modifiers, subqueries, aggregations including selection
+aggregations, scalar/vector arithmetic, comparisons, vector matching, set
+operators, range/counter functions, classic histogram helper functions, label
+mutation, sort functions, scalar roots, `absent`, `absent_over_time`, `info`,
+and the rest of the targeted PromQL surface are tier-2-covered.
+
+The explicit scope boundary is **native histograms**. Promshim supports classic
+Prometheus histogram bucket queries and histogram helper functions, but native
+histogram samples are not currently part of the ClickHouse `TimeSeries`/harness
+contract.
 
 Known accepted deviations are intentionally narrow and live in
 `harness/compliance/expected-failures.json`:
 
 - `topk` exact-tie ordering can differ because Prometheus exposes TSDB iteration
   order as a tie-breaker that is not derivable from labels alone.
-- A bounded tolerance exists for tiny ClickHouse-vs-Go modulo float drift.
+- A bounded tolerance exists for tiny ClickHouse-vs-Go modulo float drift:
+  absolute error must stay within `1e-6`, with labels and timestamps still
+  matching exactly. This accounts for ClickHouse's modulo implementation using
+  `x - trunc(x / y) * y` where Go/Prometheus uses `math.Mod`.
 
 Anything else is treated as a visible bug or coverage gap, not something to
 hide in the allowlist.
@@ -318,6 +350,19 @@ long-range data to be seeded first:
 ./scripts/run-bench.sh --long-range 30d --matrix
 ```
 
+Published benchmark matrix: **pending**. The current native-lowering IR migration
+is still in flight, so the README intentionally does not freeze a performance
+matrix yet. After that migration lands, run the short and long-range benchmark
+profiles, preserve the artifacts, and add the resulting Native-vs-Prometheus
+matrix here.
+
+Cost-based execution (CBE) routing is also planned. The intended first version is
+not a dynamic black-box optimizer; it should use static, pre-known heuristics
+calibrated from this bench suite to decide when a lower tier is predictably
+faster for a bounded small-query class, while keeping strict tier priority as the
+default and preserving native-only compliance visibility. The working plan lives
+in `.pi/cost-based-routing-plan.md`.
+
 For native SQL optimization work, preserve before/after artifacts and inspect
 ClickHouse profile counters rather than relying on wall-clock noise alone. The
 repo includes helper scripts such as:
@@ -398,7 +443,13 @@ an explicit set of trade-offs:
 ## Current status
 
 Promshim is a working compatibility bridge for the repository's ClickHouse
-`TimeSeries` metrics experiments. The main native SQL path has broad PromQL
-family coverage and a fast validation harness, but the project should still be
-read as an active migration/compatibility layer rather than a general-purpose
-Prometheus replacement.
+`TimeSeries` metrics experiments. Its Prometheus query compatibility is gated by
+the full upstream compliance suite plus repo-owned differential/dashboard
+harnesses, with only narrow documented deviations for behavior that cannot be
+reproduced exactly outside Prometheus internals. The main native SQL path has
+broad PromQL family coverage, but the project should still be read as an active
+migration/compatibility layer rather than a general-purpose Prometheus
+replacement. A published benchmark matrix will be added after the current
+native-lowering IR migration settles and the benchmark artifacts are refreshed.
+CBE routing based on static heuristics from those benchmark results is planned,
+but strict tier-priority routing remains the default today.

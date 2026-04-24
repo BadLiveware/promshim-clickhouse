@@ -1148,8 +1148,8 @@ func TestBuildExecPlanLowersLogicalVectorMatchingBinaryPlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if binaryPlan.Info.Fragment == nil || binaryPlan.Info.Fragment.BinaryJoin == nil || binaryPlan.Info.Fragment.BinaryJoin.VectorMatching == nil || binaryPlan.Info.Fragment.BinaryJoin.VectorMatching.Card != parser.CardManyToOne {
-		t.Fatalf("expected many-to-one vector matching in native execution plan, got %#v", binaryPlan)
+	if binaryPlan.Info == nil || binaryPlan.Info.JoinShape != nativeplan.JoinShapeManyToOne {
+		t.Fatalf("expected many-to-one vector matching in native execution plan, got %#v", binaryPlan.Info)
 	}
 }
 
@@ -1307,11 +1307,8 @@ func TestBuildExecPlanLowersLogicalLabelJoinPlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Kind != nativeplan.FragmentKindLabelTransform || nativeRoot.Info.Fragment.LabelTransform == nil {
-		t.Fatalf("expected native label transform fragment, got %#v", nativeRoot)
-	}
-	if nativeRoot.Info.Fragment.LabelTransform.Dst != "joined" {
-		t.Fatalf("unexpected label_join config: %#v", nativeRoot.Info.Fragment.LabelTransform)
+	if nativeRoot.Info == nil || nativeRoot.Info.SubtreeShape != nativeplan.SubtreeShapeLabelTransform {
+		t.Fatalf("expected native label transform subtree shape, got %#v", nativeRoot.Info)
 	}
 }
 

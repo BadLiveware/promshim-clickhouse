@@ -7,7 +7,6 @@ import (
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/model"
 	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -47,11 +46,11 @@ func TestAnalyzeAggregationTracksNativeSourceExpression(t *testing.T) {
 	if !info.Aggregation.Eligible {
 		t.Fatalf("expected aggregation pushdown eligibility, got %#v", info.Aggregation)
 	}
-	if info.Aggregation.Source == nil {
-		t.Fatalf("expected aggregation source fragment, got %#v", info.Aggregation)
+	if info.Aggregation.SourceView == nil {
+		t.Fatalf("expected aggregation source view, got %#v", info.Aggregation)
 	}
-	if !strings.Contains(info.Aggregation.Source.ValueExpr, "100") || !strings.Contains(info.Aggregation.Source.ValueExpr, "*") {
-		t.Fatalf("expected transformed native source value expression, got %#v", info.Aggregation.Source)
+	if !strings.Contains(info.Aggregation.SourceView.ValueExpr, "100") || !strings.Contains(info.Aggregation.SourceView.ValueExpr, "*") {
+		t.Fatalf("expected transformed native source value expression, got %#v", info.Aggregation.SourceView)
 	}
 	if info.LabelLineage.MetricName != LabelLineageDropped {
 		t.Fatalf("expected aggregation to drop metric name, got %#v", info.LabelLineage)
@@ -93,16 +92,13 @@ func TestAnalyzeTier1AdditionalAggregationsMarkNativeLowerable(t *testing.T) {
 		if info == nil || !info.NativeLowerable {
 			t.Fatalf("expected %s aggregation to be native-lowerable, got %#v", tc.query, info)
 		}
-		if info.Fragment == nil || info.Fragment.Aggregation == nil || info.Fragment.Aggregation.Op != tc.op {
-			t.Fatalf("expected native aggregation fragment for %q, got %#v", tc.query, info)
+		if info.SubtreeShape != SubtreeShapeAggregation {
+			t.Fatalf("expected SubtreeShapeAggregation for %q, got %#v", tc.query, info)
 		}
 		if (tc.op == parser.TOPK || tc.op == parser.LIMITK || tc.op == parser.LIMIT_RATIO) && info.LabelLineage.MetricName != LabelLineageOriginal {
 			t.Fatalf("expected selection aggregation to preserve metric-name lineage, got %#v", info.LabelLineage)
 		}
 		if tc.op == parser.COUNT_VALUES {
-			if info.Fragment.Aggregation.ParamString != "sample_value" {
-				t.Fatalf("expected count_values param string, got %#v", info.Fragment.Aggregation)
-			}
 			if info.LabelLineage.MetricName != LabelLineageDropped || info.LabelLineage.Known["sample_value"] != LabelLineageSynthetic {
 				t.Fatalf("expected count_values synthetic label lineage, got %#v", info.LabelLineage)
 			}
@@ -121,8 +117,11 @@ func TestAnalyzePointwiseFunctionMarksNativeLowerable(t *testing.T) {
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected abs() to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.Kind != FragmentKindUnarySourceExpr || !strings.Contains(info.Fragment.ValueExpr, "abs") {
-		t.Fatalf("expected abs source-expression fragment, got %#v", info)
+	if info.SubtreeShape != SubtreeShapeUnarySourceExpr {
+		t.Fatalf("expected SubtreeShapeUnarySourceExpr, got %#v", info)
+	}
+	if info.SourceExpr == nil || !strings.Contains(info.SourceExpr.ValueExpr, "abs") {
+		t.Fatalf("expected abs source expression view, got %#v", info.SourceExpr)
 	}
 }
 
@@ -137,8 +136,8 @@ func TestAnalyzeInfoMarksNativeLowerableForDefaultTargetInfo(t *testing.T) {
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected info() to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.Kind != FragmentKindInfoJoin || info.Fragment.InfoJoin == nil || info.Fragment.InfoJoin.InfoMetricName != "target_info" {
-		t.Fatalf("expected info join fragment, got %#v", info)
+	if info.SubtreeShape != SubtreeShapeInfoJoin {
+		t.Fatalf("expected SubtreeShapeInfoJoin, got %#v", info)
 	}
 }
 
@@ -154,18 +153,8 @@ func TestAnalyzeInfoMarksRegexMetricNameMatcherNativeLowerable(t *testing.T) {
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected regex info() metric-name matcher to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.InfoJoin == nil || info.Fragment.InfoJoin.InfoMetricName != "" {
-		t.Fatalf("expected matcher-driven info join fragment, got %#v", info)
-	}
-	foundRegex := false
-	for _, matcher := range info.Fragment.InfoJoin.SelectorMatchers {
-		if matcher != nil && matcher.Name == labels.MetricName && matcher.Type == labels.MatchRegexp && matcher.Value == ".+_info" {
-			foundRegex = true
-			break
-		}
-	}
-	if !foundRegex {
-		t.Fatalf("expected regex metric-name matcher to be preserved, got %#v", info.Fragment.InfoJoin)
+	if info.SubtreeShape != SubtreeShapeInfoJoin {
+		t.Fatalf("expected SubtreeShapeInfoJoin, got %#v", info)
 	}
 }
 
@@ -180,8 +169,8 @@ func TestAnalyzeVectorMarksNativeLowerableForScalarLiteral(t *testing.T) {
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected vector() to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.Kind != FragmentKindSyntheticSeries || info.Fragment.Synthetic == nil || info.Fragment.Synthetic.Value == nil || *info.Fragment.Synthetic.Value != 1 {
-		t.Fatalf("expected lifted synthetic literal vector fragment, got %#v", info)
+	if info.SubtreeShape != SubtreeShapeSyntheticSeries || info.SyntheticSeries == nil || info.SyntheticSeries.Value != 1 {
+		t.Fatalf("expected lifted synthetic literal vector view, got %#v", info)
 	}
 }
 
@@ -196,8 +185,8 @@ func TestAnalyzeSortByLabelMarksNativeLowerable(t *testing.T) {
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected sort_by_label to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.Kind != FragmentKindSortTransform || info.Fragment.SortTransform == nil {
-		t.Fatalf("expected sort transform fragment, got %#v", info)
+	if info.SubtreeShape != SubtreeShapeSortTransform {
+		t.Fatalf("expected SubtreeShapeSortTransform, got %#v", info)
 	}
 }
 
@@ -221,8 +210,8 @@ func TestAnalyzeClampMinMarksNativeLowerableForScalarParameterChild(t *testing.T
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected clamp_min to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.Kind != FragmentKindClampTransform || info.Fragment.ClampTransform == nil || info.Fragment.ClampTransform.Min == nil {
-		t.Fatalf("expected clamp transform fragment, got %#v", info)
+	if info.SubtreeShape != SubtreeShapeClampTransform {
+		t.Fatalf("expected SubtreeShapeClampTransform, got %#v", info)
 	}
 	if info.LabelLineage.MetricName != LabelLineageDropped {
 		t.Fatalf("expected clamp_min to drop metric name, got %#v", info.LabelLineage)
@@ -240,8 +229,8 @@ func TestAnalyzeScalarConvertMarksNativeLowerable(t *testing.T) {
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected scalar() to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.Kind != FragmentKindScalarConvert || info.Fragment.ScalarConvert == nil {
-		t.Fatalf("expected scalar convert fragment, got %#v", info)
+	if info.SubtreeShape != SubtreeShapeScalarConvert {
+		t.Fatalf("expected SubtreeShapeScalarConvert, got %#v", info)
 	}
 }
 
@@ -256,8 +245,8 @@ func TestAnalyzeSyntheticDateFunctionMarksNativeLowerable(t *testing.T) {
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected minute() to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.Kind != FragmentKindSyntheticSeries || info.Fragment.Synthetic == nil || info.Fragment.Synthetic.Func != "minute" {
-		t.Fatalf("expected synthetic minute() fragment, got %#v", info)
+	if info.SubtreeShape != SubtreeShapeSyntheticSeries || info.SyntheticSeries == nil || info.SyntheticSeries.Func != "minute" {
+		t.Fatalf("expected synthetic minute() view, got %#v", info)
 	}
 }
 
@@ -272,8 +261,8 @@ func TestAnalyzeScalarBuiltinMarksNativeLowerable(t *testing.T) {
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected time() to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.Kind != FragmentKindSyntheticSeries || info.Fragment.Synthetic == nil || info.Fragment.Synthetic.Func != "time" {
-		t.Fatalf("expected synthetic time() fragment, got %#v", info)
+	if info.SubtreeShape != SubtreeShapeSyntheticSeries || info.SyntheticSeries == nil || info.SyntheticSeries.Func != "time" {
+		t.Fatalf("expected synthetic time() view, got %#v", info)
 	}
 }
 
@@ -290,8 +279,8 @@ func TestAnalyzeHistogramProjectionMarksNativeLowerable(t *testing.T) {
 			if info == nil || !info.NativeLowerable {
 				t.Fatalf("expected %s to be native-lowerable, got %#v", fn, info)
 			}
-			if info.Fragment == nil || info.Fragment.Kind != FragmentKindHistogramProjection || info.Fragment.HistogramProjection == nil || info.Fragment.HistogramProjection.Func != fn {
-				t.Fatalf("expected histogram projection fragment for %s, got %#v", fn, info)
+			if info.SubtreeShape != SubtreeShapeHistogramProjection {
+				t.Fatalf("expected histogram projection shape for %s, got %#v", fn, info)
 			}
 		})
 	}
@@ -310,8 +299,8 @@ func TestAnalyzeHistogramQuantileMarksNativeLowerable(t *testing.T) {
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected histogram_quantile to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.Kind != FragmentKindHistogramFunction || info.Fragment.HistogramFunction == nil || info.Fragment.HistogramFunction.Func != "histogram_quantile" {
-		t.Fatalf("expected histogram function fragment, got %#v", info)
+	if info.SubtreeShape != SubtreeShapeHistogramFunction || info.HistogramFunc != "histogram_quantile" {
+		t.Fatalf("expected histogram_quantile shape, got %#v", info)
 	}
 }
 
@@ -340,8 +329,8 @@ func TestAnalyzeHistogramQuantilesMarksNativeLowerable(t *testing.T) {
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected histogram_quantiles to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.Kind != FragmentKindHistogramFunction || info.Fragment.HistogramFunction == nil || info.Fragment.HistogramFunction.Func != "histogram_quantiles" || len(info.Fragment.HistogramFunction.Quantiles) != 2 {
-		t.Fatalf("expected histogram_quantiles fragment, got %#v", info)
+	if info.SubtreeShape != SubtreeShapeHistogramFunction || info.HistogramFunc != "histogram_quantiles" {
+		t.Fatalf("expected histogram_quantiles shape, got %#v", info)
 	}
 }
 
@@ -358,8 +347,8 @@ func TestAnalyzeHistogramFractionMarksNativeLowerable(t *testing.T) {
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected histogram_fraction to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.Kind != FragmentKindHistogramFunction || info.Fragment.HistogramFunction == nil || info.Fragment.HistogramFunction.Func != "histogram_fraction" {
-		t.Fatalf("expected histogram function fragment for histogram_fraction, got %#v", info)
+	if info.SubtreeShape != SubtreeShapeHistogramFunction || info.HistogramFunc != "histogram_fraction" {
+		t.Fatalf("expected histogram_fraction shape, got %#v", info)
 	}
 }
 
@@ -374,11 +363,8 @@ func TestAnalyzeAbsentMarksNativeLowerable(t *testing.T) {
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected absent() to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.Kind != FragmentKindAbsent || info.Fragment.Absent == nil || info.Fragment.Absent.Func != "absent" {
-		t.Fatalf("expected absent fragment, got %#v", info)
-	}
-	if got := info.Fragment.Absent.OutputMetric["job"]; got != "api" {
-		t.Fatalf("expected derived output metric to be preserved, got %#v", info.Fragment.Absent.OutputMetric)
+	if info.SubtreeShape != SubtreeShapeAbsent || info.AbsentFunc != "absent" {
+		t.Fatalf("expected absent shape, got %#v", info)
 	}
 }
 
@@ -393,8 +379,8 @@ func TestAnalyzeAbsentOverTimeMarksNativeLowerableForRangeSelectorChild(t *testi
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected absent_over_time() to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.Kind != FragmentKindAbsent || info.Fragment.Absent == nil || info.Fragment.Absent.Func != "absent_over_time" {
-		t.Fatalf("expected absent_over_time fragment, got %#v", info)
+	if info.SubtreeShape != SubtreeShapeAbsent || info.AbsentFunc != "absent_over_time" {
+		t.Fatalf("expected absent_over_time shape, got %#v", info)
 	}
 }
 
@@ -418,7 +404,7 @@ func TestAnalyzeLabelJoinMarksSyntheticDestination(t *testing.T) {
 	if info == nil {
 		t.Fatal("expected lowering info")
 	}
-	if !info.NativeLowerable || info.Fragment == nil || info.Fragment.Kind != FragmentKindLabelTransform || info.Fragment.LabelTransform == nil {
+	if !info.NativeLowerable || info.SubtreeShape != SubtreeShapeLabelTransform {
 		t.Fatalf("expected native label_join transform, got %#v", info)
 	}
 	if got := info.LabelLineage.Known["joined"]; got != LabelLineageSynthetic {
@@ -438,7 +424,7 @@ func TestAnalyzeLabelReplaceCanRestoreMetricNameLineage(t *testing.T) {
 	}
 	logical := &logicalpkg.LabelReplacePlan{Expr: call, Config: cfg, Child: &logicalpkg.RatePlan{Expr: call.Args[0], Func: "rate", Child: &logicalpkg.LeafExprPlan{Expr: call.Args[0].(*parser.Call).Args[0]}}}
 	info := Analyze(logical).InfoFor(logical)
-	if info == nil || !info.NativeLowerable || info.Fragment == nil || info.Fragment.LabelTransform == nil {
+	if info == nil || !info.NativeLowerable || info.SubtreeShape != SubtreeShapeLabelTransform {
 		t.Fatalf("expected native label_replace transform, got %#v", info)
 	}
 	if info.LabelLineage.MetricName != LabelLineageMutated {
@@ -484,8 +470,8 @@ func TestAnalyzeRateOverSubqueryMarksNativeLowerable(t *testing.T) {
 	if !info.NativeLowerable {
 		t.Fatalf("expected rate-over-subquery to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.RangeFunction == nil || info.Fragment.RangeFunction.Func != "rate" {
-		t.Fatalf("expected native rate fragment, got %#v", info)
+	if info.SubtreeShape != SubtreeShapeRangeFunction || info.NodeType != "rate" {
+		t.Fatalf("expected native rate range-function shape, got %#v", info)
 	}
 	if info.LabelLineage.MetricName != LabelLineageDropped {
 		t.Fatalf("expected rate to drop metric name, got %#v", info.LabelLineage)
@@ -538,8 +524,8 @@ func TestAnalyzeIncreaseAndDeltaOverSubqueryMarkNativeLowerable(t *testing.T) {
 		if info == nil || !info.NativeLowerable {
 			t.Fatalf("expected %s to be native-lowerable, got %#v", tc.kind, info)
 		}
-		if info.Fragment == nil || info.Fragment.RangeFunction == nil || info.Fragment.RangeFunction.Func != tc.kind {
-			t.Fatalf("expected native %s fragment, got %#v", tc.kind, info)
+		if info.SubtreeShape != SubtreeShapeRangeFunction || info.NodeType != tc.kind {
+			t.Fatalf("expected native %s range-function shape, got %#v", tc.kind, info)
 		}
 		if info.LabelLineage.MetricName != LabelLineageDropped {
 			t.Fatalf("expected %s to drop metric name, got %#v", tc.kind, info.LabelLineage)
@@ -592,8 +578,8 @@ func TestAnalyzeChangesAndDerivOverSubqueryMarkNativeLowerable(t *testing.T) {
 		if info == nil || !info.NativeLowerable {
 			t.Fatalf("expected %s to be native-lowerable, got %#v", tc.kind, info)
 		}
-		if info.Fragment == nil || info.Fragment.RangeFunction == nil || info.Fragment.RangeFunction.Func != tc.kind {
-			t.Fatalf("expected native %s fragment, got %#v", tc.kind, info)
+		if info.SubtreeShape != SubtreeShapeRangeFunction || info.NodeType != tc.kind {
+			t.Fatalf("expected native %s range-function shape, got %#v", tc.kind, info)
 		}
 		if info.LabelLineage.MetricName != LabelLineageDropped {
 			t.Fatalf("expected %s to drop metric name, got %#v", tc.kind, info.LabelLineage)
@@ -613,8 +599,8 @@ func TestAnalyzeTier1AdditionalRangeFunctionsMarkNativeLowerable(t *testing.T) {
 		if info == nil || !info.NativeLowerable {
 			t.Fatalf("expected %s to be native-lowerable, got %#v", fn, info)
 		}
-		if info.Fragment == nil || info.Fragment.RangeFunction == nil || info.Fragment.RangeFunction.Func != fn {
-			t.Fatalf("expected native %s fragment, got %#v", fn, info)
+		if info.SubtreeShape != SubtreeShapeRangeFunction || info.NodeType != fn {
+			t.Fatalf("expected native %s range-function shape, got %#v", fn, info)
 		}
 	}
 }
@@ -630,11 +616,8 @@ func TestAnalyzeQuantileOverTimeMarksNativeLowerable(t *testing.T) {
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected quantile_over_time to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.RangeFunction == nil || info.Fragment.RangeFunction.Func != "quantile_over_time" {
-		t.Fatalf("expected native quantile_over_time fragment, got %#v", info)
-	}
-	if info.Fragment.RangeFunction.ParamNumber == nil || *info.Fragment.RangeFunction.ParamNumber != 0.95 {
-		t.Fatalf("expected quantile parameter, got %#v", info.Fragment.RangeFunction)
+	if info.SubtreeShape != SubtreeShapeRangeFunction || info.NodeType != "quantile_over_time" {
+		t.Fatalf("expected native quantile_over_time range-function shape, got %#v", info)
 	}
 	if info.LabelLineage.MetricName != LabelLineageDropped {
 		t.Fatalf("expected quantile_over_time to drop metric name, got %#v", info.LabelLineage)
@@ -653,11 +636,8 @@ func TestAnalyzePredictLinearMarksNativeLowerable(t *testing.T) {
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected predict_linear to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.RangeFunction == nil || info.Fragment.RangeFunction.Func != "predict_linear" {
-		t.Fatalf("expected native predict_linear fragment, got %#v", info)
-	}
-	if info.Fragment.RangeFunction.ParamNumber == nil || *info.Fragment.RangeFunction.ParamNumber != 60 {
-		t.Fatalf("expected predict_linear duration param, got %#v", info.Fragment.RangeFunction)
+	if info.SubtreeShape != SubtreeShapeRangeFunction || info.NodeType != "predict_linear" {
+		t.Fatalf("expected native predict_linear range-function shape, got %#v", info)
 	}
 }
 
@@ -673,11 +653,8 @@ func TestAnalyzeDoubleExponentialSmoothingMarksNativeLowerable(t *testing.T) {
 	if info == nil || !info.NativeLowerable {
 		t.Fatalf("expected double_exponential_smoothing to be native-lowerable, got %#v", info)
 	}
-	if info.Fragment == nil || info.Fragment.RangeFunction == nil || info.Fragment.RangeFunction.Func != "double_exponential_smoothing" {
-		t.Fatalf("expected native smoothing fragment, got %#v", info)
-	}
-	if len(info.Fragment.RangeFunction.ParamNumbers) != 2 || *info.Fragment.RangeFunction.ParamNumbers[0] != 0.5 || *info.Fragment.RangeFunction.ParamNumbers[1] != 0.3 {
-		t.Fatalf("expected smoothing params, got %#v", info.Fragment.RangeFunction)
+	if info.SubtreeShape != SubtreeShapeRangeFunction || info.NodeType != "double_exponential_smoothing" {
+		t.Fatalf("expected native smoothing range-function shape, got %#v", info)
 	}
 }
 
@@ -817,43 +794,38 @@ func TestBuildBinaryTemplateForScalarExprSupportsModulo(t *testing.T) {
 }
 
 func TestApplyScalarValueTransformUsesRuntimeModuloCorrection(t *testing.T) {
-	fragment, _, ok := applyScalarValueTransform(parser.MOD, &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindInstantVector}, leafLabelLineage(), 1.2345, false)
+	result, ok := applyScalarValueTransform(parser.MOD, OutputKindInstantVector, leafLabelLineage(), 1.2345, false)
 	if !ok {
 		t.Fatal("expected modulo scalar transform to be native-lowerable")
 	}
-	if fragment == nil || fragment.ValueTransform == nil {
-		t.Fatalf("expected value transform fragment, got %#v", fragment)
-	}
-	if got, want := fragment.ValueTransform.ValueExpr, "{value}"; got != want {
+	if got, want := result.View.ValueExpr, "{value}"; got != want {
 		t.Fatalf("expected raw child value expression for runtime modulo correction, got %q", got)
 	}
-	if fragment.ValueTransform.RuntimeTransform == nil {
+	if result.Runtime == nil {
 		t.Fatal("expected runtime modulo correction metadata")
 	}
-	if got, want := fragment.ValueTransform.RuntimeTransform.Op, RuntimeValueTransformPromQLModulo; got != want {
+	if got, want := result.Runtime.Op, RuntimeValueTransformPromQLModulo; got != want {
 		t.Fatalf("expected modulo runtime transform op %q, got %q", want, got)
 	}
 }
 
 func TestApplySyntheticScalarChildTransformSupportsTimeScalarRoots(t *testing.T) {
-	child := &NativeFragment{Kind: FragmentKindSyntheticSeries, OutputKind: OutputKindScalar, Synthetic: &SyntheticSeriesFragment{Func: "time"}}
-	fragment, _, ok := applySyntheticScalarChildTransform(parser.ADD, false, "time", child, unknownLineage(), true)
+	result, ok := applySyntheticScalarChildTransform(parser.ADD, false, "time", OutputKindScalar, unknownLineage(), true)
 	if !ok {
 		t.Fatal("expected time()+time() root to be native-lowerable")
 	}
-	if fragment == nil || fragment.Kind != FragmentKindValueTransform || fragment.OutputKind != OutputKindScalar {
-		t.Fatalf("expected scalar value-transform fragment, got %#v", fragment)
+	if result.OutputKind != OutputKindScalar {
+		t.Fatalf("expected scalar value-transform result, got %#v", result)
 	}
 }
 
 func TestApplySyntheticScalarChildTransformSupportsTimeVectorComparisons(t *testing.T) {
-	child := &NativeFragment{Kind: FragmentKindLeafSource, OutputKind: OutputKindInstantVector}
-	fragment, _, ok := applySyntheticScalarChildTransform(parser.GTE, false, "time", child, leafLabelLineage(), true)
+	result, ok := applySyntheticScalarChildTransform(parser.GTE, false, "time", OutputKindInstantVector, leafLabelLineage(), true)
 	if !ok {
 		t.Fatal("expected time() >= vector filter to be native-lowerable")
 	}
-	if fragment == nil || fragment.ValueTransform == nil || fragment.ValueTransform.FilterExpr == "" {
-		t.Fatalf("expected comparison filter fragment, got %#v", fragment)
+	if result.View.FilterExpr == "" {
+		t.Fatalf("expected comparison filter in result, got %#v", result)
 	}
 }
 

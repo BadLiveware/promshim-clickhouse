@@ -6,11 +6,25 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-func syntheticLiteralValue(fragment *NativeFragment) (float64, bool) {
-	if fragment == nil || fragment.Kind != FragmentKindSyntheticSeries || fragment.Synthetic == nil || fragment.Synthetic.Func != "literal" || fragment.Synthetic.Value == nil {
+// syntheticLiteralValue reports whether info corresponds to a folded
+// scalar literal (FragmentKindSyntheticSeries / OutputKindScalar with
+// SyntheticSeries.Func == "literal"), returning the literal value. It
+// drives the Analyze walk's constant-folding branches for unary and
+// binary plans without dereferencing NativeFragment.
+func syntheticLiteralValue(info *LoweringInfo) (float64, bool) {
+	if info == nil || info.SyntheticSeries == nil {
 		return 0, false
 	}
-	return *fragment.Synthetic.Value, true
+	if info.SubtreeShape != SubtreeShapeSyntheticSeries {
+		return 0, false
+	}
+	if info.OutputKind != OutputKindScalar {
+		return 0, false
+	}
+	if info.SyntheticSeries.Func != "literal" {
+		return 0, false
+	}
+	return info.SyntheticSeries.Value, true
 }
 
 func foldUnaryScalarLiteral(op parser.ItemType, value float64) (float64, bool) {

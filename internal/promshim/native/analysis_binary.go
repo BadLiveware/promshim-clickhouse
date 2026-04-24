@@ -141,28 +141,40 @@ func applyUnarySourceTransform(op parser.ItemType, valueExpr string, childDropsM
 	}
 }
 
-func applyUnaryValueTransform(op parser.ItemType, childFragment *NativeFragment, childLineage LabelLineage) (*NativeFragment, LabelLineage, bool) {
-	if childFragment == nil || (childFragment.OutputKind != OutputKindInstantVector && childFragment.OutputKind != OutputKindScalar) {
-		return nil, LabelLineage{}, false
+// valueTransformResult captures the analysis-side outputs of an
+// apply*Transform helper. Each helper populates an info.ValueTransform
+// view, the DropsMetric flag, an optional RuntimeValueTransform, and
+// the resulting LabelLineage so the Analyze caller can flip those onto
+// the LoweringInfo without any NativeFragment allocation.
+type valueTransformResult struct {
+	View       ValueTransformView
+	OutputKind OutputKind
+	DropsMetric bool
+	Runtime    *RuntimeValueTransform
+	Lineage    LabelLineage
+}
+
+func applyUnaryValueTransform(op parser.ItemType, childOutputKind OutputKind, childDropsMetric bool, childLineage LabelLineage) (valueTransformResult, bool) {
+	if childOutputKind != OutputKindInstantVector && childOutputKind != OutputKindScalar {
+		return valueTransformResult{}, false
 	}
-	valueExpr, dropsMetric, ok := applyUnarySourceTransform(op, "{value}", childFragment.DropsMetric)
+	valueExpr, dropsMetric, ok := applyUnarySourceTransform(op, "{value}", childDropsMetric)
 	if !ok {
-		return nil, LabelLineage{}, false
+		return valueTransformResult{}, false
 	}
 	lineage := passthroughLabelLineage(childLineage)
 	if dropsMetric {
 		lineage = withMetricNameState(lineage, LabelLineageDropped)
 	}
-	return &NativeFragment{
-		Kind:        FragmentKindValueTransform,
-		OutputKind:  childFragment.OutputKind,
-		DropsMetric: dropsMetric,
-		ValueTransform: &ValueTransformFragment{
-			Child:       childFragment,
+	return valueTransformResult{
+		View: ValueTransformView{
 			ValueExpr:   valueExpr,
 			DropsMetric: dropsMetric,
 		},
-	}, lineage, true
+		OutputKind:  childOutputKind,
+		DropsMetric: dropsMetric,
+		Lineage:     lineage,
+	}, true
 }
 
 func applyBinarySourceTransform(op parser.ItemType, valueExpr string, scalar float64, scalarOnLeft bool) (string, bool, bool) {
@@ -205,35 +217,34 @@ func applyBinarySourceTransform(op parser.ItemType, valueExpr string, scalar flo
 	}
 }
 
-func applyRoundValueTransform(childFragment *NativeFragment, childLineage LabelLineage, toNearest float64) (*NativeFragment, LabelLineage, bool) {
-	if childFragment == nil || childFragment.OutputKind != OutputKindInstantVector {
-		return nil, LabelLineage{}, false
+func applyRoundValueTransform(childOutputKind OutputKind, childLineage LabelLineage, toNearest float64) (valueTransformResult, bool) {
+	if childOutputKind != OutputKindInstantVector {
+		return valueTransformResult{}, false
 	}
 	if toNearest == 0 || math.IsNaN(toNearest) || math.IsInf(toNearest, 0) {
-		return nil, LabelLineage{}, false
+		return valueTransformResult{}, false
 	}
 	multiplier := storage.NativeFloatLiteral(toNearest)
 	valueExpr := "if(isNaN({value}) OR isInfinite({value}), {value}, if((({value}) / " + multiplier + ") >= 0, floor((({value}) / " + multiplier + ") + 0.5), ceil((({value}) / " + multiplier + ") - 0.5)) * " + multiplier + ")"
 	lineage := withMetricNameState(passthroughLabelLineage(childLineage), LabelLineageDropped)
-	return &NativeFragment{
-		Kind:        FragmentKindValueTransform,
-		OutputKind:  OutputKindInstantVector,
-		DropsMetric: true,
-		ValueTransform: &ValueTransformFragment{
-			Child:       childFragment,
+	return valueTransformResult{
+		View: ValueTransformView{
 			ValueExpr:   valueExpr,
 			DropsMetric: true,
 		},
-	}, lineage, true
+		OutputKind:  OutputKindInstantVector,
+		DropsMetric: true,
+		Lineage:     lineage,
+	}, true
 }
 
-func applyScalarValueTransform(op parser.ItemType, vectorFragment *NativeFragment, vectorLineage LabelLineage, scalar float64, scalarOnLeft bool) (*NativeFragment, LabelLineage, bool) {
-	if vectorFragment == nil || (vectorFragment.OutputKind != OutputKindInstantVector && vectorFragment.OutputKind != OutputKindScalar) {
-		return nil, LabelLineage{}, false
+func applyScalarValueTransform(op parser.ItemType, vectorOutputKind OutputKind, vectorLineage LabelLineage, scalar float64, scalarOnLeft bool) (valueTransformResult, bool) {
+	if vectorOutputKind != OutputKindInstantVector && vectorOutputKind != OutputKindScalar {
+		return valueTransformResult{}, false
 	}
 	valueExpr, dropsMetric, ok := buildBinaryTemplateForScalarExpr(op, storage.NativeFloatLiteral(scalar), "{value}", scalarOnLeft)
 	if !ok {
-		return nil, LabelLineage{}, false
+		return valueTransformResult{}, false
 	}
 	var runtimeTransform *RuntimeValueTransform
 	if op == parser.MOD {
@@ -242,70 +253,65 @@ func applyScalarValueTransform(op parser.ItemType, vectorFragment *NativeFragmen
 		valueExpr = "{value}"
 	}
 	lineage := withMetricNameState(passthroughLabelLineage(vectorLineage), boolState(dropsMetric, LabelLineageDropped, vectorLineage.MetricName))
-	return &NativeFragment{
-		Kind:        FragmentKindValueTransform,
-		OutputKind:  vectorFragment.OutputKind,
-		DropsMetric: dropsMetric,
-		ValueTransform: &ValueTransformFragment{
-			Child:            vectorFragment,
-			ValueExpr:        valueExpr,
-			DropsMetric:      dropsMetric,
-			RuntimeTransform: runtimeTransform,
+	return valueTransformResult{
+		View: ValueTransformView{
+			ValueExpr:   valueExpr,
+			DropsMetric: dropsMetric,
 		},
-	}, lineage, true
+		OutputKind:  vectorOutputKind,
+		DropsMetric: dropsMetric,
+		Runtime:     runtimeTransform,
+		Lineage:     lineage,
+	}, true
 }
 
-func applyComparisonBoolTransform(op parser.ItemType, returnBool bool, vectorFragment *NativeFragment, vectorLineage LabelLineage, scalar float64, scalarOnLeft bool) (*NativeFragment, LabelLineage, bool) {
-	if vectorFragment == nil || !returnBool || (vectorFragment.OutputKind != OutputKindInstantVector && vectorFragment.OutputKind != OutputKindScalar) || !isComparisonBinaryOperator(op) {
-		return nil, LabelLineage{}, false
+func applyComparisonBoolTransform(op parser.ItemType, returnBool bool, vectorOutputKind OutputKind, vectorLineage LabelLineage, scalar float64, scalarOnLeft bool) (valueTransformResult, bool) {
+	if !returnBool || (vectorOutputKind != OutputKindInstantVector && vectorOutputKind != OutputKindScalar) || !isComparisonBinaryOperator(op) {
+		return valueTransformResult{}, false
 	}
 	filter, ok := comparisonFilterTemplate(op, scalar, scalarOnLeft)
 	if !ok {
-		return nil, LabelLineage{}, false
+		return valueTransformResult{}, false
 	}
 	lineage := unknownLineage()
-	if vectorFragment.OutputKind == OutputKindInstantVector {
+	if vectorOutputKind == OutputKindInstantVector {
 		lineage = withMetricNameState(passthroughLabelLineage(vectorLineage), LabelLineageDropped)
 	}
-	return &NativeFragment{
-		Kind:        FragmentKindValueTransform,
-		OutputKind:  vectorFragment.OutputKind,
-		DropsMetric: true,
-		ValueTransform: &ValueTransformFragment{
-			Child:       vectorFragment,
+	return valueTransformResult{
+		View: ValueTransformView{
 			ValueExpr:   "if(" + filter + ", 1.0, 0.0)",
 			DropsMetric: true,
 		},
-	}, lineage, true
+		OutputKind:  vectorOutputKind,
+		DropsMetric: true,
+		Lineage:     lineage,
+	}, true
 }
 
-func applyComparisonFilterTransform(op parser.ItemType, returnBool bool, vectorFragment *NativeFragment, vectorLineage LabelLineage, scalar float64, scalarOnLeft bool) (*NativeFragment, LabelLineage, bool) {
-	if vectorFragment == nil {
-		return nil, LabelLineage{}, false
-	}
+func applyComparisonFilterTransform(op parser.ItemType, returnBool bool, vectorOutputKind OutputKind, vectorLineage LabelLineage, scalar float64, scalarOnLeft bool) (valueTransformResult, bool) {
 	if !isComparisonBinaryOperator(op) {
-		return nil, LabelLineage{}, false
+		return valueTransformResult{}, false
 	}
 	if returnBool {
-		return nil, LabelLineage{}, false
+		return valueTransformResult{}, false
 	}
-	if vectorFragment.OutputKind != OutputKindInstantVector {
-		return nil, LabelLineage{}, false
+	if vectorOutputKind != OutputKindInstantVector {
+		return valueTransformResult{}, false
 	}
 	filter, ok := comparisonFilterTemplate(op, scalar, scalarOnLeft)
 	if !ok {
-		return nil, LabelLineage{}, false
+		return valueTransformResult{}, false
 	}
 	lineage := passthroughLabelLineage(vectorLineage)
-	return &NativeFragment{
-		Kind:       FragmentKindValueTransform,
-		OutputKind: OutputKindInstantVector,
-		ValueTransform: &ValueTransformFragment{
-			Child:      vectorFragment,
+	return valueTransformResult{
+		View: ValueTransformView{
 			ValueExpr:  "{value}",
 			FilterExpr: filter,
 		},
-	}, lineage, true
+		OutputKind:  OutputKindInstantVector,
+		DropsMetric: false,
+		Lineage:     lineage,
+	}, true
 }
 
 func comparisonFilterTemplate(op parser.ItemType, scalar float64, scalarOnLeft bool) (string, bool) {
@@ -352,62 +358,60 @@ func promQLModuloExpr(left, right string) string {
 	return "if(isNaN(" + left + ") OR isNaN(" + right + ") OR " + right + " = 0 OR isInfinite(" + left + "), nan, if(isInfinite(" + right + "), " + left + ", if(" + left + " < 0, " + negativeMod + ", " + positiveMod + ")))"
 }
 
-func applyScalarExprChildTransform(op parser.ItemType, returnBool bool, scalarExpr string, childFragment *NativeFragment, childLineage LabelLineage, scalarOnLeft bool) (*NativeFragment, LabelLineage, bool) {
-	if childFragment == nil || (childFragment.OutputKind != OutputKindInstantVector && childFragment.OutputKind != OutputKindScalar) {
-		return nil, LabelLineage{}, false
+func applyScalarExprChildTransform(op parser.ItemType, returnBool bool, scalarExpr string, childOutputKind OutputKind, childLineage LabelLineage, scalarOnLeft bool) (valueTransformResult, bool) {
+	if childOutputKind != OutputKindInstantVector && childOutputKind != OutputKindScalar {
+		return valueTransformResult{}, false
 	}
 	if isComparisonBinaryOperator(op) {
 		filter, ok := comparisonFilterExprTemplate(op, scalarExpr, scalarOnLeft)
 		if !ok {
-			return nil, LabelLineage{}, false
+			return valueTransformResult{}, false
 		}
 		if returnBool {
 			lineage := unknownLineage()
-			if childFragment.OutputKind == OutputKindInstantVector {
+			if childOutputKind == OutputKindInstantVector {
 				lineage = withMetricNameState(passthroughLabelLineage(childLineage), LabelLineageDropped)
 			}
-			return &NativeFragment{
-				Kind:        FragmentKindValueTransform,
-				OutputKind:  childFragment.OutputKind,
-				DropsMetric: true,
-				ValueTransform: &ValueTransformFragment{
-					Child:       childFragment,
+			return valueTransformResult{
+				View: ValueTransformView{
 					ValueExpr:   "if(" + filter + ", 1.0, 0.0)",
 					DropsMetric: true,
 				},
-			}, lineage, true
+				OutputKind:  childOutputKind,
+				DropsMetric: true,
+				Lineage:     lineage,
+			}, true
 		}
-		if childFragment.OutputKind != OutputKindInstantVector {
-			return nil, LabelLineage{}, false
+		if childOutputKind != OutputKindInstantVector {
+			return valueTransformResult{}, false
 		}
-		return &NativeFragment{
-			Kind:       FragmentKindValueTransform,
-			OutputKind: OutputKindInstantVector,
-			ValueTransform: &ValueTransformFragment{
-				Child:      childFragment,
+		return valueTransformResult{
+			View: ValueTransformView{
 				ValueExpr:  "{value}",
 				FilterExpr: filter,
 			},
-		}, passthroughLabelLineage(childLineage), true
+			OutputKind:  OutputKindInstantVector,
+			DropsMetric: false,
+			Lineage:     passthroughLabelLineage(childLineage),
+		}, true
 	}
 	template, dropsMetric, ok := buildBinaryTemplateForScalarExpr(op, scalarExpr, "{value}", scalarOnLeft)
 	if !ok {
-		return nil, LabelLineage{}, false
+		return valueTransformResult{}, false
 	}
 	lineage := unknownLineage()
-	if childFragment.OutputKind == OutputKindInstantVector {
+	if childOutputKind == OutputKindInstantVector {
 		lineage = withMetricNameState(passthroughLabelLineage(childLineage), boolState(dropsMetric, LabelLineageDropped, childLineage.MetricName))
 	}
-	return &NativeFragment{
-		Kind:        FragmentKindValueTransform,
-		OutputKind:  childFragment.OutputKind,
-		DropsMetric: dropsMetric,
-		ValueTransform: &ValueTransformFragment{
-			Child:       childFragment,
+	return valueTransformResult{
+		View: ValueTransformView{
 			ValueExpr:   template,
 			DropsMetric: dropsMetric,
 		},
-	}, lineage, true
+		OutputKind:  childOutputKind,
+		DropsMetric: dropsMetric,
+		Lineage:     lineage,
+	}, true
 }
 
 func buildBinaryTemplateForScalarExpr(op parser.ItemType, scalarExpr, valueExpr string, scalarOnLeft bool) (string, bool, bool) {

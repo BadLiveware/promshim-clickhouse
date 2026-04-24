@@ -282,6 +282,24 @@ type LoweringInfo struct {
 	// kinds. Populated during the Analyze walk for each lowerable node
 	// of these shapes. Nil otherwise. See SourceExprView.
 	SourceExpr *SourceExprView
+
+	// ValueTransform mirrors the renderer's ValueTransform wrapping view
+	// for BinaryPlan nodes whose scalar-involving shape lowers via
+	// renderValueTransformFromSource (comparison filters/bool,
+	// scalar-expression arms, synthetic-scalar arms). Populated during
+	// the Analyze walk alongside the ValueTransformFragment; nil when
+	// the node does not lower through that wrapper. See
+	// ValueTransformView.
+	ValueTransform *ValueTransformView
+
+	// SyntheticSeries captures the scalar-literal fold for BinaryPlan
+	// nodes whose two sides fold to a constant (e.g. `1 + 2`, `pi() +
+	// pi()` via syntheticLiteralValue). The lowerer dispatches off this
+	// view to renderScalarLiteralFragment without dereferencing
+	// info.Fragment. Populated alongside
+	// FragmentKindSyntheticSeries/OutputKindScalar with Func=="literal".
+	// Nil otherwise. See SyntheticSeriesView.
+	SyntheticSeries *SyntheticSeriesView
 }
 
 // SourceExprView is the analysis-side mirror of the Selector / ValueExpr /
@@ -310,6 +328,43 @@ type SourceExprView struct {
 	SourcePromQL parser.Expr
 	// DropsMetric mirrors fragment.DropsMetric.
 	DropsMetric bool
+}
+
+// ValueTransformView is the analysis-side mirror of the ValueExpr /
+// FilterExpr / DropsMetric fields on ValueTransformFragment for BinaryPlan
+// nodes whose scalar-involving shape lowers via
+// renderValueTransformFromSource. It lets Lower render those shapes
+// without dereferencing info.Fragment.
+//
+// VectorChildOnLeft identifies which side of the enclosing BinaryPlan
+// carries the non-scalar child whose SQL the ValueTransform wraps. When
+// true the vector child is n.LHS (n.RHS is the scalar side); when false
+// the vector child is n.RHS (n.LHS is the scalar side). Lower uses this
+// flag to pick which child to recurse through for the wrapper's inner
+// SELECT.
+type ValueTransformView struct {
+	// VectorChildOnLeft reports which BinaryPlan side carries the non-
+	// scalar child (see struct doc).
+	VectorChildOnLeft bool
+	// ValueExpr mirrors ValueTransformFragment.ValueExpr — the inner
+	// value template wrapped around the child's "value" column.
+	ValueExpr string
+	// FilterExpr mirrors ValueTransformFragment.FilterExpr — the filter
+	// template for comparison-filter arms (empty otherwise).
+	FilterExpr string
+	// DropsMetric mirrors ValueTransformFragment.DropsMetric. Governs
+	// whether the outer SELECT strips __name__ from the tags column.
+	DropsMetric bool
+}
+
+// SyntheticSeriesView captures a scalar-literal fold for BinaryPlan
+// nodes whose two sides fold to a numeric constant (FragmentKindSynthetic-
+// Series + Func=="literal"). The enclosed Value is the folded numeric
+// result; Lower renders it via renderScalarLiteralFragment without
+// dereferencing info.Fragment.
+type SyntheticSeriesView struct {
+	// Value is the folded scalar result (e.g. 3 for `1+2`).
+	Value float64
 }
 
 // SelectorShape carries per-node selector/shape metadata that tier-2

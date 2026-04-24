@@ -18,22 +18,25 @@ ClickHouse, and return Prometheus-compatible JSON.
 
 ```mermaid
 flowchart TB
-  %% Keep the graph narrow so GitHub's Mermaid toolbar on the right
-  %% does not obscure the ClickHouse node or edge labels.
-  Producers["Metric producers<br/>exporters, OTel collectors,<br/>Prometheus remote-write"]
+  %% Deliberately keep edge labels out of the graph: GitHub's Mermaid controls
+  %% sit on the right side, and long labels overlap on narrow screens.
+  Producers["Metric producers<br/>exporters, OTel collectors,<br/>remote-write senders"]
+  ClickHouse[(ClickHouse<br/>TimeSeries table)]
   Clients["Prometheus API clients<br/>Grafana, dashboards, tooling"]
   Promshim["promshim<br/>Prometheus-compatible read API"]
-  ClickHouse[(ClickHouse<br/>TimeSeries table)]
 
-  Clients -->|"Prometheus HTTP API<br/>/api/v1/query, /api/v1/query_range"| Promshim
-  Promshim -->|"read labels + samples<br/>timeSeriesTags / timeSeriesData"| ClickHouse
-  Promshim -.->|"delegate whole query when safe<br/>prometheusQuery / prometheusQueryRange"| ClickHouse
-  Producers -->|"write samples"| ClickHouse
+  Producers --> ClickHouse
+  Clients --> Promshim
+  Promshim --> ClickHouse
 ```
 
-Read it as two separate flows: producers write metric samples into ClickHouse;
-Prometheus-compatible clients query promshim, and promshim reads or delegates to
-ClickHouse to answer them.
+Read the arrows as:
+
+| Flow | Meaning |
+|---|---|
+| Producers → ClickHouse | Metric samples are written into ClickHouse, usually through Prometheus remote write or OTel-driven collection. |
+| Clients → promshim | Grafana and other Prometheus API clients call `/api/v1/query`, `/api/v1/query_range`, and metadata endpoints. |
+| promshim → ClickHouse | Promshim reads `timeSeriesTags(...)` / `timeSeriesData(...)`, or delegates whole queries to `prometheusQuery(...)` / `prometheusQueryRange(...)` when safe. |
 
 In the broader observability ecosystem, promshim sits between these pieces:
 

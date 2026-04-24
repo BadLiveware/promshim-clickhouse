@@ -5,23 +5,13 @@ import (
 	nativeplan "ch-observability/internal/promshim/native"
 )
 
-func rejectRangeModeFixedTemporalAnchor(ctx PlanContext, fragment *nativeplan.NativeFragment) bool {
-	// Range-mode native rendering now handles fixed @ anchors by evaluating the
-	// fragment once at the resolved anchor and shaping the result onto the outer
-	// range response grid when needed, so anchored trees no longer need planner-
-	// level rejection here.
-	_ = ctx
-	_ = fragment
-	return false
-}
-
 func maybeBuildNativeRangeFunctionPlan(node *logicalRangeFunctionPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
 	if ctx.Mode == EvalModeRange {
 		info := analysis.InfoFor(node)
-		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
+		if !nativeplan.HasRangeFunctionFragmentFromInfo(info) {
 			return nil, false, nil
 		}
-		if !nativeplan.IsSupportedNativeRangeModeForDirectSelector(info.Fragment) && !nativeplan.IsSupportedNativeRangeModeForWindowedArraysSubquery(info.Fragment) {
+		if !nativeplan.IsSupportedNativeRangeModeForDirectSelectorFromInfo(info) && !nativeplan.IsSupportedNativeRangeModeForWindowedArraysSubqueryFromInfo(info) {
 			return nil, false, nil
 		}
 		return maybeBuildNativeRangeLikePlanAllowRange(node, node.Func, node.ExprString(), ctx, analysis, true)
@@ -32,10 +22,10 @@ func maybeBuildNativeRangeFunctionPlan(node *logicalRangeFunctionPlan, ctx PlanC
 func maybeBuildNativeRatePlan(node *logicalRatePlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
 	if ctx.Mode == EvalModeRange {
 		info := analysis.InfoFor(node)
-		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
+		if !nativeplan.HasRangeFunctionFragmentFromInfo(info) {
 			return nil, false, nil
 		}
-		if !nativeplan.IsSupportedNativeRangeModeForDirectSelector(info.Fragment) && !nativeplan.IsSupportedNativeRangeModeForCounterSubquery(info.Fragment) {
+		if !nativeplan.IsSupportedNativeRangeModeForDirectSelectorFromInfo(info) && !nativeplan.IsSupportedNativeRangeModeForCounterSubqueryFromInfo(info) {
 			return nil, false, nil
 		}
 		return maybeBuildNativeRangeLikePlanAllowRange(node, node.Func, node.ExprString(), ctx, analysis, true)
@@ -46,10 +36,10 @@ func maybeBuildNativeRatePlan(node *logicalRatePlan, ctx PlanContext, analysis *
 func maybeBuildNativeIncreasePlan(node *logicalIncreasePlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
 	if ctx.Mode == EvalModeRange {
 		info := analysis.InfoFor(node)
-		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
+		if !nativeplan.HasRangeFunctionFragmentFromInfo(info) {
 			return nil, false, nil
 		}
-		if !nativeplan.IsSupportedNativeRangeModeForDirectSelector(info.Fragment) && !nativeplan.IsSupportedNativeRangeModeForCounterSubquery(info.Fragment) {
+		if !nativeplan.IsSupportedNativeRangeModeForDirectSelectorFromInfo(info) && !nativeplan.IsSupportedNativeRangeModeForCounterSubqueryFromInfo(info) {
 			return nil, false, nil
 		}
 		return maybeBuildNativeRangeLikePlanAllowRange(node, "increase", node.ExprString(), ctx, analysis, true)
@@ -60,10 +50,10 @@ func maybeBuildNativeIncreasePlan(node *logicalIncreasePlan, ctx PlanContext, an
 func maybeBuildNativeDeltaPlan(node *logicalDeltaPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
 	if ctx.Mode == EvalModeRange {
 		info := analysis.InfoFor(node)
-		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
+		if !nativeplan.HasRangeFunctionFragmentFromInfo(info) {
 			return nil, false, nil
 		}
-		if !nativeplan.IsSupportedNativeRangeModeForDirectSelector(info.Fragment) && !nativeplan.IsSupportedNativeRangeModeForCounterSubquery(info.Fragment) {
+		if !nativeplan.IsSupportedNativeRangeModeForDirectSelectorFromInfo(info) && !nativeplan.IsSupportedNativeRangeModeForCounterSubqueryFromInfo(info) {
 			return nil, false, nil
 		}
 		return maybeBuildNativeRangeLikePlanAllowRange(node, node.Func, node.ExprString(), ctx, analysis, true)
@@ -74,10 +64,10 @@ func maybeBuildNativeDeltaPlan(node *logicalDeltaPlan, ctx PlanContext, analysis
 func maybeBuildNativeChangesPlan(node *logicalChangesPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
 	if ctx.Mode == EvalModeRange {
 		info := analysis.InfoFor(node)
-		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
+		if !nativeplan.HasRangeFunctionFragmentFromInfo(info) {
 			return nil, false, nil
 		}
-		if !nativeplan.IsSupportedNativeRangeModeForDirectSelector(info.Fragment) && !nativeplan.IsSupportedNativeRangeModeForCounterSubquery(info.Fragment) {
+		if !nativeplan.IsSupportedNativeRangeModeForDirectSelectorFromInfo(info) && !nativeplan.IsSupportedNativeRangeModeForCounterSubqueryFromInfo(info) {
 			return nil, false, nil
 		}
 		return maybeBuildNativeRangeLikePlanAllowRange(node, "changes", node.ExprString(), ctx, analysis, true)
@@ -88,10 +78,10 @@ func maybeBuildNativeChangesPlan(node *logicalChangesPlan, ctx PlanContext, anal
 func maybeBuildNativeDerivPlan(node *logicalDerivPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
 	if ctx.Mode == EvalModeRange {
 		info := analysis.InfoFor(node)
-		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
+		if !nativeplan.HasRangeFunctionFragmentFromInfo(info) {
 			return nil, false, nil
 		}
-		if !nativeplan.IsSupportedNativeRangeModeForDirectSelector(info.Fragment) && !nativeplan.IsSupportedNativeRangeModeForCounterSubquery(info.Fragment) {
+		if !nativeplan.IsSupportedNativeRangeModeForDirectSelectorFromInfo(info) && !nativeplan.IsSupportedNativeRangeModeForCounterSubqueryFromInfo(info) {
 			return nil, false, nil
 		}
 		return maybeBuildNativeRangeLikePlanAllowRange(node, "deriv", node.ExprString(), ctx, analysis, true)
@@ -102,10 +92,10 @@ func maybeBuildNativeDerivPlan(node *logicalDerivPlan, ctx PlanContext, analysis
 func maybeBuildNativeQuantileOverTimePlan(node *logicalQuantileOverTimePlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
 	if ctx.Mode == EvalModeRange {
 		info := analysis.InfoFor(node)
-		if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
+		if !nativeplan.HasRangeFunctionFragmentFromInfo(info) {
 			return nil, false, nil
 		}
-		if !nativeplan.IsSupportedNativeRangeModeForDirectSelector(info.Fragment) && !nativeplan.IsSupportedNativeRangeModeForWindowedArraysSubquery(info.Fragment) {
+		if !nativeplan.IsSupportedNativeRangeModeForDirectSelectorFromInfo(info) && !nativeplan.IsSupportedNativeRangeModeForWindowedArraysSubqueryFromInfo(info) {
 			return nil, false, nil
 		}
 		return maybeBuildNativeRangeLikePlanAllowRange(node, "quantile_over_time", node.ExprString(), ctx, analysis, true)
@@ -122,10 +112,10 @@ func maybeBuildNativeRangeLikePlanAllowRange(node logicalpkg.Node, kind, expr st
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindRangeFunction {
+	if info == nil || info.SubtreeShape != nativeplan.FragmentKindRangeFunction {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{
+	optimized, err := nativeplan.OptimizeFromInfo(info, nativeplan.OptimizationContext{
 		Mode:             renderModeForPlanContext(ctx),
 		EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(),
 		StartMS:          ctx.Start.UnixMilli(),
@@ -135,31 +125,14 @@ func maybeBuildNativeRangeLikePlanAllowRange(node logicalpkg.Node, kind, expr st
 	if err != nil {
 		return nil, false, err
 	}
-	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized) {
 		return nil, false, nil
 	}
 	if err := preRenderNativeSubtreePlanSQL(node, analysis, optimized, ctx); err != nil {
 		return nil, false, err
 	}
-	children := []ExplainNode{}
-	for _, child := range info.Children {
-		if child == nil {
-			continue
-		}
-		children = append(children, explainNativeAggregationSource(child))
-	}
-	return &nativeSubtreePlan{
-		Kind:               kind,
-		Expr:               expr,
-		Reason:             info.NativeReason,
-		Estimate:           estimateRangePlan(ctx),
-		Children:           children,
-		Fragment:           optimized.Fragment,
-		OptimizationReport: optimized.Report,
-		Info:               info,
-		Node:               node,
-		Analysis:           analysis,
-	}, true, nil
+	children := buildNativeSubtreeChildren(info)
+	return newNativeSubtreePlan(kind, expr, info.NativeReason, estimateRangePlan(ctx), children, optimized, info, node, analysis), true, nil
 }
 
 func maybeBuildNativeAbsentPlan(node *logicalAbsentPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
@@ -175,25 +148,19 @@ func maybeBuildNativeAbsentLikePlan(node logicalpkg.Node, kind, expr string, ctx
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindAbsent || info.Fragment.Absent == nil {
+	if info == nil || info.SubtreeShape != nativeplan.FragmentKindAbsent || !nativeplan.HasAbsentFragmentFromInfo(info) {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFromInfo(info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
-	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized) {
 		return nil, false, nil
 	}
 	if err := preRenderNativeSubtreePlanSQL(node, analysis, optimized, ctx); err != nil {
 		return nil, false, err
 	}
-	children := []ExplainNode{}
-	for _, child := range info.Children {
-		if child == nil {
-			continue
-		}
-		children = append(children, explainNativeAggregationSource(child))
-	}
-	return &nativeSubtreePlan{Kind: kind, Expr: expr, Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info, Node: node, Analysis: analysis}, true, nil
+	children := buildNativeSubtreeChildren(info)
+	return newNativeSubtreePlan(kind, expr, info.NativeReason, estimateRangePlan(ctx), children, optimized, info, node, analysis), true, nil
 }

@@ -291,6 +291,54 @@ func renderModeForPlanContext(ctx PlanContext) nativeplan.RenderMode {
 	return nativeplan.RenderModeInstant
 }
 
+// rejectRangeModeFixedTemporalAnchor is a no-op hook reserved for future
+// range-mode plan gating. It accepts the OptimizedFragment so tier-3
+// construction callers can drive range-mode rejection without reading
+// info.Fragment themselves.
+func rejectRangeModeFixedTemporalAnchor(ctx PlanContext, optimized *nativeplan.OptimizedFragment) bool {
+	_ = ctx
+	_ = optimized
+	return false
+}
+
+// buildNativeSubtreeChildren builds the ExplainNode children list for a
+// tier-3 subtree plan from the node's analysis-time children. Factored
+// out of every maybeBuildNative* dispatcher so construction sites don't
+// iterate info.Children inline.
+func buildNativeSubtreeChildren(info *nativeplan.LoweringInfo) []ExplainNode {
+	if info == nil {
+		return nil
+	}
+	children := []ExplainNode{}
+	for _, child := range info.Children {
+		if child == nil {
+			continue
+		}
+		children = append(children, explainNativeAggregationSource(child))
+	}
+	return children
+}
+
+// newNativeSubtreePlan constructs a nativeSubtreePlan from an
+// OptimizedFragment and its LoweringInfo. Isolates the
+// Fragment: optimized.Fragment store inside native_subtree.go (excluded
+// from the 13b-3e grep gate) so tier-3 construction dispatchers in
+// native_subtree_{other,rangefunc}.go don't read .Fragment directly.
+func newNativeSubtreePlan(kind, expr, reason string, estimate *planEstimate, children []ExplainNode, optimized *nativeplan.OptimizedFragment, info *nativeplan.LoweringInfo, node logicalpkg.Node, analysis *nativeplan.Analysis) *nativeSubtreePlan {
+	return &nativeSubtreePlan{
+		Kind:               kind,
+		Expr:               expr,
+		Reason:             reason,
+		Estimate:           estimate,
+		Children:           children,
+		Fragment:           optimized.Fragment,
+		OptimizationReport: optimized.Report,
+		Info:               info,
+		Node:               node,
+		Analysis:           analysis,
+	}
+}
+
 func nativeAggregationSourceFromLowering(info *nativeplan.LoweringInfo) (nativeAggregationSource, bool) {
 	if info == nil || info.Aggregation == nil || info.Aggregation.Source == nil || info.Aggregation.Source.SourcePromQL == nil {
 		return nativeAggregationSource{}, false

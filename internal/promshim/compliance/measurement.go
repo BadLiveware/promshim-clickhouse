@@ -134,8 +134,8 @@ func MeasureNativeSupport(query string) (NativeMeasurementSnapshot, error) {
 	snapshot.OutputKind = string(root.OutputKind)
 	snapshot.NativeLowerable = root.NativeLowerable
 	snapshot.NativeReason = root.NativeReason
-	if root.Fragment != nil {
-		snapshot.FragmentKind = string(root.Fragment.Kind)
+	if root.SubtreeShape != "" {
+		snapshot.FragmentKind = string(root.SubtreeShape)
 	}
 	if root.Aggregation != nil {
 		snapshot.AggregationEligible = root.Aggregation.Eligible

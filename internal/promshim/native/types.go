@@ -248,6 +248,14 @@ type LoweringInfo struct {
 	// apply the correction to decoded samples without dereferencing
 	// NativeFragment.
 	RuntimeValueTransform *RuntimeValueTransform
+
+	// SubtreeShape mirrors Fragment.Kind for this node's analysis-time
+	// Fragment. Populated by a single post-walk pass in Analyze so tier-3
+	// construction dispatchers can gate on shape without dereferencing
+	// NativeFragment. Reflects the pre-optimize Kind (OptimizeFragment
+	// operates on a clone, so info.Fragment.Kind is never mutated).
+	// Empty ("") when Fragment is nil.
+	SubtreeShape FragmentKind
 }
 
 // SelectorShape carries per-node selector/shape metadata that tier-2
@@ -319,6 +327,11 @@ type Analysis struct {
 func Analyze(plan logicalpkg.Node) *Analysis {
 	analysis := &Analysis{byNode: map[logicalpkg.Node]*LoweringInfo{}}
 	analysis.Root = analysis.walk(plan)
+	for _, info := range analysis.byNode {
+		if info != nil && info.Fragment != nil {
+			info.SubtreeShape = info.Fragment.Kind
+		}
+	}
 	return analysis
 }
 

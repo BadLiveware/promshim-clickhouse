@@ -131,21 +131,36 @@ func BuildOptimizedFragmentWithContext(node logicalpkg.Node, analysis *Analysis,
 	if err != nil {
 		return nil, err
 	}
-	return OptimizeFragment(fragment, info, ctx)
+	return optimizeWithContext(fragment, info, node, analysis, ctx)
 }
 
-// OptimizeFromInfo wraps OptimizeFragment so tier-3 construction callers
-// can drive optimization from a LoweringInfo without dereferencing
-// info.Fragment themselves. Returns an error if info or info.Fragment is
-// nil; callers should gate on info.SubtreeShape before invoking.
-func OptimizeFromInfo(info *LoweringInfo, ctx OptimizationContext) (*OptimizedFragment, error) {
+// OptimizeFromInfo wraps the optimizer so tier-3 construction callers
+// can drive optimization from a LoweringInfo + logical node without
+// dereferencing info.Fragment themselves. Task 13c-8 threads a logical
+// node + analysis so the info-based optimizer passes can walk the
+// logical tree for report generation. Returns an error if info is nil;
+// callers should gate on info.SubtreeShape before invoking.
+func OptimizeFromInfo(info *LoweringInfo, node logicalpkg.Node, analysis *Analysis, ctx OptimizationContext) (*OptimizedFragment, error) {
 	if info == nil {
 		return nil, fmt.Errorf("native optimizer requires lowering info")
 	}
-	return OptimizeFragment(info.Fragment, info, ctx)
+	return optimizeWithContext(info.Fragment, info, node, analysis, ctx)
 }
 
+// OptimizeFragment retains its historical signature so fragment-only
+// tests (TestOptimizeFragmentFlattensTrivialUnaryWrapper,
+// TestOptimizeFragmentDoesNotMutateInputFragment,
+// TestOptimizeFragmentMatcherInternerDoesNotLeakAcrossRuns) keep
+// working; they pass info=nil and drive the pass pipeline against a
+// pre-built fragment. Production callers should use OptimizeFromInfo
+// / BuildOptimizedFragment, which carry a logical node + analysis so
+// the report is computed by walking the logical tree rather than the
+// fragment.
 func OptimizeFragment(fragment *NativeFragment, info *LoweringInfo, ctx OptimizationContext) (*OptimizedFragment, error) {
+	return optimizeWithContext(fragment, info, nil, nil, ctx)
+}
+
+func optimizeWithContext(fragment *NativeFragment, info *LoweringInfo, node logicalpkg.Node, analysis *Analysis, ctx OptimizationContext) (*OptimizedFragment, error) {
 	if fragment == nil {
 		return nil, fmt.Errorf("native optimizer requires a fragment")
 	}
@@ -155,6 +170,8 @@ func OptimizeFragment(fragment *NativeFragment, info *LoweringInfo, ctx Optimiza
 			FunctionCatalog: append([]string(nil), functionRewriteCatalog...),
 		},
 		info:     info,
+		node:     node,
+		analysis: analysis,
 		ctx:      ctx,
 		interner: newMatcherInterner(),
 	}
@@ -165,7 +182,11 @@ func OptimizeFragment(fragment *NativeFragment, info *LoweringInfo, ctx Optimiza
 			return nil, fmt.Errorf("applying optimizer pass %s: %w", pass.ID, err)
 		}
 	}
-	state.report.SemanticBarriers = mergeUniqueStrings(state.report.SemanticBarriers, semanticBarriersForFragment(state.fragment)...)
+	if state.hasLogicalContext() {
+		state.report.SemanticBarriers = mergeUniqueStrings(state.report.SemanticBarriers, semanticBarriersFromLogical(state.node, state.analysis)...)
+	} else {
+		state.report.SemanticBarriers = mergeUniqueStrings(state.report.SemanticBarriers, semanticBarriersForFragment(state.fragment)...)
+	}
 	return &OptimizedFragment{Fragment: state.fragment, Report: state.report}, nil
 }
 
@@ -185,8 +206,29 @@ type optimizerState struct {
 	fragment *NativeFragment
 	report   *OptimizationReport
 	info     *LoweringInfo
+	// node + analysis carry the logical-tree context for the info-based
+	// passes. Production callers (BuildOptimizedFragment /
+	// BuildOptimizedFragmentWithContext / OptimizeFromInfo) thread both
+	// through so passes can walk the logical tree via
+	// analysis.InfoFor(node). Fragment-only callers (OptimizeFragment
+	// legacy entrypoint) leave both nil; hasLogicalContext() reports
+	// which mode the state is in so each pass can fall back to
+	// fragment walks when no logical context is available.
+	node     logicalpkg.Node
+	analysis *Analysis
 	ctx      OptimizationContext
 	interner *matcherInterner
+}
+
+// hasLogicalContext reports whether the optimizer was entered with a
+// logical-tree handle (info + node + analysis). The production
+// entrypoints always supply all three; the fragment-only legacy
+// entrypoint OptimizeFragment does not. Passes gate their logical-
+// based report helpers on this flag and fall back to the pre-existing
+// fragment walks when it is false so fragment-only tests keep working
+// until the big-bang NativeFragment deletion lands.
+func (state *optimizerState) hasLogicalContext() bool {
+	return state != nil && state.info != nil && state.node != nil && state.analysis != nil
 }
 
 type matcherKey struct {
@@ -293,7 +335,11 @@ func applyFunctionPatternRewrites(state *optimizerState) error {
 }
 
 func applyJoinNormalizationDuplicateDetection(state *optimizerState) error {
-	state.report.JoinNormalization = joinNormalizationForFragment(state.fragment)
+	if state.hasLogicalContext() {
+		state.report.JoinNormalization = joinNormalizationFromInfo(state.info)
+	} else {
+		state.report.JoinNormalization = joinNormalizationForFragment(state.fragment)
+	}
 	if state.report.JoinNormalization == "not_applicable" {
 		return nil
 	}
@@ -307,7 +353,11 @@ func applyFlattenRedundantWrappers(state *optimizerState) error {
 }
 
 func applyFinalSQLShapingLateMaterialization(state *optimizerState) error {
-	state.report.MaterializedColumns = mergeUniqueStrings(state.report.MaterializedColumns, baseMaterializedColumnsForFragment(state.fragment)...)
+	if state.hasLogicalContext() {
+		state.report.MaterializedColumns = mergeUniqueStrings(state.report.MaterializedColumns, baseMaterializedColumnsFromInfo(state.info)...)
+	} else {
+		state.report.MaterializedColumns = mergeUniqueStrings(state.report.MaterializedColumns, baseMaterializedColumnsForFragment(state.fragment)...)
+	}
 	if hasTagsColumn(state.report.RequiredColumns) {
 		state.report.SemanticBarriers = mergeUniqueStrings(state.report.SemanticBarriers, "late_tag_materialization")
 	}
@@ -918,6 +968,39 @@ func baseMaterializedColumnsForFragment(fragment *NativeFragment) []string {
 	return []string{"value"}
 }
 
+// baseMaterializedColumnsFromInfo is the info-based twin of
+// baseMaterializedColumnsForFragment. info.OutputKind mirrors
+// fragment.OutputKind so the output is byte-identical. Used by
+// applyFinalSQLShapingLateMaterialization when the optimizer has
+// logical context.
+func baseMaterializedColumnsFromInfo(info *LoweringInfo) []string {
+	if info == nil {
+		return nil
+	}
+	if info.OutputKind == OutputKindRangeMatrix {
+		return []string{"time_series"}
+	}
+	return []string{"value"}
+}
+
+// joinNormalizationFromInfo is the info-based twin of
+// joinNormalizationForFragment. The join-normalization categorization
+// depends only on the root fragment's Kind, which is mirrored onto
+// info.SubtreeShape by Analyze. Used by
+// applyJoinNormalizationDuplicateDetection when the optimizer has
+// logical context.
+func joinNormalizationFromInfo(info *LoweringInfo) string {
+	if info == nil {
+		return "not_applicable"
+	}
+	switch info.SubtreeShape {
+	case FragmentKindAggregation, FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindSyntheticSeries, FragmentKindScalarConvert, FragmentKindInfoJoin, FragmentKindAbsent, FragmentKindHistogramProjection, FragmentKindHistogramFunction, FragmentKindSortTransform, FragmentKindLabelTransform, FragmentKindClampTransform, FragmentKindValueTransform:
+		return "not_applicable"
+	default:
+		return "required"
+	}
+}
+
 func renderedColumnsForMode(mode RenderMode) []string {
 	switch mode {
 	case RenderModeInstant:
@@ -941,6 +1024,94 @@ func semanticBarriersFromTimeRequirements(info *LoweringInfo) []string {
 		barriers = append(barriers, "subquery_step_grid")
 	}
 	return barriers
+}
+
+// semanticBarriersFromLogical mirrors semanticBarriersForFragment but
+// sources its signals from the LoweringInfo side-map rather than the
+// root NativeFragment. The output must be byte-identical to its
+// fragment-based twin so the OptimizationReport does not drift when
+// passes flip between the two modes.
+//
+// Signals:
+//   - info.SubtreeShape tracks the root fragment's Kind (populated by
+//     Analyze). This replaces fragment.Kind checks.
+//   - info.LabelLineage.MetricName == LabelLineageDropped replaces
+//     fragment.DropsMetric. Note: DropsMetric on a NativeFragment is
+//     "does this node strip __name__?" which corresponds to the node's
+//     own lineage transition — the logical-side lineage reflects the
+//     cumulative state up to and including this node, so the same
+//     barrier surfaces whether we check the fragment flag or the
+//     lineage state.
+//   - For aggregation nodes, fragment-side code also checks
+//     Aggregation.Source.DropsMetric to cover the
+//     "parent aggregation + metric-dropping child" shape. The
+//     logical-side equivalent walks info.Children[0].LabelLineage
+//     (aggregation has a single source child) to detect the same
+//     case without dereferencing NativeFragment.
+//   - absent_over_time: the info side carries the Fragment.Absent.Func
+//     via info.Fragment.Absent — we read it off info.Fragment rather
+//     than the optimizer's cloned fragment, because the value is
+//     stable and the cache has not lifted absent-func onto a
+//     LoweringInfo field yet.
+func semanticBarriersFromLogical(node logicalpkg.Node, analysis *Analysis) []string {
+	if node == nil || analysis == nil {
+		return nil
+	}
+	info := analysis.InfoFor(node)
+	if info == nil {
+		return nil
+	}
+	barriers := []string{}
+	switch info.SubtreeShape {
+	case FragmentKindAggregation:
+		barriers = append(barriers, "aggregation_boundary")
+	case FragmentKindSubquery:
+		barriers = append(barriers, "subquery_step_grid")
+	case FragmentKindRangeFunction:
+		barriers = append(barriers, "range_window_materialization_boundary")
+	case FragmentKindAbsent:
+		if info.Fragment != nil && info.Fragment.Absent != nil && info.Fragment.Absent.Func == "absent_over_time" {
+			barriers = append(barriers, "range_window_materialization_boundary")
+		}
+	case FragmentKindHistogramProjection, FragmentKindHistogramFunction:
+		barriers = append(barriers, "histogram_bucket_materialization_boundary")
+	}
+	if logicalNodeDropsMetricName(info) {
+		barriers = append(barriers, "metric_name_lineage_change")
+	}
+	return barriers
+}
+
+// logicalNodeDropsMetricName matches the fragment-side predicate
+//
+//	fragment.DropsMetric ||
+//	  (fragment.Aggregation != nil &&
+//	   fragment.Aggregation.Source != nil &&
+//	   fragment.Aggregation.Source.DropsMetric)
+//
+// via the LoweringInfo side map. Two shapes emit
+// "metric_name_lineage_change":
+//
+//  1. Non-aggregation root that itself drops __name__ — detected via
+//     info.LabelLineage.MetricName == LabelLineageDropped. Aggregation
+//     nodes always have dropped lineage by construction (see
+//     aggregationLabelLineage), so we exclude them from this case and
+//     handle them below.
+//  2. Aggregation root whose source fragment drops __name__ — we check
+//     the first child's LabelLineage. Aggregation plan nodes always
+//     record exactly one child in info.Children[0], which mirrors the
+//     source fragment's lineage.
+func logicalNodeDropsMetricName(info *LoweringInfo) bool {
+	if info == nil {
+		return false
+	}
+	if info.SubtreeShape == FragmentKindAggregation {
+		if len(info.Children) > 0 && info.Children[0] != nil && info.Children[0].LabelLineage.MetricName == LabelLineageDropped {
+			return true
+		}
+		return false
+	}
+	return info.LabelLineage.MetricName == LabelLineageDropped
 }
 
 func semanticBarriersForFragment(fragment *NativeFragment) []string {

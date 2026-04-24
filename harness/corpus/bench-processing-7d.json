@@ -1,0 +1,82 @@
+[
+  {
+    "name": "processing_sum_rate_1h_by_job_instant_7d",
+    "endpoint": "query",
+    "query": "sum by (job) (rate(demo_cpu_usage_seconds_total[1h]))",
+    "category": "processing_instant_sum_rate",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural",
+    "targetPromP50Ms": { "min": 250, "max": 1000 }
+  },
+  {
+    "name": "processing_sum_rate_6h_by_job_mode_instant_7d",
+    "endpoint": "query",
+    "query": "sum by (job, mode) (rate(demo_cpu_usage_seconds_total[6h]))",
+    "category": "processing_instant_sum_rate",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural",
+    "targetPromP50Ms": { "min": 250, "max": 1000 }
+  },
+  {
+    "name": "processing_avg_memory_6h_by_job_type_instant_7d",
+    "endpoint": "query",
+    "query": "sum by (job, type) (avg_over_time(demo_memory_usage_bytes[6h]))",
+    "category": "processing_instant_avg_over_time",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural",
+    "targetPromP50Ms": { "min": 250, "max": 1000 }
+  },
+  {
+    "name": "processing_histogram_quantile_1h_instant_7d",
+    "endpoint": "query",
+    "query": "histogram_quantile(0.95, sum by (le) (rate(demo_api_request_duration_seconds_bucket[1h])))",
+    "category": "processing_instant_histogram_quantile",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural",
+    "targetPromP50Ms": { "min": 250, "max": 1000 }
+  },
+  {
+    "name": "processing_sum_rate_5m_by_job_range_24h_7d",
+    "endpoint": "query_range",
+    "query": "sum by (job) (rate(demo_cpu_usage_seconds_total[5m]))",
+    "category": "processing_range_sum_rate",
+    "startOffsetSeconds": -86400,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 60,
+    "compareMode": "structural",
+    "targetPromP50Ms": { "min": 250, "max": 1000 }
+  },
+  {
+    "name": "processing_sum_rate_1h_by_job_range_7d",
+    "endpoint": "query_range",
+    "query": "sum by (job) (rate(demo_cpu_usage_seconds_total[1h]))",
+    "category": "processing_range_sum_rate",
+    "startOffsetSeconds": -604800,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 300,
+    "compareMode": "structural",
+    "targetPromP50Ms": { "min": 250, "max": 1000 }
+  },
+  {
+    "name": "processing_avg_memory_1h_by_job_type_range_24h_7d",
+    "endpoint": "query_range",
+    "query": "sum by (job, type) (avg_over_time(demo_memory_usage_bytes[1h]))",
+    "category": "processing_range_avg_over_time",
+    "startOffsetSeconds": -86400,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 60,
+    "compareMode": "structural",
+    "targetPromP50Ms": { "min": 250, "max": 1000 }
+  },
+  {
+    "name": "processing_histogram_quantile_1h_range_24h_7d",
+    "endpoint": "query_range",
+    "query": "histogram_quantile(0.95, sum by (le) (rate(demo_api_request_duration_seconds_bucket[1h])))",
+    "category": "processing_range_histogram_quantile",
+    "startOffsetSeconds": -86400,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 300,
+    "compareMode": "structural",
+    "targetPromP50Ms": { "min": 250, "max": 1000 }
+  }
+]

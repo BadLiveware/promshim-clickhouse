@@ -4,14 +4,21 @@ services:
     environment:
       CLICKHOUSE_PASSWORD: otel
     ports:
-      - "28123:8123"
-      - "29000:9000"
-      - "29092:9092"
+      - "28124:8123"
+      - "29100:9000"
+      - "29192:9092"
     volumes:
       - ../clickhouse/config.d/prometheus.xml:/etc/clickhouse-server/config.d/prometheus.xml:ro
       - ../clickhouse/config.d/system-logs-ttl.xml:/etc/clickhouse-server/config.d/system-logs-ttl.xml:ro
+      - ./clickhouse/config.d/logging.xml:/etc/clickhouse-server/config.d/bench-logging.xml:ro
       - ../clickhouse/users.d/timeseries.xml:/etc/clickhouse-server/users.d/timeseries.xml:ro
       - clickhouse_data:/var/lib/clickhouse
+    tmpfs:
+      - /var/log/clickhouse-server
+    logging:
+      options:
+        max-size: "50m"
+        max-file: "3"
 
   clickhouse-init:
     image: clickhouse/clickhouse-server:26.3.9.8
@@ -29,6 +36,10 @@ services:
         done
         clickhouse-client --host clickhouse --user default --password otel --multiquery < /init.sql
     restart: "no"
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "2"
 
   prometheus:
     image: prom/prometheus:v3.5.2
@@ -40,10 +51,14 @@ services:
       - --storage.tsdb.retention.time=10y
       - --enable-feature=promql-binop-fill-modifiers,promql-experimental-functions
     ports:
-      - "29090:9090"
+      - "29190:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
+    logging:
+      options:
+        max-size: "50m"
+        max-file: "3"
 
   promshim:
     build:
@@ -67,8 +82,14 @@ services:
       PROM_SHIM_MAX_RESPONSE_SERIES: 100000
       PROM_SHIM_MAX_RESPONSE_POINTS: 2000000
     ports:
-      - "29091:9090"
+      - "29191:9090"
+    logging:
+      options:
+        max-size: "50m"
+        max-file: "3"
 
 volumes:
   clickhouse_data:
+    name: promshim_bench_clickhouse_data
   prometheus_data:
+    name: promshim_bench_prometheus_data

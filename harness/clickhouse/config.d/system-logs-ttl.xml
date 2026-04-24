@@ -10,6 +10,9 @@
        already contains these tables, run `ALTER TABLE system.<name> MODIFY TTL
        event_time + INTERVAL 1 HOUR` once to retrofit, or drop the volume to
        let them be recreated with the new TTL. -->
+  <text_log>
+    <ttl>event_time + INTERVAL 1 HOUR</ttl>
+  </text_log>
   <query_log>
     <ttl>event_time + INTERVAL 1 HOUR</ttl>
   </query_log>
@@ -25,6 +28,9 @@
   <metric_log>
     <ttl>event_time + INTERVAL 1 HOUR</ttl>
   </metric_log>
+  <query_metric_log>
+    <ttl>event_time + INTERVAL 1 HOUR</ttl>
+  </query_metric_log>
   <asynchronous_metric_log>
     <ttl>event_time + INTERVAL 1 HOUR</ttl>
   </asynchronous_metric_log>
@@ -40,4 +46,7 @@
   <error_log>
     <ttl>event_time + INTERVAL 1 HOUR</ttl>
   </error_log>
+  <background_schedule_pool_log>
+    <ttl>event_time + INTERVAL 1 HOUR</ttl>
+  </background_schedule_pool_log>
 </clickhouse>

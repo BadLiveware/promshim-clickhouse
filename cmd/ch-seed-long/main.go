@@ -1,15 +1,11 @@
-// ch-seed-long writes a long-range demo_* dataset directly to ClickHouse's
-// Prometheus remote-write endpoint, backdating samples to a pinned window.
+// ch-seed-long writes a long-range demo_* dataset to a Prometheus-compatible
+// remote-write endpoint, backdating samples to a pinned benchmark window.
 //
-// ClickHouse MergeTree has no equivalent to Prometheus's
-// out_of_order_time_window, so this program can pump an arbitrary number
-// of days/weeks of samples in a single pass. Prometheus is bypassed
-// entirely — this data feeds the long-range bench profile, not the
-// compliance (Prom-vs-shim) comparison.
-//
-// Default end_time is pinned 30 days before the compliance fixture's
-// end_time so the two datasets live in non-overlapping time windows
-// inside the same observability.prometheus table.
+// The wrapper script can send the same generated dataset to ClickHouse and/or
+// Prometheus. The data feeds long-range benchmark profiles, not the compliance
+// fixture. Named sparse profiles use non-overlapping windows; dense profiles
+// shift earlier again so sparse+dense data can coexist without duplicate
+// samples at identical timestamps.
 package main
 
 import (
@@ -30,15 +26,17 @@ import (
 )
 
 // profiles maps named dashboard ranges to (end-time, duration, step).
-// Each profile has a distinct end-time so the three datasets live in
+// Each sparse profile has a distinct end-time so the datasets live in
 // non-overlapping time windows inside the same observability.prometheus
 // table. Step grows with duration to keep per-profile sample counts in the
 // same order of magnitude — 7d@15s ≈ 5M, 30d@60s ≈ 5M, 1y@300s ≈ 14M.
-var profiles = map[string]struct {
+type profileConfig struct {
 	endTime  string
 	duration time.Duration
 	step     time.Duration
-}{
+}
+
+var profiles = map[string]profileConfig{
 	"7d":  {"2026-03-22T21:45:42Z", 7 * 24 * time.Hour, 15 * time.Second},
 	"30d": {"2026-02-22T21:45:42Z", 30 * 24 * time.Hour, 60 * time.Second},
 	"1y":  {"2025-03-22T21:45:42Z", 365 * 24 * time.Hour, 300 * time.Second},
@@ -50,6 +48,7 @@ func main() {
 		username      = flag.String("username", "default", "Basic-auth username for the remote-write endpoint.")
 		password      = flag.String("password", "otel", "Basic-auth password for the remote-write endpoint.")
 		profile       = flag.String("profile", "", "Named dashboard profile: 7d | 30d | 1y. Sets --end-time, --duration, --step. Overrides those flags when set.")
+		density       = flag.String("density", "sparse", "Dataset density: sparse | dense. Dense profiles use non-overlapping windows and higher cardinality unless --instances-per-job is explicitly set.")
 		endTimeFlag   = flag.String("end-time", "2026-03-22T21:45:42Z", "RFC3339 timestamp of the last sample. Pin this and reference it from the bench corpus.")
 		duration      = flag.Duration("duration", 168*time.Hour, "Window size ending at --end-time (e.g. 168h for 7d, 720h for 30d).")
 		step          = flag.Duration("step", 15*time.Second, "Sample interval per series.")
@@ -60,16 +59,32 @@ func main() {
 	)
 	flag.Parse()
 
+	instancesExplicit := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "instances-per-job" {
+			instancesExplicit = true
+		}
+	})
+
+	if *density != "sparse" && *density != "dense" {
+		log.Fatalf("unknown --density %q (want: sparse | dense)", *density)
+	}
+
 	if *profile != "" {
 		p, ok := profiles[*profile]
 		if !ok {
 			log.Fatalf("unknown --profile %q (want: 7d | 30d | 1y)", *profile)
 		}
-		*endTimeFlag = p.endTime
+		*endTimeFlag = profileEndTime(p, *density)
 		*duration = p.duration
 		*step = p.step
-		log.Printf("[seed-long] profile=%s end_time=%s duration=%s step=%s",
-			*profile, p.endTime, p.duration, p.step)
+		if !instancesExplicit {
+			*instancesFlag = defaultInstancesPerJob(*profile, *density)
+		}
+		log.Printf("[seed-long] profile=%s density=%s end_time=%s duration=%s step=%s instances_per_job=%d",
+			*profile, *density, *endTimeFlag, p.duration, p.step, *instancesFlag)
+	} else if !instancesExplicit && *density == "dense" {
+		*instancesFlag = defaultInstancesPerJob("", *density)
 	}
 
 	endTime, err := time.Parse(time.RFC3339, *endTimeFlag)
@@ -81,6 +96,9 @@ func main() {
 	}
 	if *step <= 0 {
 		log.Fatalf("--step must be > 0")
+	}
+	if *instancesFlag <= 0 {
+		log.Fatalf("--instances-per-job must be > 0")
 	}
 	jobs := strings.Split(*jobsFlag, ",")
 	if len(jobs) == 0 {
@@ -148,7 +166,62 @@ func main() {
 		batchStart = batchEnd
 	}
 
+	marker := seedMarkerRequest(*profile, *density, jobs, *instancesFlag, *duration, *step, *seed, endTime)
+	if err := promharness.WriteToRemoteWriteEndpoint(ctx, client, fullEndpoint, marker); err != nil {
+		log.Fatalf("[seed-long] remote-write seed marker: %v", err)
+	}
+	log.Printf("[seed-long] seed marker written at %s", endTime.Format(time.RFC3339))
+
 	log.Printf("[seed-long] done: %d batches, %d samples written", batches, samples)
+}
+
+func profileEndTime(p profileConfig, density string) string {
+	if density == "sparse" {
+		return p.endTime
+	}
+	endTime, err := time.Parse(time.RFC3339, p.endTime)
+	if err != nil {
+		panic(err)
+	}
+	// Dense profiles live in a separate, non-overlapping window immediately
+	// before the sparse window with a one-day gap. This avoids duplicate series
+	// at identical timestamps when both densities are pre-seeded in one stack.
+	return endTime.Add(-p.duration - 24*time.Hour).Format(time.RFC3339)
+}
+
+func defaultInstancesPerJob(profile, density string) int {
+	if density != "dense" {
+		return 5
+	}
+	if profile == "1y" {
+		return 50
+	}
+	return 100
+}
+
+func seedMarkerRequest(profile, density string, jobs []string, instancesPerJob int, duration, step time.Duration, seed int64, endTime time.Time) *prompb.WriteRequest {
+	if profile == "" {
+		profile = "custom"
+	}
+	labels := sortedLabels(map[string]string{
+		"__name__":          "promshim_seed_info",
+		"profile":           profile,
+		"density":           density,
+		"generator":         "ch-seed-long",
+		"seed":              fmt.Sprintf("%d", seed),
+		"jobs":              fmt.Sprintf("%d", len(jobs)),
+		"job_values":        strings.Join(jobs, ","),
+		"instances_per_job": fmt.Sprintf("%d", instancesPerJob),
+		"duration_seconds":  fmt.Sprintf("%.0f", duration.Seconds()),
+		"step_seconds":      fmt.Sprintf("%.0f", step.Seconds()),
+	})
+	return &prompb.WriteRequest{Timeseries: []prompb.TimeSeries{{
+		Labels: labels,
+		Samples: []prompb.Sample{{
+			Timestamp: endTime.UnixMilli(),
+			Value:     1,
+		}},
+	}}}
 }
 
 // seriesDesc describes one time series — its labels and which generator

@@ -1,0 +1,19 @@
+<clickhouse>
+  <!-- Benchmark stack logging policy: keep server text logs visible via
+       `docker logs` while avoiding persistent growth under /var/lib/clickhouse.
+       The compose file mounts /var/log/clickhouse-server as tmpfs and applies
+       Docker log rotation. We intentionally leave file paths at ClickHouse
+       defaults because some versions canonicalize special fd paths before
+       opening them. -->
+  <logger>
+    <level>information</level>
+    <console>true</console>
+  </logger>
+
+  <!-- The shared system-logs-ttl.xml bounds all system log tables. Lower the
+       benchmark text_log level as an additional guard: query/profile tooling
+       needs system.query_log, not per-line trace chatter. -->
+  <text_log>
+    <level>warning</level>
+  </text_log>
+</clickhouse>

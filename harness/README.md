@@ -50,6 +50,59 @@ Useful options:
 
 Passing `--theme`, `--all-themes`, or `--corpus` implies `--suite differential`.
 
+### Sweep workflow for benchmark/compliance runs
+
+Use `scripts/run-sweep.sh` when comparing compliance, transports, long-range
+profiles, densities, or execution modes. It uses a benchmark-only stack under
+`harness/bench/` for long-range and dense benchmark data so the frozen
+`harness/compliance/` fixture is not contaminated.
+
+Common commands:
+
+```bash
+# Show benchmark stack endpoints and seed markers.
+./scripts/run-sweep.sh --bench-status
+
+# Preview selected work and rough data size; no side effects.
+./scripts/run-sweep.sh --dry-run --estimate --profile 7d --density sparse
+
+# Seed missing benchmark-only data once, then reuse it in normal sweeps.
+./scripts/run-sweep.sh --setup --profile all --density sparse --target both
+
+# Run a named sweep and write harness/artifacts/sweeps/<name>/.
+./scripts/run-sweep.sh --name local-default
+
+# Dense processing benchmark preview.
+./scripts/run-sweep.sh --profile 7d --density dense --corpus-set processing --estimate
+
+# Delete benchmark data only. Compliance volumes are not touched.
+./scripts/run-sweep.sh --bench-reset --yes
+```
+
+Seed policies:
+
+- `reuse` — default for normal sweeps; fail if selected data is missing.
+- `missing` — default for `--setup`; seed only missing targets.
+- `always` — deliberately write selected data again.
+- `never` — skip seed checks and writes.
+
+Artifacts live under `harness/artifacts/sweeps/<run-name>/` and include
+`manifest.json`, `summary.md`, `summary.json`, v2 benchmark reports named by
+profile/density/corpus, `memory-summary-*.json`, and optional `memory-detail-*/`
+pprof snapshots for `--memory detailed`. Build matrix views with:
+
+```bash
+./scripts/bench-matrix.sh --sweep harness/artifacts/sweeps/local-default/manifest.json
+./scripts/bench-matrix.sh --sweep harness/artifacts/sweeps/local-default/manifest.json --per-query
+```
+
+If disk pressure appears, check `--estimate`, reduce density/profile selection,
+or reset benchmark volumes with `--bench-reset --yes`. ClickHouse diagnostic logs
+for the benchmark stack are kept off persistent benchmark data volumes. Local
+harness promshim containers enable `PROM_SHIM_ENABLE_PPROF=1` so detailed memory
+snapshots can be collected; production deployments should leave pprof disabled
+unless access is protected.
+
 ### Manual workflow
 
 ```bash

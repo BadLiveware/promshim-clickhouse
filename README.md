@@ -410,20 +410,55 @@ Then point a Prometheus-compatible client at `http://localhost:9090`.
 
 ## Benchmarks and profiling
 
-The benchmark tripwire compares reference Prometheus, promshim native SQL, and
-local fallback behavior on pinned corpora:
+The preferred entry point for benchmark/compliance sweeps is `run-sweep.sh`.
+It keeps long-range benchmark data in an isolated benchmark stack, separate from
+the frozen compliance volumes:
+
+```bash
+# Preview the default 7d sparse benchmark/compliance plan; no side effects.
+./scripts/run-sweep.sh --dry-run --estimate
+
+# One-time setup of benchmark data in benchmark-only volumes.
+./scripts/run-sweep.sh --setup --profile all --density sparse --target both
+
+# Named sweep artifacts under harness/artifacts/sweeps/pr-42-default/.
+./scripts/run-sweep.sh --name pr-42-default
+
+# Dense processing-corpus preview; --estimate implies dry-run unless --execute is passed.
+./scripts/run-sweep.sh --profile 7d --density dense --corpus-set processing --estimate
+
+# Benchmark data reset; deletes benchmark volumes only, never compliance volumes.
+./scripts/run-sweep.sh --bench-reset --yes
+```
+
+Sweep artifacts include `manifest.json`, `summary.md`, `summary.json`, one or
+more v2 benchmark reports, `memory-summary-*.json`, and when `--memory detailed`
+is selected, whole-run pprof snapshots under `memory-detail-*/`. Render matrices
+from a completed sweep with:
+
+```bash
+./scripts/bench-matrix.sh --sweep harness/artifacts/sweeps/pr-42-default/manifest.json
+./scripts/bench-matrix.sh --sweep harness/artifacts/sweeps/pr-42-default/manifest.json --per-query
+```
+
+Seed policies are explicit: `reuse` requires pre-seeded data, `missing` seeds
+only missing profile/density targets, `always` deliberately writes again, and
+`never` skips seed checks/writes. Sparse profiles are fast and broad; dense
+profiles use higher cardinality and processing corpora with advisory Prometheus
+p50 target bands. Disk/runtime estimates are rough and host-dependent. Detailed
+memory mode uses `PROM_SHIM_ENABLE_PPROF=1` in local harness stacks; keep that
+disabled in production unless the endpoint is otherwise protected.
+
+`run-bench.sh` and `seed-long-range.sh` remain available as lower-level/debug
+helpers, but avoid manual long-range loops for normal work because they are easy
+to accidentally point at the compliance stack. If using those helpers directly,
+pass explicit benchmark endpoints from `run-sweep.sh --bench-status`.
+
+The legacy benchmark tripwire compares reference Prometheus, promshim native
+SQL, and local fallback behavior on pinned corpora:
 
 ```bash
 ./scripts/run-bench.sh --bring-up --matrix
-```
-
-Long-range profiles require the compliance stack to be running and the matching
-long-range data to be seeded first:
-
-```bash
-./scripts/run-compliance.sh --keep-up --skip-classify
-./scripts/seed-long-range.sh --profile 30d --target ch
-./scripts/run-bench.sh --long-range 30d --matrix
 ```
 
 Benchmark matrices below were refreshed after the native-lowering IR migration.

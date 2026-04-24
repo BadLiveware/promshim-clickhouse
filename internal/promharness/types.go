@@ -60,6 +60,11 @@ type QueryRangeVariantSpec struct {
 	EndOffsetSeconds   int64  `json:"endOffsetSeconds"`
 }
 
+type TargetPromP50MS struct {
+	Min float64 `json:"min"`
+	Max float64 `json:"max"`
+}
+
 type QuerySpec struct {
 	Name     string `json:"name"`
 	Endpoint string `json:"endpoint"`
@@ -95,6 +100,10 @@ type QuerySpec struct {
 	// opt into all variants by default while excluding variants that are known
 	// to be irrelevant or too noisy for one row.
 	ExcludeDatasetVariants []string `json:"excludeDatasetVariants,omitempty"`
+	// TargetPromP50MS optionally marks processing-benchmark rows that are
+	// intended to put Prometheus in a useful wall-clock band on typical local
+	// benchmark hardware. Classification is advisory and host-dependent.
+	TargetPromP50MS *TargetPromP50MS `json:"targetPromP50Ms,omitempty"`
 	// CompareMode selects how Prometheus and promshim responses are compared.
 	// "exact" (default) requires byte-for-byte value equality. "structural" only
 	// checks result type, series set, labels, timestamps, and NaN positions —

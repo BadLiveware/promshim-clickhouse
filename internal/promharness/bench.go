@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -23,12 +24,18 @@ type BenchConfig struct {
 	ShimURL        string
 	CorpusPath     string
 	ArtifactDir    string
+	ArtifactName   string
 	Manifest       Manifest
 	Repeats        int
 	WarmupRepeats  int
 	BaselinePath   string
 	UpdateBaseline bool
 	Timeout        time.Duration
+	ShimModes      []string
+	IncludeProm    bool
+	IncludePromSet bool
+	RunLabels      map[string]string
+	MemoryMode     string
 }
 
 type BenchRow struct {
@@ -57,6 +64,46 @@ type BenchSummary struct {
 	QueryCount        int            `json:"queryCount"`
 	StrategyHistogram map[string]int `json:"strategyHistogram"`
 	RegressionCount   int            `json:"regressionCount"`
+}
+
+type BenchTiming struct {
+	P50MS float64 `json:"p50Ms"`
+	P95MS float64 `json:"p95Ms"`
+}
+
+type BenchShimModeResult struct {
+	BenchTiming
+	Strategy       string `json:"strategy,omitempty"`
+	FallbackReason string `json:"fallbackReason,omitempty"`
+	CHRoundtrips   int    `json:"chRoundtrips"`
+	CHMillis       int    `json:"chMillis"`
+	Unsupported    bool   `json:"unsupported,omitempty"`
+	StrategyFlap   bool   `json:"strategyFlap,omitempty"`
+	Error          string `json:"error,omitempty"`
+}
+
+type BenchRowV2 struct {
+	Name            string                         `json:"name"`
+	Query           string                         `json:"query"`
+	Endpoint        string                         `json:"endpoint"`
+	Category        string                         `json:"category,omitempty"`
+	TargetPromP50MS *TargetPromP50MS               `json:"targetPromP50Ms,omitempty"`
+	PromBand        string                         `json:"promBand,omitempty"`
+	Prom            *BenchTiming                   `json:"prom,omitempty"`
+	Shim            map[string]BenchShimModeResult `json:"shim"`
+	Ratios          map[string]float64             `json:"ratios,omitempty"`
+	Error           string                         `json:"error,omitempty"`
+}
+
+type BenchReportV2 struct {
+	SchemaVersion int               `json:"schemaVersion"`
+	CorpusPath    string            `json:"corpusPath"`
+	Manifest      Manifest          `json:"manifest"`
+	GeneratedAt   string            `json:"generatedAt"`
+	RunLabels     map[string]string `json:"runLabels,omitempty"`
+	MemoryMode    string            `json:"memoryMode,omitempty"`
+	Rows          []BenchRowV2      `json:"rows"`
+	Summary       BenchSummary      `json:"summary"`
 }
 
 type BenchReport struct {
@@ -114,6 +161,140 @@ func RunBench(cfg BenchConfig) (BenchReport, error) {
 		}
 	}
 	return report, nil
+}
+
+func RunBenchV2(cfg BenchConfig) (BenchReportV2, error) {
+	cfg = normalizeBenchConfig(cfg)
+	queries, err := LoadQueryCorpus(cfg.CorpusPath)
+	if err != nil {
+		return BenchReportV2{}, fmt.Errorf("load corpus %q: %w", cfg.CorpusPath, err)
+	}
+	client := &http.Client{Timeout: cfg.Timeout}
+	report := BenchReportV2{
+		SchemaVersion: 2,
+		CorpusPath:    cfg.CorpusPath,
+		Manifest:      cfg.Manifest,
+		GeneratedAt:   time.Now().UTC().Format(time.RFC3339),
+		RunLabels:     cloneStringMap(cfg.RunLabels),
+		MemoryMode:    cfg.MemoryMode,
+		Rows:          make([]BenchRowV2, 0, len(queries)),
+		Summary:       BenchSummary{StrategyHistogram: map[string]int{}},
+	}
+	for _, spec := range queries {
+		row := benchOneQueryV2(client, cfg, spec)
+		report.Rows = append(report.Rows, row)
+		for mode, result := range row.Shim {
+			if result.Strategy != "" {
+				report.Summary.StrategyHistogram[mode+":"+result.Strategy]++
+			}
+		}
+	}
+	report.Summary.QueryCount = len(report.Rows)
+	if cfg.ArtifactDir != "" {
+		name := cfg.ArtifactName
+		if name == "" {
+			name = "bench-report-v2.json"
+		}
+		if err := writeBenchReportV2To(filepath.Join(cfg.ArtifactDir, name), report); err != nil {
+			return report, err
+		}
+	}
+	return report, nil
+}
+
+func normalizeBenchConfig(cfg BenchConfig) BenchConfig {
+	if cfg.Repeats <= 0 {
+		cfg.Repeats = 10
+	}
+	if cfg.WarmupRepeats < 0 {
+		cfg.WarmupRepeats = 0
+	}
+	if cfg.Timeout <= 0 {
+		cfg.Timeout = 30 * time.Second
+	}
+	if len(cfg.ShimModes) == 0 {
+		cfg.ShimModes = []string{"force_supported", "off"}
+	}
+	if !cfg.IncludePromSet {
+		cfg.IncludeProm = true
+	}
+	return cfg
+}
+
+func benchOneQueryV2(client *http.Client, cfg BenchConfig, spec QuerySpec) BenchRowV2 {
+	row := BenchRowV2{Name: spec.Name, Query: spec.Query, Endpoint: spec.Endpoint, Category: spec.Category, TargetPromP50MS: spec.TargetPromP50MS, PromBand: "n/a", Shim: map[string]BenchShimModeResult{}}
+	var promP50 float64
+	if cfg.IncludeProm {
+		promSpec := spec
+		promSpec.NativeLoweringMode = ""
+		promLatencies, _, err := repeatWithHeaders(client, cfg, cfg.PromURL, promSpec, cfg.WarmupRepeats, cfg.Repeats)
+		if err != nil {
+			row.Error = fmt.Sprintf("prom: %v", err)
+		} else {
+			row.Prom = &BenchTiming{P50MS: p50(promLatencies), P95MS: p95(promLatencies)}
+			promP50 = row.Prom.P50MS
+			row.PromBand = classifyPromBand(promP50, spec.TargetPromP50MS)
+		}
+	}
+
+	for _, mode := range cfg.ShimModes {
+		modeSpec := spec
+		modeSpec.NativeLoweringMode = mode
+		latencies, samples, err := repeatWithHeaders(client, cfg, cfg.ShimURL, modeSpec, cfg.WarmupRepeats, cfg.Repeats)
+		result := BenchShimModeResult{}
+		if err != nil {
+			result.Error = fmt.Sprintf("%s: %v", mode, err)
+			if mode == "force_supported" {
+				result.Unsupported = true
+			}
+		} else {
+			result.P50MS = p50(latencies)
+			result.P95MS = p95(latencies)
+			if len(samples) > 0 {
+				sample := samples[0]
+				result.Strategy = sample.strategy
+				result.FallbackReason = sample.fallbackReason
+				result.CHRoundtrips = sample.roundtrips
+				result.CHMillis = sample.millis
+			}
+			result.StrategyFlap = detectStrategyFlap(samples)
+		}
+		row.Shim[mode] = result
+	}
+
+	if promP50 > 0 {
+		row.Ratios = map[string]float64{}
+		for mode, result := range row.Shim {
+			if result.P50MS > 0 {
+				row.Ratios[mode+"Prom"] = safeRatio(result.P50MS, promP50)
+			}
+		}
+	}
+	return row
+}
+
+func classifyPromBand(promP50 float64, target *TargetPromP50MS) string {
+	if target == nil || target.Min <= 0 || target.Max <= 0 || promP50 <= 0 {
+		return "n/a"
+	}
+	if promP50 < target.Min {
+		return "too_fast"
+	}
+	if promP50 > target.Max {
+		return "too_slow"
+	}
+	return "in_band"
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func benchOneQuery(client *http.Client, cfg BenchConfig, spec QuerySpec) BenchRow {
@@ -204,7 +385,7 @@ func timedRequest(client *http.Client, baseURL string, manifest Manifest, spec Q
 		return 0, nil, err
 	}
 	if spec.Name != "" {
-		request.Header.Set("X-Promshim-Log-Comment", "bench:"+spec.Name)
+		request.Header.Set("X-Promshim-Log-Comment", benchLogComment(spec))
 	}
 	start := time.Now()
 	response, err := client.Do(request)
@@ -220,6 +401,30 @@ func timedRequest(client *http.Client, baseURL string, manifest Manifest, spec Q
 		return 0, nil, fmt.Errorf("HTTP %d", response.StatusCode)
 	}
 	return float64(elapsed.Microseconds()) / 1000.0, response.Header, nil
+}
+
+func benchLogComment(spec QuerySpec) string {
+	mode := spec.NativeLoweringMode
+	if mode == "" {
+		mode = "prom"
+	}
+	return "promshim-bench query=" + sanitizeLogCommentPart(spec.Name) + " mode=" + sanitizeLogCommentPart(mode)
+}
+
+func sanitizeLogCommentPart(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unknown"
+	}
+	var b strings.Builder
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }
 
 func parseHeaders(h http.Header) headerSample {
@@ -300,7 +505,15 @@ func writeBenchReport(dir string, report BenchReport) error {
 }
 
 func writeBenchReportTo(path string, report BenchReport) error {
-	payload, err := json.MarshalIndent(report, "", "  ")
+	return writeJSONFile(path, report)
+}
+
+func writeBenchReportV2To(path string, report BenchReportV2) error {
+	return writeJSONFile(path, report)
+}
+
+func writeJSONFile(path string, value any) error {
+	payload, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return err
 	}

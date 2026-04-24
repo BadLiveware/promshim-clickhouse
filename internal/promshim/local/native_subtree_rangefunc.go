@@ -1,12 +1,8 @@
 package local
 
 import (
-	nativeplan "ch-observability/internal/promshim/native"
-	"ch-observability/internal/promshim/native/renderer"
 	logicalpkg "ch-observability/internal/promshim/logical"
-	"ch-observability/internal/promshim/storage"
-
-	"github.com/prometheus/prometheus/promql/parser"
+	nativeplan "ch-observability/internal/promshim/native"
 )
 
 func rejectRangeModeFixedTemporalAnchor(ctx PlanContext, fragment *nativeplan.NativeFragment) bool {
@@ -142,23 +138,7 @@ func maybeBuildNativeRangeLikePlanAllowRange(node logicalpkg.Node, kind, expr st
 	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
 		return nil, false, nil
 	}
-	renderMode := renderModeForPlanContext(ctx)
-	rendered, err := renderer.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, renderer.RenderParams{
-		Mode:             renderMode,
-		EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(),
-		StartMS:          ctx.Start.UnixMilli(),
-		EndMS:            ctx.End.UnixMilli(),
-		StepMS:           ctx.Step.Milliseconds(),
-		RequiredStartMS:  optimized.Report.RequiredInputStartMS,
-		RequiredEndMS:    optimized.Report.RequiredInputEndMS,
-		ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
-			return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
-		},
-	})
-	if err != nil {
-		return nil, false, err
-	}
-	if err := nativeplan.ApplyRenderedSQLMetadata(optimized.Report, renderMode, rendered.SQL); err != nil {
+	if err := preRenderNativeSubtreePlanSQL(node, analysis, optimized, ctx); err != nil {
 		return nil, false, err
 	}
 	children := []ExplainNode{}
@@ -205,14 +185,7 @@ func maybeBuildNativeAbsentLikePlan(node logicalpkg.Node, kind, expr string, ctx
 	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
 		return nil, false, nil
 	}
-	renderMode := renderModeForPlanContext(ctx)
-	rendered, err := renderer.RenderFragment(storage.QueryConfig{Database: "preview", Table: "preview"}, optimized.Fragment, renderer.RenderParams{Mode: renderMode, EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds(), RequiredStartMS: optimized.Report.RequiredInputStartMS, RequiredEndMS: optimized.Report.RequiredInputEndMS, ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
-		return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
-	}})
-	if err != nil {
-		return nil, false, err
-	}
-	if err := nativeplan.ApplyRenderedSQLMetadata(optimized.Report, renderMode, rendered.SQL); err != nil {
+	if err := preRenderNativeSubtreePlanSQL(node, analysis, optimized, ctx); err != nil {
 		return nil, false, err
 	}
 	children := []ExplainNode{}

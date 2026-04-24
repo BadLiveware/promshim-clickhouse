@@ -225,11 +225,46 @@ type AggregationSupport struct {
 	Eligible bool
 	Reason   string
 	Source   *NativeFragment
+	// SourceInfo is the analysis-side mirror of Source: it points at the
+	// LoweringInfo for whichever child carries the lowered source
+	// expression the aggregation-pushdown reader needs.
+	//
+	// For the direct-child case (sourceFragment = child.Fragment) this is
+	// info.Children[0] — the AggregationPlan's single child.
+	//
+	// For the zero-fill case (sum(... or vector(0))) this is the
+	// LoweringInfo of the non-zero arm of the LOR BinaryPlan — i.e.
+	// whichever side of binary.LHS/binary.RHS is not vector(0).
+	//
+	// Nil when the aggregation has no native source (ineligible, or the
+	// child did not produce a lowerable source expression).
+	SourceInfo *LoweringInfo
+	// SourceView captures the four-field slice of the aggregation source
+	// that nativeAggregationSourceFromLowering currently reads off
+	// Source (SourcePromQL / ValueExpr / TagsExpr / DropsMetric) —
+	// mirrored here so the reader can drop the Fragment dereference.
+	// Nil when the aggregation has no native source (Eligible=false or
+	// the source fragment carries no SourcePromQL — the reader's gate).
+	SourceView *AggregationSourceView
 	// EmitZeroOnEmpty mirrors AggregationFragment.EmitZeroOnEmpty. Populated
 	// during the Analyze walk for the `sum(... or vector(0))` zero-fill
 	// shape so renderAggregationLogicalBody can branch on it without
 	// dereferencing info.Fragment.Aggregation.
 	EmitZeroOnEmpty bool
+}
+
+// AggregationSourceView mirrors the four NativeFragment fields that
+// the tier-3 aggregation-pushdown reader
+// (nativeAggregationSourceFromLowering) currently dereferences off
+// info.Aggregation.Source: SourcePromQL, ValueExpr, TagsExpr,
+// DropsMetric. Populated during the Analyze walk when the aggregation
+// has a native-lowerable source fragment whose SourcePromQL is
+// non-nil (the reader's gate). Nil otherwise.
+type AggregationSourceView struct {
+	SourcePromQL parser.Expr
+	ValueExpr    string
+	TagsExpr     string
+	DropsMetric  bool
 }
 
 type TimeRequirements struct {
@@ -396,13 +431,22 @@ type ValueTransformView struct {
 	DropsMetric bool
 }
 
-// SyntheticSeriesView captures a scalar-literal fold for BinaryPlan
-// nodes whose two sides fold to a numeric constant (FragmentKindSynthetic-
-// Series + Func=="literal"). The enclosed Value is the folded numeric
-// result; Lower renders it via renderScalarLiteralFragment without
-// dereferencing info.Fragment.
+// SyntheticSeriesView captures the analysis-side view of a synthetic
+// series fragment: the folded scalar literal (Func=="literal") or the
+// synthetic builtin name (time/pi/minute/hour/... — the Func string on
+// the underlying SyntheticSeriesFragment). The enclosed Value is
+// populated alongside Func=="literal" (e.g. 3 for `1+2`); Lower reads
+// Func=="literal" + Value to render via renderScalarLiteralFragment
+// without dereferencing info.Fragment.
 type SyntheticSeriesView struct {
-	// Value is the folded scalar result (e.g. 3 for `1+2`).
+	// Func mirrors SyntheticSeriesFragment.Func — "literal" for folded
+	// scalar literals (ScalarLiteralPlan / folded UnaryPlan / folded
+	// BinaryPlan), and the builtin name ("time", "pi", "minute", "hour",
+	// "day_of_week", "day_of_month", "day_of_year", "days_in_month",
+	// "month", "year") for synthetic scalar / date functions.
+	Func string
+	// Value is the folded scalar result (e.g. 3 for `1+2`). Only
+	// meaningful when Func=="literal".
 	Value float64
 }
 

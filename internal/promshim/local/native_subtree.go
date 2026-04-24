@@ -329,15 +329,15 @@ func newNativeSubtreePlan(kind, expr, reason string, estimate *planEstimate, chi
 }
 
 func nativeAggregationSourceFromLowering(info *nativeplan.LoweringInfo) (nativeAggregationSource, bool) {
-	if info == nil || info.Aggregation == nil || info.Aggregation.Source == nil || info.Aggregation.Source.SourcePromQL == nil {
+	if info == nil || info.Aggregation == nil || info.Aggregation.SourceView == nil {
 		return nativeAggregationSource{}, false
 	}
-	source := info.Aggregation.Source
+	view := info.Aggregation.SourceView
 	return nativeAggregationSource{
-		PromQLLeaf:  source.SourcePromQL,
-		ValueExpr:   source.ValueExpr,
-		TagsExpr:    source.TagsExpr,
-		DropsMetric: source.DropsMetric,
+		PromQLLeaf:  view.SourcePromQL,
+		ValueExpr:   view.ValueExpr,
+		TagsExpr:    view.TagsExpr,
+		DropsMetric: view.DropsMetric,
 		Explain:     explainNativeAggregationSource(firstNonNilChild(info.Children)),
 	}, true
 }

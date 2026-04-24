@@ -219,6 +219,75 @@ type LoweringInfo struct {
 	LabelLineage     LabelLineage
 	TimeRequirements TimeRequirements
 	Children         []*LoweringInfo
+
+	// Shape lifts selector-derived structural information off the
+	// Fragment sub-struct onto the logical-side analysis record so
+	// tier-2 helpers can eventually read it without dereferencing
+	// NativeFragment. Populated during Analyze; the corresponding
+	// Fragment fields remain authoritative until Task 13a-d ports
+	// consumers over. See SelectorShape for field semantics.
+	Shape SelectorShape
+}
+
+// SelectorShape carries per-node selector/shape metadata that tier-2
+// renderer helpers currently read from NativeFragment sub-structs
+// (fragment.Selector.Kind / Lookback / Offset / Timestamp / StartOrEnd,
+// fragment.Selector.RequireFullTags / RequiredTagLabels, and the
+// HasFixedTemporalAnchor tree walk). It is populated during the
+// native.Analyze walk and available via Analysis.InfoFor(node).Shape.
+//
+// HasSelector reports whether this node (directly, for leaf selectors)
+// or its descendants carry a base selector whose Kind/Lookback/Offset
+// are meaningful. Nodes with HasSelector=false (e.g., scalar literals,
+// synthetic series, pure scalar BinaryPlans) leave the remaining
+// selector fields zero-valued — callers must gate on HasSelector before
+// treating Lookback/Offset as authoritative.
+type SelectorShape struct {
+	// HasSelector is true when a base selector is discoverable from
+	// this node (either directly, for a LeafExprPlan wrapping a
+	// Vector/MatrixSelector, or transitively through descent). When
+	// false, SelectorKind/Lookback/Offset/Timestamp/StartOrEnd are all
+	// zero-valued.
+	HasSelector bool
+
+	// SelectorKind mirrors fragment.Selector.Kind for the base
+	// selector reached from this node (InstantVector for plain vector
+	// selectors, RangeVector for matrix selectors).
+	SelectorKind SelectorKind
+
+	// SelectorLookback mirrors fragment.Selector.Lookback on the base
+	// selector. For instant-vector selectors this is
+	// DefaultInstantSelectorLookback (the staleness window). For
+	// range-vector selectors this is the matrix range.
+	SelectorLookback time.Duration
+
+	// SelectorOffset mirrors fragment.Selector.Offset on the base
+	// selector (VectorSelector.OriginalOffset).
+	SelectorOffset time.Duration
+
+	// SelectorTimestamp mirrors fragment.Selector.Timestamp (nil unless
+	// the selector uses an @ anchor).
+	SelectorTimestamp *int64
+
+	// SelectorStartOrEnd mirrors fragment.Selector.StartOrEnd
+	// (parser.START / parser.END for start()/end() anchors, zero
+	// otherwise).
+	SelectorStartOrEnd parser.ItemType
+
+	// HasFixedTemporalAnchor mirrors native.HasFixedTemporalAnchor on
+	// the Fragment subtree rooted at this node: true when any node in
+	// the subtree pins evaluation to an @ timestamp or start()/end().
+	// Computed transitively during Analyze using child InfoFor lookups
+	// so later tier-2 ports can drop the Fragment-side recursion.
+	HasFixedTemporalAnchor bool
+
+	// OutputHasMetricName mirrors renderer.selectorOutputHasMetricName
+	// for the base selector reached from this node: true when the
+	// selector's output retains __name__ (RequireFullTags=true or
+	// RequiredTagLabels contains __name__). False for narrowed
+	// selectors that explicitly drop __name__. Only meaningful when
+	// HasSelector is true.
+	OutputHasMetricName bool
 }
 
 type Analysis struct {
@@ -283,6 +352,75 @@ func (info *LoweringInfo) ExplainInfo() *ExplainInfo {
 		explain.LabelLineage = lineage
 	}
 	return explain
+}
+
+// HasFixedTemporalAnchorNode mirrors HasFixedTemporalAnchor on the
+// logical tree using the analysis side-map. It returns true when any
+// node in the subtree rooted at node pins evaluation to an @ timestamp
+// or start()/end(). Implementation reads the pre-computed
+// Shape.HasFixedTemporalAnchor populated during Analyze. Returns false
+// for nil analysis, nil node, or nodes with no recorded info.
+//
+// This exposes the "does this subtree contain a fixed temporal anchor"
+// predicate via the logical-side lookup path so tier-2 helpers (e.g.,
+// renderer.renderFragment's anchored-range early-out) can eventually
+// drop their direct Fragment recursion.
+func HasFixedTemporalAnchorNode(analysis *Analysis, node logicalpkg.Node) bool {
+	info := analysis.InfoFor(node)
+	if info == nil {
+		return false
+	}
+	return info.Shape.HasFixedTemporalAnchor
+}
+
+// OutputHasMetricNameNode mirrors the renderer's
+// selectorOutputHasMetricName helper on the logical tree: it returns
+// true when the base selector reachable from node still emits
+// __name__ (RequireFullTags=true or RequiredTagLabels contains
+// __name__). Returns true (the fragment-side default) when no selector
+// is discoverable from this node, matching renderer behavior when the
+// selector pointer is nil.
+func OutputHasMetricNameNode(analysis *Analysis, node logicalpkg.Node) bool {
+	info := analysis.InfoFor(node)
+	if info == nil || !info.Shape.HasSelector {
+		return true
+	}
+	return info.Shape.OutputHasMetricName
+}
+
+// RangeFunctionChildIsLeafSelector reports whether the RangeFunctionPlan's
+// child is a LeafExprPlan wrapping a selector expression (the "leaf
+// selector" structural predicate tier-2 range helpers pattern-match on
+// via fragment.Kind == FragmentKindLeafSource). It peers through the
+// logical tree via a Go type switch; a later port can drop the
+// corresponding fragment-kind checks in favor of this helper.
+func RangeFunctionChildIsLeafSelector(child logicalpkg.Node) bool {
+	leaf, ok := child.(*logicalpkg.LeafExprPlan)
+	if !ok || leaf == nil {
+		return false
+	}
+	switch leaf.Expr.(type) {
+	case *parser.MatrixSelector, *parser.VectorSelector:
+		return true
+	default:
+		return false
+	}
+}
+
+// SubqueryChildIsInstantVectorLowering reports whether the
+// SubqueryPlan's child is a logical node expected to render to an
+// instant-vector-lowering subtree. It is a structural test on the
+// logical tree: every subquery lowering currently requires an
+// instant-vector child whose Shape has a discoverable selector, which
+// covers bare selectors, aggregations, binary expressions, and
+// function subtrees over them. Callers that need the selector shape
+// for the inner child should use InfoFor(child).Shape directly.
+func SubqueryChildIsInstantVectorLowering(analysis *Analysis, child logicalpkg.Node) bool {
+	info := analysis.InfoFor(child)
+	if info == nil {
+		return false
+	}
+	return info.OutputKind == OutputKindInstantVector && info.Shape.HasSelector
 }
 
 func HasFixedTemporalAnchor(fragment *NativeFragment) bool {

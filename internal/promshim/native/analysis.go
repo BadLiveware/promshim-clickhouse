@@ -16,6 +16,14 @@ type describedLogicalPlan interface {
 }
 
 func (a *Analysis) walk(node logicalpkg.Node) *LoweringInfo {
+	info := a.walkInner(node)
+	if info != nil {
+		info.Shape = computeSelectorShape(a, node, info)
+	}
+	return info
+}
+
+func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 	if node == nil {
 		return nil
 	}
@@ -923,6 +931,220 @@ func (a *Analysis) walk(node logicalpkg.Node) *LoweringInfo {
 		info.NativeReason = fmt.Sprintf("no native analysis rule is registered for %T", node)
 		return info
 	}
+}
+
+// computeSelectorShape derives the logical-side SelectorShape record
+// for a node from the just-walked info and the node's structure. The
+// shape mirrors (and is populated in parallel with) the selector-derived
+// fields tier-2 helpers currently read via fragment.Selector /
+// fragment.*.Child recursion. Later tasks (13a-d) switch consumers onto
+// InfoFor(n).Shape; the Fragment fields stay authoritative until then.
+func computeSelectorShape(a *Analysis, node logicalpkg.Node, info *LoweringInfo) SelectorShape {
+	shape := SelectorShape{}
+	if node == nil || info == nil {
+		return shape
+	}
+
+	// Leaves carry the base selector directly.
+	if leaf, ok := node.(*logicalpkg.LeafExprPlan); ok && leaf != nil {
+		switch sel := leaf.Expr.(type) {
+		case *parser.VectorSelector:
+			shape.HasSelector = true
+			shape.SelectorKind = SelectorKindInstantVector
+			shape.SelectorLookback = DefaultInstantSelectorLookback
+			shape.SelectorOffset = sel.OriginalOffset
+			shape.SelectorTimestamp = cloneInt64Pointer(sel.Timestamp)
+			shape.SelectorStartOrEnd = sel.StartOrEnd
+			shape.OutputHasMetricName = selectorShapeOutputHasMetricName(info.Fragment)
+			shape.HasFixedTemporalAnchor = selectorShapeHasFixedAnchor(shape)
+			return shape
+		case *parser.MatrixSelector:
+			vec, ok := sel.VectorSelector.(*parser.VectorSelector)
+			if !ok {
+				return shape
+			}
+			shape.HasSelector = true
+			shape.SelectorKind = SelectorKindRangeVector
+			shape.SelectorLookback = sel.Range
+			shape.SelectorOffset = vec.OriginalOffset
+			shape.SelectorTimestamp = cloneInt64Pointer(vec.Timestamp)
+			shape.SelectorStartOrEnd = vec.StartOrEnd
+			shape.OutputHasMetricName = selectorShapeOutputHasMetricName(info.Fragment)
+			shape.HasFixedTemporalAnchor = selectorShapeHasFixedAnchor(shape)
+			return shape
+		}
+	}
+
+	// Synthetic-series nodes (scalar literals, VectorPlan over a scalar
+	// literal, ScalarBuiltinPlan, synthetic PointwiseFunctionPlan) carry
+	// no base selector. Leave shape zero.
+	if info.Fragment != nil && info.Fragment.Kind == FragmentKindSyntheticSeries {
+		return shape
+	}
+
+	// For composite nodes, inherit the base selector shape from the
+	// descendant via the side-map. The chosen descendant matches the
+	// fragment-side BaseSelectorSource/HasFixedTemporalAnchor walk
+	// (first selector-carrying child wins for Kind/Lookback/Offset;
+	// any descendant with a fixed anchor propagates).
+	switch n := node.(type) {
+	case *logicalpkg.SubqueryPlan:
+		childShape := childSelectorShape(a, n.Child)
+		shape = childShape
+		// Subquery itself can pin evaluation via Timestamp/StartOrEnd.
+		if n.Timestamp != nil || n.StartOrEnd == parser.START || n.StartOrEnd == parser.END {
+			shape.HasFixedTemporalAnchor = true
+		}
+	case *logicalpkg.AggregationPlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.RangeFunctionPlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.RatePlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.IncreasePlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.DeltaPlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.ChangesPlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.DerivPlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.QuantileOverTimePlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.ScalarConvertPlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.InfoPlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.AbsentPlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.AbsentOverTimePlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.HistogramProjectionPlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.HistogramQuantilePlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.HistogramFractionPlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.HistogramQuantilesPlan:
+		shape = childSelectorShape(a, n.Child)
+		if !shape.HasSelector {
+			for _, q := range n.ParamChildren {
+				if cs := childSelectorShape(a, q); cs.HasSelector {
+					shape = cs
+					break
+				}
+			}
+		}
+		// Fixed anchor propagates across any descendant even if the
+		// base selector came from the main child.
+		for _, q := range n.ParamChildren {
+			if cs := childSelectorShape(a, q); cs.HasFixedTemporalAnchor {
+				shape.HasFixedTemporalAnchor = true
+				break
+			}
+		}
+	case *logicalpkg.SortPlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.RoundPlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.LabelReplacePlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.LabelJoinPlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.PointwiseFunctionPlan:
+		shape = childSelectorShape(a, n.Child)
+		for _, q := range n.ParamChildren {
+			if cs := childSelectorShape(a, q); cs.HasFixedTemporalAnchor {
+				shape.HasFixedTemporalAnchor = true
+			}
+			if !shape.HasSelector {
+				if cs := childSelectorShape(a, q); cs.HasSelector {
+					shape = cs
+				}
+			}
+		}
+	case *logicalpkg.UnaryPlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.VectorPlan:
+		shape = childSelectorShape(a, n.Child)
+	case *logicalpkg.BinaryPlan:
+		lhs := childSelectorShape(a, n.LHS)
+		rhs := childSelectorShape(a, n.RHS)
+		switch {
+		case lhs.HasSelector:
+			shape = lhs
+		case rhs.HasSelector:
+			shape = rhs
+		}
+		if lhs.HasFixedTemporalAnchor || rhs.HasFixedTemporalAnchor {
+			shape.HasFixedTemporalAnchor = true
+		}
+	}
+
+	// Refresh OutputHasMetricName from the (possibly wrapped) fragment
+	// so it reflects the current narrowing state. Only meaningful when
+	// we successfully carried through a base selector.
+	if shape.HasSelector {
+		shape.OutputHasMetricName = selectorShapeOutputHasMetricNameInherited(info.Fragment, shape)
+	}
+	return shape
+}
+
+func childSelectorShape(a *Analysis, child logicalpkg.Node) SelectorShape {
+	info := a.InfoFor(child)
+	if info == nil {
+		return SelectorShape{}
+	}
+	return info.Shape
+}
+
+// selectorShapeOutputHasMetricName mirrors
+// renderer.selectorOutputHasMetricName for the base-selector case
+// (leaf with a direct fragment.Selector). A nil fragment/selector
+// defaults to true (selector-less paths render full tags).
+func selectorShapeOutputHasMetricName(fragment *NativeFragment) bool {
+	if fragment == nil || fragment.Selector == nil {
+		return true
+	}
+	sel := fragment.Selector
+	if sel.RequireFullTags {
+		return true
+	}
+	if len(sel.RequiredTagLabels) == 0 {
+		return false
+	}
+	for _, label := range sel.RequiredTagLabels {
+		if label == "__name__" {
+			return true
+		}
+	}
+	return false
+}
+
+// selectorShapeOutputHasMetricNameInherited determines OutputHasMetricName
+// for composite nodes. When the composite's fragment still carries a
+// Selector pointer (via CloneSelectorSource in unary/binary source
+// expressions), we prefer its narrowing state. Otherwise we fall back
+// to the child's computed value so ancestors without a direct
+// selector pointer still reflect the chain's narrowing.
+func selectorShapeOutputHasMetricNameInherited(fragment *NativeFragment, childShape SelectorShape) bool {
+	if fragment != nil && fragment.Selector != nil {
+		return selectorShapeOutputHasMetricName(fragment)
+	}
+	if !childShape.HasSelector {
+		return true
+	}
+	return childShape.OutputHasMetricName
+}
+
+func selectorShapeHasFixedAnchor(shape SelectorShape) bool {
+	if !shape.HasSelector {
+		return false
+	}
+	if shape.SelectorTimestamp != nil {
+		return true
+	}
+	return shape.SelectorStartOrEnd == parser.START || shape.SelectorStartOrEnd == parser.END
 }
 
 func isClampPointwiseFunction(name string) bool {

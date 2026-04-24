@@ -109,6 +109,97 @@ func IsSupportedNativeRangeModeForCounterSubquery(fragment *NativeFragment) bool
 	return child.Kind == FragmentKindSubquery && child.Subquery != nil && child.Subquery.Child != nil
 }
 
+// IsSupportedNativeRangeModeForDirectSelectorFromInfo wraps
+// IsSupportedNativeRangeModeForDirectSelector so tier-3 construction
+// dispatchers can gate on range-mode support without dereferencing
+// info.Fragment. Returns false for nil info or nil info.Fragment.
+func IsSupportedNativeRangeModeForDirectSelectorFromInfo(info *LoweringInfo) bool {
+	if info == nil {
+		return false
+	}
+	return IsSupportedNativeRangeModeForDirectSelector(info.Fragment)
+}
+
+// IsSupportedNativeRangeModeForAggregateOverTimeSubqueryFromInfo mirrors
+// IsSupportedNativeRangeModeForAggregateOverTimeSubquery driven from
+// LoweringInfo.
+func IsSupportedNativeRangeModeForAggregateOverTimeSubqueryFromInfo(info *LoweringInfo) bool {
+	if info == nil {
+		return false
+	}
+	return IsSupportedNativeRangeModeForAggregateOverTimeSubquery(info.Fragment)
+}
+
+// IsSupportedNativeRangeModeForWindowedArraysSubqueryFromInfo mirrors
+// IsSupportedNativeRangeModeForWindowedArraysSubquery driven from
+// LoweringInfo.
+func IsSupportedNativeRangeModeForWindowedArraysSubqueryFromInfo(info *LoweringInfo) bool {
+	if info == nil {
+		return false
+	}
+	return IsSupportedNativeRangeModeForWindowedArraysSubquery(info.Fragment)
+}
+
+// IsSupportedNativeRangeModeForCounterSubqueryFromInfo mirrors
+// IsSupportedNativeRangeModeForCounterSubquery driven from LoweringInfo.
+func IsSupportedNativeRangeModeForCounterSubqueryFromInfo(info *LoweringInfo) bool {
+	if info == nil {
+		return false
+	}
+	return IsSupportedNativeRangeModeForCounterSubquery(info.Fragment)
+}
+
+// HasRangeFunctionFragmentFromInfo reports whether info carries a
+// RangeFunction fragment — the precondition that the range-mode
+// support predicates assume. Replaces the explicit
+// `info.Fragment == nil || info.Fragment.RangeFunction == nil` guard
+// at tier-3 range-like plan construction sites.
+func HasRangeFunctionFragmentFromInfo(info *LoweringInfo) bool {
+	return info != nil && info.Fragment != nil && info.Fragment.RangeFunction != nil
+}
+
+// HasAbsentFragmentFromInfo reports whether info carries an Absent
+// fragment — the precondition tier-3 absent plan construction assumes.
+func HasAbsentFragmentFromInfo(info *LoweringInfo) bool {
+	return info != nil && info.Fragment != nil && info.Fragment.Absent != nil
+}
+
+// HasSubqueryFragmentFromInfo reports whether info carries a Subquery
+// fragment with a populated Subquery payload — the precondition tier-3
+// subquery plan construction assumes.
+func HasSubqueryFragmentFromInfo(info *LoweringInfo) bool {
+	return info != nil && info.Fragment != nil && info.Fragment.Subquery != nil
+}
+
+// HasHistogramFunctionFragmentFromInfo reports whether info carries a
+// HistogramFunction fragment with a populated HistogramFunction payload.
+func HasHistogramFunctionFragmentFromInfo(info *LoweringInfo) bool {
+	return info != nil && info.Fragment != nil && info.Fragment.HistogramFunction != nil
+}
+
+// HistogramFunctionNameFromInfo returns the histogram function name
+// carried by info's HistogramFunction fragment, or empty string when
+// the fragment is missing.
+func HistogramFunctionNameFromInfo(info *LoweringInfo) string {
+	if !HasHistogramFunctionFragmentFromInfo(info) {
+		return ""
+	}
+	return info.Fragment.HistogramFunction.Func
+}
+
+// HasHistogramProjectionFragmentFromInfo reports whether info carries a
+// HistogramProjection fragment with a populated HistogramProjection
+// payload.
+func HasHistogramProjectionFragmentFromInfo(info *LoweringInfo) bool {
+	return info != nil && info.Fragment != nil && info.Fragment.HistogramProjection != nil
+}
+
+// HasAggregationFragmentFromInfo reports whether info carries an
+// Aggregation fragment with a populated Aggregation payload.
+func HasAggregationFragmentFromInfo(info *LoweringInfo) bool {
+	return info != nil && info.Fragment != nil && info.Fragment.Aggregation != nil
+}
+
 func isSupportedNativeRangeChildFragment(fragment *NativeFragment) bool {
 	if fragment == nil {
 		return false

@@ -134,6 +134,17 @@ func BuildOptimizedFragmentWithContext(node logicalpkg.Node, analysis *Analysis,
 	return OptimizeFragment(fragment, info, ctx)
 }
 
+// OptimizeFromInfo wraps OptimizeFragment so tier-3 construction callers
+// can drive optimization from a LoweringInfo without dereferencing
+// info.Fragment themselves. Returns an error if info or info.Fragment is
+// nil; callers should gate on info.SubtreeShape before invoking.
+func OptimizeFromInfo(info *LoweringInfo, ctx OptimizationContext) (*OptimizedFragment, error) {
+	if info == nil {
+		return nil, fmt.Errorf("native optimizer requires lowering info")
+	}
+	return OptimizeFragment(info.Fragment, info, ctx)
+}
+
 func OptimizeFragment(fragment *NativeFragment, info *LoweringInfo, ctx OptimizationContext) (*OptimizedFragment, error) {
 	if fragment == nil {
 		return nil, fmt.Errorf("native optimizer requires a fragment")

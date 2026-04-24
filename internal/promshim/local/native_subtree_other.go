@@ -10,20 +10,20 @@ func maybeBuildNativeLeafPlan(node *logicalLeafExprPlan, ctx PlanContext, analys
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindLeafSource {
+	if info == nil || info.SubtreeShape != nativeplan.FragmentKindLeafSource {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFromInfo(info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
-	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized) {
 		return nil, false, nil
 	}
 	if err := preRenderNativeSubtreePlanSQL(node, analysis, optimized, ctx); err != nil {
 		return nil, false, err
 	}
-	return &nativeSubtreePlan{Kind: "leaf", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info, Node: node, Analysis: analysis}, true, nil
+	return newNativeSubtreePlan("leaf", node.ExprString(), info.NativeReason, estimateRangePlan(ctx), nil, optimized, info, node, analysis), true, nil
 }
 
 func maybeBuildNativeSubqueryPlan(node *logicalSubqueryPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
@@ -31,27 +31,20 @@ func maybeBuildNativeSubqueryPlan(node *logicalSubqueryPlan, ctx PlanContext, an
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindSubquery || info.Fragment.Subquery == nil {
+	if info == nil || info.SubtreeShape != nativeplan.FragmentKindSubquery || !nativeplan.HasSubqueryFragmentFromInfo(info) {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFromInfo(info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
-	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized) {
 		return nil, false, nil
 	}
 	if err := preRenderNativeSubtreePlanSQL(node, analysis, optimized, ctx); err != nil {
 		return nil, false, err
 	}
-	children := []ExplainNode{}
-	for _, child := range info.Children {
-		if child == nil {
-			continue
-		}
-		children = append(children, explainNativeAggregationSource(child))
-	}
-	return &nativeSubtreePlan{Kind: "subquery", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info, Node: node, Analysis: analysis}, true, nil
+	return newNativeSubtreePlan("subquery", node.ExprString(), info.NativeReason, estimateRangePlan(ctx), buildNativeSubtreeChildren(info), optimized, info, node, analysis), true, nil
 }
 
 func maybeBuildNativeGenericPlan(node logicalpkg.Node, expr, kind string, ctx PlanContext, analysis *nativeplan.Analysis, allowedKinds ...nativeplan.FragmentKind) (Plan, bool, error) {
@@ -59,12 +52,12 @@ func maybeBuildNativeGenericPlan(node logicalpkg.Node, expr, kind string, ctx Pl
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.Fragment == nil {
+	if info == nil {
 		return nil, false, nil
 	}
 	allowed := false
 	for _, fragmentKind := range allowedKinds {
-		if info.Fragment.Kind == fragmentKind {
+		if info.SubtreeShape == fragmentKind {
 			allowed = true
 			break
 		}
@@ -72,24 +65,17 @@ func maybeBuildNativeGenericPlan(node logicalpkg.Node, expr, kind string, ctx Pl
 	if !allowed {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFromInfo(info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
-	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized) {
 		return nil, false, nil
 	}
 	if err := preRenderNativeSubtreePlanSQL(node, analysis, optimized, ctx); err != nil {
 		return nil, false, err
 	}
-	children := []ExplainNode{}
-	for _, child := range info.Children {
-		if child == nil {
-			continue
-		}
-		children = append(children, explainNativeAggregationSource(child))
-	}
-	return &nativeSubtreePlan{Kind: kind, Expr: expr, Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info, Node: node, Analysis: analysis}, true, nil
+	return newNativeSubtreePlan(kind, expr, info.NativeReason, estimateRangePlan(ctx), buildNativeSubtreeChildren(info), optimized, info, node, analysis), true, nil
 }
 
 func maybeBuildNativeSourcePlan(node *logicalPointwiseFunctionPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
@@ -97,32 +83,25 @@ func maybeBuildNativeSourcePlan(node *logicalPointwiseFunctionPlan, ctx PlanCont
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.Fragment == nil {
+	if info == nil {
 		return nil, false, nil
 	}
-	switch info.Fragment.Kind {
+	switch info.SubtreeShape {
 	case nativeplan.FragmentKindLeafSource, nativeplan.FragmentKindUnarySourceExpr, nativeplan.FragmentKindBinaryScalarSourceExpr, nativeplan.FragmentKindSyntheticSeries, nativeplan.FragmentKindClampTransform:
 	default:
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFromInfo(info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
-	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized) {
 		return nil, false, nil
 	}
 	if err := preRenderNativeSubtreePlanSQL(node, analysis, optimized, ctx); err != nil {
 		return nil, false, err
 	}
-	children := []ExplainNode{}
-	for _, child := range info.Children {
-		if child == nil {
-			continue
-		}
-		children = append(children, explainNativeAggregationSource(child))
-	}
-	return &nativeSubtreePlan{Kind: node.Func, Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info, Node: node, Analysis: analysis}, true, nil
+	return newNativeSubtreePlan(node.Func, node.ExprString(), info.NativeReason, estimateRangePlan(ctx), buildNativeSubtreeChildren(info), optimized, info, node, analysis), true, nil
 }
 
 func maybeBuildNativeSortPlan(node *logicalSortPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
@@ -142,27 +121,20 @@ func maybeBuildNativeInfoPlan(node *logicalInfoPlan, ctx PlanContext, analysis *
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindInfoJoin {
+	if info == nil || info.SubtreeShape != nativeplan.FragmentKindInfoJoin {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFromInfo(info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
-	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized) {
 		return nil, false, nil
 	}
 	if err := preRenderNativeSubtreePlanSQL(node, analysis, optimized, ctx); err != nil {
 		return nil, false, err
 	}
-	children := []ExplainNode{}
-	for _, child := range info.Children {
-		if child == nil {
-			continue
-		}
-		children = append(children, explainNativeAggregationSource(child))
-	}
-	return &nativeSubtreePlan{Kind: "info", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info, Node: node, Analysis: analysis}, true, nil
+	return newNativeSubtreePlan("info", node.ExprString(), info.NativeReason, estimateRangePlan(ctx), buildNativeSubtreeChildren(info), optimized, info, node, analysis), true, nil
 }
 
 func maybeBuildNativeScalarConvertPlan(node *logicalScalarConvertPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
@@ -170,27 +142,20 @@ func maybeBuildNativeScalarConvertPlan(node *logicalScalarConvertPlan, ctx PlanC
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindScalarConvert {
+	if info == nil || info.SubtreeShape != nativeplan.FragmentKindScalarConvert {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFromInfo(info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
-	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized) {
 		return nil, false, nil
 	}
 	if err := preRenderNativeSubtreePlanSQL(node, analysis, optimized, ctx); err != nil {
 		return nil, false, err
 	}
-	children := []ExplainNode{}
-	for _, child := range info.Children {
-		if child == nil {
-			continue
-		}
-		children = append(children, explainNativeAggregationSource(child))
-	}
-	return &nativeSubtreePlan{Kind: "scalar", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info, Node: node, Analysis: analysis}, true, nil
+	return newNativeSubtreePlan("scalar", node.ExprString(), info.NativeReason, estimateRangePlan(ctx), buildNativeSubtreeChildren(info), optimized, info, node, analysis), true, nil
 }
 
 func maybeBuildNativeHistogramFractionPlan(node *logicalHistogramFractionPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
@@ -198,27 +163,20 @@ func maybeBuildNativeHistogramFractionPlan(node *logicalHistogramFractionPlan, c
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindHistogramFunction || info.Fragment.HistogramFunction == nil {
+	if info == nil || info.SubtreeShape != nativeplan.FragmentKindHistogramFunction || !nativeplan.HasHistogramFunctionFragmentFromInfo(info) {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFromInfo(info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
-	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized) {
 		return nil, false, nil
 	}
 	if err := preRenderNativeSubtreePlanSQL(node, analysis, optimized, ctx); err != nil {
 		return nil, false, err
 	}
-	children := []ExplainNode{}
-	for _, child := range info.Children {
-		if child == nil {
-			continue
-		}
-		children = append(children, explainNativeAggregationSource(child))
-	}
-	return &nativeSubtreePlan{Kind: "histogram_fraction", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info, Node: node, Analysis: analysis}, true, nil
+	return newNativeSubtreePlan("histogram_fraction", node.ExprString(), info.NativeReason, estimateRangePlan(ctx), buildNativeSubtreeChildren(info), optimized, info, node, analysis), true, nil
 }
 
 func maybeBuildNativeHistogramQuantilePlan(node *logicalHistogramQuantilePlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
@@ -226,27 +184,20 @@ func maybeBuildNativeHistogramQuantilePlan(node *logicalHistogramQuantilePlan, c
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindHistogramFunction || info.Fragment.HistogramFunction == nil {
+	if info == nil || info.SubtreeShape != nativeplan.FragmentKindHistogramFunction || !nativeplan.HasHistogramFunctionFragmentFromInfo(info) {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFromInfo(info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
-	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized) {
 		return nil, false, nil
 	}
 	if err := preRenderNativeSubtreePlanSQL(node, analysis, optimized, ctx); err != nil {
 		return nil, false, err
 	}
-	children := []ExplainNode{}
-	for _, child := range info.Children {
-		if child == nil {
-			continue
-		}
-		children = append(children, explainNativeAggregationSource(child))
-	}
-	return &nativeSubtreePlan{Kind: "histogram_quantile", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info, Node: node, Analysis: analysis}, true, nil
+	return newNativeSubtreePlan("histogram_quantile", node.ExprString(), info.NativeReason, estimateRangePlan(ctx), buildNativeSubtreeChildren(info), optimized, info, node, analysis), true, nil
 }
 
 func maybeBuildNativeHistogramQuantilesPlan(node *logicalHistogramQuantilesPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
@@ -254,27 +205,20 @@ func maybeBuildNativeHistogramQuantilesPlan(node *logicalHistogramQuantilesPlan,
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindHistogramFunction || info.Fragment.HistogramFunction == nil || info.Fragment.HistogramFunction.Func != "histogram_quantiles" {
+	if info == nil || info.SubtreeShape != nativeplan.FragmentKindHistogramFunction || !nativeplan.HasHistogramFunctionFragmentFromInfo(info) || nativeplan.HistogramFunctionNameFromInfo(info) != "histogram_quantiles" {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFromInfo(info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
-	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized) {
 		return nil, false, nil
 	}
 	if err := preRenderNativeSubtreePlanSQL(node, analysis, optimized, ctx); err != nil {
 		return nil, false, err
 	}
-	children := []ExplainNode{}
-	for _, child := range info.Children {
-		if child == nil {
-			continue
-		}
-		children = append(children, explainNativeAggregationSource(child))
-	}
-	return &nativeSubtreePlan{Kind: "histogram_quantiles", Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info, Node: node, Analysis: analysis}, true, nil
+	return newNativeSubtreePlan("histogram_quantiles", node.ExprString(), info.NativeReason, estimateRangePlan(ctx), buildNativeSubtreeChildren(info), optimized, info, node, analysis), true, nil
 }
 
 func maybeBuildNativeHistogramProjectionPlan(node *logicalHistogramProjectionPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
@@ -282,27 +226,20 @@ func maybeBuildNativeHistogramProjectionPlan(node *logicalHistogramProjectionPla
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindHistogramProjection || info.Fragment.HistogramProjection == nil {
+	if info == nil || info.SubtreeShape != nativeplan.FragmentKindHistogramProjection || !nativeplan.HasHistogramProjectionFragmentFromInfo(info) {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFromInfo(info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
-	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized) {
 		return nil, false, nil
 	}
 	if err := preRenderNativeSubtreePlanSQL(node, analysis, optimized, ctx); err != nil {
 		return nil, false, err
 	}
-	children := []ExplainNode{}
-	for _, child := range info.Children {
-		if child == nil {
-			continue
-		}
-		children = append(children, explainNativeAggregationSource(child))
-	}
-	return &nativeSubtreePlan{Kind: node.Func, Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Children: children, Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info, Node: node, Analysis: analysis}, true, nil
+	return newNativeSubtreePlan(node.Func, node.ExprString(), info.NativeReason, estimateRangePlan(ctx), buildNativeSubtreeChildren(info), optimized, info, node, analysis), true, nil
 }
 
 func maybeBuildNativeScalarLiteralPlan(node *logicalScalarLiteralPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
@@ -321,20 +258,20 @@ func maybeBuildNativeScalarBuiltinPlan(node *logicalScalarBuiltinPlan, ctx PlanC
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)
-	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindSyntheticSeries {
+	if info == nil || info.SubtreeShape != nativeplan.FragmentKindSyntheticSeries {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFromInfo(info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
-	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized) {
 		return nil, false, nil
 	}
 	if err := preRenderNativeSubtreePlanSQL(node, analysis, optimized, ctx); err != nil {
 		return nil, false, err
 	}
-	return &nativeSubtreePlan{Kind: node.Func, Expr: node.ExprString(), Reason: info.NativeReason, Estimate: estimateRangePlan(ctx), Fragment: optimized.Fragment, OptimizationReport: optimized.Report, Info: info, Node: node, Analysis: analysis}, true, nil
+	return newNativeSubtreePlan(node.Func, node.ExprString(), info.NativeReason, estimateRangePlan(ctx), nil, optimized, info, node, analysis), true, nil
 }
 
 func maybeBuildNativeUnaryPlan(node *logicalUnaryPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
@@ -359,14 +296,14 @@ func maybeBuildNativeRoundPlan(node *logicalRoundPlan, ctx PlanContext, analysis
 
 func maybeBuildNativeAggregationPlan(node *logicalAggregationPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
 	info := analysis.InfoFor(node)
-	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindAggregation || info.Fragment.Aggregation == nil {
+	if info == nil || info.SubtreeShape != nativeplan.FragmentKindAggregation || !nativeplan.HasAggregationFragmentFromInfo(info) {
 		return nil, false, nil
 	}
 	decision := decideNativeAggregationPushdownFromAnalysis(node, analysis, ctx)
 	if !decision.Eligible && !ctx.NativeLoweringMode.ForcesNativeRoot() {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{
+	optimized, err := nativeplan.OptimizeFromInfo(info, nativeplan.OptimizationContext{
 		Mode:             renderModeForPlanContext(ctx),
 		EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(),
 		StartMS:          ctx.Start.UnixMilli(),
@@ -376,37 +313,21 @@ func maybeBuildNativeAggregationPlan(node *logicalAggregationPlan, ctx PlanConte
 	if err != nil {
 		return nil, false, err
 	}
-	if rejectRangeModeFixedTemporalAnchor(ctx, optimized.Fragment) {
+	if rejectRangeModeFixedTemporalAnchor(ctx, optimized) {
 		return nil, false, nil
 	}
 	if err := preRenderNativeSubtreePlanSQL(node, analysis, optimized, ctx); err != nil {
 		return nil, false, err
 	}
-	children := []ExplainNode{}
+	var children []ExplainNode
 	if decision.Source.Explain.Strategy != "" {
 		children = append(children, decision.Source.Explain)
 	} else {
-		for _, child := range info.Children {
-			if child == nil {
-				continue
-			}
-			children = append(children, explainNativeAggregationSource(child))
-		}
+		children = buildNativeSubtreeChildren(info)
 	}
 	reason := decision.Reason
 	if reason == "" || ctx.NativeLoweringMode.ForcesNativeRoot() && !decision.Eligible {
 		reason = info.NativeReason
 	}
-	return &nativeSubtreePlan{
-		Kind:               "aggregation",
-		Expr:               node.ExprString(),
-		Reason:             reason,
-		Estimate:           estimateRangePlan(ctx),
-		Children:           children,
-		Fragment:           optimized.Fragment,
-		OptimizationReport: optimized.Report,
-		Info:               analysis.InfoFor(node),
-		Node:               node,
-		Analysis:           analysis,
-	}, true, nil
+	return newNativeSubtreePlan("aggregation", node.ExprString(), reason, estimateRangePlan(ctx), children, optimized, analysis.InfoFor(node), node, analysis), true, nil
 }

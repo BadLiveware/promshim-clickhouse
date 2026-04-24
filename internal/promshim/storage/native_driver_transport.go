@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/obs"
@@ -100,11 +101,48 @@ func (t *NativeDriverTransport) QueryNativeRows(ctx context.Context, req QueryRe
 func (t *NativeDriverTransport) QueryNativeRow(ctx context.Context, req QueryRequest) chdriver.Row {
 	ctx = t.queryContext(ctx, req)
 	start := time.Now()
-	row := t.conn.QueryRow(ctx, driverSQL(req.SQL))
-	duration := time.Since(start)
-	obs.FromContext(ctx).Observe(duration)
-	observeQuery(TransportNative, req.Purpose, "success", duration)
-	return row
+	return &nativeObservedRow{
+		row:     t.conn.QueryRow(ctx, driverSQL(req.SQL)),
+		ctx:     ctx,
+		start:   start,
+		purpose: req.Purpose,
+	}
+}
+
+type nativeObservedRow struct {
+	row     chdriver.Row
+	ctx     context.Context
+	start   time.Time
+	purpose QueryPurpose
+	once    sync.Once
+}
+
+func (r *nativeObservedRow) Err() error {
+	err := r.row.Err()
+	if err != nil {
+		r.observe(err)
+	}
+	return err
+}
+
+func (r *nativeObservedRow) Scan(dest ...any) error {
+	err := r.row.Scan(dest...)
+	r.observe(err)
+	return err
+}
+
+func (r *nativeObservedRow) ScanStruct(dest any) error {
+	err := r.row.ScanStruct(dest)
+	r.observe(err)
+	return err
+}
+
+func (r *nativeObservedRow) observe(err error) {
+	r.once.Do(func() {
+		duration := time.Since(r.start)
+		obs.FromContext(r.ctx).Observe(duration)
+		observeQuery(TransportNative, r.purpose, queryStatus(err), duration)
+	})
 }
 
 func (t *NativeDriverTransport) Exec(ctx context.Context, req QueryRequest) error {

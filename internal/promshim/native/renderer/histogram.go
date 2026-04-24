@@ -668,8 +668,17 @@ func buildHistogramIdentityTagAggregationRowsSQL(sourceSQL string, params map[st
 //
 // For non-matching shapes the helper returns ok=false so the caller
 // falls through to the full renderFragmentSubquery/renderLogicalSubquery
-// path. The internal BuildFragment retires in a later phase together
-// with tryRenderHistogramChildRowsSQL.
+// path.
+//
+// Phase 6g (Task 13a Phase 6g): the scoped native.BuildFragment call
+// has been replaced with a cached-fragment read from
+// analysis.InfoFor(childNode).Fragment. BuildFragment is
+// definitionally CloneFragment(analysis.InfoFor(n).Fragment) (see
+// native/builder.go), and Analyze's AggregationPlan walk already
+// populates info.Fragment for every shape that reaches this helper.
+// The downstream tryRenderHistogramChildRowsSQL still consumes a
+// *NativeFragment; it retires together with the child-rows fast-path
+// Fragment renderers in Task 13 Step 2/3.
 func tryRenderHistogramChildRowsSQLLogical(cfg storage.QueryConfig, childNode logicalpkg.Node, analysis *native.Analysis, params RenderParams, prefix string) (string, map[string]string, bool, error) {
 	if childNode == nil {
 		return "", nil, false, nil
@@ -690,13 +699,14 @@ func tryRenderHistogramChildRowsSQLLogical(cfg storage.QueryConfig, childNode lo
 	default:
 		return "", nil, false, nil
 	}
-	child, err := native.BuildFragment(childNode, analysis)
-	if err != nil {
+	if analysis == nil {
 		return "", nil, false, nil
 	}
-	if child == nil {
+	info := analysis.InfoFor(childNode)
+	if info == nil || info.Fragment == nil {
 		return "", nil, false, nil
 	}
+	child := native.CloneFragment(info.Fragment)
 	return tryRenderHistogramChildRowsSQL(cfg, child, params, prefix)
 }
 

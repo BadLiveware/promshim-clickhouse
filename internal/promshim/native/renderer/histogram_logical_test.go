@@ -112,11 +112,33 @@ func queryParamsEqualForLogicalHistogram(a, b map[string]string) bool {
 func TestHistogramFunctionLogicalMatchesFragment(t *testing.T) {
 	queries := []string{
 		`histogram_quantile(0.9, foo_bucket)`,
+		// Grouping-aggregation child, single-label "by (le)" drives
+		// identity-tag shortcut in renderClassicHistogramGroupsQueryLogical.
+		`histogram_quantile(0.9, sum by (le) (rate(foo_bucket[5m])))`,
 		`histogram_quantile(0.5, sum by (le) (rate(foo_bucket[5m])))`,
+		// Multi-label grouping-aggregation child (narrowing, full-tag path).
 		`histogram_quantile(0.99, sum by (le, job) (rate(foo_bucket[1m])))`,
+		// Non-aggregation child — no narrowing. The immediate child of the
+		// histogram function is a RangeFunctionPlan, so
+		// histogramFunctionChildAggregation returns nil and RenderParams
+		// pass through unchanged.
+		`histogram_quantile(0.9, rate(foo_bucket[5m]))`,
 		`histogram_fraction(0.1, 0.2, foo_bucket)`,
+		// Fraction variant with grouping-aggregation child (narrowing).
+		`histogram_fraction(0.1, 0.9, sum by (le) (rate(foo_bucket[5m])))`,
 		`histogram_fraction(0.1, 0.2, sum by (le) (rate(foo_bucket[5m])))`,
+		// Quantiles variant with grouping-aggregation child — exercises
+		// both the logical-child path for the classic histograms and the
+		// transitional BuildFragment inside the histogram_quantiles branch
+		// (needed for the scalar-binding Quantiles []*NativeFragment).
+		`histogram_quantiles(sum by (le) (rate(foo_bucket[5m])), "quantile", 0.5, 0.9, 0.99)`,
 		`histogram_quantiles(foo_bucket, "quantile", 0.5, 0.9)`,
+		// Non-narrowing aggregation shape as child: "without (instance)"
+		// drops into decideHistogramChildNarrowing's require-full-tags
+		// branch, so the child Fragment is rendered with the full
+		// selector shape. Guards against regressions in the non-narrowed
+		// branch of renderClassicHistogramGroupsQueryLogical.
+		`histogram_quantile(0.9, sum without (instance) (rate(foo_bucket[5m])))`,
 	}
 
 	for _, query := range queries {

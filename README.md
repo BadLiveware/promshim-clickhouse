@@ -190,17 +190,19 @@ reference Prometheus instead of relying on hand-written smoke tests:
 
 ### Supported in tier 2 native SQL
 
-Tier 2 native SQL is expected to be a complete PromQL execution path for the
-float-sample and classic-histogram surface this repo targets. In
-`force_supported` mode, the full upstream compliance suite and repo-owned
-harness suites are expected to run with **no unsupported native roots**.
+Tier 2 native SQL is a complete PromQL execution path for the float-sample and
+classic-histogram surface this repo targets. In `force_supported` mode, the full
+upstream compliance suite and repo-owned harness suites run with **no unsupported
+native roots**.
 
-That includes the usual PromQL surface: selectors, matchers, `offset`, `@`,
-subqueries, aggregations, selection aggregations, scalar and vector arithmetic,
-comparisons, vector matching, set operators, range functions, counter functions,
-classic histogram bucket queries and histogram helper functions, label mutation,
-sort functions, scalar roots, `absent`, `absent_over_time`, `info`, and the rest
-of the targeted scalar/classic-histogram PromQL feature set.
+Within that scalar/classic-histogram scope, this means the full PromQL
+expression surface: selectors, matchers, `offset`, `@`, subqueries,
+aggregations, selection aggregations, scalar and vector arithmetic, comparisons,
+vector matching, set operators, range functions, counter functions, classic
+histogram bucket queries and histogram helper functions, label mutation, sort
+functions, scalar roots, `absent`, `absent_over_time`, `info`, and the rest of
+the PromQL feature set exercised by the upstream parser/compliance suite and our
+repo-owned harnesses.
 
 ### Not supported
 
@@ -220,8 +222,13 @@ Known accepted deviations are intentionally narrow and live in
   derivable from labels alone.
 - **ClickHouse-vs-Go modulo float drift:** absolute error must stay within
   `1e-6`, with labels and timestamps still matching exactly. This accounts for
-  ClickHouse's modulo implementation using `x - trunc(x / y) * y` where
-  Go/Prometheus uses `math.Mod`.
+  two different floating-point remainder algorithms. ClickHouse computes modulo
+  as `x - trunc(x / y) * y`, which performs a division, truncation,
+  multiplication, and subtraction. Go/Prometheus uses Go's `math.Mod`, whose
+  portable implementation repeatedly subtracts scaled powers-of-two multiples of
+  `abs(y)` using `Frexp`/`Ldexp`, then reapplies the sign of `x`. Both implement
+  the same remainder semantics, but they round at different intermediate steps,
+  so very large operands can differ by tiny amounts.
 
 Anything else is treated as a visible bug or coverage gap, not something to
 hide in the allowlist.

@@ -25,10 +25,10 @@ import (
 // (populated during native.Analyze) because it is computed from a
 // sum(... or vector(0)) structural pattern that does not have a
 // standalone logical representation. The selector data for the leaf
-// branches is read from the already-optimized cached Fragment so the
-// selector projection applied during analysis (narrowing
-// RequireFullTags / RequiredTagLabels for the grouping parent) flows
-// through byte-identically with the Fragment path.
+// branches is read from info.SourceExpr; tag-narrowing for the
+// grouping parent flows through RenderParams (RequireFullTags /
+// RequiredTagLabels) and is merged onto the storage selector inside
+// renderAggregationSourceView via applyRenderParamsNarrowing.
 //
 // Hierarchical fallback: non-fusable shapes return ok=false so the
 // caller falls through to the standard (non-fused) aggregation
@@ -123,10 +123,10 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 			return "", nil, fmt.Errorf("fused range aggregation (logical) requires a matrix-selector leaf child")
 		}
 		// Read the leaf's SourceExprView / LeafSelector off the analysis
-		// side-map so the already-applied projection narrowing
-		// (RequireFullTags / RequiredTagLabels) flows through to the
-		// AggregationSource byte-identically with the Fragment-side helper.
-		// Both fields are populated by native.Analyze for the leaf node.
+		// side-map. Tag-narrowing flows through RenderParams and is
+		// merged onto the storage AggregationSource selector inside
+		// renderAggregationSourceView. Both fields are populated by
+		// native.Analyze for the leaf node.
 		leafInfo := ctx.NativeAnalysis.InfoFor(child)
 		if leafInfo == nil || leafInfo.LeafSelector == nil || leafInfo.SourceExpr == nil {
 			return "", nil, fmt.Errorf("fused range aggregation (logical) leaf selector metadata missing")
@@ -142,7 +142,7 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 			if err != nil {
 				return "", nil, err
 			}
-			tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(sel))
+			tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(ctx.Params))
 			return storage.BuildRangeWindowSelectorDirectAggregateRowsQuerySQLWithFinalTags(ctx.Config, *source.Selector, childRequiredStartMS, childRequiredEndMS, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, fn, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
 		}
 		if isIdentity && preferDirectSelectorWindowJoin(lookbackMS, ctx.Params.StepMS) {
@@ -152,7 +152,7 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 				return "", nil, err
 			}
 			windowValueExpr := rangeFunctionValueExpr(fn, "window_series", "window_values", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", lookbackMS)
-			tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(sel))
+			tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(ctx.Params))
 			return storage.BuildRangeWindowSelectorRowsQuerySQLWithFinalTags(ctx.Config, *source.Selector, childRequiredStartMS, childRequiredEndMS, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, fn, windowValueExpr, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
 		}
 		// Non-fast-path leaf branch: Phase-6c replacement for the
@@ -169,12 +169,14 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 			RequiredStartMS:     childRequiredStartMS,
 			RequiredEndMS:       childRequiredEndMS,
 			ResolveSourcePromQL: ctx.Params.ResolveSourcePromQL,
+			RequireFullTags:     ctx.Params.RequireFullTags,
+			RequiredTagLabels:   ctx.Params.RequiredTagLabels,
 		}
 		childRendered, err := Lower(childCtx, child)
 		if err != nil {
 			return "", nil, err
 		}
-		tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(sel))
+		tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(ctx.Params))
 		sql, err := buildRangeFunctionOverWindowedArraysRowsSQL(trimRenderedQuerySQL(childRendered.SQL), fn, tagsExpr, paramNumber, paramNumbers, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, lookbackMS, offsetMS)
 		if err != nil {
 			return "", nil, err
@@ -197,6 +199,8 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 			RequiredStartMS:     ctx.Params.RequiredStartMS,
 			RequiredEndMS:       ctx.Params.RequiredEndMS,
 			ResolveSourcePromQL: ctx.Params.ResolveSourcePromQL,
+			RequireFullTags:     ctx.Params.RequireFullTags,
+			RequiredTagLabels:   ctx.Params.RequiredTagLabels,
 		}
 		childRendered, err := Lower(childCtx, child)
 		if err != nil {

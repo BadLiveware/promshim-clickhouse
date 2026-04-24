@@ -127,13 +127,6 @@ func selectorEffectiveMatchers(selector *native.SelectorSource) []*labels.Matche
 	return matchers
 }
 
-func selectorNeedsTags(selector *native.SelectorSource) bool {
-	if selector == nil {
-		return true
-	}
-	return selector.RequireFullTags || len(selector.RequiredTagLabels) > 0
-}
-
 func alignSubqueryStepStart(windowStartMS, stepMS int64) int64 {
 	if stepMS <= 0 {
 		return windowStartMS

@@ -128,7 +128,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						if err != nil {
 							return renderedFragment{}, err
 						}
-						tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(leafInfo.LeafSelector))
+						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
 						sql, err := buildInstantRateOverRowsSQL(trimRenderedQuerySQL(rowsSQL), tagsExpr, params.EvaluationTimeMS)
 						if err != nil {
 							return renderedFragment{}, err
@@ -144,7 +144,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						if err != nil {
 							return renderedFragment{}, err
 						}
-						tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(leafInfo.LeafSelector))
+						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
 						sql, err := buildInstantRangeFunctionOverRowsSQL(trimRenderedQuerySQL(rowsSQL), fn, tagsExpr, params.EvaluationTimeMS)
 						if err != nil {
 							return renderedFragment{}, err
@@ -188,7 +188,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 			if _, isMatrix := leaf.Expr.(*parser.MatrixSelector); isMatrix {
 				leafInfo := ctx.NativeAnalysis.InfoFor(leaf)
 				if leafInfo != nil && leafInfo.LeafSelector != nil {
-					tagsExpr = rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(leafInfo.LeafSelector))
+					tagsExpr = rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
 					if leafInfo.LeafSelector.Kind == native.SelectorKindRangeVector {
 						childRangeMS = leafInfo.LeafSelector.Lookback.Milliseconds()
 					}
@@ -231,7 +231,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						if err != nil {
 							return renderedFragment{}, err
 						}
-						tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(sel))
+						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
 						sql, err := buildRangeFunctionOverRowsSQL(trimRenderedQuerySQL(rowsSQL), fn, tagsExpr, params.StartMS, params.EndMS, params.StepMS, lookbackMS, offsetMS)
 						if err != nil {
 							return renderedFragment{}, err
@@ -247,7 +247,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						if err != nil {
 							return renderedFragment{}, err
 						}
-						tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(sel))
+						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
 						sql, queryParams, err := storage.BuildRangeWindowSelectorDirectAggregateQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, fn, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
 						if err != nil {
 							return renderedFragment{}, err
@@ -261,7 +261,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 							return renderedFragment{}, err
 						}
 						windowValueExpr := rangeFunctionValueExpr(fn, "window_series", "window_values", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", lookbackMS)
-						tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(sel))
+						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
 						sql, queryParams, err := storage.BuildRangeWindowSelectorQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, fn, windowValueExpr, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
 						if err != nil {
 							return renderedFragment{}, err
@@ -282,12 +282,14 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						RequiredStartMS:     childRequiredStartMS,
 						RequiredEndMS:       childRequiredEndMS,
 						ResolveSourcePromQL: params.ResolveSourcePromQL,
+						RequireFullTags:     params.RequireFullTags,
+						RequiredTagLabels:   params.RequiredTagLabels,
 					}
 					childRendered, err := Lower(childCtx, child)
 					if err != nil {
 						return renderedFragment{}, err
 					}
-					tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(sel))
+					tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
 					sql, err := buildRangeFunctionOverWindowedArraysSQL(trimRenderedQuerySQL(childRendered.SQL), fn, tagsExpr, paramNumber, paramNumbers, params.StartMS, params.EndMS, params.StepMS, lookbackMS, offsetMS)
 					if err != nil {
 						return renderedFragment{}, err
@@ -331,6 +333,8 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 					RequiredStartMS:     params.RequiredStartMS,
 					RequiredEndMS:       params.RequiredEndMS,
 					ResolveSourcePromQL: params.ResolveSourcePromQL,
+					RequireFullTags:     params.RequireFullTags,
+					RequiredTagLabels:   params.RequiredTagLabels,
 				}
 				childRendered, err := Lower(childCtx, child)
 				if err != nil {

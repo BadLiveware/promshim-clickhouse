@@ -229,8 +229,9 @@ func TestAnalyzeShapeSubqueryAnchorPropagates(t *testing.T) {
 }
 
 // TestAnalyzeShapeOutputHasMetricNameForBareSelector verifies that a
-// bare selector (RequireFullTags=true, matching fragment.Selector on
-// leaf construction) reports OutputHasMetricName=true.
+// bare selector reports OutputHasMetricName=true. After 13c-14e this
+// is structurally true for any HasSelector=true shape; the test keeps
+// the signature to guard against the flag ever regressing.
 func TestAnalyzeShapeOutputHasMetricNameForBareSelector(t *testing.T) {
 	expr := mustParseExpr(t, `up`)
 	leaf := &logicalpkg.LeafExprPlan{Expr: expr}
@@ -264,8 +265,9 @@ func TestAnalyzeShapeOutputHasMetricNameDropsThroughAggregation(t *testing.T) {
 	if info == nil {
 		t.Fatal("expected lowering info")
 	}
-	// Child leaf's selector carries RequireFullTags=true, so the
-	// chain's OutputHasMetricName stays true via inheritance.
+	// After 13c-14e OutputHasMetricName is structurally true for any
+	// HasSelector=true shape; the aggregation inherits HasSelector=true
+	// from the child leaf and therefore OutputHasMetricName=true.
 	if !info.Shape.OutputHasMetricName {
 		t.Fatalf("expected aggregation over bare selector to inherit OutputHasMetricName=true, got %#v", info.Shape)
 	}

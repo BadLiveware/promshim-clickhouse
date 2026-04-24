@@ -92,7 +92,7 @@ func TestBuildPlanCreatesNativeSubqueryPlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if subquery.Fragment == nil || subquery.Fragment.Kind != nativeplan.FragmentKindSubquery || subquery.Fragment.Subquery == nil {
+	if subquery.Info.Fragment == nil || subquery.Info.Fragment.Kind != nativeplan.FragmentKindSubquery || subquery.Info.Fragment.Subquery == nil {
 		t.Fatalf("expected native subquery fragment, got %#v", subquery)
 	}
 	if subquery.Expr != "(up * 100)[5m:30s]" {
@@ -114,11 +114,11 @@ func TestBuildPlanCreatesNativeSubqueryPlanWithAggregationChild(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if subquery.Fragment == nil || subquery.Fragment.Kind != nativeplan.FragmentKindSubquery || subquery.Fragment.Subquery == nil {
+	if subquery.Info.Fragment == nil || subquery.Info.Fragment.Kind != nativeplan.FragmentKindSubquery || subquery.Info.Fragment.Subquery == nil {
 		t.Fatalf("expected native subquery fragment, got %#v", subquery)
 	}
-	if subquery.Fragment.Subquery.Child == nil || subquery.Fragment.Subquery.Child.Kind != nativeplan.FragmentKindAggregation {
-		t.Fatalf("expected native aggregation child inside subquery, got %#v", subquery.Fragment.Subquery.Child)
+	if subquery.Info.Fragment.Subquery.Child == nil || subquery.Info.Fragment.Subquery.Child.Kind != nativeplan.FragmentKindAggregation {
+		t.Fatalf("expected native aggregation child inside subquery, got %#v", subquery.Info.Fragment.Subquery.Child)
 	}
 }
 
@@ -418,7 +418,7 @@ func TestBuildPlanCreatesNativeRatePlanForDirectSelector(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 		}
-		if ratePlan.Fragment == nil || ratePlan.Fragment.RangeFunction == nil || ratePlan.Fragment.RangeFunction.Func != fn {
+		if ratePlan.Info.Fragment == nil || ratePlan.Info.Fragment.RangeFunction == nil || ratePlan.Info.Fragment.RangeFunction.Func != fn {
 			t.Fatalf("expected native %s fragment, got %#v", fn, ratePlan)
 		}
 	}
@@ -438,7 +438,7 @@ func TestBuildPlanCreatesNativeIncreasePlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if increasePlan.Fragment == nil || increasePlan.Fragment.RangeFunction == nil || increasePlan.Fragment.RangeFunction.Func != "increase" {
+	if increasePlan.Info.Fragment == nil || increasePlan.Info.Fragment.RangeFunction == nil || increasePlan.Info.Fragment.RangeFunction.Func != "increase" {
 		t.Fatalf("expected native increase fragment, got %#v", increasePlan)
 	}
 }
@@ -458,7 +458,7 @@ func TestBuildPlanWithContextCreatesNativeRangeFunctionPlanInRangeModeForDirectS
 		if !ok {
 			t.Fatalf("expected nativeSubtreePlan for %q, got %T", query, execPlan)
 		}
-		if rangePlan.Fragment == nil || rangePlan.Fragment.RangeFunction == nil {
+		if rangePlan.Info.Fragment == nil || rangePlan.Info.Fragment.RangeFunction == nil {
 			t.Fatalf("expected native range function fragment for %q, got %#v", query, rangePlan)
 		}
 	}
@@ -479,11 +479,11 @@ func TestBuildPlanWithContextCreatesNativeRangeFunctionPlanInRangeModeForSubquer
 		if !ok {
 			t.Fatalf("expected nativeSubtreePlan for %q, got %T", query, execPlan)
 		}
-		if rangePlan.Fragment == nil || rangePlan.Fragment.RangeFunction == nil {
+		if rangePlan.Info.Fragment == nil || rangePlan.Info.Fragment.RangeFunction == nil {
 			t.Fatalf("expected native range function fragment for %q, got %#v", query, rangePlan)
 		}
-		if rangePlan.Fragment.RangeFunction.Child == nil || rangePlan.Fragment.RangeFunction.Child.Subquery == nil {
-			t.Fatalf("expected native subquery child for %q, got %#v", query, rangePlan.Fragment)
+		if rangePlan.Info.Fragment.RangeFunction.Child == nil || rangePlan.Info.Fragment.RangeFunction.Child.Subquery == nil {
+			t.Fatalf("expected native subquery child for %q, got %#v", query, rangePlan.Info.Fragment)
 		}
 	}
 }
@@ -502,7 +502,7 @@ func TestBuildPlanCreatesVectorPlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if nativePlan.Fragment == nil || nativePlan.Kind != "vector" {
+	if nativePlan.Info.Fragment == nil || nativePlan.Kind != "vector" {
 		t.Fatalf("expected native vector plan, got %#v", nativePlan)
 	}
 }
@@ -518,7 +518,7 @@ func TestBuildPlanCreatesRoundPlan(t *testing.T) {
 		t.Fatalf("expected round plan, got error: %v", err)
 	}
 	if nativePlan, ok := execPlan.(*nativeSubtreePlan); ok {
-		if nativePlan.Fragment == nil || nativePlan.Fragment.Kind != nativeplan.FragmentKindValueTransform {
+		if nativePlan.Info.Fragment == nil || nativePlan.Info.Fragment.Kind != nativeplan.FragmentKindValueTransform {
 			t.Fatalf("expected value-transform native round fragment, got %#v", nativePlan)
 		}
 		return
@@ -571,7 +571,7 @@ func TestBuildPlanCreatesLastOverTimePlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if rangeFn.Fragment == nil || rangeFn.Fragment.RangeFunction == nil || rangeFn.Fragment.RangeFunction.Func != "last_over_time" {
+	if rangeFn.Info.Fragment == nil || rangeFn.Info.Fragment.RangeFunction == nil || rangeFn.Info.Fragment.RangeFunction.Func != "last_over_time" {
 		t.Fatalf("expected native last_over_time fragment, got %#v", rangeFn)
 	}
 }
@@ -590,7 +590,7 @@ func TestBuildPlanCreatesSumOverTimePlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if rangeFn.Fragment == nil || rangeFn.Fragment.RangeFunction == nil || rangeFn.Fragment.RangeFunction.Func != "sum_over_time" {
+	if rangeFn.Info.Fragment == nil || rangeFn.Info.Fragment.RangeFunction == nil || rangeFn.Info.Fragment.RangeFunction.Func != "sum_over_time" {
 		t.Fatalf("expected native sum_over_time fragment, got %#v", rangeFn)
 	}
 }
@@ -609,7 +609,7 @@ func TestBuildPlanCreatesAvgOverTimePlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if rangeFn.Fragment == nil || rangeFn.Fragment.RangeFunction == nil || rangeFn.Fragment.RangeFunction.Func != "avg_over_time" {
+	if rangeFn.Info.Fragment == nil || rangeFn.Info.Fragment.RangeFunction == nil || rangeFn.Info.Fragment.RangeFunction.Func != "avg_over_time" {
 		t.Fatalf("expected native avg_over_time fragment, got %#v", rangeFn)
 	}
 }
@@ -628,7 +628,7 @@ func TestBuildPlanCreatesMaxOverTimePlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if rangeFn.Fragment == nil || rangeFn.Fragment.RangeFunction == nil || rangeFn.Fragment.RangeFunction.Func != "max_over_time" {
+	if rangeFn.Info.Fragment == nil || rangeFn.Info.Fragment.RangeFunction == nil || rangeFn.Info.Fragment.RangeFunction.Func != "max_over_time" {
 		t.Fatalf("expected native max_over_time fragment, got %#v", rangeFn)
 	}
 }
@@ -647,7 +647,7 @@ func TestBuildPlanCreatesMinOverTimePlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if rangeFn.Fragment == nil || rangeFn.Fragment.RangeFunction == nil || rangeFn.Fragment.RangeFunction.Func != "min_over_time" {
+	if rangeFn.Info.Fragment == nil || rangeFn.Info.Fragment.RangeFunction == nil || rangeFn.Info.Fragment.RangeFunction.Func != "min_over_time" {
 		t.Fatalf("expected native min_over_time fragment, got %#v", rangeFn)
 	}
 }
@@ -666,7 +666,7 @@ func TestBuildPlanCreatesCountOverTimePlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if rangeFn.Fragment == nil || rangeFn.Fragment.RangeFunction == nil || rangeFn.Fragment.RangeFunction.Func != "count_over_time" {
+	if rangeFn.Info.Fragment == nil || rangeFn.Info.Fragment.RangeFunction == nil || rangeFn.Info.Fragment.RangeFunction.Func != "count_over_time" {
 		t.Fatalf("expected native count_over_time fragment, got %#v", rangeFn)
 	}
 }
@@ -685,7 +685,7 @@ func TestBuildPlanCreatesNativeRangeFunctionPlanForSubqueryArg(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if rangeFn.Fragment == nil || rangeFn.Fragment.RangeFunction == nil || rangeFn.Fragment.RangeFunction.Child == nil || rangeFn.Fragment.RangeFunction.Child.Subquery == nil {
+	if rangeFn.Info.Fragment == nil || rangeFn.Info.Fragment.RangeFunction == nil || rangeFn.Info.Fragment.RangeFunction.Child == nil || rangeFn.Info.Fragment.RangeFunction.Child.Subquery == nil {
 		t.Fatalf("expected native range function over subquery fragment, got %#v", rangeFn)
 	}
 }
@@ -704,14 +704,14 @@ func TestBuildPlanCreatesQuantileOverTimePlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if rangeFn.Fragment == nil || rangeFn.Fragment.RangeFunction == nil || rangeFn.Fragment.RangeFunction.Func != "quantile_over_time" {
+	if rangeFn.Info.Fragment == nil || rangeFn.Info.Fragment.RangeFunction == nil || rangeFn.Info.Fragment.RangeFunction.Func != "quantile_over_time" {
 		t.Fatalf("expected native quantile_over_time fragment, got %#v", rangeFn)
 	}
-	if rangeFn.Fragment.RangeFunction.ParamNumber == nil || *rangeFn.Fragment.RangeFunction.ParamNumber != 0.95 {
-		t.Fatalf("expected quantile parameter on native fragment, got %#v", rangeFn.Fragment.RangeFunction)
+	if rangeFn.Info.Fragment.RangeFunction.ParamNumber == nil || *rangeFn.Info.Fragment.RangeFunction.ParamNumber != 0.95 {
+		t.Fatalf("expected quantile parameter on native fragment, got %#v", rangeFn.Info.Fragment.RangeFunction)
 	}
-	if rangeFn.Fragment.RangeFunction.Child == nil || rangeFn.Fragment.RangeFunction.Child.Subquery == nil {
-		t.Fatalf("expected native quantile_over_time subquery child, got %#v", rangeFn.Fragment.RangeFunction)
+	if rangeFn.Info.Fragment.RangeFunction.Child == nil || rangeFn.Info.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native quantile_over_time subquery child, got %#v", rangeFn.Info.Fragment.RangeFunction)
 	}
 }
 
@@ -767,7 +767,7 @@ func TestBuildPlanCreatesNestedMatrixFunctionBinaryPlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if binaryPlan.Fragment == nil || binaryPlan.Fragment.BinaryJoin == nil {
+	if binaryPlan.Info.Fragment == nil || binaryPlan.Info.Fragment.BinaryJoin == nil {
 		t.Fatalf("expected native binary join fragment, got %#v", binaryPlan)
 	}
 }
@@ -786,10 +786,10 @@ func TestBuildPlanCreatesNestedSubqueryRangeFunctionPlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan (subquery child accepts range-function fragments), got %T", execPlan)
 	}
-	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindRangeFunction {
-		t.Fatalf("expected outer range-function fragment, got %#v", native.Fragment)
+	if native.Info.Fragment == nil || native.Info.Fragment.Kind != nativeplan.FragmentKindRangeFunction {
+		t.Fatalf("expected outer range-function fragment, got %#v", native.Info.Fragment)
 	}
-	outerSubquery := native.Fragment.RangeFunction.Child
+	outerSubquery := native.Info.Fragment.RangeFunction.Child
 	if outerSubquery == nil || outerSubquery.Kind != nativeplan.FragmentKindSubquery || outerSubquery.Subquery == nil {
 		t.Fatalf("expected outer subquery fragment, got %#v", outerSubquery)
 	}
@@ -896,10 +896,10 @@ func TestBuildPlanWithContextCreatesNativeAggregationPlanForUnaryTransformedLeaf
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", plan)
 	}
-	if native.Fragment == nil || native.Fragment.Aggregation == nil || native.Fragment.Aggregation.Source == nil {
+	if native.Info.Fragment == nil || native.Info.Fragment.Aggregation == nil || native.Info.Fragment.Aggregation.Source == nil {
 		t.Fatalf("expected native subtree fragment source metadata, got %#v", native)
 	}
-	source := native.Fragment.Aggregation.Source
+	source := native.Info.Fragment.Aggregation.Source
 	if !strings.Contains(source.ValueExpr, "-") {
 		t.Fatalf("expected unary value transform in native source, got %#v", source)
 	}
@@ -928,10 +928,10 @@ func TestBuildPlanWithContextCreatesNativeAggregationPlanForVectorScalarLeaf(t *
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", plan)
 	}
-	if native.Fragment == nil || native.Fragment.Aggregation == nil || native.Fragment.Aggregation.Source == nil {
+	if native.Info.Fragment == nil || native.Info.Fragment.Aggregation == nil || native.Info.Fragment.Aggregation.Source == nil {
 		t.Fatalf("expected native subtree fragment source metadata, got %#v", native)
 	}
-	source := native.Fragment.Aggregation.Source
+	source := native.Info.Fragment.Aggregation.Source
 	if !strings.Contains(source.ValueExpr, "100") || !strings.Contains(source.ValueExpr, "*") {
 		t.Fatalf("expected vector-scalar arithmetic in native source, got %#v", source)
 	}
@@ -969,7 +969,7 @@ func TestBuildPlanWithContextCreatesNativePlanForInfo(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindInfoJoin || native.Fragment.InfoJoin == nil {
+	if native.Info.Fragment == nil || native.Info.Fragment.Kind != nativeplan.FragmentKindInfoJoin || native.Info.Fragment.InfoJoin == nil {
 		t.Fatalf("expected info join fragment, got %#v", native)
 	}
 }
@@ -988,11 +988,11 @@ func TestBuildPlanWithContextCreatesNativePlanForInfoRegexMetricSelector(t *test
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindInfoJoin || native.Fragment.InfoJoin == nil {
+	if native.Info.Fragment == nil || native.Info.Fragment.Kind != nativeplan.FragmentKindInfoJoin || native.Info.Fragment.InfoJoin == nil {
 		t.Fatalf("expected info join fragment, got %#v", native)
 	}
-	if native.Fragment.InfoJoin.InfoMetricName != "" {
-		t.Fatalf("expected matcher-driven info selector without fixed metric name, got %#v", native.Fragment.InfoJoin)
+	if native.Info.Fragment.InfoJoin.InfoMetricName != "" {
+		t.Fatalf("expected matcher-driven info selector without fixed metric name, got %#v", native.Info.Fragment.InfoJoin)
 	}
 }
 
@@ -1010,11 +1010,11 @@ func TestBuildPlanWithContextCreatesNativePlanForRootSubqueryInRangeMode(t *test
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindSubquery || native.Fragment.Subquery == nil {
+	if native.Info.Fragment == nil || native.Info.Fragment.Kind != nativeplan.FragmentKindSubquery || native.Info.Fragment.Subquery == nil {
 		t.Fatalf("expected root subquery fragment, got %#v", native)
 	}
-	if native.Fragment.Subquery.Child == nil || native.Fragment.Subquery.Child.Kind != nativeplan.FragmentKindAggregation {
-		t.Fatalf("expected native aggregation child under root subquery, got %#v", native.Fragment.Subquery.Child)
+	if native.Info.Fragment.Subquery.Child == nil || native.Info.Fragment.Subquery.Child.Kind != nativeplan.FragmentKindAggregation {
+		t.Fatalf("expected native aggregation child under root subquery, got %#v", native.Info.Fragment.Subquery.Child)
 	}
 }
 
@@ -1032,11 +1032,11 @@ func TestBuildPlanWithContextCreatesNativePlanForLabelJoinRootSubquery(t *testin
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindSubquery || native.Fragment.Subquery == nil || native.Fragment.Subquery.Child == nil {
+	if native.Info.Fragment == nil || native.Info.Fragment.Kind != nativeplan.FragmentKindSubquery || native.Info.Fragment.Subquery == nil || native.Info.Fragment.Subquery.Child == nil {
 		t.Fatalf("expected subquery fragment, got %#v", native)
 	}
-	if native.Fragment.Subquery.Child.Kind != nativeplan.FragmentKindLabelTransform {
-		t.Fatalf("expected native label transform child under root subquery, got %#v", native.Fragment.Subquery.Child)
+	if native.Info.Fragment.Subquery.Child.Kind != nativeplan.FragmentKindLabelTransform {
+		t.Fatalf("expected native label transform child under root subquery, got %#v", native.Info.Fragment.Subquery.Child)
 	}
 }
 
@@ -1054,7 +1054,7 @@ func TestBuildPlanWithContextCreatesNativeRangePlanForAnchoredPointwiseFunction(
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindUnarySourceExpr {
+	if native.Info.Fragment == nil || native.Info.Fragment.Kind != nativeplan.FragmentKindUnarySourceExpr {
 		t.Fatalf("expected anchored unary native fragment, got %#v", native)
 	}
 }
@@ -1073,7 +1073,7 @@ func TestBuildPlanWithContextCreatesNativePlanForPointwiseFunction(t *testing.T)
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindUnarySourceExpr || !strings.Contains(native.Fragment.ValueExpr, "abs") {
+	if native.Info.Fragment == nil || native.Info.Fragment.Kind != nativeplan.FragmentKindUnarySourceExpr || !strings.Contains(native.Info.Fragment.ValueExpr, "abs") {
 		t.Fatalf("expected abs native fragment, got %#v", native)
 	}
 }
@@ -1092,7 +1092,7 @@ func TestBuildPlanWithContextCreatesNativeRangeAggregationForAnchoredSelector(t 
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan root, got %T", built)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindAggregation || nativeRoot.Fragment.Aggregation == nil {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Kind != nativeplan.FragmentKindAggregation || nativeRoot.Info.Fragment.Aggregation == nil {
 		t.Fatalf("expected native aggregation root, got %#v", nativeRoot)
 	}
 }
@@ -1117,7 +1117,7 @@ func TestBuildPlanWithContextCreatesNativeRangeAggregationForStartEndAnchors(t *
 			if !ok {
 				t.Fatalf("expected nativeSubtreePlan root, got %T", built)
 			}
-			if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindAggregation || nativeRoot.Fragment.Aggregation == nil {
+			if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Kind != nativeplan.FragmentKindAggregation || nativeRoot.Info.Fragment.Aggregation == nil {
 				t.Fatalf("expected native aggregation root, got %#v", nativeRoot)
 			}
 		})
@@ -1138,11 +1138,11 @@ func TestBuildPlanWithContextCreatesNativeRangeBinaryWithStartEndAnchors(t *test
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan for anchored range binary, got %T", built)
 	}
-	if nativePlan.Fragment == nil || nativePlan.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin || nativePlan.Fragment.BinaryJoin == nil {
+	if nativePlan.Info.Fragment == nil || nativePlan.Info.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin || nativePlan.Info.Fragment.BinaryJoin == nil {
 		t.Fatalf("expected native binary join fragment, got %#v", nativePlan)
 	}
-	if nativePlan.Fragment.BinaryJoin.Op != parser.ADD {
-		t.Fatalf("expected ADD anchored binary join, got %#v", nativePlan.Fragment.BinaryJoin)
+	if nativePlan.Info.Fragment.BinaryJoin.Op != parser.ADD {
+		t.Fatalf("expected ADD anchored binary join, got %#v", nativePlan.Info.Fragment.BinaryJoin)
 	}
 }
 
@@ -1160,11 +1160,11 @@ func TestBuildPlanWithContextCreatesNativeRangeBinaryWithOffsets(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan for offset range binary, got %T", built)
 	}
-	if nativePlan.Fragment == nil || nativePlan.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin || nativePlan.Fragment.BinaryJoin == nil {
+	if nativePlan.Info.Fragment == nil || nativePlan.Info.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin || nativePlan.Info.Fragment.BinaryJoin == nil {
 		t.Fatalf("expected native binary join fragment, got %#v", nativePlan)
 	}
-	if nativePlan.Fragment.BinaryJoin.Op != parser.SUB {
-		t.Fatalf("expected SUB offset binary join, got %#v", nativePlan.Fragment.BinaryJoin)
+	if nativePlan.Info.Fragment.BinaryJoin.Op != parser.SUB {
+		t.Fatalf("expected SUB offset binary join, got %#v", nativePlan.Info.Fragment.BinaryJoin)
 	}
 }
 
@@ -1182,7 +1182,7 @@ func TestBuildPlanWithContextCreatesNativePlanForScalarConvert(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindScalarConvert || native.Fragment.ScalarConvert == nil {
+	if native.Info.Fragment == nil || native.Info.Fragment.Kind != nativeplan.FragmentKindScalarConvert || native.Info.Fragment.ScalarConvert == nil {
 		t.Fatalf("expected scalar convert fragment, got %#v", native)
 	}
 }
@@ -1220,11 +1220,11 @@ func TestBuildPlanWithContextCreatesNativePlanForPredictLinear(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindRangeFunction || native.Fragment.RangeFunction == nil || native.Fragment.RangeFunction.Func != "predict_linear" {
+	if native.Info.Fragment == nil || native.Info.Fragment.Kind != nativeplan.FragmentKindRangeFunction || native.Info.Fragment.RangeFunction == nil || native.Info.Fragment.RangeFunction.Func != "predict_linear" {
 		t.Fatalf("expected predict_linear range fragment, got %#v", native)
 	}
-	if native.Fragment.RangeFunction.ParamNumber == nil || *native.Fragment.RangeFunction.ParamNumber != 60 {
-		t.Fatalf("expected predict_linear duration on native fragment, got %#v", native.Fragment.RangeFunction)
+	if native.Info.Fragment.RangeFunction.ParamNumber == nil || *native.Info.Fragment.RangeFunction.ParamNumber != 60 {
+		t.Fatalf("expected predict_linear duration on native fragment, got %#v", native.Info.Fragment.RangeFunction)
 	}
 }
 
@@ -1261,11 +1261,11 @@ func TestBuildPlanWithContextCreatesNativePlanForDoubleExponentialSmoothing(t *t
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindRangeFunction || native.Fragment.RangeFunction == nil || native.Fragment.RangeFunction.Func != "double_exponential_smoothing" {
+	if native.Info.Fragment == nil || native.Info.Fragment.Kind != nativeplan.FragmentKindRangeFunction || native.Info.Fragment.RangeFunction == nil || native.Info.Fragment.RangeFunction.Func != "double_exponential_smoothing" {
 		t.Fatalf("expected smoothing range fragment, got %#v", native)
 	}
-	if len(native.Fragment.RangeFunction.ParamNumbers) != 2 || *native.Fragment.RangeFunction.ParamNumbers[0] != 0.5 || *native.Fragment.RangeFunction.ParamNumbers[1] != 0.3 {
-		t.Fatalf("expected smoothing params on native fragment, got %#v", native.Fragment.RangeFunction)
+	if len(native.Info.Fragment.RangeFunction.ParamNumbers) != 2 || *native.Info.Fragment.RangeFunction.ParamNumbers[0] != 0.5 || *native.Info.Fragment.RangeFunction.ParamNumbers[1] != 0.3 {
+		t.Fatalf("expected smoothing params on native fragment, got %#v", native.Info.Fragment.RangeFunction)
 	}
 }
 
@@ -1283,7 +1283,7 @@ func TestBuildPlanWithContextNormalizesHoltWintersAlias(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if native.Fragment == nil || native.Fragment.RangeFunction == nil || native.Fragment.RangeFunction.Func != "double_exponential_smoothing" {
+	if native.Info.Fragment == nil || native.Info.Fragment.RangeFunction == nil || native.Info.Fragment.RangeFunction.Func != "double_exponential_smoothing" {
 		t.Fatalf("expected holt_winters alias to normalize to double_exponential_smoothing, got %#v", native)
 	}
 }
@@ -1302,7 +1302,7 @@ func TestBuildPlanWithContextCreatesNativePlanForSyntheticDateFunction(t *testin
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindSyntheticSeries || native.Fragment.Synthetic == nil || native.Fragment.Synthetic.Func != "minute" {
+	if native.Info.Fragment == nil || native.Info.Fragment.Kind != nativeplan.FragmentKindSyntheticSeries || native.Info.Fragment.Synthetic == nil || native.Info.Fragment.Synthetic.Func != "minute" {
 		t.Fatalf("expected synthetic minute() fragment, got %#v", native)
 	}
 }
@@ -1321,7 +1321,7 @@ func TestBuildPlanWithContextCreatesNativePlanForSortByLabel(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindSortTransform || native.Fragment.SortTransform == nil || len(native.Fragment.SortTransform.Labels) != 2 {
+	if native.Info.Fragment == nil || native.Info.Fragment.Kind != nativeplan.FragmentKindSortTransform || native.Info.Fragment.SortTransform == nil || len(native.Info.Fragment.SortTransform.Labels) != 2 {
 		t.Fatalf("expected sort transform fragment, got %#v", native)
 	}
 }
@@ -1340,7 +1340,7 @@ func TestBuildPlanWithContextCreatesNativePlanForClampWithScalarParameterChild(t
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindClampTransform || native.Fragment.ClampTransform == nil || native.Fragment.ClampTransform.Min == nil {
+	if native.Info.Fragment == nil || native.Info.Fragment.Kind != nativeplan.FragmentKindClampTransform || native.Info.Fragment.ClampTransform == nil || native.Info.Fragment.ClampTransform.Min == nil {
 		t.Fatalf("expected clamp transform fragment, got %#v", native)
 	}
 }
@@ -1359,7 +1359,7 @@ func TestBuildPlanWithContextCreatesNativePlanForScalarBuiltin(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if native.Fragment == nil || native.Fragment.Kind != nativeplan.FragmentKindSyntheticSeries || native.Fragment.Synthetic == nil || native.Fragment.Synthetic.Func != "time" {
+	if native.Info.Fragment == nil || native.Info.Fragment.Kind != nativeplan.FragmentKindSyntheticSeries || native.Info.Fragment.Synthetic == nil || native.Info.Fragment.Synthetic.Func != "time" {
 		t.Fatalf("expected synthetic time() fragment, got %#v", native)
 	}
 }
@@ -1418,11 +1418,11 @@ func TestBuildPlanWithContextCreatesNativeAggregationForLabelMutationChild(t *te
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindAggregation || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Source == nil {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Kind != nativeplan.FragmentKindAggregation || nativeRoot.Info.Fragment.Aggregation == nil || nativeRoot.Info.Fragment.Aggregation.Source == nil {
 		t.Fatalf("expected native aggregation fragment, got %#v", nativeRoot)
 	}
-	if nativeRoot.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindLabelTransform {
-		t.Fatalf("expected label-transform aggregation source, got %#v", nativeRoot.Fragment.Aggregation.Source)
+	if nativeRoot.Info.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindLabelTransform {
+		t.Fatalf("expected label-transform aggregation source, got %#v", nativeRoot.Info.Fragment.Aggregation.Source)
 	}
 }
 
@@ -1598,14 +1598,14 @@ func TestBuildPlanCreatesVectorMatchingBinaryPlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if binaryPlan.Fragment == nil || binaryPlan.Fragment.BinaryJoin == nil {
+	if binaryPlan.Info.Fragment == nil || binaryPlan.Info.Fragment.BinaryJoin == nil {
 		t.Fatalf("expected native binary join fragment, got %#v", binaryPlan)
 	}
-	if binaryPlan.Fragment.BinaryJoin.VectorMatching == nil || binaryPlan.Fragment.BinaryJoin.VectorMatching.Card != parser.CardManyToOne {
-		t.Fatalf("expected many-to-one vector matching card, got %#v", binaryPlan.Fragment.BinaryJoin)
+	if binaryPlan.Info.Fragment.BinaryJoin.VectorMatching == nil || binaryPlan.Info.Fragment.BinaryJoin.VectorMatching.Card != parser.CardManyToOne {
+		t.Fatalf("expected many-to-one vector matching card, got %#v", binaryPlan.Info.Fragment.BinaryJoin)
 	}
-	if !binaryPlan.Fragment.BinaryJoin.VectorMatching.On || !sameStrings(binaryPlan.Fragment.BinaryJoin.VectorMatching.MatchingLabels, []string{"job"}) {
-		t.Fatalf("unexpected vector matching labels: %#v", binaryPlan.Fragment.BinaryJoin.VectorMatching)
+	if !binaryPlan.Info.Fragment.BinaryJoin.VectorMatching.On || !sameStrings(binaryPlan.Info.Fragment.BinaryJoin.VectorMatching.MatchingLabels, []string{"job"}) {
+		t.Fatalf("unexpected vector matching labels: %#v", binaryPlan.Info.Fragment.BinaryJoin.VectorMatching)
 	}
 }
 
@@ -1645,11 +1645,11 @@ func TestBuildPlanCreatesSetOperatorPlan(t *testing.T) {
 		t.Fatalf("expected set-operator plan, got error: %v", err)
 	}
 	if nativePlan, ok := execPlan.(*nativeSubtreePlan); ok {
-		if nativePlan.Fragment == nil || nativePlan.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin || nativePlan.Fragment.BinaryJoin == nil {
+		if nativePlan.Info.Fragment == nil || nativePlan.Info.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin || nativePlan.Info.Fragment.BinaryJoin == nil {
 			t.Fatalf("expected native binary join fragment, got %#v", nativePlan)
 		}
-		if nativePlan.Fragment.BinaryJoin.Op != parser.LAND || nativePlan.Fragment.BinaryJoin.JoinShape != nativeplan.JoinShapeManyToMany {
-			t.Fatalf("expected many-to-many LAND native join, got %#v", nativePlan.Fragment.BinaryJoin)
+		if nativePlan.Info.Fragment.BinaryJoin.Op != parser.LAND || nativePlan.Info.Fragment.BinaryJoin.JoinShape != nativeplan.JoinShapeManyToMany {
+			t.Fatalf("expected many-to-many LAND native join, got %#v", nativePlan.Info.Fragment.BinaryJoin)
 		}
 		return
 	}
@@ -1676,7 +1676,7 @@ func TestBuildPlanCreatesUnaryPlan(t *testing.T) {
 		t.Fatalf("expected unary plan, got error: %v", err)
 	}
 	if nativePlan, ok := plan.(*nativeSubtreePlan); ok {
-		if nativePlan.Fragment == nil || nativePlan.Fragment.Kind != nativeplan.FragmentKindUnarySourceExpr {
+		if nativePlan.Info.Fragment == nil || nativePlan.Info.Fragment.Kind != nativeplan.FragmentKindUnarySourceExpr {
 			t.Fatalf("expected unary source native fragment, got %#v", nativePlan)
 		}
 		return
@@ -1700,7 +1700,7 @@ func TestBuildPlanCreatesNativeLabelReplacePlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindLabelTransform || nativeRoot.Fragment.LabelTransform == nil || nativeRoot.Fragment.LabelTransform.Func != "label_replace" {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Kind != nativeplan.FragmentKindLabelTransform || nativeRoot.Info.Fragment.LabelTransform == nil || nativeRoot.Info.Fragment.LabelTransform.Func != "label_replace" {
 		t.Fatalf("expected native label_replace fragment, got %#v", nativeRoot)
 	}
 }
@@ -1719,7 +1719,7 @@ func TestBuildPlanCreatesNativeLabelJoinPlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", built)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindLabelTransform || nativeRoot.Fragment.LabelTransform == nil || nativeRoot.Fragment.LabelTransform.Func != "label_join" {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Kind != nativeplan.FragmentKindLabelTransform || nativeRoot.Info.Fragment.LabelTransform == nil || nativeRoot.Info.Fragment.LabelTransform.Func != "label_join" {
 		t.Fatalf("expected native label_join fragment, got %#v", nativeRoot)
 	}
 }
@@ -1749,11 +1749,11 @@ func TestBuildPlanAcceptsPrometheus3UTF8LabelMutationDestinations(t *testing.T) 
 			if !ok {
 				t.Fatalf("expected nativeSubtreePlan, got %T", built)
 			}
-			if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindLabelTransform || nativeRoot.Fragment.LabelTransform == nil || nativeRoot.Fragment.LabelTransform.Func != tc.fn {
+			if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Kind != nativeplan.FragmentKindLabelTransform || nativeRoot.Info.Fragment.LabelTransform == nil || nativeRoot.Info.Fragment.LabelTransform.Func != tc.fn {
 				t.Fatalf("expected native %s fragment, got %#v", tc.fn, nativeRoot)
 			}
-			if nativeRoot.Fragment.LabelTransform.Dst != "~invalid" {
-				t.Fatalf("expected UTF-8 destination label to be preserved, got %#v", nativeRoot.Fragment.LabelTransform)
+			if nativeRoot.Info.Fragment.LabelTransform.Dst != "~invalid" {
+				t.Fatalf("expected UTF-8 destination label to be preserved, got %#v", nativeRoot.Info.Fragment.LabelTransform)
 			}
 		})
 	}
@@ -1860,11 +1860,11 @@ func TestBuildPlanBuildsNativeIncreasePlanForSubqueryArg(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if increasePlan.Fragment == nil || increasePlan.Fragment.RangeFunction == nil || increasePlan.Fragment.RangeFunction.Func != "increase" {
+	if increasePlan.Info.Fragment == nil || increasePlan.Info.Fragment.RangeFunction == nil || increasePlan.Info.Fragment.RangeFunction.Func != "increase" {
 		t.Fatalf("expected native increase fragment, got %#v", increasePlan)
 	}
-	if increasePlan.Fragment.RangeFunction.Child == nil || increasePlan.Fragment.RangeFunction.Child.Subquery == nil {
-		t.Fatalf("expected native increase subquery child, got %#v", increasePlan.Fragment)
+	if increasePlan.Info.Fragment.RangeFunction.Child == nil || increasePlan.Info.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native increase subquery child, got %#v", increasePlan.Info.Fragment)
 	}
 }
 
@@ -1881,11 +1881,11 @@ func TestBuildPlanBuildsNativeDeltaPlanForSubqueryArg(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if deltaPlan.Fragment == nil || deltaPlan.Fragment.RangeFunction == nil || deltaPlan.Fragment.RangeFunction.Func != "delta" {
+	if deltaPlan.Info.Fragment == nil || deltaPlan.Info.Fragment.RangeFunction == nil || deltaPlan.Info.Fragment.RangeFunction.Func != "delta" {
 		t.Fatalf("expected native delta fragment, got %#v", deltaPlan)
 	}
-	if deltaPlan.Fragment.RangeFunction.Child == nil || deltaPlan.Fragment.RangeFunction.Child.Subquery == nil {
-		t.Fatalf("expected native delta subquery child, got %#v", deltaPlan.Fragment)
+	if deltaPlan.Info.Fragment.RangeFunction.Child == nil || deltaPlan.Info.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native delta subquery child, got %#v", deltaPlan.Info.Fragment)
 	}
 }
 
@@ -1902,11 +1902,11 @@ func TestBuildPlanBuildsNativeIDeltaPlanForSubqueryArg(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if deltaPlan.Fragment == nil || deltaPlan.Fragment.RangeFunction == nil || deltaPlan.Fragment.RangeFunction.Func != "idelta" {
+	if deltaPlan.Info.Fragment == nil || deltaPlan.Info.Fragment.RangeFunction == nil || deltaPlan.Info.Fragment.RangeFunction.Func != "idelta" {
 		t.Fatalf("expected native idelta fragment, got %#v", deltaPlan)
 	}
-	if deltaPlan.Fragment.RangeFunction.Child == nil || deltaPlan.Fragment.RangeFunction.Child.Subquery == nil {
-		t.Fatalf("expected native idelta subquery child, got %#v", deltaPlan.Fragment)
+	if deltaPlan.Info.Fragment.RangeFunction.Child == nil || deltaPlan.Info.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native idelta subquery child, got %#v", deltaPlan.Info.Fragment)
 	}
 }
 
@@ -1923,11 +1923,11 @@ func TestBuildPlanBuildsNativeChangesPlanForSubqueryArg(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if changesPlan.Fragment == nil || changesPlan.Fragment.RangeFunction == nil || changesPlan.Fragment.RangeFunction.Func != "changes" {
+	if changesPlan.Info.Fragment == nil || changesPlan.Info.Fragment.RangeFunction == nil || changesPlan.Info.Fragment.RangeFunction.Func != "changes" {
 		t.Fatalf("expected native changes fragment, got %#v", changesPlan)
 	}
-	if changesPlan.Fragment.RangeFunction.Child == nil || changesPlan.Fragment.RangeFunction.Child.Subquery == nil {
-		t.Fatalf("expected native changes subquery child, got %#v", changesPlan.Fragment)
+	if changesPlan.Info.Fragment.RangeFunction.Child == nil || changesPlan.Info.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native changes subquery child, got %#v", changesPlan.Info.Fragment)
 	}
 }
 
@@ -1944,11 +1944,11 @@ func TestBuildPlanBuildsNativeDerivPlanForSubqueryArg(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if derivPlan.Fragment == nil || derivPlan.Fragment.RangeFunction == nil || derivPlan.Fragment.RangeFunction.Func != "deriv" {
+	if derivPlan.Info.Fragment == nil || derivPlan.Info.Fragment.RangeFunction == nil || derivPlan.Info.Fragment.RangeFunction.Func != "deriv" {
 		t.Fatalf("expected native deriv fragment, got %#v", derivPlan)
 	}
-	if derivPlan.Fragment.RangeFunction.Child == nil || derivPlan.Fragment.RangeFunction.Child.Subquery == nil {
-		t.Fatalf("expected native deriv subquery child, got %#v", derivPlan.Fragment)
+	if derivPlan.Info.Fragment.RangeFunction.Child == nil || derivPlan.Info.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native deriv subquery child, got %#v", derivPlan.Info.Fragment)
 	}
 }
 
@@ -1967,11 +1967,11 @@ func TestBuildPlanBuildsNativeRatePlanForSubqueryArg(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected nativeSubtreePlan for %q, got %T", exprText, execPlan)
 		}
-		if ratePlan.Fragment == nil || ratePlan.Fragment.RangeFunction == nil || ratePlan.Fragment.RangeFunction.Func != fn {
+		if ratePlan.Info.Fragment == nil || ratePlan.Info.Fragment.RangeFunction == nil || ratePlan.Info.Fragment.RangeFunction.Func != fn {
 			t.Fatalf("expected native %q fragment, got %#v", fn, ratePlan)
 		}
-		if ratePlan.Fragment.RangeFunction.Child == nil || ratePlan.Fragment.RangeFunction.Child.Subquery == nil {
-			t.Fatalf("expected native %q subquery child, got %#v", fn, ratePlan.Fragment)
+		if ratePlan.Info.Fragment.RangeFunction.Child == nil || ratePlan.Info.Fragment.RangeFunction.Child.Subquery == nil {
+			t.Fatalf("expected native %q subquery child, got %#v", fn, ratePlan.Info.Fragment)
 		}
 	}
 }
@@ -1990,11 +1990,11 @@ func TestBuildPlanWithContextCreatesDeltaPlanForSubqueryInRangeMode(t *testing.T
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if deltaPlan.Fragment == nil || deltaPlan.Fragment.RangeFunction == nil || deltaPlan.Fragment.RangeFunction.Func != "delta" {
+	if deltaPlan.Info.Fragment == nil || deltaPlan.Info.Fragment.RangeFunction == nil || deltaPlan.Info.Fragment.RangeFunction.Func != "delta" {
 		t.Fatalf("expected native delta fragment, got %#v", deltaPlan)
 	}
-	if deltaPlan.Fragment.RangeFunction.Child == nil || deltaPlan.Fragment.RangeFunction.Child.Subquery == nil {
-		t.Fatalf("expected native subquery child, got %#v", deltaPlan.Fragment)
+	if deltaPlan.Info.Fragment.RangeFunction.Child == nil || deltaPlan.Info.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native subquery child, got %#v", deltaPlan.Info.Fragment)
 	}
 }
 
@@ -2012,11 +2012,11 @@ func TestBuildPlanWithContextCreatesIDeltaPlanForSubqueryInRangeMode(t *testing.
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if deltaPlan.Fragment == nil || deltaPlan.Fragment.RangeFunction == nil || deltaPlan.Fragment.RangeFunction.Func != "idelta" {
+	if deltaPlan.Info.Fragment == nil || deltaPlan.Info.Fragment.RangeFunction == nil || deltaPlan.Info.Fragment.RangeFunction.Func != "idelta" {
 		t.Fatalf("expected native idelta fragment, got %#v", deltaPlan)
 	}
-	if deltaPlan.Fragment.RangeFunction.Child == nil || deltaPlan.Fragment.RangeFunction.Child.Subquery == nil {
-		t.Fatalf("expected native subquery child, got %#v", deltaPlan.Fragment)
+	if deltaPlan.Info.Fragment.RangeFunction.Child == nil || deltaPlan.Info.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native subquery child, got %#v", deltaPlan.Info.Fragment)
 	}
 }
 
@@ -2034,11 +2034,11 @@ func TestBuildPlanWithContextCreatesChangesPlanForSubqueryInRangeMode(t *testing
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if changesPlan.Fragment == nil || changesPlan.Fragment.RangeFunction == nil || changesPlan.Fragment.RangeFunction.Func != "changes" {
+	if changesPlan.Info.Fragment == nil || changesPlan.Info.Fragment.RangeFunction == nil || changesPlan.Info.Fragment.RangeFunction.Func != "changes" {
 		t.Fatalf("expected native changes fragment, got %#v", changesPlan)
 	}
-	if changesPlan.Fragment.RangeFunction.Child == nil || changesPlan.Fragment.RangeFunction.Child.Subquery == nil {
-		t.Fatalf("expected native subquery child, got %#v", changesPlan.Fragment)
+	if changesPlan.Info.Fragment.RangeFunction.Child == nil || changesPlan.Info.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native subquery child, got %#v", changesPlan.Info.Fragment)
 	}
 }
 
@@ -2056,11 +2056,11 @@ func TestBuildPlanWithContextCreatesDerivPlanForSubqueryInRangeMode(t *testing.T
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if derivPlan.Fragment == nil || derivPlan.Fragment.RangeFunction == nil || derivPlan.Fragment.RangeFunction.Func != "deriv" {
+	if derivPlan.Info.Fragment == nil || derivPlan.Info.Fragment.RangeFunction == nil || derivPlan.Info.Fragment.RangeFunction.Func != "deriv" {
 		t.Fatalf("expected native deriv fragment, got %#v", derivPlan)
 	}
-	if derivPlan.Fragment.RangeFunction.Child == nil || derivPlan.Fragment.RangeFunction.Child.Subquery == nil {
-		t.Fatalf("expected native subquery child, got %#v", derivPlan.Fragment)
+	if derivPlan.Info.Fragment.RangeFunction.Child == nil || derivPlan.Info.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native subquery child, got %#v", derivPlan.Info.Fragment)
 	}
 }
 
@@ -2078,11 +2078,11 @@ func TestBuildPlanWithContextCreatesRatePlanForSubqueryInRangeMode(t *testing.T)
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if ratePlan.Fragment == nil || ratePlan.Fragment.RangeFunction == nil || ratePlan.Fragment.RangeFunction.Func != "rate" {
+	if ratePlan.Info.Fragment == nil || ratePlan.Info.Fragment.RangeFunction == nil || ratePlan.Info.Fragment.RangeFunction.Func != "rate" {
 		t.Fatalf("expected native rate fragment, got %#v", ratePlan)
 	}
-	if ratePlan.Fragment.RangeFunction.Child == nil || ratePlan.Fragment.RangeFunction.Child.Subquery == nil {
-		t.Fatalf("expected native subquery child, got %#v", ratePlan.Fragment)
+	if ratePlan.Info.Fragment.RangeFunction.Child == nil || ratePlan.Info.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native subquery child, got %#v", ratePlan.Info.Fragment)
 	}
 }
 
@@ -2115,11 +2115,11 @@ func TestBuildPlanWithContextCreatesIncreasePlanForSubqueryInRangeMode(t *testin
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan, got %T", execPlan)
 	}
-	if increasePlan.Fragment == nil || increasePlan.Fragment.RangeFunction == nil || increasePlan.Fragment.RangeFunction.Func != "increase" {
+	if increasePlan.Info.Fragment == nil || increasePlan.Info.Fragment.RangeFunction == nil || increasePlan.Info.Fragment.RangeFunction.Func != "increase" {
 		t.Fatalf("expected native increase fragment, got %#v", increasePlan)
 	}
-	if increasePlan.Fragment.RangeFunction.Child == nil || increasePlan.Fragment.RangeFunction.Child.Subquery == nil {
-		t.Fatalf("expected native subquery child, got %#v", increasePlan.Fragment)
+	if increasePlan.Info.Fragment.RangeFunction.Child == nil || increasePlan.Info.Fragment.RangeFunction.Child.Subquery == nil {
+		t.Fatalf("expected native subquery child, got %#v", increasePlan.Info.Fragment)
 	}
 }
 
@@ -2156,11 +2156,11 @@ func TestBuildPlanWithContextCreatesNativeRootAggregationOverRateUnderForceSuppo
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindAggregation || nativeRoot.Fragment.Aggregation == nil {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Kind != nativeplan.FragmentKindAggregation || nativeRoot.Info.Fragment.Aggregation == nil {
 		t.Fatalf("expected native aggregation fragment, got %#v", nativeRoot)
 	}
-	if nativeRoot.Fragment.Aggregation.Source == nil || nativeRoot.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindRangeFunction {
-		t.Fatalf("expected rate child aggregation source, got %#v", nativeRoot.Fragment.Aggregation.Source)
+	if nativeRoot.Info.Fragment.Aggregation.Source == nil || nativeRoot.Info.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindRangeFunction {
+		t.Fatalf("expected rate child aggregation source, got %#v", nativeRoot.Info.Fragment.Aggregation.Source)
 	}
 }
 
@@ -2178,11 +2178,11 @@ func TestBuildPlanWithContextCreatesNativeRootGroupedAggregationOverRateUnderFor
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Aggregation == nil {
 		t.Fatalf("expected native aggregation fragment, got %#v", nativeRoot)
 	}
-	if !sameStrings(nativeRoot.Fragment.Aggregation.Grouping, []string{"job"}) {
-		t.Fatalf("expected grouping [job], got %#v", nativeRoot.Fragment.Aggregation)
+	if !sameStrings(nativeRoot.Info.Fragment.Aggregation.Grouping, []string{"job"}) {
+		t.Fatalf("expected grouping [job], got %#v", nativeRoot.Info.Fragment.Aggregation)
 	}
 }
 
@@ -2200,11 +2200,11 @@ func TestBuildPlanWithContextCreatesNativeRootAggregationOverIncreaseUnderForceS
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Source == nil {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Aggregation == nil || nativeRoot.Info.Fragment.Aggregation.Source == nil {
 		t.Fatalf("expected native aggregation fragment, got %#v", nativeRoot)
 	}
-	if nativeRoot.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindRangeFunction {
-		t.Fatalf("expected increase aggregation source, got %#v", nativeRoot.Fragment.Aggregation.Source)
+	if nativeRoot.Info.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindRangeFunction {
+		t.Fatalf("expected increase aggregation source, got %#v", nativeRoot.Info.Fragment.Aggregation.Source)
 	}
 }
 
@@ -2222,11 +2222,11 @@ func TestBuildPlanWithContextCreatesNativeRootAggregationOverScaledRateUnderForc
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Source == nil {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Aggregation == nil || nativeRoot.Info.Fragment.Aggregation.Source == nil {
 		t.Fatalf("expected native aggregation fragment, got %#v", nativeRoot)
 	}
-	if nativeRoot.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindValueTransform {
-		t.Fatalf("expected value-transform aggregation source, got %#v", nativeRoot.Fragment.Aggregation.Source)
+	if nativeRoot.Info.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindValueTransform {
+		t.Fatalf("expected value-transform aggregation source, got %#v", nativeRoot.Info.Fragment.Aggregation.Source)
 	}
 }
 
@@ -2244,11 +2244,11 @@ func TestBuildPlanWithContextCreatesNativeUnaryRootOverAggregatedRateUnderForceS
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindValueTransform || nativeRoot.Fragment.ValueTransform == nil || nativeRoot.Fragment.ValueTransform.Child == nil {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Kind != nativeplan.FragmentKindValueTransform || nativeRoot.Info.Fragment.ValueTransform == nil || nativeRoot.Info.Fragment.ValueTransform.Child == nil {
 		t.Fatalf("expected value-transform unary fragment, got %#v", nativeRoot)
 	}
-	if nativeRoot.Fragment.ValueTransform.Child.Kind != nativeplan.FragmentKindAggregation {
-		t.Fatalf("expected aggregated child under unary wrapper, got %#v", nativeRoot.Fragment.ValueTransform.Child)
+	if nativeRoot.Info.Fragment.ValueTransform.Child.Kind != nativeplan.FragmentKindAggregation {
+		t.Fatalf("expected aggregated child under unary wrapper, got %#v", nativeRoot.Info.Fragment.ValueTransform.Child)
 	}
 }
 
@@ -2266,14 +2266,14 @@ func TestBuildPlanWithContextCreatesNativeComparisonRootOverAggregatedIncreaseUn
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindValueTransform || nativeRoot.Fragment.ValueTransform == nil || nativeRoot.Fragment.ValueTransform.Child == nil {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Kind != nativeplan.FragmentKindValueTransform || nativeRoot.Info.Fragment.ValueTransform == nil || nativeRoot.Info.Fragment.ValueTransform.Child == nil {
 		t.Fatalf("expected value-transform comparison fragment, got %#v", nativeRoot)
 	}
-	if nativeRoot.Fragment.ValueTransform.FilterExpr == "" {
-		t.Fatalf("expected comparison filter template, got %#v", nativeRoot.Fragment.ValueTransform)
+	if nativeRoot.Info.Fragment.ValueTransform.FilterExpr == "" {
+		t.Fatalf("expected comparison filter template, got %#v", nativeRoot.Info.Fragment.ValueTransform)
 	}
-	if nativeRoot.Fragment.ValueTransform.Child.Kind != nativeplan.FragmentKindAggregation {
-		t.Fatalf("expected aggregated child under comparison wrapper, got %#v", nativeRoot.Fragment.ValueTransform.Child)
+	if nativeRoot.Info.Fragment.ValueTransform.Child.Kind != nativeplan.FragmentKindAggregation {
+		t.Fatalf("expected aggregated child under comparison wrapper, got %#v", nativeRoot.Info.Fragment.ValueTransform.Child)
 	}
 }
 
@@ -2291,11 +2291,11 @@ func TestBuildPlanWithContextCreatesNativeScalarWrapperRootOverHistogramQuantile
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindValueTransform || nativeRoot.Fragment.ValueTransform == nil || nativeRoot.Fragment.ValueTransform.Child == nil {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Kind != nativeplan.FragmentKindValueTransform || nativeRoot.Info.Fragment.ValueTransform == nil || nativeRoot.Info.Fragment.ValueTransform.Child == nil {
 		t.Fatalf("expected value-transform histogram wrapper, got %#v", nativeRoot)
 	}
-	if nativeRoot.Fragment.ValueTransform.Child.Kind != nativeplan.FragmentKindHistogramFunction {
-		t.Fatalf("expected histogram function child under scalar wrapper, got %#v", nativeRoot.Fragment.ValueTransform.Child)
+	if nativeRoot.Info.Fragment.ValueTransform.Child.Kind != nativeplan.FragmentKindHistogramFunction {
+		t.Fatalf("expected histogram function child under scalar wrapper, got %#v", nativeRoot.Info.Fragment.ValueTransform.Child)
 	}
 }
 
@@ -2313,11 +2313,11 @@ func TestBuildPlanWithContextCreatesNativeScalarWrapperRootOverRateRatioUnderFor
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindValueTransform || nativeRoot.Fragment.ValueTransform == nil || nativeRoot.Fragment.ValueTransform.Child == nil {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Kind != nativeplan.FragmentKindValueTransform || nativeRoot.Info.Fragment.ValueTransform == nil || nativeRoot.Info.Fragment.ValueTransform.Child == nil {
 		t.Fatalf("expected value-transform ratio wrapper, got %#v", nativeRoot)
 	}
-	if nativeRoot.Fragment.ValueTransform.Child.Kind != nativeplan.FragmentKindBinaryVectorJoin {
-		t.Fatalf("expected binary-join child under scalar wrapper, got %#v", nativeRoot.Fragment.ValueTransform.Child)
+	if nativeRoot.Info.Fragment.ValueTransform.Child.Kind != nativeplan.FragmentKindBinaryVectorJoin {
+		t.Fatalf("expected binary-join child under scalar wrapper, got %#v", nativeRoot.Info.Fragment.ValueTransform.Child)
 	}
 }
 
@@ -2335,11 +2335,11 @@ func TestBuildPlanWithContextCreatesNativeRoundRootOverAggregatedRateRatioUnderF
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindValueTransform || nativeRoot.Fragment.ValueTransform == nil || nativeRoot.Fragment.ValueTransform.Child == nil {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Kind != nativeplan.FragmentKindValueTransform || nativeRoot.Info.Fragment.ValueTransform == nil || nativeRoot.Info.Fragment.ValueTransform.Child == nil {
 		t.Fatalf("expected value-transform round fragment, got %#v", nativeRoot)
 	}
-	if nativeRoot.Fragment.ValueTransform.Child.Kind != nativeplan.FragmentKindAggregation {
-		t.Fatalf("expected aggregated child under round wrapper, got %#v", nativeRoot.Fragment.ValueTransform.Child)
+	if nativeRoot.Info.Fragment.ValueTransform.Child.Kind != nativeplan.FragmentKindAggregation {
+		t.Fatalf("expected aggregated child under round wrapper, got %#v", nativeRoot.Info.Fragment.ValueTransform.Child)
 	}
 }
 
@@ -2357,14 +2357,14 @@ func TestBuildPlanWithContextCreatesNativeCountValuesRootUnderForceSupported(t *
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Source == nil {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Aggregation == nil || nativeRoot.Info.Fragment.Aggregation.Source == nil {
 		t.Fatalf("expected native count_values aggregation fragment, got %#v", nativeRoot)
 	}
-	if nativeRoot.Fragment.Aggregation.Op != parser.COUNT_VALUES || nativeRoot.Fragment.Aggregation.ParamString != "sample_value" {
-		t.Fatalf("expected count_values aggregation metadata, got %#v", nativeRoot.Fragment.Aggregation)
+	if nativeRoot.Info.Fragment.Aggregation.Op != parser.COUNT_VALUES || nativeRoot.Info.Fragment.Aggregation.ParamString != "sample_value" {
+		t.Fatalf("expected count_values aggregation metadata, got %#v", nativeRoot.Info.Fragment.Aggregation)
 	}
-	if nativeRoot.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindLeafSource {
-		t.Fatalf("expected leaf child under count_values, got %#v", nativeRoot.Fragment.Aggregation.Source)
+	if nativeRoot.Info.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindLeafSource {
+		t.Fatalf("expected leaf child under count_values, got %#v", nativeRoot.Info.Fragment.Aggregation.Source)
 	}
 }
 
@@ -2382,7 +2382,7 @@ func TestBuildPlanWithContextCreatesNativeLimitKRootUnderForceSupported(t *testi
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Op != parser.LIMITK {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Aggregation == nil || nativeRoot.Info.Fragment.Aggregation.Op != parser.LIMITK {
 		t.Fatalf("expected native limitk aggregation fragment, got %#v", nativeRoot)
 	}
 }
@@ -2401,7 +2401,7 @@ func TestBuildPlanWithContextCreatesNativeLimitRatioRootUnderForceSupported(t *t
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Op != parser.LIMIT_RATIO {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Aggregation == nil || nativeRoot.Info.Fragment.Aggregation.Op != parser.LIMIT_RATIO {
 		t.Fatalf("expected native limit_ratio aggregation fragment, got %#v", nativeRoot)
 	}
 }
@@ -2419,11 +2419,11 @@ func TestBuildPlanWithContextCreatesNativeSetAndRootUnderForceSupported(t *testi
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin || nativeRoot.Fragment.BinaryJoin == nil {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin || nativeRoot.Info.Fragment.BinaryJoin == nil {
 		t.Fatalf("expected native binary join fragment, got %#v", nativeRoot)
 	}
-	if nativeRoot.Fragment.BinaryJoin.Op != parser.LAND || nativeRoot.Fragment.BinaryJoin.JoinShape != nativeplan.JoinShapeManyToMany {
-		t.Fatalf("expected many-to-many LAND join shape, got %#v", nativeRoot.Fragment.BinaryJoin)
+	if nativeRoot.Info.Fragment.BinaryJoin.Op != parser.LAND || nativeRoot.Info.Fragment.BinaryJoin.JoinShape != nativeplan.JoinShapeManyToMany {
+		t.Fatalf("expected many-to-many LAND join shape, got %#v", nativeRoot.Info.Fragment.BinaryJoin)
 	}
 }
 
@@ -2448,11 +2448,11 @@ func TestBuildPlanWithContextCreatesNativeSetOrAndUnlessInPreferMode(t *testing.
 			if !ok {
 				t.Fatalf("expected nativeSubtreePlan for %q, got %T", tc.query, execPlan)
 			}
-			if nativePlan.Fragment == nil || nativePlan.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin || nativePlan.Fragment.BinaryJoin == nil {
+			if nativePlan.Info.Fragment == nil || nativePlan.Info.Fragment.Kind != nativeplan.FragmentKindBinaryVectorJoin || nativePlan.Info.Fragment.BinaryJoin == nil {
 				t.Fatalf("expected native binary join fragment for %q, got %#v", tc.query, nativePlan)
 			}
-			if nativePlan.Fragment.BinaryJoin.Op != tc.op || nativePlan.Fragment.BinaryJoin.JoinShape != nativeplan.JoinShapeManyToMany {
-				t.Fatalf("expected many-to-many native join for %q, got %#v", tc.query, nativePlan.Fragment.BinaryJoin)
+			if nativePlan.Info.Fragment.BinaryJoin.Op != tc.op || nativePlan.Info.Fragment.BinaryJoin.JoinShape != nativeplan.JoinShapeManyToMany {
+				t.Fatalf("expected many-to-many native join for %q, got %#v", tc.query, nativePlan.Info.Fragment.BinaryJoin)
 			}
 		})
 	}
@@ -2472,14 +2472,14 @@ func TestBuildPlanWithContextCreatesNativeTopKRootOverIRateUnderForceSupported(t
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Source == nil {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Aggregation == nil || nativeRoot.Info.Fragment.Aggregation.Source == nil {
 		t.Fatalf("expected native topk aggregation fragment, got %#v", nativeRoot)
 	}
-	if nativeRoot.Fragment.Aggregation.Op != parser.TOPK {
-		t.Fatalf("expected topk aggregation op, got %#v", nativeRoot.Fragment.Aggregation)
+	if nativeRoot.Info.Fragment.Aggregation.Op != parser.TOPK {
+		t.Fatalf("expected topk aggregation op, got %#v", nativeRoot.Info.Fragment.Aggregation)
 	}
-	if nativeRoot.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindRangeFunction {
-		t.Fatalf("expected irate child under topk, got %#v", nativeRoot.Fragment.Aggregation.Source)
+	if nativeRoot.Info.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindRangeFunction {
+		t.Fatalf("expected irate child under topk, got %#v", nativeRoot.Info.Fragment.Aggregation.Source)
 	}
 }
 
@@ -2497,14 +2497,14 @@ func TestBuildPlanWithContextCreatesNativeTopKRootOverHistogramQuantileUnderForc
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Source == nil {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Aggregation == nil || nativeRoot.Info.Fragment.Aggregation.Source == nil {
 		t.Fatalf("expected native topk aggregation fragment, got %#v", nativeRoot)
 	}
-	if nativeRoot.Fragment.Aggregation.Op != parser.TOPK {
-		t.Fatalf("expected topk aggregation op, got %#v", nativeRoot.Fragment.Aggregation)
+	if nativeRoot.Info.Fragment.Aggregation.Op != parser.TOPK {
+		t.Fatalf("expected topk aggregation op, got %#v", nativeRoot.Info.Fragment.Aggregation)
 	}
-	if nativeRoot.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindHistogramFunction {
-		t.Fatalf("expected histogram quantile child under topk, got %#v", nativeRoot.Fragment.Aggregation.Source)
+	if nativeRoot.Info.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindHistogramFunction {
+		t.Fatalf("expected histogram quantile child under topk, got %#v", nativeRoot.Info.Fragment.Aggregation.Source)
 	}
 }
 
@@ -2522,14 +2522,14 @@ func TestBuildPlanWithContextCreatesNativeSumOverOrVectorZeroUnderForceSupported
 	if !ok {
 		t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
 	}
-	if nativeRoot.Fragment == nil || nativeRoot.Fragment.Aggregation == nil || nativeRoot.Fragment.Aggregation.Source == nil {
+	if nativeRoot.Info.Fragment == nil || nativeRoot.Info.Fragment.Aggregation == nil || nativeRoot.Info.Fragment.Aggregation.Source == nil {
 		t.Fatalf("expected native aggregation fragment, got %#v", nativeRoot)
 	}
-	if !nativeRoot.Fragment.Aggregation.EmitZeroOnEmpty {
-		t.Fatalf("expected zero-fill aggregation flag, got %#v", nativeRoot.Fragment.Aggregation)
+	if !nativeRoot.Info.Fragment.Aggregation.EmitZeroOnEmpty {
+		t.Fatalf("expected zero-fill aggregation flag, got %#v", nativeRoot.Info.Fragment.Aggregation)
 	}
-	if nativeRoot.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindRangeFunction {
-		t.Fatalf("expected rate child under zero-fill aggregation, got %#v", nativeRoot.Fragment.Aggregation.Source)
+	if nativeRoot.Info.Fragment.Aggregation.Source.Kind != nativeplan.FragmentKindRangeFunction {
+		t.Fatalf("expected rate child under zero-fill aggregation, got %#v", nativeRoot.Info.Fragment.Aggregation.Source)
 	}
 }
 

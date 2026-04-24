@@ -29,7 +29,6 @@ type nativeSubtreePlan struct {
 	Reason             string
 	Estimate           *planEstimate
 	Children           []ExplainNode
-	Fragment           *nativeplan.NativeFragment
 	OptimizationReport *nativeplan.OptimizationReport
 	Info               *nativeplan.LoweringInfo
 	// LogicalRoot and LogicalAnalysis are populated only for the
@@ -314,10 +313,7 @@ func buildNativeSubtreeChildren(info *nativeplan.LoweringInfo) []ExplainNode {
 }
 
 // newNativeSubtreePlan constructs a nativeSubtreePlan from an
-// OptimizedFragment and its LoweringInfo. Isolates the
-// Fragment: optimized.Fragment store inside native_subtree.go (excluded
-// from the 13b-3e grep gate) so tier-3 construction dispatchers in
-// native_subtree_{other,rangefunc}.go don't read .Fragment directly.
+// OptimizedFragment and its LoweringInfo.
 func newNativeSubtreePlan(kind, expr, reason string, estimate *planEstimate, children []ExplainNode, optimized *nativeplan.OptimizedFragment, info *nativeplan.LoweringInfo, node logicalpkg.Node, analysis *nativeplan.Analysis) *nativeSubtreePlan {
 	return &nativeSubtreePlan{
 		Kind:               kind,
@@ -325,7 +321,6 @@ func newNativeSubtreePlan(kind, expr, reason string, estimate *planEstimate, chi
 		Reason:             reason,
 		Estimate:           estimate,
 		Children:           children,
-		Fragment:           optimized.Fragment,
 		OptimizationReport: optimized.Report,
 		Info:               info,
 		Node:               node,

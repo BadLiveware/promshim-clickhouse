@@ -36,15 +36,8 @@ func TestNativeSubtreePlanNormalizesInstantVectorTimestampToEvaluationTime(t *te
 		t.Fatalf("build logical plan: %v", err)
 	}
 	plan := &nativeSubtreePlan{
-		Kind: "leaf",
-		Expr: "up",
-		Fragment: &nativeplan.NativeFragment{
-			Kind:       nativeplan.FragmentKindLeafSource,
-			OutputKind: nativeplan.OutputKindInstantVector,
-			Selector:   &nativeplan.SelectorSource{Kind: nativeplan.SelectorKindInstantVector, MetricName: "up", Lookback: 5 * time.Minute},
-			ValueExpr:  "{value}",
-			TagsExpr:   "{tags}",
-		},
+		Kind:               "leaf",
+		Expr:               "up",
 		Info:               &nativeplan.LoweringInfo{OutputKind: nativeplan.OutputKindInstantVector},
 		OptimizationReport: &nativeplan.OptimizationReport{RequiredInputStartMS: 0, RequiredInputEndMS: 0},
 		Node:               nodeUp,
@@ -94,24 +87,8 @@ func TestNativeSubtreePlanAppliesRuntimeModuloCorrectionToInstantVectors(t *test
 		t.Fatalf("build logical plan: %v", err)
 	}
 	plan := &nativeSubtreePlan{
-		Kind: "binary",
-		Expr: "demo_memory_usage_bytes % (1 * 2 + 4 / 6 - 10)",
-		Fragment: &nativeplan.NativeFragment{
-			Kind:       nativeplan.FragmentKindValueTransform,
-			OutputKind: nativeplan.OutputKindInstantVector,
-			ValueTransform: &nativeplan.ValueTransformFragment{
-				Child: &nativeplan.NativeFragment{
-					Kind:       nativeplan.FragmentKindLeafSource,
-					OutputKind: nativeplan.OutputKindInstantVector,
-					Selector:   &nativeplan.SelectorSource{Kind: nativeplan.SelectorKindInstantVector, MetricName: "demo_memory_usage_bytes", Lookback: 5 * time.Minute},
-					ValueExpr:  "{value}",
-					TagsExpr:   "{tags}",
-				},
-				ValueExpr:        "{value}",
-				RuntimeTransform: runtimeTransform,
-				DropsMetric:      true,
-			},
-		},
+		Kind:               "binary",
+		Expr:               "demo_memory_usage_bytes % (1 * 2 + 4 / 6 - 10)",
 		Info:               &nativeplan.LoweringInfo{OutputKind: nativeplan.OutputKindInstantVector, RuntimeValueTransform: runtimeTransform},
 		OptimizationReport: &nativeplan.OptimizationReport{RequiredInputStartMS: 0, RequiredInputEndMS: 0},
 		Node:               nodeMod,
@@ -161,24 +138,8 @@ func TestNativeSubtreePlanAppliesRuntimeModuloCorrectionToRangeMatrices(t *testi
 		t.Fatalf("build logical plan: %v", err)
 	}
 	plan := &nativeSubtreePlan{
-		Kind: "binary",
-		Expr: "demo_memory_usage_bytes % (1 * 2 + 4 / 6 - 10)",
-		Fragment: &nativeplan.NativeFragment{
-			Kind:       nativeplan.FragmentKindValueTransform,
-			OutputKind: nativeplan.OutputKindInstantVector,
-			ValueTransform: &nativeplan.ValueTransformFragment{
-				Child: &nativeplan.NativeFragment{
-					Kind:       nativeplan.FragmentKindLeafSource,
-					OutputKind: nativeplan.OutputKindInstantVector,
-					Selector:   &nativeplan.SelectorSource{Kind: nativeplan.SelectorKindRangeVector, MetricName: "demo_memory_usage_bytes", Lookback: 5 * time.Minute, RequireFullTags: true},
-					ValueExpr:  "{value}",
-					TagsExpr:   "{tags}",
-				},
-				ValueExpr:        "{value}",
-				RuntimeTransform: runtimeTransform,
-				DropsMetric:      true,
-			},
-		},
+		Kind:               "binary",
+		Expr:               "demo_memory_usage_bytes % (1 * 2 + 4 / 6 - 10)",
 		Info:               &nativeplan.LoweringInfo{OutputKind: nativeplan.OutputKindInstantVector, RuntimeValueTransform: runtimeTransform},
 		OptimizationReport: &nativeplan.OptimizationReport{RequiredInputStartMS: 0, RequiredInputEndMS: 0},
 		Node:               nodeModRange,

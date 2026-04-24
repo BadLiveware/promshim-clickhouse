@@ -526,24 +526,13 @@ func logicalRequiredInputBounds(n logicalpkg.Node, ctx native.OptimizationContex
 	}
 }
 
-func renderFragmentSubquery(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams, prefix string) (string, map[string]string, error) {
-	rendered, err := RenderFragment(cfg, fragment, params)
-	if err != nil {
-		return "", nil, err
-	}
-	return namespaceRenderedQuery(trimRenderedQuerySQL(rendered.SQL), rendered.QueryParams, prefix)
-}
-
-// renderLogicalSubquery is the logical-plan sibling of renderFragmentSubquery.
-// It renders a logical.Node via renderer.Lower — the full logical-plan
-// dispatcher — and then namespaces the result so the caller can embed the SQL
-// inside a parent subquery without colliding on placeholder names. It is the
-// Phase-6a replacement path used by the Task-13a helpers that previously
-// constructed a scoped NativeFragment at the boundary.
+// renderLogicalSubquery renders a logical.Node via renderer.Lower — the full
+// logical-plan dispatcher — and then namespaces the result so the caller can
+// embed the SQL inside a parent subquery without colliding on placeholder
+// names.
 //
 // The returned SQL has the trailing FORMAT/SETTINGS lines stripped
-// (trimRenderedQuerySQL), matching renderFragmentSubquery exactly so both
-// helpers are byte-interchangeable for the caller.
+// (trimRenderedQuerySQL).
 func renderLogicalSubquery(cfg storage.QueryConfig, node logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, nativeAnalysis *native.Analysis, params RenderParams, prefix string) (string, map[string]string, error) {
 	rendered, err := Lower(LoweringCtx{
 		Config:         cfg,

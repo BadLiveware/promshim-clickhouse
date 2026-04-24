@@ -321,7 +321,7 @@ func renderClassicHistogramGroupsQueryLogical(cfg storage.QueryConfig, childNode
 	)
 	switch params.Mode {
 	case native.RenderModeInstant:
-		if childRowsSQL, namespacedParams, ok, err := tryRenderHistogramChildRowsSQLLogical(cfg, childNode, analysis, params, prefix); err != nil {
+		if childRowsSQL, namespacedParams, ok, err := tryRenderHistogramChildRowsSQLLogical(cfg, childNode, logicalAnalysis, analysis, params, prefix); err != nil {
 			return renderedFragment{}, err
 		} else if ok {
 			childParams = namespacedParams
@@ -371,7 +371,7 @@ func renderClassicHistogramGroupsQueryLogical(cfg storage.QueryConfig, childNode
 			}
 		}
 	case native.RenderModeRange:
-		if childRowsSQL, namespacedParams, ok, err := tryRenderHistogramChildRowsSQLLogical(cfg, childNode, analysis, params, prefix); err != nil {
+		if childRowsSQL, namespacedParams, ok, err := tryRenderHistogramChildRowsSQLLogical(cfg, childNode, logicalAnalysis, analysis, params, prefix); err != nil {
 			return renderedFragment{}, err
 		} else if ok {
 			childParams = namespacedParams

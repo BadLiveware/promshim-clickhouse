@@ -15,21 +15,6 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-func renderHistogramProjectionFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
-	if fragment == nil || fragment.HistogramProjection == nil || fragment.HistogramProjection.Child == nil {
-		return renderedFragment{}, fmt.Errorf("histogram projection fragment is missing child metadata")
-	}
-	histograms, err := renderClassicHistogramGroupsQuery(cfg, fragment.HistogramProjection.Child, params, "histogram_projection_child")
-	if err != nil {
-		return renderedFragment{}, err
-	}
-	valueExpr, err := classicHistogramProjectionValueExpr(sqlb.Ident("buckets"), fragment.HistogramProjection.Func)
-	if err != nil {
-		return renderedFragment{}, err
-	}
-	return histogramOutputFragment(histograms, valueExpr, params.Mode, "histogram_projection_steps"), nil
-}
-
 func classicHistogramProjectionValueExpr(buckets sqlb.Expr, fn string) (sqlb.Expr, error) {
 	counts := bucketCountsExpr(buckets)
 	upperBounds := bucketUpperBoundsExpr(buckets)
@@ -227,98 +212,10 @@ func wrapHistogramRowsForConstantEmptyTagsRange(rowsSQL, alias string) string {
 	return "SELECT CAST([], 'Array(Tuple(String, String))') AS tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series FROM (" + rowsSQL + ") AS " + alias
 }
 
-func renderHistogramFunctionFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
-	if fragment == nil || fragment.HistogramFunction == nil || fragment.HistogramFunction.Child == nil {
-		return renderedFragment{}, fmt.Errorf("histogram function fragment is missing child metadata")
-	}
-	histograms, err := renderClassicHistogramGroupsQuery(cfg, fragment.HistogramFunction.Child, params, "histogram_function_child")
-	if err != nil {
-		return renderedFragment{}, err
-	}
-	switch fragment.HistogramFunction.Func {
-	case "histogram_quantile":
-		if fragment.HistogramFunction.Quantile == nil {
-			return renderedFragment{}, fmt.Errorf("histogram_quantile fragment requires a quantile parameter")
-		}
-		prepared, err := renderPreparedClassicHistogramQuery(histograms, "histogram_quantile_prepared")
-		if err != nil {
-			return renderedFragment{}, err
-		}
-		rowsSQL := renderHistogramQuantileRowsSQL(trimRenderedQuerySQL(prepared.SQL), storage.NativeFloatLiteral(*fragment.HistogramFunction.Quantile), "", "histogram_quantile")
-		finalSQL := wrapHistogramRowsForMode(rowsSQL, params.Mode, "histogram_quantile_rows")
-		if params.Mode == native.RenderModeRange && histogramChildUsesOnlyLETags(fragment.HistogramFunction.Child) {
-			finalSQL = wrapHistogramRowsForConstantEmptyTagsRange(rowsSQL, "histogram_quantile_rows")
-		}
-		return renderedFragment{RawSQL: trimRenderedQuerySQL(finalSQL), ExtraParams: prepared.QueryParams}, nil
-	case "histogram_quantiles":
-		prepared, err := renderPreparedClassicHistogramQuery(histograms, "histogram_quantiles_prepared")
-		if err != nil {
-			return renderedFragment{}, err
-		}
-		return renderHistogramQuantilesFragment(cfg, fragment, params, prepared)
-	case "histogram_fraction":
-		if fragment.HistogramFunction.Lower == nil || fragment.HistogramFunction.Upper == nil {
-			return renderedFragment{}, fmt.Errorf("histogram_fraction fragment requires lower and upper parameters")
-		}
-		valueExpr := classicHistogramFractionValueExpr(sqlb.Ident("buckets"), *fragment.HistogramFunction.Lower, *fragment.HistogramFunction.Upper)
-		return histogramOutputFragment(histograms, valueExpr, params.Mode, "histogram_function_steps"), nil
-	default:
-		return renderedFragment{}, fmt.Errorf("histogram function %q is not implemented yet", fragment.HistogramFunction.Func)
-	}
-}
-
-func renderHistogramQuantilesFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams, prepared RenderedQuery) (renderedFragment, error) {
-	if fragment == nil || fragment.HistogramFunction == nil {
-		return renderedFragment{}, fmt.Errorf("histogram_quantiles fragment is missing metadata")
-	}
-	preparedSQL := trimRenderedQuerySQL(prepared.SQL)
-	queries := make([]string, 0, len(fragment.HistogramFunction.Quantiles))
-	queryParams := map[string]string{}
-	mergeRenderedQueryParams(queryParams, prepared.QueryParams)
-	for i, quantile := range fragment.HistogramFunction.Quantiles {
-		alias := fmt.Sprintf("histogram_quantile_%d", i)
-		var joinSQL string
-		var quantileValueExpr string
-		switch params.Mode {
-		case native.RenderModeInstant:
-			instantBindingSQL, instantParams, valueExpr, err := renderInstantScalarBinding(cfg, quantile, params, alias)
-			if err != nil {
-				return renderedFragment{}, err
-			}
-			mergeRenderedQueryParams(queryParams, instantParams)
-			quantileValueExpr = valueExpr
-			if instantBindingSQL != "" {
-				joinSQL = " CROSS JOIN (" + instantBindingSQL + ") AS " + alias
-			}
-		case native.RenderModeRange:
-			rangeBindingSQL, rangeParams, valueExpr, err := renderRangeScalarBinding(cfg, quantile, params, alias)
-			if err != nil {
-				return renderedFragment{}, err
-			}
-			mergeRenderedQueryParams(queryParams, rangeParams)
-			quantileValueExpr = valueExpr
-			if rangeBindingSQL != "" {
-				joinSQL = " LEFT JOIN (" + rangeBindingSQL + ") AS " + alias + " ON " + alias + ".timestamp = prepared_histograms.timestamp"
-			}
-		default:
-			return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
-		}
-		quantileLabelExpr := openMetricsFloatExpr(quantileValueExpr)
-		rowsSQL := renderHistogramQuantileRowsSQL(preparedSQL, quantileValueExpr, joinSQL, alias)
-		queries = append(queries, "SELECT arrayPushBack(tags, tuple("+sqlStringLiteral(fragment.HistogramFunction.Label)+", "+quantileLabelExpr+")) AS tags, timestamp AS timestamp, value AS value FROM ("+rowsSQL+") AS "+alias+"_rows")
-	}
-	unionSQL := strings.Join(queries, " UNION ALL ")
-	return renderedFragment{RawSQL: trimRenderedQuerySQL(wrapHistogramRowsForMode(unionSQL, params.Mode, "histogram_quantiles_rows")), ExtraParams: queryParams}, nil
-}
-
-// renderHistogramQuantilesLogical is the logical-node counterpart of
-// renderHistogramQuantilesFragment. It iterates the per-quantile scalar
+// renderHistogramQuantilesLogical iterates the per-quantile scalar
 // children from the HistogramQuantilesPlan logical node (n.ParamChildren),
 // lowering each through renderInstantScalarBindingFromLogical /
-// renderRangeScalarBindingFromLogical so SQL stays byte-identical to the
-// Fragment path while the top-level HistogramFunctionFragment is no longer
-// materialized at this boundary. The label literal comes from n.Label,
-// matching HistogramFunctionFragment.Label.
+// renderRangeScalarBindingFromLogical. The label literal comes from n.Label.
 func renderHistogramQuantilesLogical(ctx LoweringCtx, n *logicalpkg.HistogramQuantilesPlan, params RenderParams, prepared RenderedQuery) (renderedFragment, error) {
 	if n == nil {
 		return renderedFragment{}, fmt.Errorf("histogram_quantiles logical node is missing metadata")
@@ -442,186 +339,8 @@ func arrayLastValue(x sqlb.Expr) sqlb.Expr {
 	return arrayLastElement(x)
 }
 
-// renderClassicHistogramGroupsQuery normalizes classic histogram bucket vectors into
-// one grouped row per histogram identity and timestamp. It removes __name__ and le
-// from the output tags, parses le into a numeric upper bound, and coalesces repeated
-// bucket boundaries before later projection helpers consume the grouped bucket array.
-func renderClassicHistogramGroupsQuery(cfg storage.QueryConfig, child *native.NativeFragment, params RenderParams, prefix string) (renderedFragment, error) {
-	if child == nil {
-		return renderedFragment{}, fmt.Errorf("classic histogram materialization requires a child fragment")
-	}
-	child = narrowHistogramAggregationChildTags(child)
-
-	leRaw := sqlb.RawLit{V: "tupleElement(arrayFirst(tag -> tag.1 = 'le', tags), 2)"}
-	upperBoundExpr := sqlb.RawLit{V: "multiIf(le_raw IN ['+Inf', 'Inf', '+inf', 'inf'], inf, le_raw IN ['-Inf', '-inf'], -inf, toFloat64OrNull(le_raw))"}
-	histogramTagsExpr := sqlb.Expr(sqlb.RawLit{V: "arrayFilter(tag -> tag.1 != 'le' AND tag.1 != '__name__', tags)"})
-	if histogramChildUsesOnlyLETags(child) {
-		histogramTagsExpr = emit.EmptyTagsArray()
-	}
-	whereExpr := sqlb.RawLit{V: "le_raw != '' AND upper_bound IS NOT NULL"}
-
-	var (
-		flattened   *sqlb.Select
-		childParams map[string]string
-	)
-	switch params.Mode {
-	case native.RenderModeInstant:
-		if childRowsSQL, namespacedParams, ok, err := tryRenderHistogramChildRowsSQL(cfg, child, params, prefix); err != nil {
-			return renderedFragment{}, err
-		} else if ok {
-			childParams = namespacedParams
-			innerRows := &sqlb.Select{
-				Columns: []sqlb.ColExpr{
-					{Expr: sqlb.Ident("tags"), Alias: "tags"},
-					{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
-					{Expr: sqlb.Ident("value"), Alias: "value"},
-					{Expr: leRaw, Alias: "le_raw"},
-				},
-				From: rawRenderedSubquerySourceWithAlias(childRowsSQL, "histogram_child_rows"),
-			}
-			flattened = &sqlb.Select{
-				Columns: []sqlb.ColExpr{
-					{Expr: histogramTagsExpr, Alias: "histogram_tags"},
-					{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
-					{Expr: upperBoundExpr, Alias: "upper_bound"},
-					{Expr: sqlb.RawLit{V: "ifNull(toFloat64(value), nan)"}, Alias: "cumulative_count"},
-				},
-				From:  sqlb.SubSelect{S: innerRows, Alias: "histogram_points"},
-				Where: whereExpr,
-			}
-		} else {
-			childSQL, namespacedParams, err := renderFragmentSubquery(cfg, child, params, prefix)
-			if err != nil {
-				return renderedFragment{}, err
-			}
-			childParams = namespacedParams
-			innerPoints := &sqlb.Select{
-				Columns: []sqlb.ColExpr{
-					{Expr: sqlb.Ident("tags"), Alias: "tags"},
-					{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
-					{Expr: sqlb.Ident("value"), Alias: "value"},
-					{Expr: leRaw, Alias: "le_raw"},
-				},
-				From: rawRenderedSubquerySourceWithAlias(childSQL, "histogram_child"),
-			}
-			flattened = &sqlb.Select{
-				Columns: []sqlb.ColExpr{
-					{Expr: histogramTagsExpr, Alias: "histogram_tags"},
-					{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
-					{Expr: upperBoundExpr, Alias: "upper_bound"},
-					{Expr: sqlb.RawLit{V: "ifNull(toFloat64(value), nan)"}, Alias: "cumulative_count"},
-				},
-				From:  sqlb.SubSelect{S: innerPoints, Alias: "histogram_points"},
-				Where: whereExpr,
-			}
-		}
-	case native.RenderModeRange:
-		if childRowsSQL, namespacedParams, ok, err := tryRenderHistogramChildRowsSQL(cfg, child, params, prefix); err != nil {
-			return renderedFragment{}, err
-		} else if ok {
-			childParams = namespacedParams
-			innerRows := &sqlb.Select{
-				Columns: []sqlb.ColExpr{
-					{Expr: sqlb.Ident("tags"), Alias: "tags"},
-					{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
-					{Expr: sqlb.Ident("value"), Alias: "value"},
-					{Expr: leRaw, Alias: "le_raw"},
-				},
-				From: rawRenderedSubquerySourceWithAlias(childRowsSQL, "histogram_child_rows"),
-			}
-			flattened = &sqlb.Select{
-				Columns: []sqlb.ColExpr{
-					{Expr: histogramTagsExpr, Alias: "histogram_tags"},
-					{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
-					{Expr: upperBoundExpr, Alias: "upper_bound"},
-					{Expr: sqlb.RawLit{V: "ifNull(toFloat64(value), nan)"}, Alias: "cumulative_count"},
-				},
-				From:  sqlb.SubSelect{S: innerRows, Alias: "histogram_points"},
-				Where: whereExpr,
-			}
-		} else {
-			childSQL, namespacedParams, err := renderFragmentSubquery(cfg, child, params, prefix)
-			if err != nil {
-				return renderedFragment{}, err
-			}
-			childParams = namespacedParams
-			innerSeries := &sqlb.Select{
-				Columns: []sqlb.ColExpr{
-					{Expr: sqlb.Ident("tags"), Alias: "tags"},
-					{Expr: sqlb.Ident("time_series"), Alias: "time_series"},
-					{Expr: leRaw, Alias: "le_raw"},
-				},
-				From: rawRenderedSubquerySourceWithAlias(childSQL, "histogram_child"),
-			}
-			flattened = &sqlb.Select{
-				Columns: []sqlb.ColExpr{
-					{Expr: histogramTagsExpr, Alias: "histogram_tags"},
-					{Expr: sqlb.RawLit{V: "point.1"}, Alias: "timestamp"},
-					{Expr: upperBoundExpr, Alias: "upper_bound"},
-					{Expr: sqlb.RawLit{V: "ifNull(toFloat64(point.2), nan)"}, Alias: "cumulative_count"},
-				},
-				From: sqlb.ArrayJoin{
-					Base:  sqlb.SubSelect{S: innerSeries, Alias: "histogram_series"},
-					Expr:  sqlb.RawLit{V: "histogram_series.time_series"},
-					Alias: "point",
-				},
-				Where: whereExpr,
-			}
-		}
-	default:
-		return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
-	}
-
-	coalescedColumns := []sqlb.ColExpr{
-		{Expr: sqlb.Ident("histogram_tags"), Alias: "histogram_tags"},
-		{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
-		{Expr: sqlb.Ident("upper_bound"), Alias: "upper_bound"},
-		{Expr: sqlb.Call{Name: "sum", Args: []sqlb.Expr{sqlb.Ident("cumulative_count")}}, Alias: "cumulative_count"},
-	}
-	coalescedGroupBy := []sqlb.Expr{sqlb.Ident("histogram_tags"), sqlb.Ident("timestamp"), sqlb.Ident("upper_bound")}
-	groupedColumns := []sqlb.ColExpr{
-		{Expr: sqlb.Ident("histogram_tags"), Alias: "tags"},
-		{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
-		{Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((upper_bound, cumulative_count)))"}, Alias: "buckets"},
-	}
-	groupedGroupBy := []sqlb.Expr{sqlb.Ident("histogram_tags"), sqlb.Ident("timestamp")}
-	if histogramChildUsesOnlyLETags(child) {
-		coalescedColumns[0] = sqlb.ColExpr{Expr: emit.EmptyTagsArray(), Alias: "histogram_tags"}
-		coalescedGroupBy = []sqlb.Expr{sqlb.Ident("timestamp"), sqlb.Ident("upper_bound")}
-		groupedColumns[0] = sqlb.ColExpr{Expr: emit.EmptyTagsArray(), Alias: "tags"}
-		groupedGroupBy = []sqlb.Expr{sqlb.Ident("timestamp")}
-	}
-
-	coalesced := &sqlb.Select{
-		Columns: coalescedColumns,
-		From:    sqlb.SubSelect{S: flattened, Alias: "histogram_rows"},
-		GroupBy: coalescedGroupBy,
-	}
-
-	grouped := &sqlb.Select{
-		Columns: groupedColumns,
-		From:    sqlb.SubSelect{S: coalesced, Alias: "coalesced_histogram_rows"},
-		GroupBy: groupedGroupBy,
-	}
-	return renderedFragment{Select: grouped, ExtraParams: childParams}, nil
-}
-
 func histogramChildUsesOnlyLETags(fragment *native.NativeFragment) bool {
 	return fragment != nil && fragment.Aggregation != nil && !fragment.Aggregation.Without && len(fragment.Aggregation.Grouping) == 1 && fragment.Aggregation.Grouping[0] == "le"
-}
-
-func narrowHistogramAggregationChildTags(fragment *native.NativeFragment) *native.NativeFragment {
-	if fragment == nil || fragment.Aggregation == nil || fragment.Aggregation.Without || len(fragment.Aggregation.Grouping) == 0 || fragment.Aggregation.Source == nil {
-		return fragment
-	}
-	cloned := native.CloneFragment(fragment)
-	selector := native.BaseSelectorSource(cloned.Aggregation.Source)
-	if selector == nil {
-		return cloned
-	}
-	selector.RequireFullTags = false
-	selector.RequiredTagLabels = append([]string(nil), cloned.Aggregation.Grouping...)
-	return cloned
 }
 
 func buildHistogramIdentityTagAggregationRowsSQL(sourceSQL string, params map[string]string, timestampExpr string) (string, map[string]string, error) {
@@ -679,7 +398,7 @@ func buildHistogramIdentityTagAggregationRowsSQL(sourceSQL string, params map[st
 // The downstream tryRenderHistogramChildRowsSQL still consumes a
 // *NativeFragment; it retires together with the child-rows fast-path
 // Fragment renderers in Task 13 Step 2/3.
-func tryRenderHistogramChildRowsSQLLogical(cfg storage.QueryConfig, childNode logicalpkg.Node, analysis *native.Analysis, params RenderParams, prefix string) (string, map[string]string, bool, error) {
+func tryRenderHistogramChildRowsSQLLogical(cfg storage.QueryConfig, childNode logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams, prefix string) (string, map[string]string, bool, error) {
 	if childNode == nil {
 		return "", nil, false, nil
 	}
@@ -707,10 +426,10 @@ func tryRenderHistogramChildRowsSQLLogical(cfg storage.QueryConfig, childNode lo
 		return "", nil, false, nil
 	}
 	child := native.CloneFragment(info.Fragment)
-	return tryRenderHistogramChildRowsSQL(cfg, child, params, prefix)
+	return tryRenderHistogramChildRowsSQL(cfg, child, agg.Child, logicalAnalysis, analysis, params, prefix)
 }
 
-func tryRenderHistogramChildRowsSQL(cfg storage.QueryConfig, child *native.NativeFragment, params RenderParams, prefix string) (string, map[string]string, bool, error) {
+func tryRenderHistogramChildRowsSQL(cfg storage.QueryConfig, child *native.NativeFragment, innerChildNode logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, nativeAnalysis *native.Analysis, params RenderParams, prefix string) (string, map[string]string, bool, error) {
 	if child == nil {
 		return "", nil, false, nil
 	}
@@ -737,10 +456,12 @@ func tryRenderHistogramChildRowsSQL(cfg storage.QueryConfig, child *native.Nativ
 		if child.Aggregation == nil || child.Aggregation.Source == nil || child.Aggregation.Op != parser.SUM {
 			return "", nil, false, nil
 		}
-		childSource := child.Aggregation.Source
-		childRendered, err := RenderFragment(cfg, childSource, params)
-		if err != nil {
-			return "", nil, false, err
+		if innerChildNode == nil {
+			return "", nil, false, nil
+		}
+		childRendered, lowerErr := Lower(LoweringCtx{Config: cfg, Analysis: logicalAnalysis, NativeAnalysis: nativeAnalysis, Params: params}, innerChildNode)
+		if lowerErr != nil {
+			return "", nil, false, lowerErr
 		}
 		if histogramChildUsesOnlyLETags(child) {
 			rowsSQL, rowParams, err = buildHistogramIdentityTagAggregationRowsSQL(trimRenderedQuerySQL(childRendered.SQL), childRendered.QueryParams, "fromUnixTimestamp64Milli("+strconv.FormatInt(params.EvaluationTimeMS, 10)+")")

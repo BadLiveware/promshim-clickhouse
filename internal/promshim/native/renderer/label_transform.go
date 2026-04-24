@@ -8,29 +8,10 @@ import (
 	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 	modelpkg "github.com/BadLiveware/promshim-ch/internal/promshim/model"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 )
 
-func renderLabelTransformFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
-	if fragment == nil || fragment.LabelTransform == nil || fragment.LabelTransform.Child == nil {
-		return renderedFragment{}, fmt.Errorf("label transform fragment is missing child metadata")
-	}
-	spec := fragment.LabelTransform
-	childSQL, childParams, err := renderFragmentSubquery(cfg, spec.Child, params, "label_child")
-	if err != nil {
-		return renderedFragment{}, err
-	}
-	mutatedTagsExpr, err := buildLabelTransformTagsExpr(spec, "label_child.tags")
-	if err != nil {
-		return renderedFragment{}, err
-	}
-	return renderLabelTransformFromSource(childSQL, childParams, mutatedTagsExpr, params)
-}
-
 // renderLabelTransformFromSource wraps a pre-rendered child source in the
-// label-transform outer SELECTs. Shared by the Fragment path
-// (renderLabelTransformFragment) and the direct path (lowerLabelTransform) so
-// SQL stays byte-identical.
+// label-transform outer SELECTs. Used by the direct path (lowerLabelTransform).
 func renderLabelTransformFromSource(childSQL string, childParams map[string]string, mutatedTagsExpr string, params RenderParams) (renderedFragment, error) {
 	switch params.Mode {
 	case native.RenderModeInstant:
@@ -48,28 +29,9 @@ func renderLabelTransformFromSource(childSQL string, childParams map[string]stri
 	}
 }
 
-func buildLabelTransformTagsExpr(spec *native.LabelTransformFragment, tagsExpr string) (string, error) {
-	if spec == nil {
-		return "", fmt.Errorf("label transform spec is nil")
-	}
-	switch spec.Func {
-	case "label_replace":
-		valueExpr := labelReplaceValueExpr(spec, tagsExpr)
-		return setTagExpr(tagsExpr, spec.Dst, valueExpr), nil
-	case "label_join":
-		valueExpr := labelJoinValueExpr(spec, tagsExpr)
-		return setTagExpr(tagsExpr, spec.Dst, valueExpr), nil
-	default:
-		return "", fmt.Errorf("unsupported label transform %q", spec.Func)
-	}
-}
-
 // buildLabelTransformTagsExprFromLogical computes the mutated tags SQL
-// expression for a LabelReplacePlan or LabelJoinPlan. Mirrors
-// buildLabelTransformTagsExpr but reads fields from the logical node
-// directly so the direct-render path does not need a *LabelTransformFragment.
-// The returned string is byte-identical to buildLabelTransformTagsExpr given
-// equivalent inputs — this is locked by TestBuildLabelTransformTagsExprLogicalMatchesFragment.
+// expression for a LabelReplacePlan or LabelJoinPlan. The direct-render path
+// reads fields from the logical node directly.
 func buildLabelTransformTagsExprFromLogical(n logicalpkg.Node, tagsExpr string) (string, error) {
 	switch p := n.(type) {
 	case *logicalpkg.LabelReplacePlan:
@@ -85,29 +47,11 @@ func buildLabelTransformTagsExprFromLogical(n logicalpkg.Node, tagsExpr string) 
 	}
 }
 
-func labelReplaceValueExpr(spec *native.LabelTransformFragment, tagsExpr string) string {
-	srcExpr := labelValueExpr(tagsExpr, spec.Src)
-	regex := sqlStringLiteral(spec.Regex)
-	repl := sqlStringLiteral(goReplacementToClickHouse(spec.Repl, spec.RegexSubexpNames))
-	return "if(match(" + srcExpr + ", " + regex + "), replaceRegexpOne(" + srcExpr + ", " + regex + ", " + repl + "), " + labelValueExpr(tagsExpr, spec.Dst) + ")"
-}
-
 func labelReplaceValueExprFromLogical(cfg modelpkg.LabelReplaceConfig, tagsExpr string) string {
 	srcExpr := labelValueExpr(tagsExpr, cfg.Src)
 	regex := sqlStringLiteral(cfg.Regex.String())
 	repl := sqlStringLiteral(goReplacementToClickHouse(cfg.Repl, cfg.Regex.SubexpNames()))
 	return "if(match(" + srcExpr + ", " + regex + "), replaceRegexpOne(" + srcExpr + ", " + regex + ", " + repl + "), " + labelValueExpr(tagsExpr, cfg.Dst) + ")"
-}
-
-func labelJoinValueExpr(spec *native.LabelTransformFragment, tagsExpr string) string {
-	if len(spec.SrcLabels) == 0 {
-		return "''"
-	}
-	parts := make([]string, 0, len(spec.SrcLabels))
-	for _, label := range spec.SrcLabels {
-		parts = append(parts, labelValueExpr(tagsExpr, label))
-	}
-	return "arrayStringConcat([" + strings.Join(parts, ", ") + "], " + sqlStringLiteral(spec.Separator) + ")"
 }
 
 func labelJoinValueExprFromLogical(cfg modelpkg.LabelJoinConfig, tagsExpr string) string {

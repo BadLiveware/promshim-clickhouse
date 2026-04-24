@@ -51,40 +51,11 @@ func renderFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, pa
 	if fragment == nil {
 		return renderedFragment{}, fmt.Errorf("native fragment render requires a fragment")
 	}
-	if params.Mode == native.RenderModeRange && native.HasFixedTemporalAnchor(fragment) && fragment.Kind != native.FragmentKindBinaryVectorJoin {
-		return renderAnchoredRangeFragment(cfg, fragment, params)
-	}
 	switch fragment.Kind {
 	case native.FragmentKindLeafSource, native.FragmentKindUnarySourceExpr, native.FragmentKindBinaryScalarSourceExpr:
 		return renderSourceFragment(cfg, fragment, params)
-	case native.FragmentKindSyntheticSeries:
-		return renderSyntheticFragment(fragment, params)
-	case native.FragmentKindScalarConvert:
-		return renderScalarConvertFragment(cfg, fragment, params)
-	case native.FragmentKindInfoJoin:
-		return renderInfoJoinFragment(cfg, fragment, params)
-	case native.FragmentKindAbsent:
-		return renderAbsentFragment(cfg, fragment, params)
-	case native.FragmentKindHistogramProjection:
-		return renderHistogramProjectionFragment(cfg, fragment, params)
-	case native.FragmentKindHistogramFunction:
-		return renderHistogramFunctionFragment(cfg, fragment, params)
-	case native.FragmentKindSortTransform:
-		return renderSortTransformFragment(cfg, fragment, params)
-	case native.FragmentKindLabelTransform:
-		return renderLabelTransformFragment(cfg, fragment, params)
-	case native.FragmentKindClampTransform:
-		return renderClampTransformFragment(cfg, fragment, params)
 	case native.FragmentKindSubquery:
 		return renderSubqueryFragment(cfg, fragment, params)
-	case native.FragmentKindRangeFunction:
-		return renderRangeFunctionFragment(cfg, fragment, params)
-	case native.FragmentKindBinaryVectorJoin:
-		return renderBinaryJoinFragment(cfg, fragment, params)
-	case native.FragmentKindAggregation:
-		return renderAggregationFragment(cfg, fragment, params)
-	case native.FragmentKindValueTransform:
-		return renderValueTransformFragment(cfg, fragment, params)
 	default:
 		return renderedFragment{}, fmt.Errorf("native SQL rendering for fragment kind %q is not implemented yet", fragment.Kind)
 	}

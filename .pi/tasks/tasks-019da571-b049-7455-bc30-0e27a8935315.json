@@ -1,0 +1,17 @@
+{
+  "nextId": 8,
+  "tasks": [
+    {
+      "id": "7",
+      "subject": "Finish Phase 3 scalar range coverage and closure",
+      "description": "Complete the remaining Phase 3 work by adding explicit scalar-only range-query coverage, updating the harness corpus for scalar range behavior, refreshing the implementation plan to mark Phase 3 done if validation passes, and running tests plus the differential harness.",
+      "status": "completed",
+      "activeForm": "Finishing Phase 3",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1776707674587,
+      "updatedAt": 1776707869379
+    }
+  ]
+}

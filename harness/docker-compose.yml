@@ -25,7 +25,7 @@ services:
     restart: "no"
 
   prometheus:
-    image: prom/prometheus:v2.53.0
+    image: prom/prometheus:v3.5.2
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --web.enable-remote-write-receiver

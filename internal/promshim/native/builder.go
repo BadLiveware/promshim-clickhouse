@@ -1,129 +1,13 @@
 package native
 
-import (
-	"fmt"
-
-	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
-)
-
-func BuildFragment(node planpkg.LogicalPlan, analysis *Analysis) (*NativeFragment, error) {
-	if node == nil {
-		return nil, fmt.Errorf("native fragment build requires a logical plan node")
-	}
-	if analysis == nil {
-		analysis = Analyze(node)
-	}
-	info := analysis.InfoFor(node)
-	if info == nil {
-		return nil, fmt.Errorf("native fragment build could not find lowering info for %T", node)
-	}
-	if info.Fragment == nil {
-		return nil, fmt.Errorf("logical node %T is not lowerable to a native fragment", node)
-	}
-	return CloneFragment(info.Fragment), nil
-}
-
-func CloneFragment(fragment *NativeFragment) *NativeFragment {
-	if fragment == nil {
-		return nil
-	}
-	cloned := &NativeFragment{
-		Kind:         fragment.Kind,
-		OutputKind:   fragment.OutputKind,
-		SourcePromQL: fragment.SourcePromQL,
-		Selector:     cloneSelectorSource(fragment.Selector),
-		ValueExpr:    fragment.ValueExpr,
-		TagsExpr:     fragment.TagsExpr,
-		DropsMetric:  fragment.DropsMetric,
-	}
-	if fragment.BinaryJoin != nil {
-		cloned.BinaryJoin = &BinaryJoinFragment{
-			Op:             fragment.BinaryJoin.Op,
-			ReturnBool:     fragment.BinaryJoin.ReturnBool,
-			VectorMatching: CloneVectorMatching(fragment.BinaryJoin.VectorMatching),
-			JoinShape:      fragment.BinaryJoin.JoinShape,
-			LHS:            CloneFragment(fragment.BinaryJoin.LHS),
-			RHS:            CloneFragment(fragment.BinaryJoin.RHS),
-		}
-	}
-	if fragment.RangeFunction != nil {
-		cloned.RangeFunction = &RangeFunctionFragment{Func: fragment.RangeFunction.Func, ParamNumber: cloneFloat64Pointer(fragment.RangeFunction.ParamNumber), ParamNumbers: cloneFloat64Pointers(fragment.RangeFunction.ParamNumbers), Child: CloneFragment(fragment.RangeFunction.Child)}
-	}
-	if fragment.Subquery != nil {
-		cloned.Subquery = &SubqueryFragment{Range: fragment.Subquery.Range, Step: fragment.Subquery.Step, Offset: fragment.Subquery.Offset, Timestamp: cloneInt64Pointer(fragment.Subquery.Timestamp), StartOrEnd: fragment.Subquery.StartOrEnd, Child: CloneFragment(fragment.Subquery.Child)}
-	}
-	if fragment.Aggregation != nil {
-		cloned.Aggregation = &AggregationFragment{
-			Op:          fragment.Aggregation.Op,
-			Grouping:    append([]string(nil), fragment.Aggregation.Grouping...),
-			Without:     fragment.Aggregation.Without,
-			ParamNumber: cloneFloat64Pointer(fragment.Aggregation.ParamNumber),
-			Source:      CloneFragment(fragment.Aggregation.Source),
-		}
-	}
-	if fragment.Synthetic != nil {
-		cloned.Synthetic = &SyntheticSeriesFragment{Func: fragment.Synthetic.Func}
-	}
-	if fragment.ScalarConvert != nil {
-		cloned.ScalarConvert = &ScalarConvertFragment{Child: CloneFragment(fragment.ScalarConvert.Child)}
-	}
-	if fragment.InfoJoin != nil {
-		cloned.InfoJoin = &InfoJoinFragment{Child: CloneFragment(fragment.InfoJoin.Child), InfoMetricName: fragment.InfoJoin.InfoMetricName, SelectorMatchers: CloneMatchers(fragment.InfoJoin.SelectorMatchers), CopyLabelNames: append([]string(nil), fragment.InfoJoin.CopyLabelNames...), DropUnmatched: fragment.InfoJoin.DropUnmatched}
-	}
-	if fragment.Absent != nil {
-		cloned.Absent = &AbsentFragment{Func: fragment.Absent.Func, OutputMetric: cloneStringMap(fragment.Absent.OutputMetric), Child: CloneFragment(fragment.Absent.Child)}
-	}
-	if fragment.HistogramProjection != nil {
-		cloned.HistogramProjection = &HistogramProjectionFragment{Func: fragment.HistogramProjection.Func, Child: CloneFragment(fragment.HistogramProjection.Child)}
-	}
-	if fragment.HistogramFunction != nil {
-		cloned.HistogramFunction = &HistogramFunctionFragment{Func: fragment.HistogramFunction.Func, Quantile: cloneFloat64Pointer(fragment.HistogramFunction.Quantile), Lower: cloneFloat64Pointer(fragment.HistogramFunction.Lower), Upper: cloneFloat64Pointer(fragment.HistogramFunction.Upper), Child: CloneFragment(fragment.HistogramFunction.Child)}
-	}
-	if fragment.ValueTransform != nil {
-		cloned.ValueTransform = &ValueTransformFragment{
-			Child:       CloneFragment(fragment.ValueTransform.Child),
-			ValueExpr:   fragment.ValueTransform.ValueExpr,
-			FilterExpr:  fragment.ValueTransform.FilterExpr,
-			DropsMetric: fragment.ValueTransform.DropsMetric,
-		}
-	}
-	return cloned
-}
-
-func cloneStringMap(values map[string]string) map[string]string {
-	if len(values) == 0 {
-		return nil
-	}
-	cloned := make(map[string]string, len(values))
-	for key, value := range values {
-		cloned[key] = value
-	}
-	return cloned
-}
-
+// cloneInt64Pointer returns a fresh copy of the int64 pointed to by
+// value, or nil if value itself is nil. It is used by selector and
+// analysis code that needs to defensively copy timestamp pointers
+// carried on selector shapes.
 func cloneInt64Pointer(value *int64) *int64 {
 	if value == nil {
 		return nil
 	}
 	cloned := *value
 	return &cloned
-}
-
-func cloneFloat64Pointer(value *float64) *float64 {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
-}
-
-func cloneFloat64Pointers(values []*float64) []*float64 {
-	if len(values) == 0 {
-		return nil
-	}
-	out := make([]*float64, 0, len(values))
-	for _, value := range values {
-		out = append(out, cloneFloat64Pointer(value))
-	}
-	return out
 }

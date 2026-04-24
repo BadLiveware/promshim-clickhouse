@@ -5,7 +5,7 @@ import (
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/local"
 	nativeplan "github.com/BadLiveware/promshim-ch/internal/promshim/native"
-	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 )
 
 type NativeMeasurementSnapshot struct {
@@ -16,18 +16,11 @@ type NativeMeasurementSnapshot struct {
 	PlanReason          string `json:"planReason,omitempty"`
 	NativeLowerable     bool   `json:"nativeLowerable"`
 	NativeReason        string `json:"nativeReason,omitempty"`
-	FragmentKind        string `json:"fragmentKind,omitempty"`
+	SubtreeShape        string `json:"subtreeShape,omitempty"`
 	AggregationEligible bool   `json:"aggregationEligible,omitempty"`
 }
 
 func ClassifyPath2Status(snapshot NativeMeasurementSnapshot, query string) string {
-	name := MeasurementFunctionName(query)
-	switch name {
-	case "clamp", "clamp_min", "clamp_max":
-		return "partial"
-	case "info":
-		return "partial"
-	}
 	if snapshot.NativeLowerable {
 		return "yes"
 	}
@@ -112,12 +105,12 @@ func startsWithScalarLiteral(query string) bool {
 }
 
 func MeasureNativeSupport(query string) (NativeMeasurementSnapshot, error) {
-	expr, err := planpkg.ParseExpression(query)
+	expr, err := logicalpkg.ParseExpression(query)
 	if err != nil {
 		return NativeMeasurementSnapshot{Query: query}, err
 	}
 
-	support := planpkg.AnalyzeExpression(expr)
+	support := logicalpkg.AnalyzeExpression(expr)
 	snapshot := NativeMeasurementSnapshot{
 		Query:          query,
 		PlanSupported:  support.Supported,
@@ -133,6 +126,7 @@ func MeasureNativeSupport(query string) (NativeMeasurementSnapshot, error) {
 		return snapshot, err
 	}
 	analysis := nativeplan.Analyze(logical)
+	_ = logicalpkg.Analyze(logical) // Task 3 warm-up: exercise the new enrichment walk.
 	if analysis == nil || analysis.Root == nil {
 		return snapshot, nil
 	}
@@ -140,8 +134,8 @@ func MeasureNativeSupport(query string) (NativeMeasurementSnapshot, error) {
 	snapshot.OutputKind = string(root.OutputKind)
 	snapshot.NativeLowerable = root.NativeLowerable
 	snapshot.NativeReason = root.NativeReason
-	if root.Fragment != nil {
-		snapshot.FragmentKind = string(root.Fragment.Kind)
+	if root.SubtreeShape != "" {
+		snapshot.SubtreeShape = string(root.SubtreeShape)
 	}
 	if root.Aggregation != nil {
 		snapshot.AggregationEligible = root.Aggregation.Eligible

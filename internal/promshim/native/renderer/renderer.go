@@ -1,11 +1,9 @@
 package renderer
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage/schema"
 
 	"github.com/prometheus/prometheus/promql/parser"
@@ -20,53 +18,26 @@ type RenderParams struct {
 	RequiredStartMS     int64
 	RequiredEndMS       int64
 	ResolveSourcePromQL func(parser.Expr) (string, error)
+	// RequireFullTags indicates whether a parent renderer (histogram function or
+	// projection, or a selection / count_values aggregation) has explicitly
+	// declared that full tags are required from the underlying selector.
+	// After 13c-14e native.SelectorSource no longer carries narrowing state,
+	// so RenderParams is the single source of truth: true forces the storage
+	// SelectorSource's RequireFullTags=true, overriding any
+	// RequiredTagLabels narrowing. Default (false) means the storage
+	// selector's own (zero-valued) narrowing state applies.
+	RequireFullTags bool
+	// RequiredTagLabels is the set of labels the parent requires from the
+	// underlying selector. When RequireFullTags is false (indicating a grouping
+	// aggregation child), this is a fresh copy of the child's Grouping labels.
+	// Default (nil) means no explicit tag requirement from the parent; the
+	// storage selector falls through to the full-tags base path.
+	RequiredTagLabels []string
 }
 
 type RenderedQuery struct {
 	SQL         string
 	QueryParams map[string]string
-}
-
-func RenderFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (RenderedQuery, error) {
-	rf, err := renderFragment(cfg, fragment, params)
-	if err != nil {
-		return RenderedQuery{}, err
-	}
-	return finalizeRenderedFragment(rf)
-}
-
-func renderFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
-	if fragment == nil {
-		return renderedFragment{}, fmt.Errorf("native fragment render requires a fragment")
-	}
-	switch fragment.Kind {
-	case native.FragmentKindLeafSource, native.FragmentKindUnarySourceExpr, native.FragmentKindBinaryScalarSourceExpr:
-		return renderSourceFragment(cfg, fragment, params)
-	case native.FragmentKindSyntheticSeries:
-		return renderSyntheticFragment(fragment, params)
-	case native.FragmentKindScalarConvert:
-		return renderScalarConvertFragment(cfg, fragment, params)
-	case native.FragmentKindInfoJoin:
-		return renderInfoJoinFragment(cfg, fragment, params)
-	case native.FragmentKindAbsent:
-		return renderAbsentFragment(cfg, fragment, params)
-	case native.FragmentKindHistogramProjection:
-		return renderHistogramProjectionFragment(cfg, fragment, params)
-	case native.FragmentKindHistogramFunction:
-		return renderHistogramFunctionFragment(cfg, fragment, params)
-	case native.FragmentKindSubquery:
-		return renderSubqueryFragment(cfg, fragment, params)
-	case native.FragmentKindRangeFunction:
-		return renderRangeFunctionFragment(cfg, fragment, params)
-	case native.FragmentKindBinaryVectorJoin:
-		return renderBinaryJoinFragment(cfg, fragment, params)
-	case native.FragmentKindAggregation:
-		return renderAggregationFragment(cfg, fragment, params)
-	case native.FragmentKindValueTransform:
-		return renderValueTransformFragment(cfg, fragment, params)
-	default:
-		return renderedFragment{}, fmt.Errorf("native SQL rendering for fragment kind %q is not implemented yet", fragment.Kind)
-	}
 }
 
 func mergeRenderedQueryParams(dst, src map[string]string) {

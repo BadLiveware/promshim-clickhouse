@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BadLiveware/promshim-ch/internal/promshim/emit"
 	modelpkg "github.com/BadLiveware/promshim-ch/internal/promshim/model"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage/schema"
@@ -80,37 +81,43 @@ func BuildRangeQuerySQL(cfg QueryConfig, promql string, startMS, endMS, stepMS i
 	return sql + schema.QuerySuffix, params
 }
 
-func BuildInstantAggregationQuerySQL(cfg QueryConfig, source AggregationSource, evaluationTimeMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
-	return BuildInstantAggregationQuerySQLWithBounds(cfg, source, evaluationTimeMS, evaluationTimeMS, evaluationTimeMS, op, grouping, without, paramNumber)
+func BuildInstantAggregationQuerySQL(cfg QueryConfig, source AggregationSource, evaluationTimeMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64, paramString string) (string, map[string]string, error) {
+	return BuildInstantAggregationQuerySQLWithBounds(cfg, source, evaluationTimeMS, evaluationTimeMS, evaluationTimeMS, op, grouping, without, paramNumber, paramString)
 }
 
-func BuildInstantAggregationQuerySQLWithBounds(cfg QueryConfig, source AggregationSource, evaluationTimeMS, requiredStartMS, requiredEndMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
+func BuildInstantAggregationQuerySQLWithBounds(cfg QueryConfig, source AggregationSource, evaluationTimeMS, requiredStartMS, requiredEndMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64, paramString string) (string, map[string]string, error) {
 	sourceSQL, params, err := buildInstantSourceQuerySQL(cfg, source, evaluationTimeMS, requiredStartMS, requiredEndMS)
 	if err != nil {
 		return "", nil, err
 	}
-	return BuildInstantAggregationOverSubquerySQL(source, sourceSQL, params, op, grouping, without, paramNumber)
+	return BuildInstantAggregationOverSubquerySQL(source, sourceSQL, params, evaluationTimeMS, op, grouping, without, paramNumber, paramString)
 }
 
-func BuildInstantAggregationOverSubquerySQL(source AggregationSource, sourceSQL string, params map[string]string, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
+func BuildInstantAggregationOverSubquerySQL(source AggregationSource, sourceSQL string, params map[string]string, evaluationTimeMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64, paramString string) (string, map[string]string, error) {
+	if IsSelectionAggregation(op) {
+		return buildInstantSelectionAggregationOverSubquerySQL(source, sourceSQL, params, op, grouping, without, paramNumber)
+	}
+	if op == parser.COUNT_VALUES {
+		return buildInstantCountValuesAggregationOverSubquerySQL(source, sourceSQL, params, evaluationTimeMS, grouping, without, paramString)
+	}
 	aggExpr, err := buildAggregationValueExpr(op, sqlb.Ident("value"), paramNumber)
 	if err != nil {
 		return "", nil, err
 	}
 	tagsExpr := buildAggregationTagsExpr(sqlb.Ident("tags"), grouping, without)
-	sourceSubquery, err := renderAggregationInstantSourceSubquery(source, sourceSQL)
-	if err != nil {
-		return "", nil, err
-	}
-	middle := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: tagsExpr, Alias: "grouping_tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}},
-		From:    sqlb.SubSelect{S: sourceSubquery},
+	fromSource := sqlb.Source(sqlb.RawSource{SQL: rawSubquerySQL(sourceSQL)})
+	if !aggregationSourceIsIdentity(source) {
+		sourceSubquery, err := renderAggregationInstantSourceSubquery(source, sourceSQL)
+		if err != nil {
+			return "", nil, err
+		}
+		fromSource = sqlb.SubSelect{S: sourceSubquery}
 	}
 	outer := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("grouping_tags"), Alias: "tags"}, {Expr: sqlb.Call{Name: "max", Args: []sqlb.Expr{sqlb.Ident("timestamp")}}, Alias: "timestamp"}, {Expr: aggExpr, Alias: "value"}},
-		From:    sqlb.SubSelect{S: middle},
-		GroupBy: []sqlb.Expr{sqlb.Ident("grouping_tags")},
-		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("grouping_tags")}},
+		Columns: []sqlb.ColExpr{{Expr: tagsExpr, Alias: "tags"}, {Expr: sqlb.RawLit{V: "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"}, Alias: "timestamp"}, {Expr: aggExpr, Alias: "value"}},
+		From:    fromSource,
+		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
+		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}},
 	}
 	sql, _, err := outer.Build()
 	if err != nil {
@@ -123,19 +130,25 @@ func BuildInstantAggregationOverSubquerySQL(source AggregationSource, sourceSQL 
 	return sql + schema.QuerySuffix, clonedParams, nil
 }
 
-func BuildRangeAggregationQuerySQL(cfg QueryConfig, source AggregationSource, startMS, endMS, stepMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
-	return BuildRangeAggregationQuerySQLWithBounds(cfg, source, startMS, endMS, stepMS, startMS, endMS, op, grouping, without, paramNumber)
+func BuildRangeAggregationQuerySQL(cfg QueryConfig, source AggregationSource, startMS, endMS, stepMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64, paramString string) (string, map[string]string, error) {
+	return BuildRangeAggregationQuerySQLWithBounds(cfg, source, startMS, endMS, stepMS, startMS, endMS, op, grouping, without, paramNumber, paramString)
 }
 
-func BuildRangeAggregationQuerySQLWithBounds(cfg QueryConfig, source AggregationSource, startMS, endMS, stepMS, requiredStartMS, requiredEndMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
+func BuildRangeAggregationQuerySQLWithBounds(cfg QueryConfig, source AggregationSource, startMS, endMS, stepMS, requiredStartMS, requiredEndMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64, paramString string) (string, map[string]string, error) {
 	sourceSQL, params, err := buildRangeSourceQuerySQL(cfg, source, requiredStartMS, requiredEndMS, startMS, endMS, stepMS)
 	if err != nil {
 		return "", nil, err
 	}
-	return BuildRangeAggregationOverSubquerySQL(source, sourceSQL, params, op, grouping, without, paramNumber)
+	return BuildRangeAggregationOverSubquerySQL(source, sourceSQL, params, op, grouping, without, paramNumber, paramString)
 }
 
-func BuildRangeAggregationOverSubquerySQL(source AggregationSource, sourceSQL string, params map[string]string, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
+func BuildRangeAggregationOverSubquerySQL(source AggregationSource, sourceSQL string, params map[string]string, op parser.ItemType, grouping []string, without bool, paramNumber *float64, paramString string) (string, map[string]string, error) {
+	if IsSelectionAggregation(op) {
+		return buildRangeSelectionAggregationOverSubquerySQL(source, sourceSQL, params, op, grouping, without, paramNumber)
+	}
+	if op == parser.COUNT_VALUES {
+		return buildRangeCountValuesAggregationOverSubquerySQL(source, sourceSQL, params, grouping, without, paramString)
+	}
 	aggExpr, err := buildAggregationValueExpr(op, sqlb.RawLit{V: "point.2"}, paramNumber)
 	if err != nil {
 		return "", nil, err
@@ -155,7 +168,7 @@ func BuildRangeAggregationOverSubquerySQL(source AggregationSource, sourceSQL st
 		GroupBy: []sqlb.Expr{sqlb.Ident("grouping_tags"), sqlb.Ident("timestamp")},
 	}
 	outer := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"}},
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"}},
 		From:    sqlb.SubSelect{S: grouped},
 		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}},
@@ -236,6 +249,10 @@ func BuildSeriesQuery(cfg QueryConfig, request *http.Request) (string, map[strin
 
 func baseParams(cfg QueryConfig) map[string]string {
 	return map[string]string{"param_database": cfg.Database, "param_table": cfg.Table}
+}
+
+func aggregationSourceIsIdentity(source AggregationSource) bool {
+	return strings.TrimSpace(source.ValueExpr) == "{value}" && (strings.TrimSpace(source.TagsExpr) == "" || strings.TrimSpace(source.TagsExpr) == "{tags}")
 }
 
 func renderAggregationInstantSourceSubquery(source AggregationSource, sourceSQL string) (*sqlb.Select, error) {
@@ -360,6 +377,327 @@ func rawSubquerySQL(sql string) string {
 	return "(\n" + indentSQL(strings.TrimSpace(sql), 4) + "\n)"
 }
 
+func IsSelectionAggregation(op parser.ItemType) bool {
+	switch op {
+	case parser.TOPK, parser.BOTTOMK, parser.LIMITK, parser.LIMIT_RATIO:
+		return true
+	default:
+		return false
+	}
+}
+
+func selectionAggregationKValue(op parser.ItemType, paramNumber *float64) (int, error) {
+	if paramNumber == nil {
+		return 0, fmt.Errorf("native SQL aggregation for operator %q requires a scalar parameter", op.String())
+	}
+	if math.IsNaN(*paramNumber) {
+		return 0, fmt.Errorf("parameter value is NaN")
+	}
+	return int(*paramNumber), nil
+}
+
+func selectionAggregationRatioValue(paramNumber *float64) (float64, error) {
+	if paramNumber == nil {
+		return 0, fmt.Errorf("native SQL aggregation for operator %q requires a scalar parameter", "limit_ratio")
+	}
+	if math.IsNaN(*paramNumber) {
+		return 0, fmt.Errorf("ratio value is NaN")
+	}
+	ratio := *paramNumber
+	if ratio < -1 {
+		ratio = -1
+	}
+	if ratio > 1 {
+		ratio = 1
+	}
+	return ratio, nil
+}
+
+func selectionAggregationOrder(op parser.ItemType) string {
+	switch op {
+	case parser.TOPK:
+		return "DESC"
+	case parser.BOTTOMK:
+		return "ASC"
+	case parser.LIMITK:
+		return "ASC"
+	default:
+		panic("unexpected selection aggregation operator")
+	}
+}
+
+func selectionTagsHashExpr(tagsRef sqlb.Expr) (sqlb.Expr, error) {
+	tagsSQL, params, err := sqlb.BuildExpr(tagsRef)
+	if err != nil {
+		return nil, err
+	}
+	if len(params) != 0 {
+		return nil, fmt.Errorf("selection aggregation tags expression unexpectedly produced params: %#v", params)
+	}
+	return sqlb.RawLit{V: "xxHash64(toJSONString(" + tagsSQL + "))"}, nil
+}
+
+func countValuesGrouping(grouping []string, without bool, valueLabel string) []string {
+	if without {
+		return append([]string(nil), grouping...)
+	}
+	result := append([]string(nil), grouping...)
+	for _, label := range result {
+		if label == valueLabel {
+			return result
+		}
+	}
+	return append(result, valueLabel)
+}
+
+func countValuesStringExpr(valueRef sqlb.Expr) (sqlb.Expr, error) {
+	valueSQL, params, err := sqlb.BuildExpr(valueRef)
+	if err != nil {
+		return nil, err
+	}
+	if len(params) != 0 {
+		return nil, fmt.Errorf("count_values value expression unexpectedly produced params: %#v", params)
+	}
+	return sqlb.RawLit{V: "multiIf(isNaN(" + valueSQL + "), 'NaN', isInfinite(" + valueSQL + ") AND (" + valueSQL + ") > 0, '+Inf', isInfinite(" + valueSQL + ") AND (" + valueSQL + ") < 0, '-Inf', toString(" + valueSQL + "))"}, nil
+}
+
+func buildCountValuesMutatedTagsExpr(tagsRef, valueRef sqlb.Expr, valueLabel string) (sqlb.Expr, error) {
+	tagsSQL, params, err := sqlb.BuildExpr(tagsRef)
+	if err != nil {
+		return nil, err
+	}
+	if len(params) != 0 {
+		return nil, fmt.Errorf("count_values tags expression unexpectedly produced params: %#v", params)
+	}
+	valueStringExpr, err := countValuesStringExpr(valueRef)
+	if err != nil {
+		return nil, err
+	}
+	valueStringSQL, valueParams, err := sqlb.BuildExpr(valueStringExpr)
+	if err != nil {
+		return nil, err
+	}
+	if len(valueParams) != 0 {
+		return nil, fmt.Errorf("count_values value-string expression unexpectedly produced params: %#v", valueParams)
+	}
+	return sqlb.RawLit{V: "arrayConcat(arrayFilter(tag -> tag.1 != '__name__' AND tag.1 != '" + valueLabel + "', " + tagsSQL + "), [tuple('" + valueLabel + "', " + valueStringSQL + ")])"}, nil
+}
+
+func buildInstantCountValuesAggregationOverSubquerySQL(source AggregationSource, sourceSQL string, params map[string]string, evaluationTimeMS int64, grouping []string, without bool, paramString string) (string, map[string]string, error) {
+	if strings.TrimSpace(paramString) == "" {
+		return "", nil, fmt.Errorf("native SQL aggregation for operator %q requires a string label parameter", "count_values")
+	}
+	effectiveGrouping := countValuesGrouping(grouping, without, paramString)
+	sourceSubquery, err := renderAggregationInstantSourceSubquery(source, sourceSQL)
+	if err != nil {
+		return "", nil, err
+	}
+	mutatedTagsExpr, err := buildCountValuesMutatedTagsExpr(sqlb.Ident("tags"), sqlb.Ident("value"), paramString)
+	if err != nil {
+		return "", nil, err
+	}
+	groupingTagsExpr := buildAggregationTagsExpr(mutatedTagsExpr, effectiveGrouping, without)
+	middle := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: groupingTagsExpr, Alias: "grouping_tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}},
+		From:    sqlb.SubSelect{S: sourceSubquery},
+	}
+	outer := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("grouping_tags"), Alias: "tags"}, {Expr: sqlb.RawLit{V: "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"}, Alias: "timestamp"}, {Expr: sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{sqlb.Call{Name: "count"}}}, Alias: "value"}},
+		From:    sqlb.SubSelect{S: middle},
+		GroupBy: []sqlb.Expr{sqlb.Ident("grouping_tags")},
+		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("grouping_tags")}},
+	}
+	sql, _, err := outer.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	clonedParams := map[string]string{}
+	for key, value := range params {
+		clonedParams[key] = value
+	}
+	return sql + schema.QuerySuffix, clonedParams, nil
+}
+
+func buildRangeCountValuesAggregationOverSubquerySQL(source AggregationSource, sourceSQL string, params map[string]string, grouping []string, without bool, paramString string) (string, map[string]string, error) {
+	if strings.TrimSpace(paramString) == "" {
+		return "", nil, fmt.Errorf("native SQL aggregation for operator %q requires a string label parameter", "count_values")
+	}
+	effectiveGrouping := countValuesGrouping(grouping, without, paramString)
+	sourceSubquery, err := renderAggregationRangeSourceSubquery(source, sourceSQL)
+	if err != nil {
+		return "", nil, err
+	}
+	mutatedTagsExpr, err := buildCountValuesMutatedTagsExpr(sqlb.Ident("tags"), sqlb.RawLit{V: "point.2"}, paramString)
+	if err != nil {
+		return "", nil, err
+	}
+	groupingTagsExpr := buildAggregationTagsExpr(mutatedTagsExpr, effectiveGrouping, without)
+	points := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: groupingTagsExpr, Alias: "grouping_tags"}, {Expr: sqlb.RawLit{V: "point.1"}, Alias: "timestamp"}},
+		From:    sqlb.ArrayJoin{Base: sqlb.SubSelect{S: sourceSubquery}, Expr: sqlb.RawLit{V: "time_series"}, Alias: "point"},
+	}
+	grouped := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("grouping_tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{sqlb.Call{Name: "count"}}}, Alias: "value"}},
+		From:    sqlb.SubSelect{S: points},
+		GroupBy: []sqlb.Expr{sqlb.Ident("grouping_tags"), sqlb.Ident("timestamp")},
+	}
+	outer := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"}},
+		From:    sqlb.SubSelect{S: grouped},
+		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
+		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}},
+	}
+	sql, _, err := outer.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	clonedParams := map[string]string{}
+	for key, value := range params {
+		clonedParams[key] = value
+	}
+	return sql + schema.QuerySuffix, clonedParams, nil
+}
+
+func buildInstantSelectionAggregationOverSubquerySQL(source AggregationSource, sourceSQL string, params map[string]string, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
+	tagsExpr := buildAggregationTagsExpr(sqlb.Ident("tags"), grouping, without)
+	sourceSubquery, err := renderAggregationInstantSourceSubquery(source, sourceSQL)
+	if err != nil {
+		return "", nil, err
+	}
+	middleColumns := []sqlb.ColExpr{{Expr: tagsExpr, Alias: "grouping_tags"}, {Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}}
+	if op == parser.LIMIT_RATIO {
+		hashExpr, err := selectionTagsHashExpr(sqlb.Ident("tags"))
+		if err != nil {
+			return "", nil, err
+		}
+		middleColumns = append(middleColumns, sqlb.ColExpr{Expr: hashExpr, Alias: "tag_hash"})
+	}
+	middle := &sqlb.Select{Columns: middleColumns, From: sqlb.SubSelect{S: sourceSubquery}}
+	var outer *sqlb.Select
+	switch op {
+	case parser.TOPK, parser.BOTTOMK, parser.LIMITK:
+		k, err := selectionAggregationKValue(op, paramNumber)
+		if err != nil {
+			return "", nil, err
+		}
+		orderExpr := "tags ASC"
+		if op != parser.LIMITK {
+			orderExpr = "isNaN(value) ASC, value " + selectionAggregationOrder(op) + ", tags ASC"
+		}
+		ranked := &sqlb.Select{
+			Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}, {Expr: sqlb.RawLit{V: "row_number() OVER (PARTITION BY grouping_tags ORDER BY " + orderExpr + ")"}, Alias: "rank"}},
+			From:    sqlb.SubSelect{S: middle},
+		}
+		outer = &sqlb.Select{
+			Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}},
+			From:    sqlb.SubSelect{S: ranked},
+			Where:   sqlb.RawLit{V: "rank <= " + strconv.Itoa(k)},
+			OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}},
+		}
+	case parser.LIMIT_RATIO:
+		ratio, err := selectionAggregationRatioValue(paramNumber)
+		if err != nil {
+			return "", nil, err
+		}
+		if ratio == 0 {
+			outer = &sqlb.Select{Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}}, From: sqlb.SubSelect{S: middle}, Where: sqlb.RawLit{V: "0 = 1"}}
+		} else if ratio >= 1 || ratio <= -1 {
+			outer = &sqlb.Select{Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}}, From: sqlb.SubSelect{S: middle}, OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}}}
+		} else {
+			threshold := uint64(math.Abs(ratio) * float64(^uint64(0)))
+			cmp := "tag_hash < " + strconv.FormatUint(threshold, 10)
+			if ratio < 0 {
+				cmp = "tag_hash >= " + strconv.FormatUint(uint64((1+ratio)*float64(^uint64(0))), 10)
+			}
+			outer = &sqlb.Select{Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}}, From: sqlb.SubSelect{S: middle}, Where: sqlb.RawLit{V: cmp}, OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}}}
+		}
+	default:
+		return "", nil, fmt.Errorf("native SQL selection aggregation for operator %q is not implemented yet", op.String())
+	}
+	sql, _, err := outer.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	clonedParams := map[string]string{}
+	for key, value := range params {
+		clonedParams[key] = value
+	}
+	return sql + schema.QuerySuffix, clonedParams, nil
+}
+
+func buildRangeSelectionAggregationOverSubquerySQL(source AggregationSource, sourceSQL string, params map[string]string, op parser.ItemType, grouping []string, without bool, paramNumber *float64) (string, map[string]string, error) {
+	tagsExpr := buildAggregationTagsExpr(sqlb.Ident("tags"), grouping, without)
+	sourceSubquery, err := renderAggregationRangeSourceSubquery(source, sourceSQL)
+	if err != nil {
+		return "", nil, err
+	}
+	pointColumns := []sqlb.ColExpr{{Expr: tagsExpr, Alias: "grouping_tags"}, {Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.RawLit{V: "point.1"}, Alias: "timestamp"}, {Expr: sqlb.RawLit{V: "point.2"}, Alias: "value"}}
+	if op == parser.LIMIT_RATIO {
+		hashExpr, err := selectionTagsHashExpr(sqlb.Ident("tags"))
+		if err != nil {
+			return "", nil, err
+		}
+		pointColumns = append(pointColumns, sqlb.ColExpr{Expr: hashExpr, Alias: "tag_hash"})
+	}
+	points := &sqlb.Select{Columns: pointColumns, From: sqlb.ArrayJoin{Base: sqlb.SubSelect{S: sourceSubquery}, Expr: sqlb.RawLit{V: "time_series"}, Alias: "point"}}
+	var selected *sqlb.Select
+	switch op {
+	case parser.TOPK, parser.BOTTOMK, parser.LIMITK:
+		k, err := selectionAggregationKValue(op, paramNumber)
+		if err != nil {
+			return "", nil, err
+		}
+		orderExpr := "tags ASC"
+		if op != parser.LIMITK {
+			orderExpr = "isNaN(value) ASC, value " + selectionAggregationOrder(op) + ", tags ASC"
+		}
+		ranked := &sqlb.Select{
+			Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}, {Expr: sqlb.RawLit{V: "row_number() OVER (PARTITION BY grouping_tags, timestamp ORDER BY " + orderExpr + ")"}, Alias: "rank"}},
+			From:    sqlb.SubSelect{S: points},
+		}
+		selected = &sqlb.Select{
+			Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}},
+			From:    sqlb.SubSelect{S: ranked},
+			Where:   sqlb.RawLit{V: "rank <= " + strconv.Itoa(k)},
+		}
+	case parser.LIMIT_RATIO:
+		ratio, err := selectionAggregationRatioValue(paramNumber)
+		if err != nil {
+			return "", nil, err
+		}
+		selected = &sqlb.Select{
+			Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}},
+			From:    sqlb.SubSelect{S: points},
+		}
+		if ratio == 0 {
+			selected.Where = sqlb.RawLit{V: "0 = 1"}
+		} else if ratio >= 1 || ratio <= -1 {
+			// keep all rows
+		} else if ratio > 0 {
+			selected.Where = sqlb.RawLit{V: "tag_hash < " + strconv.FormatUint(uint64(ratio*float64(^uint64(0))), 10)}
+		} else {
+			selected.Where = sqlb.RawLit{V: "tag_hash >= " + strconv.FormatUint(uint64((1+ratio)*float64(^uint64(0))), 10)}
+		}
+	default:
+		return "", nil, fmt.Errorf("native SQL selection aggregation for operator %q is not implemented yet", op.String())
+	}
+	outer := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"}},
+		From:    sqlb.SubSelect{S: selected},
+		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
+		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}},
+	}
+	sql, _, err := outer.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	clonedParams := map[string]string{}
+	for key, value := range params {
+		clonedParams[key] = value
+	}
+	return sql + schema.QuerySuffix, clonedParams, nil
+}
+
 func buildAggregationTagsExpr(column sqlb.Expr, grouping []string, without bool) sqlb.Expr {
 	columnSQL := renderStorageExprNoParams(column)
 	if without {
@@ -373,14 +711,18 @@ func buildAggregationTagsExpr(column sqlb.Expr, grouping []string, without bool)
 		}}
 	}
 	if len(grouping) == 0 {
-		return schema.EmptyTagsArrayExpr()
+		return emit.EmptyTagsArray()
+	}
+	filtered := sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{
+		sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(grouping) + ", tag.1)"},
+		sqlb.RawLit{V: columnSQL},
+	}}
+	if len(grouping) == 1 {
+		return filtered
 	}
 	return sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
 		sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},
-		sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{
-			sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(grouping) + ", tag.1)"},
-			sqlb.RawLit{V: columnSQL},
-		}},
+		filtered,
 	}}
 }
 

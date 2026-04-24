@@ -47,6 +47,44 @@ func TestApplyLabelJoinRuntimeValueAddsJoinedLabel(t *testing.T) {
 	}
 }
 
+func TestApplyLabelReplaceRuntimeValuePreservesMetricNameWhenRewritingName(t *testing.T) {
+	cfg, err := model.BuildLabelReplaceConfig("__name__", "rate_$1", "__name__", "(.+)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ApplyLabelReplaceRuntimeValue(model.VectorValue{Samples: []model.InstantSample{{
+		Metric:    map[string]string{"__name__": "metric_total", "env": "1"},
+		Timestamp: 1,
+		Value:     0.2,
+	}}}, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vector := result.(model.VectorValue)
+	if vector.Samples[0].Metric["__name__"] != "rate_metric_total" {
+		t.Fatalf("expected rewritten metric name, got %#v", vector.Samples[0].Metric)
+	}
+}
+
+func TestApplyLabelJoinRuntimeValuePreservesMetricNameWhenJoiningName(t *testing.T) {
+	cfg, err := model.BuildLabelJoinConfig("__name__", "_", []string{"__name__", "env"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ApplyLabelJoinRuntimeValue(model.VectorValue{Samples: []model.InstantSample{{
+		Metric:    map[string]string{"__name__": "metric_total", "env": "1"},
+		Timestamp: 1,
+		Value:     0.2,
+	}}}, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vector := result.(model.VectorValue)
+	if vector.Samples[0].Metric["__name__"] != "metric_total_1" {
+		t.Fatalf("expected joined metric name, got %#v", vector.Samples[0].Metric)
+	}
+}
+
 func TestApplyLabelReplaceRuntimeValueRejectsDuplicateInstantLabelsets(t *testing.T) {
 	cfg, err := model.BuildLabelReplaceConfig("job", "same", "job", ".*")
 	if err != nil {

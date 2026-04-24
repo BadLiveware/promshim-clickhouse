@@ -2,6 +2,8 @@
 
 This harness starts a disposable Prometheus + ClickHouse + promshim stack, generates a deterministic metric dataset from a seed, remote-writes the exact same samples to both backends, and compares Prometheus query results against `promshim -> ClickHouse`.
 
+A full `scripts/run-harness.sh` run (all suites) completes in ~25 seconds on a warm docker cache (~90s cold, dominated by image builds). It runs in the foreground and does not need a minutes-long timeout.
+
 ## Components
 
 - `prometheus`
@@ -31,12 +33,13 @@ With no arguments this runs every suite we care about:
 1. **differential** — `harness/corpus/queries.json` across all configured subjects.
 2. **dashboard** — `harness/corpus/common-dashboard-subset.json` with `--subjects shim`.
 3. **compliance** — the upstream PromQL compliance tester (delegates to `./scripts/run-compliance.sh`, which brings up the separate compliance stack with its frozen fixture).
+4. **bench** — the Prom-vs-promshim native-SQL tripwire (delegates to `./scripts/run-bench.sh`). Uses `harness/corpus/bench-native-lowering.json`, compares wall-clock, strategy, and ClickHouse round-trip count against `harness/bench/baseline.json`, and exits non-zero on a strategy change, CH-roundtrip increase, latency regression (>+25% AND >+3 ms), or strategy flap across repeats.
 
-Suites 1 and 2 share a single main-harness stack and a single seed run. Suite 3 runs against the independent `harness/compliance/` stack. Each suite prints its own summary; the runner exits 0 as long as the tooling itself completes.
+Suites 1 and 2 share a single main-harness stack and a single seed run. Suites 3 and 4 run against the independent `harness/compliance/` stack. Each suite prints its own summary; the runner exits 0 as long as the tooling itself completes and the bench detects no regressions.
 
 Useful options:
 
-- `--suite <name>` to run a single suite only: `differential`, `dashboard`, `compliance`, or `all` (default).
+- `--suite <name>` to run a single suite only: `differential`, `dashboard`, `compliance`, `bench`, or `all` (default).
 - `--subjects <list>` to restrict compare subjects, e.g. `shim` or `shim,promclick`.
 - `--dataset-variants <list>` to seed multiple dataset shapes in one run, e.g. `baseline,resets_gaps`.
 - `--native-only` to force `native_lowering_mode=force_supported` for every query row that does not already set an explicit mode.

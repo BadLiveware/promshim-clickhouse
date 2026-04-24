@@ -3,13 +3,13 @@ package renderer
 import (
 	"testing"
 
-	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
 func mustParseExpr(t *testing.T, query string) parser.Expr {
 	t.Helper()
-	expr, err := planpkg.ParseExpression(query)
+	expr, err := logicalpkg.ParseExpression(query)
 	if err != nil {
 		t.Fatalf("parse %q: %v", query, err)
 	}

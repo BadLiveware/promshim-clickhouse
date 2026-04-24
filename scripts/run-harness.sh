@@ -6,20 +6,26 @@ usage() {
 Usage: ./scripts/run-harness.sh [options]
 
 Run the differential + compliance harnesses against promshim.
+Full run completes in ~25s on a warm docker cache; ~90s cold including
+image builds. Runs in the foreground — do NOT add a minutes-long timeout
+wrapper.
 
 Default (no args) runs every suite:
   1) differential  — harness/corpus/queries.json (all subjects)
   2) dashboard     — harness/corpus/common-dashboard-subset.json (--subjects shim)
   3) compliance    — upstream PromQL compliance tester (delegates to
                      scripts/run-compliance.sh)
+  4) bench         — Prom-vs-promshim native-SQL tripwire
+                     (delegates to scripts/run-bench.sh; shares the compliance
+                     stack and fixture)
 
 Suites 1+2 share a single main-harness stack (clickhouse/prometheus/promshim)
-and a single seed. Suite 3 runs against the separate compliance stack with
+and a single seed. Suites 3+4 run against the separate compliance stack with
 its frozen fixture. Each suite prints its own summary; the runner exits 0 as
-long as the tooling itself completes.
+long as the tooling itself completes and no bench regressions are detected.
 
 Suite selection:
-  --suite <name>        all (default) | differential | dashboard | compliance
+  --suite <name>        all (default) | differential | dashboard | compliance | bench
 
 Differential-only knobs (imply --suite differential when used alone):
   --theme <name>        Run one themed corpus from
@@ -58,6 +64,10 @@ ensure_command() {
 }
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=lib/run-lock.sh
+source "${REPO_ROOT}/scripts/lib/run-lock.sh"
+acquire_run_lock "harness"
+
 HARNESS_DIR="${REPO_ROOT}/harness"
 THEMES_HOST_DIR="${HARNESS_DIR}/corpus/draft-grafana-top-panel-shortlist.themes"
 
@@ -101,8 +111,8 @@ if [[ -z "$SUITE" ]]; then
 fi
 
 case "$SUITE" in
-  all|differential|dashboard|compliance) ;;
-  *) fatal "--suite must be one of: all, differential, dashboard, compliance" ;;
+  all|differential|dashboard|compliance|bench) ;;
+  *) fatal "--suite must be one of: all, differential, dashboard, compliance, bench" ;;
 esac
 
 if ! [[ "$INIT_RETRIES" =~ ^[0-9]+$ ]] || [[ "$INIT_RETRIES" -lt 1 ]]; then
@@ -130,6 +140,7 @@ if [[ ! -d "$HARNESS_DIR" ]] || [[ ! -f "$HARNESS_DIR/docker-compose.yml" ]]; th
 fi
 
 MAIN_STACK_STARTED=0
+COMPLIANCE_STACK_STARTED=0
 
 cleanup() {
   if (( KEEP_UP == 1 )); then
@@ -140,7 +151,10 @@ cleanup() {
     log "Stopping main harness stack (docker compose down -v)."
     (cd "$HARNESS_DIR" && docker compose down -v >/dev/null 2>&1 || true)
   fi
-  # The compliance runner manages its own teardown; no-op here.
+  if (( COMPLIANCE_STACK_STARTED == 1 )); then
+    log "Stopping compliance stack (docker compose down)."
+    (cd "${REPO_ROOT}/harness/compliance" && docker compose down >/dev/null 2>&1 || true)
+  fi
 }
 trap cleanup EXIT
 
@@ -267,10 +281,27 @@ run_dashboard_suite() {
 run_compliance_suite() {
   local args=()
   if (( BUILD_IMAGES == 0 )); then args+=(--no-build); fi
-  if (( KEEP_UP == 1 )); then args+=(--keep-up); fi
+  if (( KEEP_UP == 1 )) || [[ "$SUITE" == "all" ]]; then
+    args+=(--keep-up)
+    COMPLIANCE_STACK_STARTED=1
+  fi
   args+=(--ready-timeout "$READY_TIMEOUT")
   log "Delegating to scripts/run-compliance.sh ${args[*]}"
   "${REPO_ROOT}/scripts/run-compliance.sh" "${args[@]}" || true
+}
+
+run_bench_suite() {
+  # The bench reuses the compliance stack. When SUITE=all we explicitly keep
+  # the compliance stack up so bench can run against the same fixture without
+  # re-running the compliance tester. When SUITE=bench alone, we bring up the
+  # compliance stack ourselves.
+  local args=(--ready-timeout "$READY_TIMEOUT")
+  if [[ "$SUITE" == "bench" ]]; then
+    args+=(--bring-up)
+    COMPLIANCE_STACK_STARTED=1
+  fi
+  log "Delegating to scripts/run-bench.sh ${args[*]}"
+  "${REPO_ROOT}/scripts/run-bench.sh" "${args[@]}" || true
 }
 
 log "Suite: ${SUITE}"
@@ -288,6 +319,10 @@ esac
 
 case "$SUITE" in
   compliance|all) run_compliance_suite ;;
+esac
+
+case "$SUITE" in
+  bench|all) run_bench_suite ;;
 esac
 
 log "Harness run completed."

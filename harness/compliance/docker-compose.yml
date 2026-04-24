@@ -8,6 +8,7 @@ services:
       - "29092:9092"
     volumes:
       - ../clickhouse/config.d/prometheus.xml:/etc/clickhouse-server/config.d/prometheus.xml:ro
+      - ../clickhouse/config.d/system-logs-ttl.xml:/etc/clickhouse-server/config.d/system-logs-ttl.xml:ro
       - ../clickhouse/users.d/timeseries.xml:/etc/clickhouse-server/users.d/timeseries.xml:ro
       - clickhouse_data:/var/lib/clickhouse
 
@@ -29,14 +30,14 @@ services:
     restart: "no"
 
   prometheus:
-    image: prom/prometheus:v2.53.0
+    image: prom/prometheus:v3.5.2
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --web.enable-remote-write-receiver
       - --web.enable-admin-api
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=10y
-      - --enable-feature=promql-binop-fill-modifiers
+      - --enable-feature=promql-binop-fill-modifiers,promql-experimental-functions
     ports:
       - "29090:9090"
     volumes:

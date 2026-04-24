@@ -4,20 +4,24 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
-	"github.com/BadLiveware/promshim-ch/internal/promshim/local/exec"
 	httpapi "github.com/BadLiveware/promshim-ch/internal/promshim/httpapi"
-	"github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/local/exec"
+	"github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-type internalErrorKind string
+// internalErrorKind is an alias for logical.ErrorKind so that error values
+// produced by logical/build.go (which implement Kind() logical.ErrorKind)
+// also satisfy the local internalError interface.
+type internalErrorKind = logical.ErrorKind
 
 const (
-	internalErrorKindBadData     internalErrorKind = "bad_data"
-	internalErrorKindUnsupported internalErrorKind = "unsupported"
-	internalErrorKindExecution   internalErrorKind = "execution"
+	internalErrorKindBadData     internalErrorKind = logical.ErrorKindBadData
+	internalErrorKindUnsupported internalErrorKind = logical.ErrorKindUnsupported
+	internalErrorKindExecution   internalErrorKind = logical.ErrorKindExecution
 )
 
 type internalError interface {
@@ -80,36 +84,13 @@ func WithInternalContext(err error, format string, args ...any) error {
 	}
 }
 
-type PlanBuildError struct {
-	Support plan.SupportResult
-	Expr    parser.Expr
-	Stage   string
-}
+// PlanBuildError is a type alias for logical.BuildError so that existing
+// callers (e.g. errors_http_test.go) continue to compile.
+type PlanBuildError = logical.BuildError
 
-func (e *PlanBuildError) Error() string {
-	base := e.UserMessage()
-	if e.Expr == nil && e.Stage == "" {
-		return fmt.Sprintf("planner cannot build plan: %s", base)
-	}
-	if e.Expr == nil {
-		return fmt.Sprintf("planner cannot build plan during %s: %s", e.Stage, base)
-	}
-	if e.Stage == "" {
-		return fmt.Sprintf("planner cannot build plan for %T %q: %s", e.Expr, e.Expr.String(), base)
-	}
-	return fmt.Sprintf("planner cannot build plan during %s for %T %q: %s", e.Stage, e.Expr, e.Expr.String(), base)
-}
-
-func (e *PlanBuildError) UserMessage() string {
-	return fmt.Sprintf("unsupported PromQL (difficulty=%s): %s", e.Support.Difficulty, e.Support.Reason)
-}
-
-func (e *PlanBuildError) Kind() internalErrorKind {
-	return internalErrorKindUnsupported
-}
-
-func NewPlanBuildError(expr parser.Expr, support plan.SupportResult, stage string) error {
-	return &PlanBuildError{Support: support, Expr: expr, Stage: stage}
+// NewPlanBuildError constructs a PlanBuildError for an unsupported expression.
+func NewPlanBuildError(expr parser.Expr, support logical.SupportResult, stage string) error {
+	return logical.NewBuildError(expr, support, stage)
 }
 
 func NormalizeInternalError(err error) error {
@@ -124,6 +105,9 @@ func NormalizeInternalError(err error) error {
 
 	var queryErr *storage.QueryError
 	if asQueryError(err, &queryErr) {
+		if normalized := normalizeQueryError(queryErr); normalized != nil {
+			return normalized
+		}
 		switch queryErr.ErrorType {
 		case string(internalErrorKindBadData):
 			return &promshimError{kind: internalErrorKindBadData, message: queryErr.Message}
@@ -135,6 +119,19 @@ func NormalizeInternalError(err error) error {
 	}
 
 	return &promshimError{kind: internalErrorKindExecution, message: err.Error()}
+}
+
+func normalizeQueryError(err *storage.QueryError) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Message, "found duplicate series for the match group on the ") {
+		// ClickHouse surfaces the SQL-side uniqueness guard as an execution error,
+		// but Prometheus classifies this join shape as bad-data and reports the
+		// higher-level vector-matching contract instead.
+		return NewBadDataErrorf("multiple matches for labels: many-to-one matching must be explicit (group_left/group_right)")
+	}
+	return nil
 }
 
 func internalErrorKindOf(err error) internalErrorKind {

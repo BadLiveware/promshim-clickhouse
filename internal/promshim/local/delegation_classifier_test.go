@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 )
 
 func TestClassifyEntireQueryDelegationAcceptsAllowedRoots(t *testing.T) {
@@ -20,7 +20,7 @@ func TestClassifyEntireQueryDelegationAcceptsAllowedRoots(t *testing.T) {
 	for _, tc := range tests {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			expr, err := planpkg.ParseExpression(tc.query)
+			expr, err := logicalpkg.ParseExpression(tc.query)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -56,7 +56,7 @@ func TestClassifyEntireQueryDelegationRejectsUnverifiedConstructs(t *testing.T) 
 	for _, tc := range tests {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			expr, err := planpkg.ParseExpression(tc.query)
+			expr, err := logicalpkg.ParseExpression(tc.query)
 			if err != nil {
 				t.Fatal(err)
 			}

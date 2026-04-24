@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 	"github.com/prometheus/prometheus/model/labels"
-	"github.com/prometheus/prometheus/promql/parser"
 )
 
 type OptimizerLayer string
@@ -20,26 +19,20 @@ const (
 type OptimizerPass string
 
 const (
-	PassTrivialExpressionNormalization      OptimizerPass = "trivial_expression_normalization"
 	PassEvaluationRangePropagation          OptimizerPass = "evaluation_range_propagation"
 	PassCommonMatcherInference              OptimizerPass = "common_matcher_inference"
 	PassLabelPredicatePushdown              OptimizerPass = "label_predicate_pushdown"
 	PassProjectionPushdown                  OptimizerPass = "projection_pushdown"
-	PassFunctionPatternRewrites             OptimizerPass = "function_pattern_rewrites"
 	PassJoinNormalizationDuplicateDetection OptimizerPass = "join_normalization_and_duplicate_detection"
-	PassFlattenRedundantWrappers            OptimizerPass = "flatten_redundant_wrappers"
 	PassFinalSQLShapingLateMaterialization  OptimizerPass = "final_sql_shaping_and_late_materialization"
 )
 
 var FixedPassOrder = []OptimizerPass{
-	PassTrivialExpressionNormalization,
 	PassEvaluationRangePropagation,
 	PassCommonMatcherInference,
 	PassLabelPredicatePushdown,
 	PassProjectionPushdown,
-	PassFunctionPatternRewrites,
 	PassJoinNormalizationDuplicateDetection,
-	PassFlattenRedundantWrappers,
 	PassFinalSQLShapingLateMaterialization,
 }
 
@@ -67,26 +60,31 @@ type OptimizationReport struct {
 }
 
 type OptimizedFragment struct {
-	Fragment *NativeFragment
-	Report   *OptimizationReport
+	Report *OptimizationReport
 }
 
+type fragmentMutationKind string
+
+const (
+	mutationNone           fragmentMutationKind = "none"
+	mutationSelectorFields fragmentMutationKind = "selector_fields"
+	mutationStructural     fragmentMutationKind = "structural"
+)
+
 type optimizerPassSpec struct {
-	ID    OptimizerPass
-	Layer OptimizerLayer
-	Apply func(*optimizerState) error
+	ID      OptimizerPass
+	Layer   OptimizerLayer
+	Mutates fragmentMutationKind
+	Apply   func(*optimizerState) error
 }
 
 var optimizerPasses = []optimizerPassSpec{
-	{ID: PassTrivialExpressionNormalization, Layer: OptimizerLayerLogical, Apply: applyTrivialExpressionNormalization},
-	{ID: PassEvaluationRangePropagation, Layer: OptimizerLayerLogical, Apply: applyEvaluationRangePropagation},
-	{ID: PassCommonMatcherInference, Layer: OptimizerLayerLogical, Apply: applyCommonMatcherInference},
-	{ID: PassLabelPredicatePushdown, Layer: OptimizerLayerFragment, Apply: applyLabelPredicatePushdown},
-	{ID: PassProjectionPushdown, Layer: OptimizerLayerFragment, Apply: applyProjectionPushdown},
-	{ID: PassFunctionPatternRewrites, Layer: OptimizerLayerFragment, Apply: applyFunctionPatternRewrites},
-	{ID: PassJoinNormalizationDuplicateDetection, Layer: OptimizerLayerFragment, Apply: applyJoinNormalizationDuplicateDetection},
-	{ID: PassFlattenRedundantWrappers, Layer: OptimizerLayerFragment, Apply: applyFlattenRedundantWrappers},
-	{ID: PassFinalSQLShapingLateMaterialization, Layer: OptimizerLayerFinalSQL, Apply: applyFinalSQLShapingLateMaterialization},
+	{ID: PassEvaluationRangePropagation, Layer: OptimizerLayerLogical, Mutates: mutationNone, Apply: applyEvaluationRangePropagation},
+	{ID: PassCommonMatcherInference, Layer: OptimizerLayerLogical, Mutates: mutationSelectorFields, Apply: applyCommonMatcherInference},
+	{ID: PassLabelPredicatePushdown, Layer: OptimizerLayerFragment, Mutates: mutationSelectorFields, Apply: applyLabelPredicatePushdown},
+	{ID: PassProjectionPushdown, Layer: OptimizerLayerLogical, Mutates: mutationNone, Apply: applyProjectionPushdown},
+	{ID: PassJoinNormalizationDuplicateDetection, Layer: OptimizerLayerFragment, Mutates: mutationNone, Apply: applyJoinNormalizationDuplicateDetection},
+	{ID: PassFinalSQLShapingLateMaterialization, Layer: OptimizerLayerFinalSQL, Mutates: mutationNone, Apply: applyFinalSQLShapingLateMaterialization},
 }
 
 var functionRewriteCatalog = []string{
@@ -103,39 +101,27 @@ var functionRewriteCatalog = []string{
 	"sum by(...) (rate(...))",
 }
 
-func BuildOptimizedFragment(node planpkg.LogicalPlan, analysis *Analysis) (*OptimizedFragment, error) {
-	return BuildOptimizedFragmentWithContext(node, analysis, OptimizationContext{})
-}
-
-func BuildOptimizedFragmentWithContext(node planpkg.LogicalPlan, analysis *Analysis, ctx OptimizationContext) (*OptimizedFragment, error) {
-	if node == nil {
-		return nil, fmt.Errorf("native optimized fragment build requires a logical plan node")
-	}
-	if analysis == nil {
-		analysis = Analyze(node)
-	}
-	info := analysis.InfoFor(node)
+// OptimizeFromInfo drives the optimizer pass pipeline from a
+// LoweringInfo + logical node. Tier-3 construction callers invoke it
+// after Analyze has populated the info side-map. Returns an error if
+// info is nil; callers should gate on info.SubtreeShape before
+// invoking.
+func OptimizeFromInfo(info *LoweringInfo, node logicalpkg.Node, analysis *Analysis, ctx OptimizationContext) (*OptimizedFragment, error) {
 	if info == nil {
-		return nil, fmt.Errorf("native optimized fragment build could not find lowering info for %T", node)
+		return nil, fmt.Errorf("native optimizer requires lowering info")
 	}
-	fragment, err := BuildFragment(node, analysis)
-	if err != nil {
-		return nil, err
-	}
-	return OptimizeFragment(fragment, info, ctx)
-}
-
-func OptimizeFragment(fragment *NativeFragment, info *LoweringInfo, ctx OptimizationContext) (*OptimizedFragment, error) {
-	if fragment == nil {
-		return nil, fmt.Errorf("native optimizer requires a fragment")
+	if info.SubtreeShape == "" {
+		return nil, fmt.Errorf("native optimizer requires a lowered subtree shape")
 	}
 	state := &optimizerState{
-		fragment: CloneFragment(fragment),
 		report: &OptimizationReport{
 			FunctionCatalog: append([]string(nil), functionRewriteCatalog...),
 		},
-		info: info,
-		ctx:  ctx,
+		info:     info,
+		node:     node,
+		analysis: analysis,
+		ctx:      ctx,
+		interner: newMatcherInterner(),
 	}
 	for _, pass := range optimizerPasses {
 		state.report.RulesApplied = append(state.report.RulesApplied, string(pass.ID))
@@ -143,8 +129,8 @@ func OptimizeFragment(fragment *NativeFragment, info *LoweringInfo, ctx Optimiza
 			return nil, fmt.Errorf("applying optimizer pass %s: %w", pass.ID, err)
 		}
 	}
-	state.report.SemanticBarriers = mergeUniqueStrings(state.report.SemanticBarriers, semanticBarriersForFragment(state.fragment)...)
-	return &OptimizedFragment{Fragment: state.fragment, Report: state.report}, nil
+	state.report.SemanticBarriers = mergeUniqueStrings(state.report.SemanticBarriers, semanticBarriersFromLogical(state.node, state.analysis)...)
+	return &OptimizedFragment{Report: state.report}, nil
 }
 
 func ApplyRenderedSQLMetadata(report *OptimizationReport, mode RenderMode, sql string) error {
@@ -160,19 +146,71 @@ func ApplyRenderedSQLMetadata(report *OptimizationReport, mode RenderMode, sql s
 }
 
 type optimizerState struct {
-	fragment *NativeFragment
-	report   *OptimizationReport
-	info     *LoweringInfo
+	report *OptimizationReport
+	info   *LoweringInfo
+	// node + analysis carry the logical-tree context the info-based
+	// passes walk via analysis.InfoFor(node). OptimizeFromInfo — the
+	// sole production entrypoint — threads both through.
+	node     logicalpkg.Node
+	analysis *Analysis
 	ctx      OptimizationContext
+	interner *matcherInterner
 }
 
-func applyTrivialExpressionNormalization(state *optimizerState) error {
-	state.fragment = normalizeTrivialSourceExpressions(state.fragment)
-	return nil
+type matcherKey struct {
+	typ   labels.MatchType
+	name  string
+	value string
+}
+
+// matcherInterner deduplicates equal matcher structs within a single optimizer
+// run so repeated selector/inferred/pushed matcher slices can share pointers.
+type matcherInterner struct {
+	byKey map[matcherKey]*labels.Matcher
+}
+
+func newMatcherInterner() *matcherInterner {
+	return &matcherInterner{byKey: map[matcherKey]*labels.Matcher{}}
+}
+
+func matcherIdentityKey(matcher *labels.Matcher) matcherKey {
+	if matcher == nil {
+		return matcherKey{}
+	}
+	return matcherKey{typ: matcher.Type, name: matcher.Name, value: matcher.Value}
+}
+
+func (m *matcherInterner) intern(matcher *labels.Matcher) *labels.Matcher {
+	if m == nil || matcher == nil {
+		return matcher
+	}
+	key := matcherIdentityKey(matcher)
+	if existing, ok := m.byKey[key]; ok {
+		return existing
+	}
+	m.byKey[key] = matcher
+	return matcher
+}
+
+func (m *matcherInterner) internSlice(matchers []*labels.Matcher) []*labels.Matcher {
+	if len(matchers) == 0 {
+		return nil
+	}
+	interned := matchers[:0]
+	for _, matcher := range matchers {
+		if matcher == nil {
+			continue
+		}
+		interned = append(interned, m.intern(matcher))
+	}
+	if len(interned) == 0 {
+		return nil
+	}
+	return interned
 }
 
 func applyEvaluationRangePropagation(state *optimizerState) error {
-	startMS, endMS, ok := requiredInputBounds(state.fragment, state.info, state.ctx)
+	startMS, endMS, ok := requiredInputBoundsFromInfo(state.info, state.ctx)
 	if !ok {
 		return nil
 	}
@@ -183,42 +221,55 @@ func applyEvaluationRangePropagation(state *optimizerState) error {
 }
 
 func applyCommonMatcherInference(state *optimizerState) error {
-	selector := BaseSelectorSource(state.fragment)
+	selector := baseSelectorFromInfo(state.info)
 	if selector == nil {
 		return nil
 	}
-	selector.InferredMatchers = inferSourceMatchers(selector)
+	// Analyze has pre-populated InferredMatchers on the leaf
+	// selector. This pass is pure report-emission.
 	state.report.InferredPredicates = mergeUniqueStrings(state.report.InferredPredicates, matcherStrings(selector.InferredMatchers)...)
 	return nil
 }
 
 func applyLabelPredicatePushdown(state *optimizerState) error {
-	selector := BaseSelectorSource(state.fragment)
+	selector := baseSelectorFromInfo(state.info)
 	if selector == nil {
 		return nil
 	}
-	selector.PushedMatchers = mergeMatchers(selector.Matchers, selector.InferredMatchers)
+	// PushedMatchers is pre-populated by Analyze on the production
+	// path. Pure report-emission.
 	state.report.PushedPredicates = mergeUniqueStrings(state.report.PushedPredicates, matcherStrings(selector.PushedMatchers)...)
 	return nil
 }
 
-func applyProjectionPushdown(state *optimizerState) error {
-	applySelectorProjection(state.fragment)
-	state.report.RequiredColumns = mergeUniqueStrings(state.report.RequiredColumns, requiredColumnsForFragment(state.fragment)...)
-	return nil
-}
-
-func applyFunctionPatternRewrites(state *optimizerState) error {
-	// The current native subset has no typed function fragments yet, but the pass and
-	// catalog are explicit so later function-native work plugs into a defined stage.
-	if state.fragment.Kind == FragmentKindAggregation && state.fragment.Aggregation != nil {
+// baseSelectorFromInfo walks the info side-map to locate the leaf
+// selector (first LeafSelector encountered along info.Children). It
+// replaces the fragment-walking BaseSelectorSource.
+func baseSelectorFromInfo(info *LoweringInfo) *SelectorSource {
+	if info == nil {
 		return nil
+	}
+	if info.LeafSelector != nil {
+		return info.LeafSelector
+	}
+	for _, child := range info.Children {
+		if sel := baseSelectorFromInfo(child); sel != nil {
+			return sel
+		}
 	}
 	return nil
 }
 
+// applyProjectionPushdown emits the RequiredColumns explain metadata
+// walking the LoweringInfo side-map. Selector-side tag-narrowing was
+// lifted to RenderParams in slice 13c-13 and is no longer emitted here.
+func applyProjectionPushdown(state *optimizerState) error {
+	state.report.RequiredColumns = mergeUniqueStrings(state.report.RequiredColumns, requiredColumnsFromInfo(state.info)...)
+	return nil
+}
+
 func applyJoinNormalizationDuplicateDetection(state *optimizerState) error {
-	state.report.JoinNormalization = joinNormalizationForFragment(state.fragment)
+	state.report.JoinNormalization = joinNormalizationFromInfo(state.info)
 	if state.report.JoinNormalization == "not_applicable" {
 		return nil
 	}
@@ -226,99 +277,40 @@ func applyJoinNormalizationDuplicateDetection(state *optimizerState) error {
 	return nil
 }
 
-func applyFlattenRedundantWrappers(state *optimizerState) error {
-	state.fragment = flattenRedundantWrappers(state.fragment)
-	return nil
-}
-
 func applyFinalSQLShapingLateMaterialization(state *optimizerState) error {
-	state.report.MaterializedColumns = mergeUniqueStrings(state.report.MaterializedColumns, baseMaterializedColumnsForFragment(state.fragment)...)
+	state.report.MaterializedColumns = mergeUniqueStrings(state.report.MaterializedColumns, baseMaterializedColumnsFromInfo(state.info)...)
 	if hasTagsColumn(state.report.RequiredColumns) {
 		state.report.SemanticBarriers = mergeUniqueStrings(state.report.SemanticBarriers, "late_tag_materialization")
 	}
 	return nil
 }
 
-func normalizeTrivialSourceExpressions(fragment *NativeFragment) *NativeFragment {
-	if fragment == nil {
-		return nil
-	}
-	normalized := CloneFragment(fragment)
-	if normalized.Aggregation != nil {
-		normalized.Aggregation.Source = normalizeTrivialSourceExpressions(normalized.Aggregation.Source)
-	}
-	if normalized.Absent != nil {
-		normalized.Absent.Child = normalizeTrivialSourceExpressions(normalized.Absent.Child)
-	}
-	if normalized.HistogramProjection != nil {
-		normalized.HistogramProjection.Child = normalizeTrivialSourceExpressions(normalized.HistogramProjection.Child)
-	}
-	if normalized.HistogramFunction != nil {
-		normalized.HistogramFunction.Child = normalizeTrivialSourceExpressions(normalized.HistogramFunction.Child)
-	}
-	if normalized.ValueTransform != nil {
-		normalized.ValueTransform.Child = normalizeTrivialSourceExpressions(normalized.ValueTransform.Child)
-	}
-	if normalized.Kind == FragmentKindUnarySourceExpr && normalized.ValueExpr == "{value}" && normalized.TagsExpr == "{tags}" && !normalized.DropsMetric {
-		normalized.Kind = FragmentKindLeafSource
-	}
-	return normalized
-}
-
-func flattenRedundantWrappers(fragment *NativeFragment) *NativeFragment {
-	if fragment == nil {
-		return nil
-	}
-	flattened := CloneFragment(fragment)
-	if flattened.Aggregation != nil {
-		flattened.Aggregation.Source = flattenRedundantWrappers(flattened.Aggregation.Source)
-	}
-	if flattened.Absent != nil {
-		flattened.Absent.Child = flattenRedundantWrappers(flattened.Absent.Child)
-	}
-	if flattened.HistogramProjection != nil {
-		flattened.HistogramProjection.Child = flattenRedundantWrappers(flattened.HistogramProjection.Child)
-	}
-	if flattened.HistogramFunction != nil {
-		flattened.HistogramFunction.Child = flattenRedundantWrappers(flattened.HistogramFunction.Child)
-	}
-	if flattened.ValueTransform != nil {
-		flattened.ValueTransform.Child = flattenRedundantWrappers(flattened.ValueTransform.Child)
-	}
-	if flattened.Kind == FragmentKindUnarySourceExpr && flattened.ValueExpr == "{value}" && flattened.TagsExpr == "{tags}" && !flattened.DropsMetric {
-		flattened.Kind = FragmentKindLeafSource
-	}
-	return flattened
-}
-
-func RequiredInputBounds(fragment *NativeFragment, info *LoweringInfo, ctx OptimizationContext) (int64, int64, bool) {
-	return requiredInputBounds(fragment, info, ctx)
-}
-
-func requiredInputBounds(fragment *NativeFragment, info *LoweringInfo, ctx OptimizationContext) (int64, int64, bool) {
-	if info == nil && fragment == nil {
+// requiredInputBoundsFromInfo derives the [startMS, endMS] envelope
+// from info.TimeRequirements + the optimizer context. Live callers
+// (native_subtree.go) override the report value with
+// renderer.LogicalRequiredInputBounds, which handles @ anchor
+// resolution by walking the logical tree; this helper therefore
+// skips anchor resolution and only computes the lookback/offset
+// envelope off info.
+//
+// TimeRequirements.Offset stores the absolute-value offset so it
+// composes monotonically through subquery/aggregation walks; the
+// explain-time envelope preserves the selector's signed offset when
+// the root node is a leaf selector by reading info.LeafSelector.
+// Non-leaf roots fall back to the absolute TimeRequirements.Offset,
+// matching the pre-retirement behavior for nested subtrees.
+func requiredInputBoundsFromInfo(info *LoweringInfo, ctx OptimizationContext) (int64, int64, bool) {
+	if info == nil {
 		return 0, 0, false
 	}
-	lookbackMS := int64(0)
-	offsetMS := int64(0)
-	selector := BaseSelectorSource(fragment)
-	if info != nil {
-		lookbackMS = info.TimeRequirements.Lookback.Milliseconds()
-		offsetMS = info.TimeRequirements.Offset.Milliseconds()
-	}
-	if lookbackMS == 0 && offsetMS == 0 {
-		if selector != nil {
-			lookbackMS = selector.Lookback.Milliseconds()
-			offsetMS = selector.Offset.Milliseconds()
-		}
+	lookbackMS := info.TimeRequirements.Lookback.Milliseconds()
+	offsetMS := info.TimeRequirements.Offset.Milliseconds()
+	if info.LeafSelector != nil {
+		offsetMS = info.LeafSelector.Offset.Milliseconds()
 	}
 	switch ctx.Mode {
 	case RenderModeInstant:
-		anchorMS := ctx.EvaluationTimeMS
-		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment, selector, ctx); ok {
-			anchorMS = resolved
-		}
-		endMS := anchorMS - offsetMS
+		endMS := ctx.EvaluationTimeMS - offsetMS
 		startMS := endMS - lookbackMS
 		return startMS, endMS, true
 	case RenderModeRange:
@@ -335,107 +327,14 @@ func requiredInputBounds(fragment *NativeFragment, info *LoweringInfo, ctx Optim
 	}
 }
 
-func resolvedFragmentAnchorTimeMS(fragment *NativeFragment, selector *SelectorSource, ctx OptimizationContext) (int64, bool) {
-	if fragment == nil {
-		return resolvedSelectorAnchorTimeMS(selector, ctx)
-	}
-	if fragment.Subquery != nil {
-		if fragment.Subquery.Timestamp != nil {
-			return *fragment.Subquery.Timestamp, true
-		}
-		switch fragment.Subquery.StartOrEnd {
-		case parser.START:
-			if ctx.Mode == RenderModeRange {
-				return ctx.StartMS, true
-			}
-			return ctx.EvaluationTimeMS, true
-		case parser.END:
-			if ctx.Mode == RenderModeRange {
-				return ctx.EndMS, true
-			}
-			return ctx.EvaluationTimeMS, true
-		}
-		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.Subquery.Child, nil, ctx); ok {
-			return resolved, true
-		}
-	}
-	if fragment.Aggregation != nil {
-		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.Aggregation.Source, nil, ctx); ok {
-			return resolved, true
-		}
-	}
-	if fragment.RangeFunction != nil {
-		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.RangeFunction.Child, nil, ctx); ok {
-			return resolved, true
-		}
-	}
-	if fragment.BinaryJoin != nil {
-		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.BinaryJoin.LHS, nil, ctx); ok {
-			return resolved, true
-		}
-		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.BinaryJoin.RHS, nil, ctx); ok {
-			return resolved, true
-		}
-	}
-	if fragment.ScalarConvert != nil {
-		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.ScalarConvert.Child, nil, ctx); ok {
-			return resolved, true
-		}
-	}
-	if fragment.InfoJoin != nil {
-		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.InfoJoin.Child, nil, ctx); ok {
-			return resolved, true
-		}
-	}
-	if fragment.Absent != nil {
-		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.Absent.Child, nil, ctx); ok {
-			return resolved, true
-		}
-	}
-	if fragment.HistogramProjection != nil {
-		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.HistogramProjection.Child, nil, ctx); ok {
-			return resolved, true
-		}
-	}
-	if fragment.HistogramFunction != nil {
-		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.HistogramFunction.Child, nil, ctx); ok {
-			return resolved, true
-		}
-	}
-	if fragment.ValueTransform != nil {
-		if resolved, ok := resolvedFragmentAnchorTimeMS(fragment.ValueTransform.Child, nil, ctx); ok {
-			return resolved, true
-		}
-	}
-	return resolvedSelectorAnchorTimeMS(selector, ctx)
-}
-
-func resolvedSelectorAnchorTimeMS(selector *SelectorSource, ctx OptimizationContext) (int64, bool) {
-	if selector == nil {
-		return 0, false
-	}
-	if selector.Timestamp != nil {
-		return *selector.Timestamp, true
-	}
-	switch selector.StartOrEnd {
-	case parser.START:
-		if ctx.Mode == RenderModeRange {
-			return ctx.StartMS, true
-		}
-		return ctx.EvaluationTimeMS, true
-	case parser.END:
-		if ctx.Mode == RenderModeRange {
-			return ctx.EndMS, true
-		}
-		return ctx.EvaluationTimeMS, true
-	default:
-		return 0, false
-	}
-}
-
 func inferSourceMatchers(selector *SelectorSource) []*labels.Matcher {
 	if selector == nil || selector.MetricName == "" {
 		return nil
+	}
+	for _, matcher := range selector.Matchers {
+		if matcher != nil && matcher.Type == labels.MatchEqual && matcher.Name == labels.MetricName && matcher.Value == selector.MetricName {
+			return []*labels.Matcher{matcher}
+		}
 	}
 	matcher, err := labels.NewMatcher(labels.MatchEqual, labels.MetricName, selector.MetricName)
 	if err != nil {
@@ -455,125 +354,53 @@ func matcherStrings(matchers []*labels.Matcher) []string {
 	return predicates
 }
 
-func applySelectorProjection(fragment *NativeFragment) {
-	if fragment == nil {
-		return
-	}
-	if fragment.Aggregation != nil {
-		selector := BaseSelectorSource(fragment.Aggregation.Source)
-		if selector != nil {
-			switch {
-			case fragment.Aggregation.Without:
-				selector.RequireFullTags = true
-				selector.RequiredTagLabels = nil
-			case len(fragment.Aggregation.Grouping) == 0:
-				selector.RequireFullTags = false
-				selector.RequiredTagLabels = nil
-			default:
-				selector.RequireFullTags = false
-				selector.RequiredTagLabels = uniqueSortedStrings(fragment.Aggregation.Grouping)
-			}
-		}
-		return
-	}
-	if fragment.Selector != nil {
-		fragment.Selector.RequireFullTags = true
-		fragment.Selector.RequiredTagLabels = nil
-	}
-}
 
-func BaseSelectorSource(fragment *NativeFragment) *SelectorSource {
-	if fragment == nil {
-		return nil
-	}
-	if fragment.Aggregation != nil {
-		return BaseSelectorSource(fragment.Aggregation.Source)
-	}
-	if fragment.RangeFunction != nil {
-		return BaseSelectorSource(fragment.RangeFunction.Child)
-	}
-	if fragment.Subquery != nil {
-		return BaseSelectorSource(fragment.Subquery.Child)
-	}
-	if fragment.ScalarConvert != nil {
-		return BaseSelectorSource(fragment.ScalarConvert.Child)
-	}
-	if fragment.InfoJoin != nil {
-		return BaseSelectorSource(fragment.InfoJoin.Child)
-	}
-	if fragment.Absent != nil {
-		return BaseSelectorSource(fragment.Absent.Child)
-	}
-	if fragment.HistogramProjection != nil {
-		return BaseSelectorSource(fragment.HistogramProjection.Child)
-	}
-	if fragment.HistogramFunction != nil {
-		return BaseSelectorSource(fragment.HistogramFunction.Child)
-	}
-	if fragment.ValueTransform != nil {
-		return BaseSelectorSource(fragment.ValueTransform.Child)
-	}
-	if fragment.Selector != nil {
-		return fragment.Selector
-	}
-	return nil
-}
-
-func requiredColumnsForFragment(fragment *NativeFragment) []string {
-	if fragment == nil {
+// requiredColumnsFromInfo mirrors the legacy requiredColumnsForFragment
+// walk over the LoweringInfo side-map. Each node contributes its output
+// kind ("value" vs "time_series"), "tags" when the node shape requires
+// tag materialization, and recursively unions its children's contributions.
+func requiredColumnsFromInfo(info *LoweringInfo) []string {
+	if info == nil {
 		return nil
 	}
 	columns := []string{"value"}
-	if fragment.OutputKind == OutputKindRangeMatrix {
+	if info.OutputKind == OutputKindRangeMatrix {
 		columns = []string{"time_series"}
 	}
-	if fragmentRequiresTags(fragment) {
+	if subtreeShapeRequiresTags(info) {
 		columns = append(columns, "tags")
 	}
-	if fragment.Aggregation != nil {
-		columns = append(columns, requiredColumnsForFragment(fragment.Aggregation.Source)...)
-	}
-	if fragment.RangeFunction != nil {
-		columns = append(columns, requiredColumnsForFragment(fragment.RangeFunction.Child)...)
-	}
-	if fragment.Subquery != nil {
-		columns = append(columns, requiredColumnsForFragment(fragment.Subquery.Child)...)
-	}
-	if fragment.ScalarConvert != nil {
-		columns = append(columns, requiredColumnsForFragment(fragment.ScalarConvert.Child)...)
-	}
-	if fragment.InfoJoin != nil {
-		columns = append(columns, requiredColumnsForFragment(fragment.InfoJoin.Child)...)
-	}
-	if fragment.Absent != nil {
-		columns = append(columns, requiredColumnsForFragment(fragment.Absent.Child)...)
-	}
-	if fragment.HistogramProjection != nil {
-		columns = append(columns, requiredColumnsForFragment(fragment.HistogramProjection.Child)...)
-	}
-	if fragment.HistogramFunction != nil {
-		columns = append(columns, requiredColumnsForFragment(fragment.HistogramFunction.Child)...)
-	}
-	if fragment.ValueTransform != nil {
-		columns = append(columns, requiredColumnsForFragment(fragment.ValueTransform.Child)...)
+	for _, child := range info.Children {
+		columns = append(columns, requiredColumnsFromInfo(child)...)
 	}
 	return mergeUniqueStrings(nil, columns...)
 }
 
-func fragmentRequiresTags(fragment *NativeFragment) bool {
-	if fragment == nil {
+// subtreeShapeRequiresTags mirrors the legacy fragmentRequiresTags
+// predicate over info.SubtreeShape + info.OutputKind. The truth table
+// tracks the original Fragment-walking version: shapes that emit tags
+// either as grouping keys, transform inputs, or simple vector/matrix
+// outputs return true; ScalarConvert (scalar output) returns false;
+// scalar-typed bare selectors and synthetic-series nodes return false.
+func subtreeShapeRequiresTags(info *LoweringInfo) bool {
+	if info == nil {
 		return false
 	}
-	if fragment.Aggregation != nil || fragment.RangeFunction != nil || fragment.Subquery != nil || fragment.HistogramProjection != nil || fragment.HistogramFunction != nil {
+	switch info.SubtreeShape {
+	case SubtreeShapeAggregation,
+		SubtreeShapeRangeFunction,
+		SubtreeShapeSubquery,
+		SubtreeShapeHistogramProjection,
+		SubtreeShapeHistogramFunction,
+		SubtreeShapeSortTransform,
+		SubtreeShapeLabelTransform,
+		SubtreeShapeClampTransform,
+		SubtreeShapeInfoJoin:
 		return true
-	}
-	if fragment.ScalarConvert != nil {
+	case SubtreeShapeScalarConvert:
 		return false
 	}
-	if fragment.InfoJoin != nil {
-		return true
-	}
-	switch fragment.OutputKind {
+	switch info.OutputKind {
 	case OutputKindInstantVector, OutputKindRangeMatrix:
 		return true
 	default:
@@ -581,14 +408,32 @@ func fragmentRequiresTags(fragment *NativeFragment) bool {
 	}
 }
 
-func baseMaterializedColumnsForFragment(fragment *NativeFragment) []string {
-	if fragment == nil {
+// baseMaterializedColumnsFromInfo derives the base materialized
+// column set (value vs time_series) from info.OutputKind. Used by
+// applyFinalSQLShapingLateMaterialization.
+func baseMaterializedColumnsFromInfo(info *LoweringInfo) []string {
+	if info == nil {
 		return nil
 	}
-	if fragment.OutputKind == OutputKindRangeMatrix {
+	if info.OutputKind == OutputKindRangeMatrix {
 		return []string{"time_series"}
 	}
 	return []string{"value"}
+}
+
+// joinNormalizationFromInfo derives the join-normalization
+// categorization from info.SubtreeShape (populated by Analyze). Used
+// by applyJoinNormalizationDuplicateDetection.
+func joinNormalizationFromInfo(info *LoweringInfo) string {
+	if info == nil {
+		return "not_applicable"
+	}
+	switch info.SubtreeShape {
+	case SubtreeShapeAggregation, SubtreeShapeLeafSource, SubtreeShapeUnarySourceExpr, SubtreeShapeBinaryScalarSourceExpr, SubtreeShapeSyntheticSeries, SubtreeShapeScalarConvert, SubtreeShapeInfoJoin, SubtreeShapeAbsent, SubtreeShapeHistogramProjection, SubtreeShapeHistogramFunction, SubtreeShapeSortTransform, SubtreeShapeLabelTransform, SubtreeShapeClampTransform, SubtreeShapeValueTransform:
+		return "not_applicable"
+	default:
+		return "required"
+	}
 }
 
 func renderedColumnsForMode(mode RenderMode) []string {
@@ -616,58 +461,87 @@ func semanticBarriersFromTimeRequirements(info *LoweringInfo) []string {
 	return barriers
 }
 
-func semanticBarriersForFragment(fragment *NativeFragment) []string {
-	if fragment == nil {
+// semanticBarriersFromLogical sources the OptimizationReport's
+// SemanticBarriers list from the LoweringInfo side-map populated by
+// Analyze.
+//
+// Signals:
+//   - info.SubtreeShape tracks the root node's shape.
+//   - info.LabelLineage.MetricName == LabelLineageDropped marks the
+//     "metric_name_lineage_change" barrier.
+//   - For aggregation nodes, info.Children[0].LabelLineage covers the
+//     "parent aggregation + metric-dropping child" shape.
+//   - absent_over_time is identified via info.AbsentFunc.
+func semanticBarriersFromLogical(node logicalpkg.Node, analysis *Analysis) []string {
+	if node == nil || analysis == nil {
+		return nil
+	}
+	info := analysis.InfoFor(node)
+	if info == nil {
 		return nil
 	}
 	barriers := []string{}
-	if fragment.Kind == FragmentKindAggregation {
+	switch info.SubtreeShape {
+	case SubtreeShapeAggregation:
 		barriers = append(barriers, "aggregation_boundary")
-	}
-	if fragment.Kind == FragmentKindSubquery {
+	case SubtreeShapeSubquery:
 		barriers = append(barriers, "subquery_step_grid")
-	}
-	if fragment.Kind == FragmentKindRangeFunction {
+	case SubtreeShapeRangeFunction:
 		barriers = append(barriers, "range_window_materialization_boundary")
-	}
-	if fragment.Kind == FragmentKindAbsent && fragment.Absent != nil && fragment.Absent.Func == "absent_over_time" {
-		barriers = append(barriers, "range_window_materialization_boundary")
-	}
-	if fragment.Kind == FragmentKindHistogramProjection || fragment.Kind == FragmentKindHistogramFunction {
+	case SubtreeShapeAbsent:
+		if info.AbsentFunc == "absent_over_time" {
+			barriers = append(barriers, "range_window_materialization_boundary")
+		}
+	case SubtreeShapeHistogramProjection, SubtreeShapeHistogramFunction:
 		barriers = append(barriers, "histogram_bucket_materialization_boundary")
 	}
-	if fragment.DropsMetric || (fragment.Aggregation != nil && fragment.Aggregation.Source != nil && fragment.Aggregation.Source.DropsMetric) {
+	if logicalNodeDropsMetricName(info) {
 		barriers = append(barriers, "metric_name_lineage_change")
 	}
 	return barriers
 }
 
-func joinNormalizationForFragment(fragment *NativeFragment) string {
-	if fragment == nil {
-		return "not_applicable"
+// logicalNodeDropsMetricName reports whether a node's lineage
+// transitions into dropped __name__. Two shapes emit
+// "metric_name_lineage_change":
+//
+//  1. Non-aggregation root that itself drops __name__ — detected via
+//     info.LabelLineage.MetricName == LabelLineageDropped. Aggregation
+//     nodes always have dropped lineage by construction (see
+//     aggregationLabelLineage), so we exclude them from this case and
+//     handle them below.
+//  2. Aggregation root whose source fragment drops __name__ — we check
+//     the first child's LabelLineage. Aggregation plan nodes always
+//     record exactly one child in info.Children[0], which mirrors the
+//     source fragment's lineage.
+func logicalNodeDropsMetricName(info *LoweringInfo) bool {
+	if info == nil {
+		return false
 	}
-	switch fragment.Kind {
-	case FragmentKindAggregation, FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindSyntheticSeries, FragmentKindScalarConvert, FragmentKindInfoJoin, FragmentKindAbsent, FragmentKindHistogramProjection, FragmentKindHistogramFunction, FragmentKindValueTransform:
-		return "not_applicable"
-	default:
-		return "required"
+	if info.SubtreeShape == SubtreeShapeAggregation {
+		if len(info.Children) > 0 && info.Children[0] != nil && info.Children[0].LabelLineage.MetricName == LabelLineageDropped {
+			return true
+		}
+		return false
 	}
+	return info.LabelLineage.MetricName == LabelLineageDropped
 }
 
-func mergeMatchers(groups ...[]*labels.Matcher) []*labels.Matcher {
+func mergeMatchers(interner *matcherInterner, groups ...[]*labels.Matcher) []*labels.Matcher {
 	merged := make([]*labels.Matcher, 0)
-	seen := map[string]struct{}{}
+	seen := map[matcherKey]struct{}{}
 	for _, group := range groups {
 		for _, matcher := range group {
 			if matcher == nil {
 				continue
 			}
-			key := matcher.String()
+			matcher = interner.intern(matcher)
+			key := matcherIdentityKey(matcher)
 			if _, ok := seen[key]; ok {
 				continue
 			}
 			seen[key] = struct{}{}
-			merged = append(merged, labels.MustNewMatcher(matcher.Type, matcher.Name, matcher.Value))
+			merged = append(merged, matcher)
 		}
 	}
 	return merged

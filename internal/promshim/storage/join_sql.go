@@ -3,6 +3,7 @@ package storage
 import (
 	"fmt"
 
+	"github.com/BadLiveware/promshim-ch/internal/promshim/emit"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage/schema"
 	"github.com/prometheus/prometheus/model/labels"
@@ -25,6 +26,9 @@ func BuildRangeBinaryVectorJoinSQL(lhsSQL string, lhsParams map[string]string, r
 }
 
 func buildBinaryVectorJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL string, rhsParams map[string]string, cfg BinaryJoinConfig, rangeMode bool) (string, map[string]string, error) {
+	if isStorageSetOperator(cfg.Op) {
+		return buildSetVectorJoinSQL(lhsSQL, lhsParams, rhsSQL, rhsParams, cfg, rangeMode)
+	}
 	valueExpr, valueFilter, err := buildBinaryValueExpr(cfg.Op, cfg.ReturnBool, sqlb.Ident("lhs.value"), sqlb.Ident("rhs.value"))
 	if err != nil {
 		return "", nil, err
@@ -73,7 +77,7 @@ func buildBinaryVectorJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL
 		outer := &sqlb.Select{
 			Columns: []sqlb.ColExpr{
 				{Expr: sqlb.Ident("result_tags"), Alias: "tags"},
-				{Expr: schema.SortedTimeSeriesGroupArrayExpr(), Alias: "time_series"},
+				{Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"},
 			},
 			From:    sqlb.SubSelect{S: grouped},
 			GroupBy: []sqlb.Expr{sqlb.Ident("result_tags")},
@@ -102,6 +106,69 @@ func buildBinaryVectorJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL
 		return "", nil, err
 	}
 	return sql + schema.QuerySuffix, params, nil
+}
+
+func isStorageSetOperator(op parser.ItemType) bool {
+	switch op {
+	case parser.LAND, parser.LOR, parser.LUNLESS:
+		return true
+	default:
+		return false
+	}
+}
+
+func buildSetVectorJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL string, rhsParams map[string]string, cfg BinaryJoinConfig, rangeMode bool) (string, map[string]string, error) {
+	joinOn := "lhs.join_group = rhs.join_group"
+	groupCols := "join_group"
+	presenceCols := "join_group"
+	lhsTs := "lhs.timestamp"
+	rhsTs := "rhs.timestamp"
+	if rangeMode {
+		joinOn += " AND lhs.timestamp = rhs.timestamp"
+		groupCols += ", timestamp"
+		presenceCols += ", timestamp"
+	}
+	lhsPrepared, err := buildPreparedJoinSideSelect("lhs", buildJoinSource(lhsSQL, rangeMode), buildJoinGroupExpr(sqlb.Ident("tags"), cfg.VectorMatching), rangeMode, false)
+	if err != nil {
+		return "", nil, err
+	}
+	rhsPrepared, err := buildPreparedJoinSideSelect("rhs", buildJoinSource(rhsSQL, rangeMode), buildJoinGroupExpr(sqlb.Ident("tags"), cfg.VectorMatching), rangeMode, false)
+	if err != nil {
+		return "", nil, err
+	}
+	lhsPreparedSQL, _, err := lhsPrepared.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	rhsPreparedSQL, _, err := rhsPrepared.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	// ClickHouse LEFT JOIN fills unmatched non-nullable columns with type defaults
+	// rather than NULL. Expose an explicit nullable-ish presence marker so set
+	// operators can reliably distinguish unmatched rows after joining against the
+	// grouped presence side.
+	lhsPresenceSQL := "SELECT " + presenceCols + ", toUInt8(1) AS present_marker FROM (" + lhsPreparedSQL + ") AS lhs GROUP BY " + groupCols
+	rhsPresenceSQL := "SELECT " + presenceCols + ", toUInt8(1) AS present_marker FROM (" + rhsPreparedSQL + ") AS rhs GROUP BY " + groupCols
+	var combinedRowsSQL string
+	switch cfg.Op {
+	case parser.LAND:
+		combinedRowsSQL = "SELECT lhs.original_group AS result_tags, " + lhsTs + " AS timestamp, lhs.value AS value FROM (" + lhsPreparedSQL + ") AS lhs INNER JOIN (" + rhsPresenceSQL + ") AS rhs ON " + joinOn
+	case parser.LUNLESS:
+		combinedRowsSQL = "SELECT lhs.original_group AS result_tags, " + lhsTs + " AS timestamp, lhs.value AS value FROM (" + lhsPreparedSQL + ") AS lhs LEFT JOIN (" + rhsPresenceSQL + ") AS rhs ON " + joinOn + " WHERE ifNull(rhs.present_marker, 0) = 0"
+	case parser.LOR:
+		combinedRowsSQL = "SELECT lhs.original_group AS result_tags, " + lhsTs + " AS timestamp, lhs.value AS value FROM (" + lhsPreparedSQL + ") AS lhs UNION ALL " +
+			"SELECT rhs.original_group AS result_tags, " + rhsTs + " AS timestamp, rhs.value AS value FROM (" + rhsPreparedSQL + ") AS rhs LEFT JOIN (" + lhsPresenceSQL + ") AS lhs ON " + joinOn + " WHERE ifNull(lhs.present_marker, 0) = 0"
+	default:
+		return "", nil, fmt.Errorf("native vector join SQL for operator %q is not implemented yet", cfg.Op.String())
+	}
+	params := mergeParamMaps(lhsParams, rhsParams)
+	if rangeMode {
+		sql := "SELECT result_tags AS tags, " + renderStorageExprNoParams(emit.SortedTimeSeriesGroupArray()) + " AS time_series FROM (" + combinedRowsSQL + ") AS joined_rows GROUP BY result_tags ORDER BY result_tags" + schema.QuerySuffix
+		return sql, params, nil
+	}
+	sql := "SELECT result_tags AS tags, timestamp AS timestamp, value AS value FROM (" + combinedRowsSQL + ") AS joined_rows ORDER BY result_tags" + schema.QuerySuffix
+	return sql, params, nil
 }
 
 func buildPreparedJoinSideSelect(side string, source sqlb.Source, joinGroupExpr sqlb.Expr, withTimestamp bool, checkDuplicates bool) (*sqlb.Select, error) {
@@ -174,7 +241,7 @@ func buildJoinGroupExpr(tagsExpr sqlb.Expr, vectorMatching *parser.VectorMatchin
 	matching := normalizeStorageVectorMatching(vectorMatching)
 	if matching.On {
 		if len(matching.MatchingLabels) == 0 {
-			return schema.EmptyTagsArrayExpr()
+			return emit.EmptyTagsArray()
 		}
 		return sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
 			sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},
@@ -200,7 +267,7 @@ func buildBinaryResultTagsExpr(cfg BinaryJoinConfig) sqlb.Expr {
 	if cfg.JoinShape == "one_to_one" {
 		if matching.On {
 			if len(matching.MatchingLabels) == 0 {
-				result = schema.EmptyTagsArrayExpr()
+				result = emit.EmptyTagsArray()
 			} else {
 				result = sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
 					sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},

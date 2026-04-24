@@ -24,8 +24,8 @@ func isSupportedNativeSyntheticDateFunction(name string) bool {
 
 func isSupportedNativeAggregateOverTime(name string) bool {
 	switch name {
-	case "last_over_time", "sum_over_time", "avg_over_time", "min_over_time", "max_over_time", "count_over_time",
-		"stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time":
+	case "last_over_time", "first_over_time", "sum_over_time", "avg_over_time", "min_over_time", "max_over_time", "count_over_time",
+		"stddev_over_time", "stdvar_over_time", "present_over_time", "mad_over_time", "ts_of_first_over_time", "ts_of_last_over_time", "ts_of_max_over_time", "ts_of_min_over_time":
 		return true
 	default:
 		return false
@@ -34,11 +34,11 @@ func isSupportedNativeAggregateOverTime(name string) bool {
 
 // RangeFunctionPreservesMetricName reports whether the range function returns a
 // sample from the original series (preserving __name__) rather than a derived
-// aggregation. Only last_over_time has this property among the supported range
-// functions; everything else (rate/increase/delta/*_over_time/deriv/...) drops
+// aggregation. last_over_time and first_over_time behave like selectors in this
+// respect; everything else (rate/increase/delta/*_over_time/deriv/...) drops
 // the metric name because the returned value is a new quantity.
 func RangeFunctionPreservesMetricName(name string) bool {
-	return name == "last_over_time"
+	return name == "last_over_time" || name == "first_over_time"
 }
 
 func isSupportedNativeCounterRangeFunction(name string) bool {
@@ -50,88 +50,143 @@ func isSupportedNativeCounterRangeFunction(name string) bool {
 	}
 }
 
+func IsSelectionNativeAggregation(op parser.ItemType) bool {
+	switch op {
+	case parser.TOPK, parser.BOTTOMK, parser.LIMITK, parser.LIMIT_RATIO:
+		return true
+	default:
+		return false
+	}
+}
+
 func isSupportedNativeAggregation(op parser.ItemType) bool {
 	switch op {
-	case parser.SUM, parser.COUNT, parser.MIN, parser.MAX, parser.AVG, parser.STDDEV, parser.STDVAR, parser.QUANTILE, parser.GROUP:
+	case parser.SUM, parser.COUNT, parser.MIN, parser.MAX, parser.AVG, parser.STDDEV, parser.STDVAR, parser.QUANTILE, parser.GROUP, parser.TOPK, parser.BOTTOMK, parser.COUNT_VALUES, parser.LIMITK, parser.LIMIT_RATIO:
 		return true
 	default:
 		return false
 	}
 }
 
-func IsSupportedNativeRangeModeForDirectSelector(fragment *NativeFragment) bool {
-	if fragment == nil || fragment.RangeFunction == nil || fragment.RangeFunction.Child == nil {
+// IsSupportedNativeRangeModeForDirectSelectorFromInfo reports whether a
+// RangeFunction subtree's child is a direct leaf selector over a range
+// vector — the precondition for the direct-selector range-mode native
+// rendering path.
+func IsSupportedNativeRangeModeForDirectSelectorFromInfo(info *LoweringInfo) bool {
+	if info == nil || info.SubtreeShape != SubtreeShapeRangeFunction || len(info.Children) == 0 {
 		return false
 	}
-	child := fragment.RangeFunction.Child
-	return child.Kind == FragmentKindLeafSource && child.Selector != nil && child.Selector.Kind == SelectorKindRangeVector
+	child := info.Children[0]
+	if child == nil || child.SubtreeShape != SubtreeShapeLeafSource {
+		return false
+	}
+	if child.LeafSelector == nil {
+		return false
+	}
+	return child.LeafSelector.Kind == SelectorKindRangeVector
 }
 
-func IsSupportedNativeRangeModeForAggregateOverTimeSubquery(fragment *NativeFragment) bool {
-	if fragment == nil || fragment.RangeFunction == nil || fragment.RangeFunction.Child == nil {
+// IsSupportedNativeRangeModeForAggregateOverTimeSubqueryFromInfo reports
+// whether a RangeFunction subtree's child is a subquery feeding an
+// aggregate-over-time range function.
+func IsSupportedNativeRangeModeForAggregateOverTimeSubqueryFromInfo(info *LoweringInfo) bool {
+	if !HasRangeFunctionFragmentFromInfo(info) {
 		return false
 	}
-	if !isSupportedNativeAggregateOverTime(fragment.RangeFunction.Func) {
+	child := info.Children[0]
+	if child == nil || child.SubtreeShape != SubtreeShapeSubquery {
 		return false
 	}
-	child := fragment.RangeFunction.Child
-	return child.Kind == FragmentKindSubquery && child.Subquery != nil && child.Subquery.Child != nil
+	// The range function name has to be an aggregate-over-time variant.
+	// We derive the function name from info.Expr's leading token by
+	// falling back to a prefix match against the supported list. Callers
+	// of this helper always pass RangeFunction-shaped info whose
+	// nodeType is the func name, so we probe NodeType directly.
+	return isSupportedNativeAggregateOverTime(info.NodeType)
 }
 
-func IsSupportedNativeRangeModeForWindowedArraysSubquery(fragment *NativeFragment) bool {
-	if fragment == nil || fragment.RangeFunction == nil || fragment.RangeFunction.Child == nil {
+// IsSupportedNativeRangeModeForWindowedArraysSubqueryFromInfo reports
+// whether a RangeFunction subtree's child is a subquery feeding the
+// windowed-arrays source (aggregate-over-time plus predict_linear /
+// resets / quantile_over_time / double_exponential_smoothing /
+// holt_winters).
+func IsSupportedNativeRangeModeForWindowedArraysSubqueryFromInfo(info *LoweringInfo) bool {
+	if !HasRangeFunctionFragmentFromInfo(info) {
 		return false
 	}
-	if !isSupportedNativeAggregateOverTime(fragment.RangeFunction.Func) && fragment.RangeFunction.Func != "predict_linear" && fragment.RangeFunction.Func != "resets" && fragment.RangeFunction.Func != "double_exponential_smoothing" && fragment.RangeFunction.Func != "holt_winters" {
+	child := info.Children[0]
+	if child == nil || child.SubtreeShape != SubtreeShapeSubquery {
 		return false
 	}
-	child := fragment.RangeFunction.Child
-	return child.Kind == FragmentKindSubquery && child.Subquery != nil && child.Subquery.Child != nil
-}
-
-func IsSupportedNativeRangeModeForCounterSubquery(fragment *NativeFragment) bool {
-	if fragment == nil || fragment.RangeFunction == nil || fragment.RangeFunction.Child == nil {
-		return false
+	name := info.NodeType
+	if isSupportedNativeAggregateOverTime(name) {
+		return true
 	}
-	if !isSupportedNativeCounterRangeFunction(fragment.RangeFunction.Func) {
-		return false
-	}
-	child := fragment.RangeFunction.Child
-	return child.Kind == FragmentKindSubquery && child.Subquery != nil && child.Subquery.Child != nil
-}
-
-func isSupportedNativeRangeChildFragment(fragment *NativeFragment) bool {
-	if fragment == nil {
-		return false
-	}
-	switch fragment.Kind {
-	case FragmentKindLeafSource, FragmentKindSubquery:
+	switch name {
+	case "predict_linear", "quantile_over_time", "resets", "double_exponential_smoothing", "holt_winters":
 		return true
 	default:
 		return false
 	}
 }
 
-func isSupportedNativeSubqueryChildFragment(fragment *NativeFragment) bool {
-	if fragment == nil {
+// IsSupportedNativeRangeModeForCounterSubqueryFromInfo reports whether
+// a RangeFunction subtree's child is a subquery feeding a counter-style
+// range function.
+func IsSupportedNativeRangeModeForCounterSubqueryFromInfo(info *LoweringInfo) bool {
+	if !HasRangeFunctionFragmentFromInfo(info) {
 		return false
 	}
-	switch fragment.Kind {
-	case FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindAggregation, FragmentKindBinaryVectorJoin, FragmentKindRangeFunction, FragmentKindValueTransform:
-		return true
-	default:
+	child := info.Children[0]
+	if child == nil || child.SubtreeShape != SubtreeShapeSubquery {
 		return false
 	}
+	return isSupportedNativeCounterRangeFunction(info.NodeType)
 }
 
-func isSupportedAggregationSourceFragment(fragment *NativeFragment) bool {
-	if fragment == nil {
-		return false
+// HasRangeFunctionFragmentFromInfo reports whether info carries a
+// range-function shape — the precondition that the range-mode
+// support predicates assume.
+func HasRangeFunctionFragmentFromInfo(info *LoweringInfo) bool {
+	return info != nil && info.SubtreeShape == SubtreeShapeRangeFunction
+}
+
+// HasAbsentFragmentFromInfo reports whether info carries an Absent
+// shape — the precondition tier-3 absent plan construction assumes.
+func HasAbsentFragmentFromInfo(info *LoweringInfo) bool {
+	return info != nil && info.SubtreeShape == SubtreeShapeAbsent
+}
+
+// HasSubqueryFragmentFromInfo reports whether info carries a Subquery
+// shape — the precondition tier-3 subquery plan construction assumes.
+func HasSubqueryFragmentFromInfo(info *LoweringInfo) bool {
+	return info != nil && info.SubtreeShape == SubtreeShapeSubquery
+}
+
+// HasHistogramFunctionFragmentFromInfo reports whether info carries a
+// HistogramFunction shape.
+func HasHistogramFunctionFragmentFromInfo(info *LoweringInfo) bool {
+	return info != nil && info.SubtreeShape == SubtreeShapeHistogramFunction
+}
+
+// HistogramFunctionNameFromInfo returns the histogram function name
+// carried by info's HistogramFunction shape, or empty string when the
+// shape is missing.
+func HistogramFunctionNameFromInfo(info *LoweringInfo) string {
+	if !HasHistogramFunctionFragmentFromInfo(info) {
+		return ""
 	}
-	switch fragment.Kind {
-	case FragmentKindLeafSource, FragmentKindUnarySourceExpr, FragmentKindBinaryScalarSourceExpr, FragmentKindAggregation:
-		return true
-	default:
-		return false
-	}
+	return info.HistogramFunc
+}
+
+// HasHistogramProjectionFragmentFromInfo reports whether info carries a
+// HistogramProjection shape.
+func HasHistogramProjectionFragmentFromInfo(info *LoweringInfo) bool {
+	return info != nil && info.SubtreeShape == SubtreeShapeHistogramProjection
+}
+
+// HasAggregationFragmentFromInfo reports whether info carries an
+// Aggregation shape.
+func HasAggregationFragmentFromInfo(info *LoweringInfo) bool {
+	return info != nil && info.SubtreeShape == SubtreeShapeAggregation
 }

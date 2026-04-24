@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/BadLiveware/promshim-ch/internal/promshim/obs"
 )
 
 type Config struct {
@@ -71,14 +73,24 @@ func (c *Client) Execute(ctx context.Context, sql string, params map[string]stri
 		return nil, err
 	}
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL.String(), &body)
+	requestURL := c.baseURL.String()
+	if tag := obs.LogCommentFromContext(ctx); tag != "" {
+		u := *c.baseURL
+		q := u.Query()
+		q.Set("log_comment", tag)
+		u.RawQuery = q.Encode()
+		requestURL = u.String()
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, &body)
 	if err != nil {
 		return nil, err
 	}
 	request.Header.Set("Authorization", c.basicAuth)
 	request.Header.Set("Content-Type", writer.FormDataContentType())
 
+	start := time.Now()
 	response, err := c.httpClient.Do(request)
+	obs.FromContext(ctx).Observe(time.Since(start))
 	if err != nil {
 		return nil, err
 	}

@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/compliance"
-	planpkg "github.com/BadLiveware/promshim-ch/internal/promshim/plan"
+	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -27,7 +27,7 @@ type matrixRow struct {
 	PlanReason           string   `json:"planReason,omitempty"`
 	NativeLowerable      bool     `json:"nativeLowerable"`
 	NativeReason         string   `json:"nativeReason,omitempty"`
-	FragmentKind         string   `json:"fragmentKind,omitempty"`
+	SubtreeShape         string   `json:"subtreeShape,omitempty"`
 	AggregationEligible  bool     `json:"aggregationEligible,omitempty"`
 	Notes                []string `json:"notes,omitempty"`
 }
@@ -53,12 +53,7 @@ type featureSpec struct {
 
 const prometheusVersion = "v0.311.2"
 
-var partialOverrides = map[string][]string{
-	"clamp":     {"current native support is limited to literal bounds"},
-	"clamp_min": {"current native support is limited to literal bounds"},
-	"clamp_max": {"current native support is limited to literal bounds"},
-	"info":      {"current native support is limited to the single-info-metric join subset"},
-}
+var partialOverrides = map[string][]string{}
 
 func main() {
 	jsonOut := flag.String("json-out", filepath.FromSlash(".pi/path2-compliance-matrix.json"), "JSON output path")
@@ -130,7 +125,7 @@ func buildRow(spec featureSpec) (matrixRow, error) {
 		return matrixRow{}, err
 	}
 	status := compliance.ClassifyPath2Status(snapshot, spec.Query)
-	if notes, ok := partialOverrides[spec.Name]; ok && snapshot.PlanSupported {
+	if notes, ok := partialOverrides[spec.Name]; ok && status == "partial" && snapshot.PlanSupported {
 		spec.Notes = append(spec.Notes, notes...)
 	}
 	row := matrixRow{
@@ -146,7 +141,7 @@ func buildRow(spec featureSpec) (matrixRow, error) {
 		PlanReason:           snapshot.PlanReason,
 		NativeLowerable:      snapshot.NativeLowerable,
 		NativeReason:         snapshot.NativeReason,
-		FragmentKind:         snapshot.FragmentKind,
+		SubtreeShape:         snapshot.SubtreeShape,
 		AggregationEligible:  snapshot.AggregationEligible,
 		Notes:                append([]string(nil), spec.Notes...),
 	}
@@ -380,7 +375,7 @@ func init() {
 		`sum by (job) (harness_up)`,
 		`harness_up + on(job,instance) fill(0) harness_up`,
 	} {
-		if _, err := planpkg.ParseExpression(query); err != nil {
+		if _, err := logicalpkg.ParseExpression(query); err != nil {
 			panic(err)
 		}
 	}

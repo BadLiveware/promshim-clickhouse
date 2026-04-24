@@ -6,14 +6,20 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-func isSyntheticScalarFragment(fragment *NativeFragment) bool {
-	if fragment == nil || fragment.Synthetic == nil {
+// isSyntheticScalarInfo reports whether info is a synthetic scalar
+// series for a supported builtin ("time" / "pi"). It drives BinaryPlan
+// Analyze's synthetic-scalar/vector fast paths.
+func isSyntheticScalarInfo(info *LoweringInfo) bool {
+	if info == nil || info.SyntheticSeries == nil {
 		return false
 	}
-	if fragment.Kind != FragmentKindSyntheticSeries {
+	if info.SubtreeShape != SubtreeShapeSyntheticSeries {
 		return false
 	}
-	return fragment.OutputKind == OutputKindScalar && isSupportedNativeSyntheticScalarBuiltin(fragment.Synthetic.Func)
+	if info.OutputKind != OutputKindScalar {
+		return false
+	}
+	return isSupportedNativeSyntheticScalarBuiltin(info.SyntheticSeries.Func)
 }
 
 func syntheticScalarValueTemplate(name string) (string, bool) {
@@ -27,29 +33,12 @@ func syntheticScalarValueTemplate(name string) (string, bool) {
 	}
 }
 
-func applySyntheticScalarVectorTransform(op parser.ItemType, syntheticFunc string, vectorFragment *NativeFragment, vectorLineage LabelLineage, scalarOnLeft bool) (*NativeFragment, LabelLineage, bool) {
-	if vectorFragment == nil {
-		return nil, LabelLineage{}, false
-	}
+func applySyntheticScalarChildTransform(op parser.ItemType, returnBool bool, syntheticFunc string, childOutputKind OutputKind, childLineage LabelLineage, scalarOnLeft bool) (valueTransformResult, bool) {
 	scalarExpr, ok := syntheticScalarValueTemplate(syntheticFunc)
 	if !ok {
-		return nil, LabelLineage{}, false
+		return valueTransformResult{}, false
 	}
-	template, dropsMetric, ok := buildBinaryTemplateForScalarExpr(op, scalarExpr, "{value}", scalarOnLeft)
-	if !ok {
-		return nil, LabelLineage{}, false
-	}
-	lineage := withMetricNameState(passthroughLabelLineage(vectorLineage), boolState(dropsMetric, LabelLineageDropped, vectorLineage.MetricName))
-	return &NativeFragment{
-		Kind:       FragmentKindValueTransform,
-		OutputKind: OutputKindInstantVector,
-		ValueTransform: &ValueTransformFragment{
-			Child:       vectorFragment,
-			ValueExpr:   template,
-			DropsMetric: dropsMetric,
-		},
-		DropsMetric: dropsMetric,
-	}, lineage, true
+	return applyScalarExprChildTransform(op, returnBool, scalarExpr, childOutputKind, childLineage, scalarOnLeft)
 }
 
 func tagsExprForMetricDrop(dropMetric bool) string {

@@ -67,3 +67,26 @@ func TestBuildRangeBinaryVectorJoinSQLJoinsOnTimestampAndJoinGroup(t *testing.T)
 		t.Fatalf("did not expect range join SQL to aggregate grouped timestamps, got %q", sql)
 	}
 }
+
+func TestBuildInstantBinaryVectorJoinSQLSupportsSetOperators(t *testing.T) {
+	lhsSQL := "SELECT tags, timestamp, value FROM lhs_source"
+	rhsSQL := "SELECT tags, timestamp, value FROM rhs_source"
+	for _, tc := range []struct {
+		op    parser.ItemType
+		check string
+	}{
+		{op: parser.LAND, check: "INNER JOIN"},
+		{op: parser.LOR, check: "UNION ALL"},
+		{op: parser.LUNLESS, check: "LEFT JOIN"},
+	} {
+		sql, _, err := BuildInstantBinaryVectorJoinSQL(lhsSQL, nil, rhsSQL, nil, BinaryJoinConfig{Op: tc.op, VectorMatching: &parser.VectorMatching{Card: parser.CardManyToMany, On: true, MatchingLabels: []string{"job"}}, JoinShape: "many_to_many"})
+		if err != nil {
+			t.Fatalf("expected set-operator SQL for %v, got error: %v", tc.op, err)
+		}
+		for _, expected := range []string{"toUInt8(1) AS present_marker", tc.check, "lhs.join_group = rhs.join_group", "result_tags AS tags"} {
+			if !strings.Contains(sql, expected) {
+				t.Fatalf("expected %q in %v SQL, got %q", expected, tc.op, sql)
+			}
+		}
+	}
+}

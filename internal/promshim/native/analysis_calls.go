@@ -9,25 +9,66 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 )
 
-// nativeInfoMetricName returns the single info metric name that the native
-// renderer can safely join today. We lower the default target_info convention
-// and explicit equality matchers; broader regex/negative-name matching stays on
-// the local path because it can span multiple info metrics that need merge
-// semantics beyond the current native join shape.
-func nativeInfoMetricName(matchers []*labels.Matcher) (string, bool) {
-	nameMatchers := make([]*labels.Matcher, 0)
-	for _, matcher := range matchers {
-		if matcher != nil && matcher.Name == labels.MetricName {
-			nameMatchers = append(nameMatchers, matcher)
+// NativeInfoSelector is the exported form of nativeInfoSelector, used by
+// the renderer's direct-render InfoPlan path to derive the info-series
+// metric name fast path and selector matchers straight from the logical
+// InfoPlan.SelectorMatchers without threading through NativeAnalysis.
+func NativeInfoSelector(matchers []*labels.Matcher) (string, []*labels.Matcher) {
+	return nativeInfoSelector(matchers)
+}
+
+// InfoJoinCopyLabelNames is the exported form of infoJoinCopyLabelNames,
+// used by the renderer's direct-render InfoPlan path.
+func InfoJoinCopyLabelNames(matchers []*labels.Matcher) []string {
+	return infoJoinCopyLabelNames(matchers)
+}
+
+// InfoJoinDropUnmatched is the exported form of infoJoinDropUnmatched,
+// used by the renderer's direct-render InfoPlan path.
+func InfoJoinDropUnmatched(matchers []*labels.Matcher) bool {
+	return infoJoinDropUnmatched(matchers)
+}
+
+// nativeInfoSelector returns the metric-name fast path and selector matchers
+// needed to reproduce local info() fetch semantics natively. When the effective
+// info metric selection collapses to a single equality matcher we keep using the
+// dedicated MetricName field for efficient selector SQL; broader regex and
+// negative-name forms flow through Matchers so the native join can fetch and
+// merge multiple *_info metrics.
+func nativeInfoSelector(matchers []*labels.Matcher) (string, []*labels.Matcher) {
+	nameMatchers := effectiveNativeInfoNameMatchers(matchers)
+	selectorMatchers := infoJoinDataLabelMatchers(matchers)
+	if len(nameMatchers) == 1 && nameMatchers[0] != nil && nameMatchers[0].Type == labels.MatchEqual {
+		return nameMatchers[0].Value, selectorMatchers
+	}
+	for _, matcher := range nameMatchers {
+		if matcher == nil {
+			continue
 		}
+		selectorMatchers = append(selectorMatchers, labels.MustNewMatcher(matcher.Type, matcher.Name, matcher.Value))
 	}
-	if len(nameMatchers) == 0 {
-		return "target_info", true
+	return "", selectorMatchers
+}
+
+func effectiveNativeInfoNameMatchers(matchers []*labels.Matcher) []*labels.Matcher {
+	positive := false
+	cloned := make([]*labels.Matcher, 0, len(matchers))
+	for _, matcher := range matchers {
+		if matcher == nil || matcher.Name != labels.MetricName {
+			continue
+		}
+		if matcher.Type == labels.MatchEqual || matcher.Type == labels.MatchRegexp {
+			positive = true
+		}
+		cloned = append(cloned, labels.MustNewMatcher(matcher.Type, matcher.Name, matcher.Value))
 	}
-	if len(nameMatchers) == 1 && nameMatchers[0].Type == labels.MatchEqual {
-		return nameMatchers[0].Value, true
+	if positive {
+		return cloned
 	}
-	return "", false
+	if len(cloned) > 0 {
+		return append([]*labels.Matcher{labels.MustNewMatcher(labels.MatchRegexp, labels.MetricName, ".+_info")}, cloned...)
+	}
+	return []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, labels.MetricName, "target_info")}
 }
 
 func infoJoinDataLabelMatchers(matchers []*labels.Matcher) []*labels.Matcher {
@@ -110,7 +151,11 @@ func NativePointwiseSourceTemplate(name string, paramNumbers []*float64) (string
 	case "cosh":
 		return "cosh({value})", true
 	case "tanh":
-		return "tanh({value})", true
+		// ClickHouse's built-in tanh() drifts enough from Go/Prometheus to trip
+		// exact differential checks on simple fixture values (e.g. tanh(0.5)).
+		// Re-express it through exp() so the native path tracks math.Tanh much
+		// more closely while still staying fully in SQL.
+		return "(exp(2 * {value}) - 1) / (exp(2 * {value}) + 1)", true
 	case "asinh":
 		return "asinh({value})", true
 	case "acosh":

@@ -1,32 +1,11 @@
 package renderer
 
 import (
-	"fmt"
 	"strings"
-
-	"ch-observability/internal/promshim/native"
-	"ch-observability/internal/promshim/storage"
 )
 
-func renderSortTransformFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
-	if fragment == nil || fragment.SortTransform == nil || fragment.SortTransform.Child == nil {
-		return renderedFragment{}, fmt.Errorf("sort transform fragment is missing child metadata")
-	}
-	spec := fragment.SortTransform
-	if params.Mode == native.RenderModeRange {
-		return renderFragment(cfg, spec.Child, params)
-	}
-	childSQL, childParams, err := renderFragmentSubquery(cfg, spec.Child, params, "sort_child")
-	if err != nil {
-		return renderedFragment{}, err
-	}
-	return renderSortTransformInstantFromSource(childSQL, childParams, spec.Func, spec.Labels)
-}
-
 // renderSortTransformInstantFromSource wraps a pre-rendered child instant-vector
-// SQL in the SORT outer SELECT. Shared by the Fragment path
-// (renderSortTransformFragment) and the direct path (lowerSortTransform) so SQL
-// stays byte-identical.
+// SQL in the SORT outer SELECT. Used by the direct path (lowerSortTransform).
 func renderSortTransformInstantFromSource(childSQL string, childParams map[string]string, funcName string, labels []string) (renderedFragment, error) {
 	orderBy := buildSortOrderBy(funcName, labels, "sort_child")
 	sql := "SELECT tags, timestamp, value FROM (" + childSQL + ") AS sort_child ORDER BY " + orderBy

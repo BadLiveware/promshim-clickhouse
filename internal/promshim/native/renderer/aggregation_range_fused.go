@@ -9,28 +9,6 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-func tryRenderFusedRangeAggregationFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, bool, error) {
-	if !canFuseRangeAggregationFragment(fragment, params) {
-		return renderedFragment{}, false, nil
-	}
-	sql, queryParams, err := renderFusedRangeAggregationSQL(cfg, fragment, params)
-	if err != nil {
-		return renderedFragment{}, false, err
-	}
-	if fragment.Aggregation.EmitZeroOnEmpty {
-		return wrapZeroOnEmptyAggregationRangeSQL(trimRenderedQuerySQL(sql), queryParams, params), true, nil
-	}
-	return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, true, nil
-}
-
-func renderFusedRangeAggregationSQL(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (string, map[string]string, error) {
-	rowsSQL, rowParams, err := renderFusedRangeAggregationRowsSQL(cfg, fragment, params)
-	if err != nil {
-		return "", nil, err
-	}
-	return storage.BuildRangeRowsToMatrixSubquerySQL(rowsSQL, rowParams)
-}
-
 func renderFusedRangeAggregationRowsSQL(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (string, map[string]string, error) {
 	if !canFuseRangeAggregationFragment(fragment, params) {
 		return "", nil, fmt.Errorf("fused range aggregation rows require a supported aggregation fragment")

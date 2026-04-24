@@ -76,90 +76,20 @@ func renderSourceFragment(cfg storage.QueryConfig, fragment *native.NativeFragme
 	}
 }
 
-func renderSyntheticFragment(fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
-	if fragment == nil || fragment.Synthetic == nil {
-		return renderedFragment{}, fmt.Errorf("synthetic series fragment is missing synthetic metadata")
-	}
-	// The "literal" case carries a float value in fragment.Synthetic.Value;
-	// it cannot be handled by syntheticSeriesValueSQL (which takes only a
-	// func name). Delegate to renderScalarLiteralFragment so the scalar-literal
-	// code path is the single source of SQL truth for literal values.
-	if fragment.Synthetic.Func == "literal" {
-		if fragment.Synthetic.Value == nil {
-			return renderedFragment{}, fmt.Errorf("synthetic literal fragment requires a value")
-		}
-		return renderScalarLiteralFragment(*fragment.Synthetic.Value, params)
-	}
-	emptyTags := emit.EmptyTagsArray()
-	switch params.Mode {
-	case native.RenderModeInstant:
-		valueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic.Func, "{evaluation_ms:Int64}")
-		if err != nil {
-			return renderedFragment{}, err
-		}
-		evalParam := sqlb.Param{Name: "evaluation_ms", Type: "Int64", V: params.EvaluationTimeMS}
-		return renderedFragment{Select: &sqlb.Select{
-			Columns: []sqlb.ColExpr{
-				{Expr: emptyTags, Alias: "tags"},
-				{Expr: sqlb.Call{Name: "fromUnixTimestamp64Milli", Args: []sqlb.Expr{evalParam}}, Alias: "timestamp"},
-				{Expr: sqlb.RawLit{V: valueSQL}, Alias: "value"},
-			},
-		}}, nil
-	case native.RenderModeRange:
-		if params.StepMS <= 0 {
-			return renderedFragment{}, fmt.Errorf("synthetic range render requires a positive step")
-		}
-		valueSQL, err := syntheticSeriesValueSQL(fragment.Synthetic.Func, "ts_ms")
-		if err != nil {
-			return renderedFragment{}, err
-		}
-		startParam := sqlb.Param{Name: "start_ms", Type: "Int64", V: params.StartMS}
-		endParam := sqlb.Param{Name: "end_ms", Type: "Int64", V: params.EndMS}
-		stepParam := sqlb.Param{Name: "step_ms", Type: "Int64", V: params.StepMS}
-		timeSeriesExpr := sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{
-			sqlb.Lambda{
-				Params: []sqlb.Ident{"ts_ms"},
-				Body: sqlb.Tuple{Elems: []sqlb.Expr{
-					sqlb.Call{Name: "fromUnixTimestamp64Milli", Args: []sqlb.Expr{sqlb.Ident("ts_ms")}},
-					sqlb.RawLit{V: valueSQL},
-				}},
-			},
-			sqlb.Call{Name: "range", Args: []sqlb.Expr{
-				startParam,
-				sqlb.Binary{Op: "+", L: endParam, R: stepParam},
-				stepParam,
-			}},
-		}}
-		return renderedFragment{Select: &sqlb.Select{
-			Columns: []sqlb.ColExpr{
-				{Expr: emptyTags, Alias: "tags"},
-				{Expr: timeSeriesExpr, Alias: "time_series"},
-			},
-		}}, nil
-	default:
-		return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
-	}
-}
-
 // syntheticSeriesValueSQL returns the SQL expression that computes the
 // per-sample value for a named synthetic function. tsMSExpr is the SQL
 // expression that evaluates to the sample timestamp in milliseconds (e.g.
 // "ts_ms" for range mode or "{evaluation_ms:Int64}" for instant mode).
 //
-// The "literal" case is retained here for the Fragment path — vector(1)
-// still flows through renderSyntheticFragment which passes a
-// SyntheticSeriesFragment{Func:"literal", Value:&v}. The direct
-// scalar-literal path (lowerScalarLiteral / renderScalarLiteralFragment)
-// does NOT call this helper. When the VectorPlan surface is migrated in a
-// later phase-2 commit, the "literal" branch can be removed.
+// The "literal" case is only reachable as an error guard — vector(1) and
+// other scalar literals flow through lowerScalarLiteral /
+// renderScalarLiteralFragment directly, never via this helper.
 func syntheticSeriesValueSQL(funcName string, tsMSExpr string) (string, error) {
 	utcTs := "toTimeZone(fromUnixTimestamp64Milli(" + tsMSExpr + "), 'UTC')"
 	switch funcName {
 	case "literal":
-		// Literals carry a float value that funcName alone cannot encode.
-		// renderSyntheticFragment handles "literal" before calling this
-		// helper (via renderScalarLiteralFragment); callers that pass
-		// "literal" here have a bug.
+		// Literals carry a float value that funcName alone cannot encode;
+		// callers that reach this branch have a bug.
 		return "", fmt.Errorf("synthetic series function %q must be handled via renderScalarLiteralFragment, not syntheticSeriesValueSQL", funcName)
 	case "pi":
 		return "toFloat64(3.141592653589793)", nil
@@ -186,22 +116,9 @@ func syntheticSeriesValueSQL(funcName string, tsMSExpr string) (string, error) {
 	}
 }
 
-func renderScalarConvertFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
-	if fragment == nil || fragment.ScalarConvert == nil || fragment.ScalarConvert.Child == nil {
-		return renderedFragment{}, fmt.Errorf("scalar convert fragment is missing child metadata")
-	}
-	childSource, childParams, err := renderChildAsSource(cfg, fragment.ScalarConvert.Child, params, "scalar_child")
-	if err != nil {
-		return renderedFragment{}, err
-	}
-	return renderScalarConvertFromSource(childSource, childParams, params)
-}
-
 // renderScalarConvertFromSource builds the scalar-convert outer SELECT over a
-// pre-rendered child source. Both the Fragment path
-// (renderScalarConvertFragment) and the direct Lower path
-// (lowerScalarConvert) call this helper, locking byte-identity between the
-// two by construction.
+// pre-rendered child source. The direct Lower path (lowerScalarConvert) is
+// the sole caller.
 func renderScalarConvertFromSource(childSource sqlb.Source, childParams map[string]string, params RenderParams) (renderedFragment, error) {
 	emptyTags := emit.EmptyTagsArray()
 	switch params.Mode {

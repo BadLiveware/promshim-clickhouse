@@ -1,0 +1,54 @@
+{
+  "planPath": "docs/superpowers/plans/2026-04-24-retire-native-fragment.md",
+  "tasks": [
+    {
+      "id": 20,
+      "subject": "Task 7: Thread tag-narrowing through RenderParams",
+      "status": "pending",
+      "description": "**Goal:** Add `RequireFullTags bool` and `RequiredTagLabels []string` to `RenderParams`. Extract the histogram-child narrowing decision into a pure function so Phase A body renderers can propagate narrowing without mutating a Fragment tree. Non-behavioral prep.\n\n**Files:**\n- Modify: `internal/promshim/native/renderer/renderer.go:14-23`\n- Create: `internal/promshim/native/renderer/narrow_tags.go`\n- Test:   `internal/promshim/native/renderer/narrow_tags_test.go`\n\n**Verify:** `go test ./internal/promshim/native/renderer/...` → PASS\n\n```json:metadata\n{\"files\": [\"internal/promshim/native/renderer/renderer.go\", \"internal/promshim/native/renderer/narrow_tags.go\", \"internal/promshim/native/renderer/narrow_tags_test.go\"], \"verifyCommand\": \"go test ./internal/promshim/native/renderer/...\", \"acceptanceCriteria\": [\"RenderParams has RequireFullTags and RequiredTagLabels fields\", \"decideHistogramChildNarrowing returns correct narrowing decision per child shape\", \"childAggregationUsesOnlyLETags returns true only for sum by (le) shape\", \"No existing test regresses\"]}\n```"
+    },
+    {
+      "id": 21,
+      "subject": "Task 8: Port histogram projection body to logical (Phase A1)",
+      "status": "pending",
+      "blockedBy": [20],
+      "description": "**Goal:** Direct-render `HistogramProjectionPlan` without building a Fragment. Locks the porting conventions that A2–A4 follow.\n\n**Files:**\n- Create: `internal/promshim/native/renderer/histogram_logical.go`\n- Modify: `internal/promshim/native/renderer/lower_histogram_projection.go`\n- Test:   `internal/promshim/native/renderer/histogram_logical_test.go`\n\n**Verify:** `go test ./internal/promshim/native/renderer/...` + `scripts/run-compliance.sh` → 538/539\n\n```json:metadata\n{\"files\": [\"internal/promshim/native/renderer/histogram_logical.go\", \"internal/promshim/native/renderer/histogram_logical_test.go\", \"internal/promshim/native/renderer/lower_histogram_projection.go\"], \"verifyCommand\": \"go test ./internal/promshim/native/renderer/... && scripts/run-compliance.sh\", \"acceptanceCriteria\": [\"renderHistogramProjectionLogical produces byte-identical SQL vs Fragment path for all 5 projection functions\", \"lowerHistogramProjection no longer calls native.BuildFragment\", \"Tag-narrowing threads via RenderParams for aggregation children\", \"Compliance stays at 538/539\"]}\n```"
+    },
+    {
+      "id": 22,
+      "subject": "Task 9: Port histogram function body to logical (Phase A2)",
+      "status": "pending",
+      "blockedBy": [21],
+      "description": "**Goal:** Direct-render `HistogramQuantilePlan`, `HistogramFractionPlan`, `HistogramQuantilesPlan`. Reuse narrowing + child-render helpers from Task 8.\n\n**Files:**\n- Modify: `internal/promshim/native/renderer/histogram_logical.go`\n- Modify: `internal/promshim/native/renderer/lower_histogram_function.go`\n- Test:   `internal/promshim/native/renderer/histogram_logical_test.go`\n\n**Verify:** `go test ./internal/promshim/native/renderer/...` + `scripts/run-compliance.sh` → 538/539\n\n```json:metadata\n{\"files\": [\"internal/promshim/native/renderer/histogram_logical.go\", \"internal/promshim/native/renderer/histogram_logical_test.go\", \"internal/promshim/native/renderer/lower_histogram_function.go\"], \"verifyCommand\": \"go test ./internal/promshim/native/renderer/... && scripts/run-compliance.sh\", \"acceptanceCriteria\": [\"renderHistogramFunctionLogical handles HistogramQuantile/Fraction/Quantiles plans\", \"lowerHistogramFunction no longer calls native.BuildFragment\", \"Byte equality vs Fragment path across corpus\", \"Compliance stays at 538/539\"]}\n```"
+    },
+    {
+      "id": 23,
+      "subject": "Task 10: Port range function body + fused helper to logical (Phase A3)",
+      "status": "pending",
+      "blockedBy": [22],
+      "description": "**Goal:** Direct-render all seven range-function plan kinds. Port `canFuseRangeAggregationFragment` and `tryRenderFusedRangeAggregationFragment` to logical variants so Task 11 can consume them.\n\n**Files:**\n- Create: `internal/promshim/native/renderer/range_logical.go`\n- Modify: `internal/promshim/native/renderer/lower_range_function.go`\n- Test:   `internal/promshim/native/renderer/range_logical_test.go`\n\n**Verify:** `go test ./internal/promshim/native/renderer/...` + `scripts/run-compliance.sh` + `scripts/run-bench.sh --matrix`\n\n```json:metadata\n{\"files\": [\"internal/promshim/native/renderer/range_logical.go\", \"internal/promshim/native/renderer/range_logical_test.go\", \"internal/promshim/native/renderer/lower_range_function.go\"], \"verifyCommand\": \"go test ./internal/promshim/native/renderer/... && scripts/run-compliance.sh && scripts/run-bench.sh --matrix\", \"acceptanceCriteria\": [\"All seven range-function plan kinds direct-render via renderRangeFunctionLogical\", \"canFuseRangeAggregationLogical + tryRenderFusedRangeAggregationLogical available for Task 11\", \"lowerRangeFunction no longer calls native.BuildFragment\", \"Byte equality vs Fragment path across all functions and modes\", \"Compliance stays at 538/539\", \"Bench matrix no regression >+10%\"]}\n```"
+    },
+    {
+      "id": 24,
+      "subject": "Task 11: Port aggregation body to logical (Phase A4, end of Phase A)",
+      "status": "pending",
+      "blockedBy": [23],
+      "description": "**Goal:** Direct-render `AggregationPlan`. Consume `canFuseRangeAggregationLogical` / `tryRenderFusedRangeAggregationLogical` from Task 10. End of Phase A — refresh bench baseline across all long-range profiles.\n\n**Files:**\n- Create: `internal/promshim/native/renderer/aggregation_logical.go`\n- Modify: `internal/promshim/native/renderer/lower_aggregation.go`\n- Test:   `internal/promshim/native/renderer/aggregation_logical_test.go`\n- Modify: `harness/bench/baseline.json`\n\n**Verify:** `go test ./internal/promshim/native/renderer/...` + `scripts/run-compliance.sh` + `scripts/run-bench.sh --matrix --long-range all`\n\n```json:metadata\n{\"files\": [\"internal/promshim/native/renderer/aggregation_logical.go\", \"internal/promshim/native/renderer/aggregation_logical_test.go\", \"internal/promshim/native/renderer/lower_aggregation.go\", \"harness/bench/baseline.json\"], \"verifyCommand\": \"go test ./internal/promshim/native/renderer/... && scripts/run-compliance.sh && scripts/run-bench.sh --matrix --long-range all\", \"acceptanceCriteria\": [\"renderAggregationLogical handles all 12 aggregation ops\", \"lowerAggregation no longer calls native.BuildFragment\", \"Fused range+aggregation routes through logical helper from Task 10\", \"Byte equality across grouping variants and child kinds\", \"Compliance stays at 538/539\", \"Bench baseline refreshed with no regression >+10%\"]}\n```"
+    },
+    {
+      "id": 25,
+      "subject": "Task 12: Direct-render scalar-involving BinaryPlan (Phase B)",
+      "status": "pending",
+      "blockedBy": [24],
+      "description": "**Goal:** Remove the last `native.BuildFragment` call from `renderer.Lower`. After this task, every lowerer direct-renders.\n\n**Files:**\n- Create: `internal/promshim/native/renderer/lower_binary_scalar.go`\n- Modify: `internal/promshim/native/renderer/lower.go`\n- Test:   `internal/promshim/native/renderer/lower_binary_scalar_test.go`\n\n**Verify:** `go test ./internal/promshim/native/renderer/...` + `scripts/run-compliance.sh` + `! grep -rn 'native\\.BuildFragment' internal/promshim/native/renderer/`\n\n```json:metadata\n{\"files\": [\"internal/promshim/native/renderer/lower_binary_scalar.go\", \"internal/promshim/native/renderer/lower_binary_scalar_test.go\", \"internal/promshim/native/renderer/lower.go\"], \"verifyCommand\": \"go test ./internal/promshim/native/renderer/... && scripts/run-compliance.sh && ! grep -rn 'native\\\\.BuildFragment' internal/promshim/native/renderer/\", \"acceptanceCriteria\": [\"lowerBinaryScalarInvolving handles all scalar-involving variants\", \"lower.go no longer calls native.BuildFragment/RenderFragment\", \"Byte equality across all arithmetic and comparison ops\", \"No remaining BuildFragment calls in renderer package\", \"Compliance stays at 538/539\"]}\n```"
+    },
+    {
+      "id": 26,
+      "subject": "Task 13: Delete NativeFragment machinery (Phase C)",
+      "status": "pending",
+      "blockedBy": [25],
+      "description": "**Goal:** Remove `NativeFragment`, `FragmentKind*`, `native.BuildFragment`, the Fragment-producing walk in `analysis.go`, and all Fragment-body renderers. Rename `FragmentInfo` → `NodeInfo` and drop its `Fragment` field. Move `SelectorSource` narrowing fields to `RenderParams`-only. Final bench baseline refresh.\n\n**Files:**\n- Delete: `internal/promshim/native/builder.go`, `renderer/histogram.go`, `renderer/range.go`, `renderer/aggregation_range_fused.go`, `renderer/source.go`\n- Modify: `renderer/renderer.go`, `renderer/join.go`, `native/types.go`, `native/analysis.go`, `native/selector.go`, `local/native_subtree.go`, `renderer/lower_leaf.go`, `harness/bench/baseline.json`\n\n**Verify:** zero-match grep + `go build ./internal/promshim/...` + `go test ./internal/promshim/...` + `scripts/run-compliance.sh` + `scripts/run-bench.sh --matrix --long-range all`\n\n```json:metadata\n{\"files\": [\"internal/promshim/native/builder.go\", \"internal/promshim/native/renderer/histogram.go\", \"internal/promshim/native/renderer/range.go\", \"internal/promshim/native/renderer/aggregation_range_fused.go\", \"internal/promshim/native/renderer/source.go\", \"internal/promshim/native/renderer/renderer.go\", \"internal/promshim/native/renderer/join.go\", \"internal/promshim/native/types.go\", \"internal/promshim/native/analysis.go\", \"internal/promshim/native/selector.go\", \"internal/promshim/local/native_subtree.go\", \"internal/promshim/native/renderer/lower_leaf.go\", \"harness/bench/baseline.json\"], \"verifyCommand\": \"go build ./internal/promshim/... && go test ./internal/promshim/... && scripts/run-compliance.sh && scripts/run-bench.sh --matrix --long-range all\", \"acceptanceCriteria\": [\"Zero grep matches for NativeFragment/FragmentKind/BuildFragment/RenderFragment\", \"NodeInfo replaces FragmentInfo with no Fragment field\", \"SelectorSource narrowing fields deleted\", \"Clean build and full test pass\", \"Compliance stays at 538/539\", \"Bench baseline refreshed with no regression >+10%\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-04-24T00:00:00Z"
+}

@@ -50,6 +50,20 @@ type nativeSubtreePlan struct {
 	Analysis *nativeplan.Analysis
 }
 
+// rootLogicalNode returns the logical plan root for this subtree: the
+// per-subtree Node when set (tier-3 construction), else the whole-query
+// LogicalRoot (tier-2 attachLogicalRootForLower). nil only in degenerate
+// cases where neither field is populated.
+func (p *nativeSubtreePlan) rootLogicalNode() logicalpkg.Node {
+	if p == nil {
+		return nil
+	}
+	if p.Node != nil {
+		return p.Node
+	}
+	return p.LogicalRoot
+}
+
 func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 	renderMode := nativeplan.RenderModeInstant
 	if params.Mode == EvalModeRange {
@@ -69,9 +83,11 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 			EndMS:            params.End.UnixMilli(),
 			StepMS:           params.Step.Milliseconds(),
 		}
-		if s, e, ok := nativeplan.RequiredInputBounds(p.Fragment, p.Info, execCtx); ok {
-			requiredStartMS = s
-			requiredEndMS = e
+		if root := p.rootLogicalNode(); root != nil {
+			if s, e, ok := renderer.LogicalRequiredInputBounds(root, execCtx); ok {
+				requiredStartMS = s
+				requiredEndMS = e
+			}
 		}
 	}
 	cfg := storage.QueryConfig{Database: Evaluator.database, Table: Evaluator.table}

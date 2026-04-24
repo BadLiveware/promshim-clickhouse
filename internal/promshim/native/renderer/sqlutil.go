@@ -400,6 +400,14 @@ func resolvedVectorSelectorAnchorTimeMS(sel *parser.VectorSelector, ctx native.O
 // when the subtree has no discoverable selector leaf (matching the
 // fragment-side nil branch that causes the caller to fall back on the outer
 // envelope).
+// LogicalRequiredInputBounds is the exported wrapper around
+// logicalRequiredInputBounds. External callers (e.g. local/native_subtree)
+// use it to derive the required [startMS, endMS] envelope from a logical
+// plan tree without touching NativeFragment.
+func LogicalRequiredInputBounds(n logicalpkg.Node, ctx native.OptimizationContext) (int64, int64, bool) {
+	return logicalRequiredInputBounds(n, ctx)
+}
+
 func logicalRequiredInputBounds(n logicalpkg.Node, ctx native.OptimizationContext) (int64, int64, bool) {
 	lookbackMS, offsetMS, ok := logicalBaseSelectorBounds(n)
 	if !ok {

@@ -13,7 +13,7 @@ func maybeBuildNativeLeafPlan(node *logicalLeafExprPlan, ctx PlanContext, analys
 	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindLeafSource {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
@@ -34,7 +34,7 @@ func maybeBuildNativeSubqueryPlan(node *logicalSubqueryPlan, ctx PlanContext, an
 	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindSubquery || info.Fragment.Subquery == nil {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
@@ -72,7 +72,7 @@ func maybeBuildNativeGenericPlan(node logicalpkg.Node, expr, kind string, ctx Pl
 	if !allowed {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
@@ -105,7 +105,7 @@ func maybeBuildNativeSourcePlan(node *logicalPointwiseFunctionPlan, ctx PlanCont
 	default:
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
@@ -145,7 +145,7 @@ func maybeBuildNativeInfoPlan(node *logicalInfoPlan, ctx PlanContext, analysis *
 	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindInfoJoin {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
@@ -173,7 +173,7 @@ func maybeBuildNativeScalarConvertPlan(node *logicalScalarConvertPlan, ctx PlanC
 	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindScalarConvert {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
@@ -201,7 +201,7 @@ func maybeBuildNativeHistogramFractionPlan(node *logicalHistogramFractionPlan, c
 	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindHistogramFunction || info.Fragment.HistogramFunction == nil {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
@@ -229,7 +229,7 @@ func maybeBuildNativeHistogramQuantilePlan(node *logicalHistogramQuantilePlan, c
 	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindHistogramFunction || info.Fragment.HistogramFunction == nil {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
@@ -257,7 +257,7 @@ func maybeBuildNativeHistogramQuantilesPlan(node *logicalHistogramQuantilesPlan,
 	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindHistogramFunction || info.Fragment.HistogramFunction == nil || info.Fragment.HistogramFunction.Func != "histogram_quantiles" {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
@@ -285,7 +285,7 @@ func maybeBuildNativeHistogramProjectionPlan(node *logicalHistogramProjectionPla
 	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindHistogramProjection || info.Fragment.HistogramProjection == nil {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
@@ -324,7 +324,7 @@ func maybeBuildNativeScalarBuiltinPlan(node *logicalScalarBuiltinPlan, ctx PlanC
 	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindSyntheticSeries {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}
@@ -366,7 +366,7 @@ func maybeBuildNativeAggregationPlan(node *logicalAggregationPlan, ctx PlanConte
 	if !decision.Eligible && !ctx.NativeLoweringMode.ForcesNativeRoot() {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{
+	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{
 		Mode:             renderModeForPlanContext(ctx),
 		EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(),
 		StartMS:          ctx.Start.UnixMilli(),

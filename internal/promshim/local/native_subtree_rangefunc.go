@@ -125,7 +125,7 @@ func maybeBuildNativeRangeLikePlanAllowRange(node logicalpkg.Node, kind, expr st
 	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindRangeFunction {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{
+	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{
 		Mode:             renderModeForPlanContext(ctx),
 		EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(),
 		StartMS:          ctx.Start.UnixMilli(),
@@ -178,7 +178,7 @@ func maybeBuildNativeAbsentLikePlan(node logicalpkg.Node, kind, expr string, ctx
 	if info == nil || info.Fragment == nil || info.Fragment.Kind != nativeplan.FragmentKindAbsent || info.Fragment.Absent == nil {
 		return nil, false, nil
 	}
-	optimized, err := nativeplan.BuildOptimizedFragmentWithContext(node, analysis, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
+	optimized, err := nativeplan.OptimizeFragment(info.Fragment, info, nativeplan.OptimizationContext{Mode: renderModeForPlanContext(ctx), EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(), StartMS: ctx.Start.UnixMilli(), EndMS: ctx.End.UnixMilli(), StepMS: ctx.Step.Milliseconds()})
 	if err != nil {
 		return nil, false, err
 	}

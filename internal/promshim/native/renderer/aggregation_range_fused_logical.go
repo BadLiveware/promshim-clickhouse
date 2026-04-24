@@ -42,10 +42,10 @@ func tryRenderFusedRangeAggregationLogical(ctx LoweringCtx, n *logicalpkg.Aggreg
 		return renderedFragment{}, false, fmt.Errorf("fused range aggregation (logical) requires a native analysis")
 	}
 	aggInfo := ctx.NativeAnalysis.InfoFor(n)
-	if aggInfo == nil || aggInfo.Fragment == nil || aggInfo.Fragment.Aggregation == nil {
+	if aggInfo == nil || aggInfo.Aggregation == nil {
 		return renderedFragment{}, false, nil
 	}
-	emitZeroOnEmpty := aggInfo.Fragment.Aggregation.EmitZeroOnEmpty
+	emitZeroOnEmpty := aggInfo.Aggregation.EmitZeroOnEmpty
 
 	sql, queryParams, err := renderFusedRangeAggregationLogicalSQL(ctx, n)
 	if err != nil {
@@ -118,49 +118,48 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 
 	switch child := childNode.(type) {
 	case *logicalpkg.LeafExprPlan:
-		matrix, isMatrix := child.Expr.(*parser.MatrixSelector)
+		_, isMatrix := child.Expr.(*parser.MatrixSelector)
 		if !isMatrix {
 			return "", nil, fmt.Errorf("fused range aggregation (logical) requires a matrix-selector leaf child")
 		}
-		// Read the selector from the cached aggregation Fragment so the
-		// already-applied projection narrowing (RequireFullTags /
-		// RequiredTagLabels) flows through to the AggregationSource
-		// byte-identically with the Fragment-side helper.
-		selectorFragment, err := fusedRangeLeafSelectorFragment(ctx, rangeNode)
-		if err != nil {
-			return "", nil, err
+		// Read the leaf's SourceExprView / LeafSelector off the analysis
+		// side-map so the already-applied projection narrowing
+		// (RequireFullTags / RequiredTagLabels) flows through to the
+		// AggregationSource byte-identically with the Fragment-side helper.
+		// Both fields are populated by native.Analyze for the leaf node.
+		leafInfo := ctx.NativeAnalysis.InfoFor(child)
+		if leafInfo == nil || leafInfo.LeafSelector == nil || leafInfo.SourceExpr == nil {
+			return "", nil, fmt.Errorf("fused range aggregation (logical) leaf selector metadata missing")
 		}
-		if selectorFragment == nil || selectorFragment.Selector == nil {
-			return "", nil, fmt.Errorf("fused range aggregation (logical) leaf selector fragment missing")
-		}
-		_ = matrix // matrix is the parser-side structural anchor; selector data comes from the fragment cache.
-
-		lookbackMS := selectorFragment.Selector.Lookback.Milliseconds()
-		offsetMS := selectorFragment.Selector.Offset.Milliseconds()
-		if sourceWrapperIsIdentity(selectorFragment) && fn == "rate" && preferDirectSelectorWindowJoin(lookbackMS, ctx.Params.StepMS) {
-			childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment, ctx.Params.StartMS, ctx.Params.EndMS)
-			source, err := renderAggregationSource(selectorFragment, ctx.Params)
+		view := leafInfo.SourceExpr
+		sel := leafInfo.LeafSelector
+		lookbackMS := sel.Lookback.Milliseconds()
+		offsetMS := sel.Offset.Milliseconds()
+		isIdentity := view.ValueExpr == "{value}" && view.TagsExpr == "{tags}" && !view.DropsMetric
+		if isIdentity && fn == "rate" && preferDirectSelectorWindowJoin(lookbackMS, ctx.Params.StepMS) {
+			childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
+			source, err := renderAggregationSourceView(view, ctx.Params)
 			if err != nil {
 				return "", nil, err
 			}
-			tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(selectorFragment.Selector))
+			tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(sel))
 			return storage.BuildRangeWindowSelectorDirectAggregateRowsQuerySQLWithFinalTags(ctx.Config, *source.Selector, childRequiredStartMS, childRequiredEndMS, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, fn, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
 		}
-		if sourceWrapperIsIdentity(selectorFragment) && preferDirectSelectorWindowJoin(lookbackMS, ctx.Params.StepMS) {
-			childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment, ctx.Params.StartMS, ctx.Params.EndMS)
-			source, err := renderAggregationSource(selectorFragment, ctx.Params)
+		if isIdentity && preferDirectSelectorWindowJoin(lookbackMS, ctx.Params.StepMS) {
+			childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
+			source, err := renderAggregationSourceView(view, ctx.Params)
 			if err != nil {
 				return "", nil, err
 			}
 			windowValueExpr := rangeFunctionValueExpr(fn, "window_series", "window_values", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", lookbackMS)
-			tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(selectorFragment.Selector))
+			tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(sel))
 			return storage.BuildRangeWindowSelectorRowsQuerySQLWithFinalTags(ctx.Config, *source.Selector, childRequiredStartMS, childRequiredEndMS, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, fn, windowValueExpr, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
 		}
 		// Non-fast-path leaf branch: Phase-6c replacement for the
 		// Fragment-side RenderFragment at line 92 of
 		// renderRangeFunctionRowsSQL. Recurse into the leaf via
 		// renderer.Lower so the leaf SQL is driven off the logical plan.
-		childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(selectorFragment, ctx.Params.StartMS, ctx.Params.EndMS)
+		childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
 		childCtx := ctx
 		childCtx.Params = RenderParams{
 			Mode:                native.RenderModeRange,
@@ -175,7 +174,7 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 		if err != nil {
 			return "", nil, err
 		}
-		tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(selectorFragment.Selector))
+		tagsExpr := rangeFunctionTagsExprFromInput(fn, selectorOutputHasMetricName(sel))
 		sql, err := buildRangeFunctionOverWindowedArraysRowsSQL(trimRenderedQuerySQL(childRendered.SQL), fn, tagsExpr, paramNumber, paramNumbers, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, lookbackMS, offsetMS)
 		if err != nil {
 			return "", nil, err
@@ -234,25 +233,3 @@ func rangeFunctionParamNumbers(rangeNode logicalpkg.Node) (*float64, []*float64)
 	}
 }
 
-// fusedRangeLeafSelectorFragment fetches the already-optimized
-// leaf-selector Fragment reached from a fused-range aggregation shape.
-// The caller has already verified that ctx.NativeAnalysis.InfoFor(agg)
-// exists and that the shape is fusable; here we walk into the cached
-// aggregation fragment to reach Aggregation.Source.RangeFunction.Child,
-// which holds the leaf SelectorSource with applySelectorProjection-
-// narrowed RequireFullTags / RequiredTagLabels.
-//
-// This is a transitional read of the cached Fragment. A future phase
-// can replace it by re-deriving the narrowing on the logical side, at
-// which point the cached aggregation Fragment is no longer consulted
-// here.
-func fusedRangeLeafSelectorFragment(ctx LoweringCtx, rangeNode logicalpkg.Node) (*native.NativeFragment, error) {
-	if ctx.NativeAnalysis == nil {
-		return nil, fmt.Errorf("fused range aggregation (logical) requires a native analysis")
-	}
-	info := ctx.NativeAnalysis.InfoFor(rangeNode)
-	if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil || info.Fragment.RangeFunction.Child == nil {
-		return nil, fmt.Errorf("fused range aggregation (logical) leaf selector fragment missing")
-	}
-	return info.Fragment.RangeFunction.Child, nil
-}

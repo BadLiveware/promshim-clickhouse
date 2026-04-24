@@ -175,19 +175,6 @@ intended for rollout confidence, not durable audit storage.
 
 ## PromQL coverage
 
-### We measure, not guess
-
-The compatibility claim above is backed by gates that compare promshim with a
-reference Prometheus instead of relying on hand-written smoke tests:
-
-- `go run ./cmd/promshim-matrix` generates `.pi/path2-compliance-matrix.md` and
-  `.pi/path2-compliance-matrix.json` from the parser-visible feature surface.
-- `./scripts/run-compliance.sh` runs the full upstream
-  `prometheus/compliance` PromQL suite against reference Prometheus and promshim
-  on the same frozen fixture.
-- `./scripts/run-harness.sh` runs repo-owned differential corpora,
-  dashboard-focused corpora, compliance, and the benchmark tripwire.
-
 ### Supported in tier 2 native SQL
 
 Tier 2 native SQL is a complete PromQL execution path for the float-sample and
@@ -232,6 +219,19 @@ Known accepted deviations are intentionally narrow and live in
 
 Anything else is treated as a visible bug or coverage gap, not something to
 hide in the allowlist.
+
+### Validation
+
+The compatibility claim is checked continuously against Prometheus, not inferred
+from a few examples:
+
+- `go run ./cmd/promshim-matrix` generates `.pi/path2-compliance-matrix.md` and
+  `.pi/path2-compliance-matrix.json` from the parser-visible feature surface.
+- `./scripts/run-compliance.sh` runs the full upstream
+  `prometheus/compliance` PromQL suite against reference Prometheus and promshim
+  on the same frozen fixture.
+- `./scripts/run-harness.sh` runs repo-owned differential corpora,
+  dashboard-focused corpora, compliance, and the benchmark tripwire.
 
 ## Data model assumptions
 

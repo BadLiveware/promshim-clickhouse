@@ -155,24 +155,20 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 			}
 		case *logicalpkg.SubqueryPlan:
 			if child != nil && child.Child != nil && canUseInstantRangeFunctionRowsFastPath(fn) {
-				// Pure-logical read: the range-function node's LoweringInfo
-				// carries the cached SubqueryFragment directly via
-				// RangeFunctionSubquery (see analysis.go — populated at each
-				// of the seven range-function Analyze emission sites for
-				// subquery children). We no longer dereference
-				// info.Fragment.RangeFunction here.
-				info := ctx.NativeAnalysis.InfoFor(n)
-				if info != nil && info.RangeFunctionSubquery != nil && info.RangeFunctionSubquery.Child != nil {
-					subqueryFrag := info.RangeFunctionSubquery
-					if childRowsSQL, childParams, ok, err := tryRenderSubqueryRowsSource(cfg, subqueryFrag, params); err != nil {
+				// Pure-logical read: the subquery's child is inspected via
+				// tryRenderSubqueryRowsSourceLogical, which matches the
+				// aggregation-over-range-function fused shape directly off
+				// the logical plan. Task 13c-14d-1 retires the Fragment-
+				// backed tryRenderSubqueryRowsSource/RangeFunctionSubquery
+				// read here.
+				if childRowsSQL, childParams, ok, err := tryRenderSubqueryRowsSourceLogical(ctx, child); err != nil {
+					return renderedFragment{}, err
+				} else if ok {
+					sql, err := buildInstantRangeFunctionOverRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, subqueryRowsOutputTagsExprLogical(child, fn), params.EvaluationTimeMS)
+					if err != nil {
 						return renderedFragment{}, err
-					} else if ok {
-						sql, err := buildInstantRangeFunctionOverRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, subqueryRowsOutputTagsExpr(subqueryFrag, fn), params.EvaluationTimeMS)
-						if err != nil {
-							return renderedFragment{}, err
-						}
-						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childParams}, nil
 					}
+					return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childParams}, nil
 				}
 			}
 		}
@@ -301,28 +297,26 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 			}
 		case *logicalpkg.SubqueryPlan:
 			if child != nil && child.Child != nil {
-				// Subquery-child fast path first: reuse tryRenderSubqueryRowsSource
-				// against the cached subquery fragment, read off the range-
-				// function node's LoweringInfo.RangeFunctionSubquery — no
-				// info.Fragment dereference required.
-				info := ctx.NativeAnalysis.InfoFor(n)
-				if info != nil && info.RangeFunctionSubquery != nil && info.RangeFunctionSubquery.Child != nil {
-					subqueryFrag := info.RangeFunctionSubquery
-					if childRowsSQL, childParams, ok, err := tryRenderSubqueryRowsSource(cfg, subqueryFrag, params); err != nil {
-						return renderedFragment{}, err
-					} else if ok {
-						var sql string
-						childTagsExpr := subqueryRowsOutputTagsExpr(subqueryFrag, fn)
-						if canUseRangeFunctionRowsFastPath(fn) {
-							sql, err = buildRangeFunctionOverRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, childTagsExpr, params.StartMS, params.EndMS, params.StepMS, subqueryFrag.Range.Milliseconds(), subqueryFrag.Offset.Milliseconds())
-						} else {
-							sql, err = buildRangeFunctionOverWindowedRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, paramNumber, paramNumbers, params.StartMS, params.EndMS, params.StepMS, subqueryFrag.Range.Milliseconds(), subqueryFrag.Offset.Milliseconds())
-						}
-						if err != nil {
-							return renderedFragment{}, err
-						}
-						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childParams}, nil
+				// Subquery-child fast path first: the logical
+				// tryRenderSubqueryRowsSourceLogical helper inspects the
+				// logical subquery child directly for the fused
+				// aggregation-over-range-function shape. Task 13c-14d-1
+				// retires the Fragment-backed tryRenderSubqueryRowsSource
+				// / RangeFunctionSubquery read here.
+				if childRowsSQL, childParams, ok, err := tryRenderSubqueryRowsSourceLogical(ctx, child); err != nil {
+					return renderedFragment{}, err
+				} else if ok {
+					var sql string
+					childTagsExpr := subqueryRowsOutputTagsExprLogical(child, fn)
+					if canUseRangeFunctionRowsFastPath(fn) {
+						sql, err = buildRangeFunctionOverRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, childTagsExpr, params.StartMS, params.EndMS, params.StepMS, child.Range.Milliseconds(), child.Offset.Milliseconds())
+					} else {
+						sql, err = buildRangeFunctionOverWindowedRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, paramNumber, paramNumbers, params.StartMS, params.EndMS, params.StepMS, child.Range.Milliseconds(), child.Offset.Milliseconds())
 					}
+					if err != nil {
+						return renderedFragment{}, err
+					}
+					return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childParams}, nil
 				}
 				// Subquery fallback (Phase-6d retirement of the Fragment-side
 				// RenderFragment at range.go:223). Lower the logical subquery
@@ -467,4 +461,76 @@ func tryRenderFusedRangeAggregationLogicalDirect(cfg storage.QueryConfig, agg *l
 		Params:         params,
 	}
 	return tryRenderFusedRangeAggregationLogical(ctx, agg)
+}
+
+// tryRenderSubqueryRowsSourceLogical is the logical-plan port of
+// tryRenderSubqueryRowsSource. It inspects the SubqueryPlan's logical child:
+// when that child is an AggregationPlan whose shape matches
+// canFuseRangeAggregationLogicalDirect, it renders the fused
+// range+aggregation rows via renderFusedRangeAggregationLogicalRowsSQL over
+// a child-rendering envelope carved from the subquery bounds. Non-matching
+// shapes return ok=false so the caller falls back to the standard subquery
+// rendering.
+func tryRenderSubqueryRowsSourceLogical(ctx LoweringCtx, n *logicalpkg.SubqueryPlan) (string, map[string]string, bool, error) {
+	if n == nil || n.Child == nil {
+		return "", nil, false, nil
+	}
+	agg, ok := n.Child.(*logicalpkg.AggregationPlan)
+	if !ok || agg == nil {
+		return "", nil, false, nil
+	}
+	startMS, endMS, stepMS, err := subqueryRenderEnvelopeLogical(n, ctx.Params)
+	if err != nil {
+		return "", nil, false, err
+	}
+	childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(n.Child, startMS, endMS)
+	childCtx := LoweringCtx{
+		Config:         ctx.Config,
+		Analysis:       ctx.Analysis,
+		NativeAnalysis: ctx.NativeAnalysis,
+		Params: RenderParams{
+			Mode:                native.RenderModeRange,
+			StartMS:             startMS,
+			EndMS:               endMS,
+			StepMS:              stepMS,
+			RequiredStartMS:     childRequiredStartMS,
+			RequiredEndMS:       childRequiredEndMS,
+			ResolveSourcePromQL: ctx.Params.ResolveSourcePromQL,
+		},
+	}
+	if !canFuseRangeAggregationLogicalDirect(agg, childCtx.Params) {
+		return "", nil, false, nil
+	}
+	rowsSQL, rowParams, err := renderFusedRangeAggregationLogicalRowsSQL(childCtx, agg)
+	if err != nil {
+		return "", nil, false, err
+	}
+	return trimRenderedQuerySQL(rowsSQL), rowParams, true, nil
+}
+
+// subqueryRowsOutputHasMetricNameLogical mirrors
+// subqueryRowsOutputHasMetricName. It walks the logical subquery child
+// (expected to be an AggregationPlan wrapping a range-function plan) and
+// returns whether the inner range function preserves the metric name.
+// Falls back to true (conservative) for shapes that do not match the
+// aggregation-over-range-function pattern.
+func subqueryRowsOutputHasMetricNameLogical(n *logicalpkg.SubqueryPlan) bool {
+	if n == nil || n.Child == nil {
+		return true
+	}
+	agg, ok := n.Child.(*logicalpkg.AggregationPlan)
+	if !ok || agg == nil || agg.Child == nil {
+		return true
+	}
+	_, fn, ok := rangeFunctionChildNode(agg.Child)
+	if !ok {
+		return true
+	}
+	return native.RangeFunctionPreservesMetricName(fn)
+}
+
+// subqueryRowsOutputTagsExprLogical is the logical-plan counterpart of
+// subqueryRowsOutputTagsExpr.
+func subqueryRowsOutputTagsExprLogical(n *logicalpkg.SubqueryPlan, outerFn string) string {
+	return rangeFunctionTagsExprFromInput(outerFn, subqueryRowsOutputHasMetricNameLogical(n))
 }

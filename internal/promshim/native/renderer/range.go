@@ -5,72 +5,10 @@ import (
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native"
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/BadLiveware/promshim-ch/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-ch/internal/promshim/storage"
 )
-
-func renderSubqueryFragment(cfg storage.QueryConfig, fragment *native.NativeFragment, params RenderParams) (renderedFragment, error) {
-	if fragment.Subquery == nil || fragment.Subquery.Child == nil {
-		return renderedFragment{}, fmt.Errorf("subquery fragment is missing subquery metadata")
-	}
-	startMS, endMS, stepMS, err := subqueryRenderEnvelope(fragment.Subquery, params)
-	if err != nil {
-		return renderedFragment{}, err
-	}
-	childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(fragment.Subquery.Child, startMS, endMS)
-	return renderFragment(cfg, fragment.Subquery.Child, RenderParams{
-		Mode:                native.RenderModeRange,
-		StartMS:             startMS,
-		EndMS:               endMS,
-		StepMS:              stepMS,
-		RequiredStartMS:     childRequiredStartMS,
-		RequiredEndMS:       childRequiredEndMS,
-		ResolveSourcePromQL: params.ResolveSourcePromQL,
-	})
-}
-
-func subqueryRenderEnvelope(fragment *native.SubqueryFragment, params RenderParams) (int64, int64, int64, error) {
-	if fragment == nil {
-		return 0, 0, 0, fmt.Errorf("subquery fragment is missing subquery metadata")
-	}
-	if fragment.Range <= 0 {
-		return 0, 0, 0, fmt.Errorf("subquery range must be greater than zero")
-	}
-	step := fragment.Step
-	if step <= 0 {
-		step = time.Minute
-	}
-	stepMS := step.Milliseconds()
-	if stepMS <= 0 {
-		return 0, 0, 0, fmt.Errorf("subquery step must be greater than zero")
-	}
-
-	rangeMS := fragment.Range.Milliseconds()
-	offsetMS := fragment.Offset.Milliseconds()
-
-	switch params.Mode {
-	case native.RenderModeInstant:
-		endMS := params.EvaluationTimeMS
-		if fragment.Timestamp != nil {
-			endMS = *fragment.Timestamp
-		}
-		endMS -= offsetMS
-		startMS := alignSubqueryStepStart(endMS-rangeMS, stepMS)
-		return startMS, endMS, stepMS, nil
-	case native.RenderModeRange:
-		// Range-mode subquery rendering materializes the inner step-grid over the
-		// current outer query envelope. Fixed @ anchors are rejected earlier by the
-		// planner's range-mode temporal-anchor guard, so the expanding envelope here
-		// intentionally follows the outer range bounds.
-		endMS := params.EndMS - offsetMS
-		startMS := alignSubqueryStepStart(params.StartMS-offsetMS-rangeMS, stepMS)
-		return startMS, endMS, stepMS, nil
-	default:
-		return 0, 0, 0, fmt.Errorf("native subquery rendering in %s mode is not implemented yet", params.Mode)
-	}
-}
 
 func preferDirectSelectorWindowJoin(lookbackMS, stepMS int64) bool {
 	if lookbackMS <= 0 || stepMS <= 0 {
@@ -342,34 +280,6 @@ func rangeFunctionRowsFastPathValueExpr(fn, valueIdent string) (sqlb.Expr, error
 	}
 }
 
-func tryRenderSubqueryRowsSource(cfg storage.QueryConfig, fragment *native.SubqueryFragment, params RenderParams) (string, map[string]string, bool, error) {
-	if fragment == nil || fragment.Child == nil {
-		return "", nil, false, nil
-	}
-	startMS, endMS, stepMS, err := subqueryRenderEnvelope(fragment, params)
-	if err != nil {
-		return "", nil, false, err
-	}
-	childRequiredStartMS, childRequiredEndMS := rangeRequiredBoundsForChild(fragment.Child, startMS, endMS)
-	childParams := RenderParams{
-		Mode:                native.RenderModeRange,
-		StartMS:             startMS,
-		EndMS:               endMS,
-		StepMS:              stepMS,
-		RequiredStartMS:     childRequiredStartMS,
-		RequiredEndMS:       childRequiredEndMS,
-		ResolveSourcePromQL: params.ResolveSourcePromQL,
-	}
-	if fragment.Child.Kind == native.FragmentKindAggregation && canFuseRangeAggregationFragment(fragment.Child, childParams) {
-		rowsSQL, rowParams, err := renderFusedRangeAggregationRowsSQL(cfg, fragment.Child, childParams)
-		if err != nil {
-			return "", nil, false, err
-		}
-		return trimRenderedQuerySQL(rowsSQL), rowParams, true, nil
-	}
-	return "", nil, false, nil
-}
-
 func buildInstantRangeFunctionSQL(sourceSQL, fn, tagsExpr string, paramNumber *float64, paramNumbers []*float64, evaluationTimeMS int64, rangeMS int64) (string, error) {
 	timestampExpr := "tupleElement(arrayElement(time_series, length(time_series)), 1)"
 	if fn == "predict_linear" {
@@ -529,17 +439,6 @@ func selectorOutputHasMetricName(selector *native.SelectorSource) bool {
 		}
 	}
 	return false
-}
-
-func subqueryRowsOutputTagsExpr(fragment *native.SubqueryFragment, outerFn string) string {
-	return rangeFunctionTagsExprFromInput(outerFn, subqueryRowsOutputHasMetricName(fragment))
-}
-
-func subqueryRowsOutputHasMetricName(fragment *native.SubqueryFragment) bool {
-	if fragment == nil || fragment.Child == nil || fragment.Child.Aggregation == nil || fragment.Child.Aggregation.Source == nil || fragment.Child.Aggregation.Source.RangeFunction == nil {
-		return true
-	}
-	return native.RangeFunctionPreservesMetricName(fragment.Child.Aggregation.Source.RangeFunction.Func)
 }
 
 // extrapolationFactorSQL builds a ClickHouse expression for Prometheus's

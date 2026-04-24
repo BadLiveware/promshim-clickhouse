@@ -27,6 +27,14 @@ func TestHistogramProjectionLogicalMatchesFragment(t *testing.T) {
 		`histogram_stdvar(http_request_duration_seconds_bucket{job="api"})`,
 		`histogram_count(sum by (le) (http_request_duration_seconds_bucket{job="api"}))`,
 		`histogram_sum(sum by (le, job) (http_request_duration_seconds_bucket{job="api"}))`,
+		// Non-narrowing aggregation shapes: without clause and empty
+		// grouping both drop into decideHistogramChildNarrowing's
+		// require-full-tags branch, so the child Fragment is rendered
+		// with the full selector shape. These cases guard against
+		// regressions in the non-narrowed branch of
+		// renderClassicHistogramGroupsQueryLogical.
+		`histogram_count(sum without (instance) (http_request_duration_seconds_bucket{job="api"}))`,
+		`histogram_sum(sum (http_request_duration_seconds_bucket{job="api"}))`,
 	}
 
 	for _, query := range queries {

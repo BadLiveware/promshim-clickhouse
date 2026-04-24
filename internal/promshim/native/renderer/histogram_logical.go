@@ -57,6 +57,78 @@ func renderHistogramProjectionLogical(cfg storage.QueryConfig, analysis *native.
 	return histogramOutputFragment(histograms, valueExpr, params.Mode, "histogram_projection_steps"), nil
 }
 
+// renderHistogramFunctionLogical renders a histogram-function plan node
+// (HistogramQuantilePlan, HistogramFractionPlan, or HistogramQuantilesPlan)
+// without constructing a top-level NativeFragment at the lowerer boundary.
+// Tag-narrowing for a grouping-aggregation child is threaded through
+// RenderParams using histogramFunctionChildAggregation +
+// decideHistogramChildNarrowing, mirroring the projection approach in
+// renderHistogramProjectionLogical.
+//
+// Phase A2 transitional: the renderer materializes the whole histogram-function
+// Fragment on demand (BuildFragment on the node itself) and delegates to
+// renderHistogramFunctionFragment. The child Fragment's selector is
+// pre-narrowed via applyRenderParamsNarrowing so the legacy
+// narrowHistogramAggregationChildTags inside renderClassicHistogramGroupsQuery
+// is idempotent. Fragment materialization retires in Phase C (Task 13).
+func renderHistogramFunctionLogical(cfg storage.QueryConfig, analysis *native.Analysis, n logicalpkg.Node, params RenderParams) (renderedFragment, error) {
+	if n == nil {
+		return renderedFragment{}, fmt.Errorf("renderer: histogram function requires a node")
+	}
+
+	// Compute narrowing from the histogram-function's child if it is a
+	// grouping aggregation. Non-aggregation children leave params untouched.
+	childParams := params
+	if aggChild := histogramFunctionChildAggregation(n); aggChild != nil {
+		requireFull, labels := decideHistogramChildNarrowing(aggChild)
+		childParams.RequireFullTags = requireFull
+		childParams.RequiredTagLabels = labels
+	}
+
+	// Phase-A2 transitional: build the whole histogram-function Fragment,
+	// then pre-narrow the child selector so the legacy helper is idempotent.
+	fragment, err := native.BuildFragment(n, analysis)
+	if err != nil {
+		return renderedFragment{}, errUnsupportedLowerNode
+	}
+	if fragment == nil || fragment.Kind != native.FragmentKindHistogramFunction {
+		return renderedFragment{}, errUnsupportedLowerNode
+	}
+	if fragment.HistogramFunction != nil && fragment.HistogramFunction.Child != nil {
+		fragment.HistogramFunction.Child = applyRenderParamsNarrowing(fragment.HistogramFunction.Child, childParams)
+	}
+
+	return renderHistogramFunctionFragment(cfg, fragment, params)
+}
+
+// histogramFunctionChildAggregation returns the AggregationPlan child of
+// any histogram-function plan kind, or nil when the child is not a direct
+// aggregation. The immediate child of each plan kind is the bucket expression;
+// unwrapToAggregation peels one level in case it is an AggregationPlan.
+// RangeFunction wrappers (e.g. rate(x[5m])) sit INSIDE the aggregation,
+// not outside it, so the immediate child of histogram_quantile(q, sum by (le)
+// (rate(...))) is the AggregationPlan — no additional peeling is needed.
+func histogramFunctionChildAggregation(n logicalpkg.Node) *logicalpkg.AggregationPlan {
+	switch h := n.(type) {
+	case *logicalpkg.HistogramQuantilePlan:
+		return unwrapToAggregation(h.Child)
+	case *logicalpkg.HistogramFractionPlan:
+		return unwrapToAggregation(h.Child)
+	case *logicalpkg.HistogramQuantilesPlan:
+		return unwrapToAggregation(h.Child)
+	default:
+		return nil
+	}
+}
+
+// unwrapToAggregation returns n as an *AggregationPlan, or nil if it is not one.
+func unwrapToAggregation(n logicalpkg.Node) *logicalpkg.AggregationPlan {
+	if agg, ok := n.(*logicalpkg.AggregationPlan); ok {
+		return agg
+	}
+	return nil
+}
+
 // applyRenderParamsNarrowing merges RenderParams narrowing fields onto
 // a child Fragment's underlying selector. It mirrors
 // narrowHistogramAggregationChildTags so the legacy

@@ -88,3 +88,68 @@ func queryParamsEqualForLogicalHistogram(a, b map[string]string) bool {
 	}
 	return true
 }
+
+// TestHistogramFunctionLogicalMatchesFragment is the Phase-A2 byte-equality
+// differential guard that locks the new logical-path rendering to the Fragment
+// path. It covers all three histogram-function plan kinds across leaf,
+// single-label grouping-aggregation, and multi-label grouping-aggregation
+// child shapes that drive the RenderParams-threaded tag-narrowing path in
+// renderHistogramFunctionLogical.
+//
+// The test renders each query through BOTH entry points — native.BuildFragment
+// + RenderFragment (Fragment path) and the new lowerHistogramFunction (which
+// now calls renderHistogramFunctionLogical instead of BuildFragment at the
+// boundary) — in both instant and range modes, and asserts byte-identical
+// SQL + QueryParams.
+func TestHistogramFunctionLogicalMatchesFragment(t *testing.T) {
+	queries := []string{
+		`histogram_quantile(0.9, foo_bucket)`,
+		`histogram_quantile(0.5, sum by (le) (rate(foo_bucket[5m])))`,
+		`histogram_quantile(0.99, sum by (le, job) (rate(foo_bucket[1m])))`,
+		`histogram_fraction(0.1, 0.2, foo_bucket)`,
+		`histogram_fraction(0.1, 0.2, sum by (le) (rate(foo_bucket[5m])))`,
+		`histogram_quantiles(foo_bucket, "quantile", 0.5, 0.9)`,
+	}
+
+	for _, query := range queries {
+		for _, mode := range []struct {
+			name   string
+			params RenderParams
+		}{
+			{name: "instant", params: testRenderParamsInstant()},
+			{name: "range", params: testRenderParamsRange()},
+		} {
+			t.Run(query+"/"+mode.name, func(t *testing.T) {
+				root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+
+				// Fragment path.
+				fragment, err := native.BuildFragment(root, nativeAnalysis)
+				if err != nil {
+					t.Fatalf("BuildFragment: %v", err)
+				}
+				wantRQ, err := RenderFragment(testRenderConfig(), fragment, mode.params)
+				if err != nil {
+					t.Fatalf("RenderFragment: %v", err)
+				}
+
+				// Logical path via the flipped lowerHistogramFunction.
+				gotRQ, err := lowerHistogramFunction(LoweringCtx{
+					Config:         testRenderConfig(),
+					Analysis:       analysis,
+					NativeAnalysis: nativeAnalysis,
+					Params:         mode.params,
+				}, root)
+				if err != nil {
+					t.Fatalf("lowerHistogramFunction: %v", err)
+				}
+
+				if gotRQ.SQL != wantRQ.SQL {
+					t.Fatalf("SQL mismatch for %q (%s)\nwant:\n%s\n\ngot:\n%s", query, mode.name, wantRQ.SQL, gotRQ.SQL)
+				}
+				if !queryParamsEqualForLogicalHistogram(gotRQ.QueryParams, wantRQ.QueryParams) {
+					t.Fatalf("QueryParams mismatch for %q (%s)\nwant: %v\ngot:  %v", query, mode.name, wantRQ.QueryParams, gotRQ.QueryParams)
+				}
+			})
+		}
+	}
+}

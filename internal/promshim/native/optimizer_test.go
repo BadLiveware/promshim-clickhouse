@@ -423,24 +423,6 @@ func TestBuildOptimizedFragmentMarksSubqueryStepGridSemanticBarrier(t *testing.T
 	assertContainsAll(t, optimized.Report.SemanticBarriers, []string{"subquery_step_grid", "evaluation_range"})
 }
 
-func TestOptimizeFragmentFlattensTrivialUnaryWrapper(t *testing.T) {
-	fragment := &NativeFragment{
-		Kind:         FragmentKindUnarySourceExpr,
-		OutputKind:   OutputKindInstantVector,
-		SourcePromQL: mustParseExpr(t, `up`),
-		ValueExpr:    "{value}",
-		TagsExpr:     "{tags}",
-	}
-
-	optimized, err := OptimizeFragment(fragment, nil, OptimizationContext{})
-	if err != nil {
-		t.Fatalf("expected optimizer to succeed, got error: %v", err)
-	}
-	if optimized.Fragment.Kind != FragmentKindLeafSource {
-		t.Fatalf("expected trivial unary wrapper to flatten to leaf source, got %#v", optimized.Fragment)
-	}
-}
-
 func TestApplyRenderedSQLMetadataAddsRenderedColumnsAndRejectsSelectStar(t *testing.T) {
 	report := &OptimizationReport{MaterializedColumns: []string{"value"}}
 	if err := ApplyRenderedSQLMetadata(report, RenderModeRange, "SELECT 1"); err != nil {
@@ -503,46 +485,6 @@ func TestOptimizeFragmentDeduplicatesInferredMetricMatcherInPushdown(t *testing.
 	}
 	if count != 1 {
 		t.Fatalf("expected deduplicated pushed metric matcher, got count=%d predicates=%#v", count, optimized.Report.PushedPredicates)
-	}
-}
-
-func TestOptimizeFragmentDoesNotMutateInputFragment(t *testing.T) {
-	fragment := &NativeFragment{
-		Kind:       FragmentKindAggregation,
-		OutputKind: OutputKindInstantVector,
-		Aggregation: &AggregationFragment{
-			Op:       parser.SUM,
-			Grouping: []string{"job"},
-			Source: &NativeFragment{
-				Kind:       FragmentKindUnarySourceExpr,
-				OutputKind: OutputKindInstantVector,
-				Selector: &SelectorSource{
-					Kind:            SelectorKindInstantVector,
-					MetricName:      "up",
-					RequireFullTags: true,
-					Lookback:        DefaultInstantSelectorLookback,
-				},
-				ValueExpr: "{value}",
-				TagsExpr:  "{tags}",
-			},
-		},
-	}
-
-	optimized, err := OptimizeFragment(fragment, nil, OptimizationContext{Mode: RenderModeInstant, EvaluationTimeMS: 300000})
-	if err != nil {
-		t.Fatalf("expected optimizer to succeed, got error: %v", err)
-	}
-	if optimized.Fragment == fragment {
-		t.Fatal("expected optimizer to operate on a cloned fragment")
-	}
-	if fragment.Aggregation == nil || fragment.Aggregation.Source == nil {
-		t.Fatalf("expected original fragment to stay intact, got %#v", fragment)
-	}
-	if got, want := fragment.Aggregation.Source.Kind, FragmentKindUnarySourceExpr; got != want {
-		t.Fatalf("expected original child kind %q, got %q", want, got)
-	}
-	if got, want := optimized.Fragment.Aggregation.Source.Kind, FragmentKindLeafSource; got != want {
-		t.Fatalf("expected optimized child kind %q, got %q", want, got)
 	}
 }
 

@@ -9,6 +9,21 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
+// IsSupportedNativeVectorJoinOp is the exported form of
+// isSupportedNativeVectorJoinOp, used by the renderer's direct-render
+// BinaryVectorJoin path to gate on operator+matching support without
+// bridging through NativeAnalysis.
+func IsSupportedNativeVectorJoinOp(op parser.ItemType, matching *parser.VectorMatching) bool {
+	return isSupportedNativeVectorJoinOp(op, matching)
+}
+
+// SupportedNativeVectorJoinShape is the exported form of
+// supportedNativeVectorJoinShape, used by the renderer's direct-render
+// BinaryVectorJoin path to derive JoinShape from the logical VectorMatching.
+func SupportedNativeVectorJoinShape(matching *parser.VectorMatching) (string, bool) {
+	return supportedNativeVectorJoinShape(matching)
+}
+
 func isSupportedNativeVectorJoinOp(op parser.ItemType, matching *parser.VectorMatching) bool {
 	normalized := normalizeVectorMatching(matching)
 	if isSetOperator(op) {

@@ -4,31 +4,24 @@ import (
 	"fmt"
 
 	logicalpkg "ch-observability/internal/promshim/logical"
-	"ch-observability/internal/promshim/native"
 )
 
 // lowerAggregation lowers any *logicalpkg.AggregationPlan (the single logical
-// node kind that produces FragmentKindAggregation) to a RenderedQuery via the
-// existing Fragment renderer internals.
+// node kind that produces FragmentKindAggregation) to a RenderedQuery by
+// delegating to renderAggregationLogical in aggregation_logical.go.
 //
-// Transitional dispatch port: the lowerer builds the Fragment on demand via
-// native.BuildFragment (which reuses the analysis side-map when present or
-// rebuilds it otherwise), validates the kind, then delegates to
-// renderAggregationFragment so SQL stays byte-identical to the Fragment path.
-// Once renderAggregationFragment and the fused range-aggregation helpers port
-// to logical children, this lowerer can drop the Fragment materialization.
+// The lowerer no longer calls the Fragment builder at the boundary; Fragment
+// materialization is performed transitionally inside renderAggregationLogical
+// (Phase A4 scaffolding; retires in Phase C).
 //
-// The aggregation-range-fused path (where the aggregation's source fragment is
-// a FragmentKindRangeFunction) is handled naturally inside
-// renderAggregationFragment via tryRenderFusedRangeAggregationFragment — no
-// separate dispatch is required here.
+// Hierarchical fallback: if renderAggregationLogical returns
+// errUnsupportedLowerNode the caller falls back to the Fragment rendering
+// path wholesale.
 //
 // Covered ops: sum, avg, count, min, max, stddev, stdvar, topk, bottomk,
-// quantile, group, count_values, with or without label groupings.
-//
-// Hierarchical fallback: if BuildFragment rejects the node (e.g. because the
-// child selector isn't lowerable) we return errUnsupportedLowerNode so the
-// caller falls back to the Fragment rendering path wholesale.
+// quantile, group, count_values, with or without label groupings. The
+// aggregation-range-fused path is handled transparently inside
+// renderAggregationFragment via tryRenderFusedRangeAggregationFragment.
 func lowerAggregation(ctx LoweringCtx, n *logicalpkg.AggregationPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerAggregation called with nil")
@@ -36,14 +29,7 @@ func lowerAggregation(ctx LoweringCtx, n *logicalpkg.AggregationPlan) (RenderedQ
 	if ctx.Analysis == nil || ctx.Analysis.InfoFor(n) == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: aggregation missing logical analysis")
 	}
-	fragment, err := native.BuildFragment(n, ctx.NativeAnalysis)
-	if err != nil {
-		return RenderedQuery{}, errUnsupportedLowerNode
-	}
-	if fragment == nil || fragment.Kind != native.FragmentKindAggregation {
-		return RenderedQuery{}, errUnsupportedLowerNode
-	}
-	rendered, err := renderAggregationFragment(ctx.Config, fragment, ctx.Params)
+	rendered, err := renderAggregationLogical(ctx.Config, ctx.NativeAnalysis, n, ctx.Params)
 	if err != nil {
 		return RenderedQuery{}, err
 	}

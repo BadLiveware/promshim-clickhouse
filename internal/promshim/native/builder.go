@@ -1,28 +1,5 @@
 package native
 
-import (
-	"fmt"
-
-	logicalpkg "github.com/BadLiveware/promshim-ch/internal/promshim/logical"
-)
-
-func BuildFragment(node logicalpkg.Node, analysis *Analysis) (*NativeFragment, error) {
-	if node == nil {
-		return nil, fmt.Errorf("native fragment build requires a logical plan node")
-	}
-	if analysis == nil {
-		analysis = Analyze(node)
-	}
-	info := analysis.InfoFor(node)
-	if info == nil {
-		return nil, fmt.Errorf("native fragment build could not find lowering info for %T", node)
-	}
-	if info.Fragment == nil {
-		return nil, fmt.Errorf("logical node %T is not lowerable to a native fragment", node)
-	}
-	return CloneFragment(info.Fragment), nil
-}
-
 func CloneFragment(fragment *NativeFragment) *NativeFragment {
 	if fragment == nil {
 		return nil

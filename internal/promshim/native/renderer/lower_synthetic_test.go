@@ -130,21 +130,45 @@ func TestLowerPointwiseFunctionGolden(t *testing.T) {
 	}
 }
 
-// TestLowerPointwiseFunctionUnsupportedFallsBack guards the sentinel
-// path: a PointwiseFunctionPlan with a child (e.g. abs(up)) must
-// return errUnsupportedLowerNode so the caller falls back to Fragment
-// rendering. The Lower surface only handles the zero-arg synthetic
-// shape.
-func TestLowerPointwiseFunctionUnsupportedFallsBack(t *testing.T) {
-	root, analysis, nativeAnalysis := buildLowerInputs(t, `abs(up)`)
-	_, err := Lower(LoweringCtx{
-		Config:         testRenderConfig(),
-		Analysis:       analysis,
-		NativeAnalysis: nativeAnalysis,
-		Params:         testRenderParamsInstant(),
-	}, root)
-	if !IsUnsupportedByLower(err) {
-		t.Fatalf("expected errUnsupportedLowerNode for abs(up), got %v", err)
+// TestLowerPointwiseFunctionUnarySourceExprMatchesFragment verifies that
+// a PointwiseFunctionPlan with a vector child (e.g. abs(up)) lowers
+// through Lower and produces byte-identical SQL to the Fragment path.
+// This replaces the earlier "falls back" guard: Lower now handles the
+// unary source-expression shape directly via the cached
+// FragmentKindUnarySourceExpr.
+func TestLowerPointwiseFunctionUnarySourceExprMatchesFragment(t *testing.T) {
+	for _, query := range []string{`abs(up)`, `sqrt(up)`, `ceil(up)`} {
+		for _, mode := range []struct {
+			name   string
+			params RenderParams
+		}{
+			{name: "instant", params: testRenderParamsInstant()},
+			{name: "range", params: testRenderParamsRange()},
+		} {
+			t.Run(query+"_"+mode.name, func(t *testing.T) {
+				root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+				lowerRQ, err := Lower(LoweringCtx{
+					Config:         testRenderConfig(),
+					Analysis:       analysis,
+					NativeAnalysis: nativeAnalysis,
+					Params:         mode.params,
+				}, root)
+				if err != nil {
+					t.Fatalf("Lower: %v", err)
+				}
+				fragment, err := native.BuildFragment(root, nativeAnalysis)
+				if err != nil {
+					t.Fatalf("BuildFragment: %v", err)
+				}
+				fragmentRQ, err := RenderFragment(testRenderConfig(), fragment, mode.params)
+				if err != nil {
+					t.Fatalf("RenderFragment: %v", err)
+				}
+				if lowerRQ.SQL != fragmentRQ.SQL {
+					t.Errorf("SQL differs:\nLower:    %s\nFragment: %s", lowerRQ.SQL, fragmentRQ.SQL)
+				}
+			})
+		}
 	}
 }
 

@@ -2,6 +2,7 @@ package local
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"time"
 
@@ -188,37 +189,30 @@ func (p *nativeSubtreePlan) renderSQL(cfg storage.QueryConfig, renderParams rend
 		lowerAnalysis = logicalpkg.Analyze(p.Node)
 		lowerNativeAnaly = p.Analysis
 	}
-	rq, err := renderNativeSubtreeSQL(cfg, renderParams, p.Fragment, lowerNode, lowerAnalysis, lowerNativeAnaly)
+	rq, err := renderNativeSubtreeSQL(cfg, renderParams, lowerNode, lowerAnalysis, lowerNativeAnaly)
 	if err != nil {
 		return renderer.RenderedQuery{}, WithInternalContext(err, "rendering native subtree SQL for %q", p.Expr)
 	}
 	return rq, nil
 }
 
-// renderNativeSubtreeSQL is the shared Lower-first render dispatch
+// renderNativeSubtreeSQL is the shared Lower-based render dispatch
 // used by both construction-time pre-render (for explain metadata)
-// and execute-time renderSQL. When (node, analysis, nativeAnalysis)
-// are all non-nil, renderer.Lower is attempted first; if Lower
-// reports errUnsupportedLowerNode, the call falls through to
-// renderer.RenderFragment so the query still renders correctly.
-// With node == nil, only the Fragment path is used.
-func renderNativeSubtreeSQL(cfg storage.QueryConfig, renderParams renderer.RenderParams, fragment *nativeplan.NativeFragment, node logicalpkg.Node, analysis *logicalpkg.Analysis, nativeAnalysis *nativeplan.Analysis) (renderer.RenderedQuery, error) {
-	if node != nil && analysis != nil && nativeAnalysis != nil {
-		lowerCtx := renderer.LoweringCtx{
-			Config:         cfg,
-			Analysis:       analysis,
-			NativeAnalysis: nativeAnalysis,
-			Params:         renderParams,
-		}
-		rq, err := renderer.Lower(lowerCtx, node)
-		if err == nil {
-			return rq, nil
-		}
-		if !renderer.IsUnsupportedByLower(err) {
-			return renderer.RenderedQuery{}, err
-		}
+// and execute-time renderSQL. Requires (node, analysis, nativeAnalysis)
+// to be non-nil — every tier-3 subtree plan and the tier-2 whole-query
+// plan populate them. Errors from Lower — including the
+// errUnsupportedLowerNode sentinel — surface to the caller as hard
+// failures; there is no Fragment fallback.
+func renderNativeSubtreeSQL(cfg storage.QueryConfig, renderParams renderer.RenderParams, node logicalpkg.Node, analysis *logicalpkg.Analysis, nativeAnalysis *nativeplan.Analysis) (renderer.RenderedQuery, error) {
+	if node == nil || analysis == nil || nativeAnalysis == nil {
+		return renderer.RenderedQuery{}, fmt.Errorf("native subtree render requires logical node, logical analysis, and native analysis")
 	}
-	return renderer.RenderFragment(cfg, fragment, renderParams)
+	return renderer.Lower(renderer.LoweringCtx{
+		Config:         cfg,
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         renderParams,
+	}, node)
 }
 
 // preRenderNativeSubtreePlanSQL pre-renders the optimized fragment
@@ -249,7 +243,7 @@ func preRenderNativeSubtreePlanSQL(node logicalpkg.Node, analysis *nativeplan.An
 	if node != nil {
 		logicalAnalysis = logicalpkg.Analyze(node)
 	}
-	rendered, err := renderNativeSubtreeSQL(cfg, renderParams, optimized.Fragment, node, logicalAnalysis, analysis)
+	rendered, err := renderNativeSubtreeSQL(cfg, renderParams, node, logicalAnalysis, analysis)
 	if err != nil {
 		return err
 	}
@@ -367,7 +361,7 @@ func explainNativeAggregationSource(info *nativeplan.LoweringInfo) ExplainNode {
 		return ExplainNode{}
 	}
 	strategy := "native_sql_expression"
-	if info.Fragment != nil && info.Fragment.Kind == nativeplan.FragmentKindLeafSource {
+	if info.SubtreeShape == nativeplan.FragmentKindLeafSource {
 		strategy = "delegated_promql"
 	}
 	children := make([]ExplainNode, 0, len(info.Children))

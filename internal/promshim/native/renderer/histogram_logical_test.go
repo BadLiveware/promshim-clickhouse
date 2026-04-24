@@ -138,10 +138,20 @@ func TestHistogramFunctionLogicalMatchesFragment(t *testing.T) {
 		`histogram_fraction(0.1, 0.2, sum by (le) (rate(foo_bucket[5m])))`,
 		// Quantiles variant with grouping-aggregation child — exercises
 		// both the logical-child path for the classic histograms and the
-		// transitional BuildFragment inside the histogram_quantiles branch
-		// (needed for the scalar-binding Quantiles []*NativeFragment).
+		// per-quantile scalar bindings in the histogram_quantiles branch
+		// (Phase 6b: now iterated off HistogramQuantilesPlan.ParamChildren
+		// via renderInstantScalarBindingFromLogical/renderRangeScalarBindingFromLogical).
 		`histogram_quantiles(sum by (le) (rate(foo_bucket[5m])), "quantile", 0.5, 0.9, 0.99)`,
 		`histogram_quantiles(foo_bucket, "quantile", 0.5, 0.9)`,
+		// Phase 6b: single-quantile quantiles variant guards the
+		// "only one ParamChild" iteration path through
+		// renderHistogramQuantilesLogical (shared SQL shape with the
+		// multi-quantile case but exercises len(ParamChildren)==1).
+		`histogram_quantiles(foo_bucket, "quantile", 0.5)`,
+		// Phase 6b: "without" aggregation child keeps the non-narrowing
+		// classic-histogram branch while the quantiles scalar bindings
+		// iterate; locks byte-equality for the combined shape.
+		`histogram_quantiles(sum without (instance) (rate(foo_bucket[5m])), "quantile", 0.5, 0.95)`,
 		// Non-narrowing aggregation shape as child: "without (instance)"
 		// drops into decideHistogramChildNarrowing's require-full-tags
 		// branch, so the child Fragment is rendered with the full

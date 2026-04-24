@@ -83,14 +83,14 @@ func renderHistogramFunctionLogical(cfg storage.QueryConfig, logicalAnalysis *lo
 // histogram materialization to renderClassicHistogramGroupsQueryLogical,
 // and dispatches on the histogram-function kind.
 //
-// Transitional: the histogram_quantiles branch materializes the whole
-// HistogramFunctionFragment once via native.BuildFragment so it can hand
-// the scalar-binding Quantiles children (each already a compiled
-// NativeFragment) to renderHistogramQuantilesFragment. Moving that call
-// into this helper (rather than at the lowerer boundary) keeps the
-// Fragment access localized and, importantly, scoped to only the one
-// branch that needs it; histogram_quantile and histogram_fraction never
-// materialize a histogram-function Fragment on the direct path.
+// Phase 6b (Task 13a Phase 6b): the last scoped native.BuildFragment call
+// inside the histogram_quantiles branch is now gone. The per-quantile
+// scalar bindings are iterated off the logical HistogramQuantilesPlan
+// (n.ParamChildren) and lowered through renderHistogramQuantilesLogical,
+// which calls renderInstantScalarBindingFromLogical /
+// renderRangeScalarBindingFromLogical. All three histogram-function
+// shapes now render off the logical plan with no Fragment materialization
+// at this tier.
 func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams) (renderedFragment, error) {
 	childNode, funcName, ok := histogramFunctionChildNode(node)
 	if !ok || childNode == nil {
@@ -128,24 +128,28 @@ func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalp
 		}
 		return renderedFragment{RawSQL: trimRenderedQuerySQL(finalSQL), ExtraParams: prepared.QueryParams}, nil
 	case "histogram_quantiles":
-		// Transitional: histogram_quantiles binds each quantile argument
-		// as its own compiled NativeFragment (Quantiles []*NativeFragment
-		// on the HistogramFunctionFragment). Materialize the whole
-		// histogram-function Fragment once so renderHistogramQuantilesFragment
-		// can iterate those scalar-binding children. This retires in
-		// Phase 6 together with renderHistogramQuantilesFragment.
-		fragment, err := native.BuildFragment(node, analysis)
-		if err != nil {
-			return renderedFragment{}, errUnsupportedLowerNode
-		}
-		if fragment == nil || fragment.Kind != native.FragmentKindHistogramFunction || fragment.HistogramFunction == nil {
+		// Phase 6b (Task 13a Phase 6b): the per-quantile scalar bindings
+		// are now iterated off the logical HistogramQuantilesPlan
+		// (n.ParamChildren) and lowered via renderInstantScalarBinding /
+		// renderRangeScalarBindingFromLogical inside
+		// renderHistogramQuantilesLogical, so no NativeFragment is
+		// materialized at this boundary. SQL stays byte-identical to
+		// the Fragment path (guarded by TestHistogramFunctionLogicalMatchesFragment).
+		q, qok := node.(*logicalpkg.HistogramQuantilesPlan)
+		if !qok {
 			return renderedFragment{}, errUnsupportedLowerNode
 		}
 		prepared, err := renderPreparedClassicHistogramQuery(histograms, "histogram_quantiles_prepared")
 		if err != nil {
 			return renderedFragment{}, err
 		}
-		return renderHistogramQuantilesFragment(cfg, fragment, params, prepared)
+		ctx := LoweringCtx{
+			Config:         cfg,
+			Analysis:       logicalAnalysis,
+			NativeAnalysis: analysis,
+			Params:         params,
+		}
+		return renderHistogramQuantilesLogical(ctx, q, params, prepared)
 	case "histogram_fraction":
 		f, fok := node.(*logicalpkg.HistogramFractionPlan)
 		if !fok {

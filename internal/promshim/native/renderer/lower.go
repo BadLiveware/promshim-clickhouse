@@ -128,8 +128,8 @@ func lowerLeaf(ctx LoweringCtx, n *logicalpkg.LeafExprPlan) (RenderedQuery, erro
 //   - Scalar-involving (at least one side is DomainScalar): delegates to the
 //     existing BuildFragment + RenderFragment pipeline, unchanged from Phase 1.
 //   - Vector-vector (both sides are non-scalar): delegates to
-//     lowerBinaryVectorJoin, which bridges to renderBinaryJoinFragment via the
-//     pre-computed NativeAnalysis Fragment (Surface 13, Approach A).
+//     lowerBinaryVectorJoin, which direct-renders each side via Lower and
+//     assembles the join via storage.Build{Instant,Range}BinaryVectorJoinSQL.
 func lowerBinary(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQuery, error) {
 	if n == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: lowerBinary called with nil")

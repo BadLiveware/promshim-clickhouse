@@ -112,3 +112,80 @@ func nativeSelectorToStorage(sel *native.SelectorSource) storage.SelectorSource 
 		OffsetMS:          sel.Offset.Milliseconds(),
 	}
 }
+
+// renderSourceExprView renders a source-expression view (LeafSource,
+// UnarySourceExpr, or BinaryScalarSourceExpr) directly from the
+// analysis-side SourceExprView without constructing a NativeFragment.
+// Mirrors renderSourceFragment in source.go byte-for-byte: the shape of
+// the generated SQL depends on whether the view carries a Selector (the
+// selector-backed path) or only a SourcePromQL leaf (the delegated-
+// resolver path), and whether the wrapper is the identity ({value},
+// {tags}, !DropsMetric).
+func renderSourceExprView(cfg storage.QueryConfig, view *native.SourceExprView, params RenderParams) (renderedFragment, error) {
+	if view == nil {
+		return renderedFragment{}, fmt.Errorf("renderer: renderSourceExprView called with nil view")
+	}
+	isIdentity := view.ValueExpr == "{value}" && view.TagsExpr == "{tags}" && !view.DropsMetric
+	switch params.Mode {
+	case native.RenderModeInstant:
+		if view.Selector != nil {
+			storageSel := nativeSelectorToStorage(view.Selector)
+			sql, queryParams, err := storage.BuildInstantSelectorQuerySQL(cfg, storageSel, params.RequiredStartMS, params.RequiredEndMS)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			if isIdentity {
+				return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
+			}
+			wrappedSQL, err := wrapInstantSourceQuery(sql, view.ValueExpr, view.TagsExpr)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			return renderedFragment{RawSQL: trimRenderedQuerySQL(wrappedSQL), ExtraParams: queryParams}, nil
+		}
+		if params.ResolveSourcePromQL == nil || view.SourcePromQL == nil {
+			return renderedFragment{}, fmt.Errorf("native fragment render requires a source PromQL resolver")
+		}
+		promQL, err := params.ResolveSourcePromQL(view.SourcePromQL)
+		if err != nil {
+			return renderedFragment{}, err
+		}
+		sql, queryParams := storage.BuildInstantQuerySQL(cfg, promQL, params.EvaluationTimeMS)
+		wrappedSQL, err := wrapInstantSourceQuery(sql, view.ValueExpr, view.TagsExpr)
+		if err != nil {
+			return renderedFragment{}, err
+		}
+		return renderedFragment{RawSQL: trimRenderedQuerySQL(wrappedSQL), ExtraParams: queryParams}, nil
+	case native.RenderModeRange:
+		if view.Selector != nil {
+			storageSel := nativeSelectorToStorage(view.Selector)
+			sql, queryParams, err := storage.BuildRangeSelectorQuerySQL(cfg, storageSel, params.RequiredStartMS, params.RequiredEndMS, params.StartMS, params.EndMS, params.StepMS)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			if isIdentity {
+				return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
+			}
+			wrappedSQL, err := wrapRangeSourceQuery(sql, view.ValueExpr, view.TagsExpr)
+			if err != nil {
+				return renderedFragment{}, err
+			}
+			return renderedFragment{RawSQL: trimRenderedQuerySQL(wrappedSQL), ExtraParams: queryParams}, nil
+		}
+		if params.ResolveSourcePromQL == nil || view.SourcePromQL == nil {
+			return renderedFragment{}, fmt.Errorf("native fragment render requires a source PromQL resolver")
+		}
+		promQL, err := params.ResolveSourcePromQL(view.SourcePromQL)
+		if err != nil {
+			return renderedFragment{}, err
+		}
+		sql, queryParams := storage.BuildRangeQuerySQL(cfg, promQL, params.StartMS, params.EndMS, params.StepMS)
+		wrappedSQL, err := wrapRangeSourceQuery(sql, view.ValueExpr, view.TagsExpr)
+		if err != nil {
+			return renderedFragment{}, err
+		}
+		return renderedFragment{RawSQL: trimRenderedQuerySQL(wrappedSQL), ExtraParams: queryParams}, nil
+	default:
+		return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
+	}
+}

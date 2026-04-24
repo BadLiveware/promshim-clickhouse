@@ -290,7 +290,7 @@ upstream ClickHouse changes easier to audit.
 | Variable | Default | Meaning |
 |---|---:|---|
 | `PROM_SHIM_LISTEN_ADDR` | `:9090` | HTTP listen address. |
-| `PROM_SHIM_CLICKHOUSE_TRANSPORT` | `http` | ClickHouse transport: `http` for the legacy JSONEachRow path or `native` for the ClickHouse Go driver. HTTP remains the rollback/default mode. |
+| `PROM_SHIM_CLICKHOUSE_TRANSPORT` | `native` | ClickHouse transport: `native` for the ClickHouse Go driver or `http` for the legacy JSONEachRow rollback path. |
 | `PROM_SHIM_CLICKHOUSE_ENDPOINT` | `http://127.0.0.1:8123/` | ClickHouse HTTP endpoint used by HTTP transport mode and retained as rollback configuration. |
 | `PROM_SHIM_CLICKHOUSE_NATIVE_ADDR` | `127.0.0.1:9000` | ClickHouse native TCP address used when `PROM_SHIM_CLICKHOUSE_TRANSPORT=native`. |
 | `PROM_SHIM_CLICKHOUSE_DATABASE` | `observability` | ClickHouse database containing the `TimeSeries` table. |
@@ -362,7 +362,8 @@ Useful variants:
 ### Start a stack and query promshim manually
 
 The compliance stack exposes Prometheus on `:29090`, promshim on `:29091`, and
-ClickHouse HTTP on `:28123` and native TCP on `:29000`:
+ClickHouse HTTP on `:28123` plus native TCP on `:29000`. Promshim uses the
+native driver transport by default:
 
 ```bash
 ./scripts/run-compliance.sh --keep-up --skip-native
@@ -374,17 +375,22 @@ curl 'http://localhost:29091/api/v1/query_explain?query=sum%20by%20(job)%20(up)'
 curl 'http://localhost:29091/api/v1/query?query=sum%20by%20(job)%20(up)&explain=1'
 ```
 
-To run the same stack with the native driver transport enabled for promshim:
+To run the same stack with the legacy HTTP/JSON transport for rollback testing:
 
 ```bash
-PROM_SHIM_CLICKHOUSE_TRANSPORT=native ./scripts/run-compliance.sh --keep-up --skip-native
+PROM_SHIM_CLICKHOUSE_TRANSPORT=http ./scripts/run-compliance.sh --keep-up --skip-native
 
 curl -i 'http://localhost:29091/api/v1/query?query=up'
 ```
 
-During the migration, native mode serves repository-owned native SQL, metadata,
-and whole-query ClickHouse PromQL delegation through the driver. HTTP remains an
-explicit rollback transport.
+Native mode serves repository-owned native SQL, metadata, and whole-query
+ClickHouse PromQL delegation through the driver. HTTP remains an explicit
+rollback transport and ClickHouse remote-write ingestion remains HTTP.
+
+Release note for the transport change: deployments upgrading from an earlier
+HTTP-default build should ensure ClickHouse native TCP is reachable at
+`PROM_SHIM_CLICKHOUSE_NATIVE_ADDR`, or set `PROM_SHIM_CLICKHOUSE_TRANSPORT=http`
+to keep the previous transport while investigating driver rollout issues.
 
 When finished:
 
@@ -421,6 +427,10 @@ long-range data to be seeded first:
 ```
 
 Benchmark matrices below were refreshed after the native-lowering IR migration.
+Transport-flip benchmark artifacts from the native-driver rollout are preserved
+locally under `harness/artifacts/transport-http-bench-report*.json` and
+`harness/artifacts/transport-native-bench-report*.json` when the benchmark
+commands in this section are run.
 They are not a claim that native SQL is always faster than Prometheus; they are a
 tripwire and CBE calibration source. `N/P` is `native_p50 / prom_p50`, so values
 below `1×` mean native SQL beat Prometheus. `F/N` is

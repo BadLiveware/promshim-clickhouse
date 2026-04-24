@@ -49,7 +49,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		Password:                  getenv("PROM_SHIM_CLICKHOUSE_PASSWORD", "otel"),
 		ClickHouseCompression:     getenv("PROM_SHIM_CLICKHOUSE_COMPRESSION", "off"),
 		RequestTimeout:            time.Second * time.Duration(getenvInt("PROM_SHIM_REQUEST_TIMEOUT_SECONDS", 30)),
-		ClickHouseTransport:       storage.TransportKind(getenv("PROM_SHIM_CLICKHOUSE_TRANSPORT", string(storage.TransportHTTP))),
+		ClickHouseTransport:       storage.TransportKind(getenv("PROM_SHIM_CLICKHOUSE_TRANSPORT", string(storage.TransportNative))),
 		ClickHouseMaxOpenConns:    getenvInt("PROM_SHIM_CLICKHOUSE_MAX_OPEN_CONNS", 10),
 		ClickHouseMaxIdleConns:    getenvInt("PROM_SHIM_CLICKHOUSE_MAX_IDLE_CONNS", 10),
 		ClickHouseConnMaxLifetime: time.Second * time.Duration(getenvInt("PROM_SHIM_CLICKHOUSE_CONN_MAX_LIFETIME_SECONDS", 3600)),

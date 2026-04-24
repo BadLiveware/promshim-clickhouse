@@ -13,8 +13,8 @@ func TestLoadOptionsFromEnvClickHouseTransportDefaultAndHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadOptionsFromEnv default: %v", err)
 	}
-	if opts.ClickHouseTransport != storage.TransportHTTP {
-		t.Fatalf("default ClickHouseTransport = %q, want %q", opts.ClickHouseTransport, storage.TransportHTTP)
+	if opts.ClickHouseTransport != storage.TransportNative {
+		t.Fatalf("default ClickHouseTransport = %q, want %q", opts.ClickHouseTransport, storage.TransportNative)
 	}
 
 	t.Setenv("PROM_SHIM_CLICKHOUSE_TRANSPORT", "http")

@@ -53,7 +53,7 @@ services:
     depends_on:
       - clickhouse
     environment:
-      PROM_SHIM_CLICKHOUSE_TRANSPORT: ${PROM_SHIM_CLICKHOUSE_TRANSPORT:-http}
+      PROM_SHIM_CLICKHOUSE_TRANSPORT: ${PROM_SHIM_CLICKHOUSE_TRANSPORT:-native}
       PROM_SHIM_CLICKHOUSE_ENDPOINT: http://clickhouse:8123/
       PROM_SHIM_CLICKHOUSE_NATIVE_ADDR: clickhouse:9000
       PROM_SHIM_CLICKHOUSE_DATABASE: observability

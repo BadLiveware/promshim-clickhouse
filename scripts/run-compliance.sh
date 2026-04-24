@@ -144,7 +144,7 @@ wait_for_tcp() {
 
 log "Waiting for ClickHouse (:28123), Prometheus (:29090), promshim (:29091)."
 wait_for_http "ClickHouse"           "http://localhost:28123/ping"
-if [[ "${PROM_SHIM_CLICKHOUSE_TRANSPORT:-http}" == "native" ]]; then
+if [[ "${PROM_SHIM_CLICKHOUSE_TRANSPORT:-native}" == "native" ]]; then
   wait_for_tcp "ClickHouse native" "localhost" "29000"
 fi
 wait_for_http "Prometheus reference" "http://localhost:29090/-/ready"
@@ -155,7 +155,7 @@ wait_for_http "promshim"             "http://localhost:29091/-/ready"
 # doesn't see a wave of 502s during the first second of the run.
 log "Probing promshim -> ClickHouse integration."
 smoke_query="http://localhost:29091/api/v1/query?query=up"
-if [[ "${PROM_SHIM_CLICKHOUSE_TRANSPORT:-http}" == "native" ]]; then
+if [[ "${PROM_SHIM_CLICKHOUSE_TRANSPORT:-native}" == "native" ]]; then
   smoke_query="http://localhost:29091/api/v1/query?query=sum(demo_memory_usage_bytes)"
 fi
 smoke_deadline=$(( $(date +%s) + READY_TIMEOUT ))
@@ -170,7 +170,7 @@ done
 if (( smoke_ok == 0 )); then
   fatal "promshim did not successfully serve a query within ${READY_TIMEOUT}s"
 fi
-if [[ "${PROM_SHIM_CLICKHOUSE_TRANSPORT:-http}" == "native" ]]; then
+if [[ "${PROM_SHIM_CLICKHOUSE_TRANSPORT:-native}" == "native" ]]; then
   # The native TCP listener can accept a first query while ClickHouse is still
   # finishing startup; give the pool a short stabilization window before the
   # compliance tester fans out concurrent requests.

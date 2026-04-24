@@ -60,40 +60,119 @@ func renderHistogramProjectionLogical(cfg storage.QueryConfig, analysis *native.
 // decideHistogramChildNarrowing, mirroring the projection approach in
 // renderHistogramProjectionLogical.
 //
-// Phase A2 transitional: the renderer materializes the whole histogram-function
-// Fragment on demand (BuildFragment on the node itself) and delegates to
-// renderHistogramFunctionFragment. The child Fragment's selector is
-// pre-narrowed via applyRenderParamsNarrowing so the legacy
-// narrowHistogramAggregationChildTags inside renderClassicHistogramGroupsQuery
-// is idempotent. Fragment materialization retires in Phase C (Task 13).
+// Phase 2 (Task 13a Phase 2): the top-level BuildFragment call has been
+// moved out of this function. The child histograms are now rendered via
+// renderClassicHistogramGroupsQueryLogical (the Phase-1 helper) which
+// consumes a logical.Node + analysis directly. Per-function scalar
+// parameters (quantile, lower/upper bounds, quantiles list) are read
+// from the logical plan. The histogram_quantiles variant still needs a
+// materialized HistogramFunctionFragment to feed
+// renderHistogramQuantilesFragment (which iterates the scalar-binding
+// Quantiles children); that single internal BuildFragment call is the
+// only Fragment materialization remaining at this tier. It retires in
+// Phase 6 together with renderHistogramQuantilesFragment.
 func renderHistogramFunctionLogical(cfg storage.QueryConfig, analysis *native.Analysis, n logicalpkg.Node, params RenderParams) (renderedFragment, error) {
 	if n == nil {
 		return renderedFragment{}, fmt.Errorf("renderer: histogram function requires a node")
+	}
+	return renderHistogramFunctionLogicalDirect(cfg, n, analysis, params)
+}
+
+// renderHistogramFunctionLogicalDirect is the Phase-2 direct-render
+// counterpart of renderHistogramFunctionFragment. It reads the child and
+// per-function scalars from the logical plan, delegates the child
+// histogram materialization to renderClassicHistogramGroupsQueryLogical,
+// and dispatches on the histogram-function kind.
+//
+// Transitional: the histogram_quantiles branch materializes the whole
+// HistogramFunctionFragment once via native.BuildFragment so it can hand
+// the scalar-binding Quantiles children (each already a compiled
+// NativeFragment) to renderHistogramQuantilesFragment. Moving that call
+// into this helper (rather than at the lowerer boundary) keeps the
+// Fragment access localized and, importantly, scoped to only the one
+// branch that needs it; histogram_quantile and histogram_fraction never
+// materialize a histogram-function Fragment on the direct path.
+func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalpkg.Node, analysis *native.Analysis, params RenderParams) (renderedFragment, error) {
+	childNode, funcName, ok := histogramFunctionChildNode(node)
+	if !ok || childNode == nil {
+		return renderedFragment{}, errUnsupportedLowerNode
 	}
 
 	// Compute narrowing from the histogram-function's child if it is a
 	// grouping aggregation. Non-aggregation children leave params untouched.
 	childParams := params
-	if aggChild := histogramFunctionChildAggregation(n); aggChild != nil {
+	if aggChild := histogramFunctionChildAggregation(node); aggChild != nil {
 		requireFull, labels := decideHistogramChildNarrowing(aggChild)
 		childParams.RequireFullTags = requireFull
 		childParams.RequiredTagLabels = labels
 	}
 
-	// Phase-A2 transitional: build the whole histogram-function Fragment,
-	// then pre-narrow the child selector so the legacy helper is idempotent.
-	fragment, err := native.BuildFragment(n, analysis)
+	histograms, err := renderClassicHistogramGroupsQueryLogical(cfg, childNode, analysis, childParams, "histogram_function_child")
 	if err != nil {
-		return renderedFragment{}, errUnsupportedLowerNode
-	}
-	if fragment == nil || fragment.Kind != native.FragmentKindHistogramFunction {
-		return renderedFragment{}, errUnsupportedLowerNode
-	}
-	if fragment.HistogramFunction != nil && fragment.HistogramFunction.Child != nil {
-		fragment.HistogramFunction.Child = applyRenderParamsNarrowing(fragment.HistogramFunction.Child, childParams)
+		return renderedFragment{}, err
 	}
 
-	return renderHistogramFunctionFragment(cfg, fragment, params)
+	switch funcName {
+	case "histogram_quantile":
+		q, qok := node.(*logicalpkg.HistogramQuantilePlan)
+		if !qok {
+			return renderedFragment{}, errUnsupportedLowerNode
+		}
+		prepared, err := renderPreparedClassicHistogramQuery(histograms, "histogram_quantile_prepared")
+		if err != nil {
+			return renderedFragment{}, err
+		}
+		rowsSQL := renderHistogramQuantileRowsSQL(trimRenderedQuerySQL(prepared.SQL), storage.NativeFloatLiteral(q.Quantile), "", "histogram_quantile")
+		finalSQL := wrapHistogramRowsForMode(rowsSQL, params.Mode, "histogram_quantile_rows")
+		if params.Mode == native.RenderModeRange && histogramChildUsesOnlyLETagsLogical(childNode) {
+			finalSQL = wrapHistogramRowsForConstantEmptyTagsRange(rowsSQL, "histogram_quantile_rows")
+		}
+		return renderedFragment{RawSQL: trimRenderedQuerySQL(finalSQL), ExtraParams: prepared.QueryParams}, nil
+	case "histogram_quantiles":
+		// Transitional: histogram_quantiles binds each quantile argument
+		// as its own compiled NativeFragment (Quantiles []*NativeFragment
+		// on the HistogramFunctionFragment). Materialize the whole
+		// histogram-function Fragment once so renderHistogramQuantilesFragment
+		// can iterate those scalar-binding children. This retires in
+		// Phase 6 together with renderHistogramQuantilesFragment.
+		fragment, err := native.BuildFragment(node, analysis)
+		if err != nil {
+			return renderedFragment{}, errUnsupportedLowerNode
+		}
+		if fragment == nil || fragment.Kind != native.FragmentKindHistogramFunction || fragment.HistogramFunction == nil {
+			return renderedFragment{}, errUnsupportedLowerNode
+		}
+		prepared, err := renderPreparedClassicHistogramQuery(histograms, "histogram_quantiles_prepared")
+		if err != nil {
+			return renderedFragment{}, err
+		}
+		return renderHistogramQuantilesFragment(cfg, fragment, params, prepared)
+	case "histogram_fraction":
+		f, fok := node.(*logicalpkg.HistogramFractionPlan)
+		if !fok {
+			return renderedFragment{}, errUnsupportedLowerNode
+		}
+		valueExpr := classicHistogramFractionValueExpr(sqlb.Ident("buckets"), f.Lower, f.Upper)
+		return histogramOutputFragment(histograms, valueExpr, params.Mode, "histogram_function_steps"), nil
+	default:
+		return renderedFragment{}, fmt.Errorf("histogram function %q is not implemented yet", funcName)
+	}
+}
+
+// histogramFunctionChildNode returns the child logical node and the
+// histogram-function name for any of the three histogram-function plan
+// kinds. Returns ok=false for unrelated nodes.
+func histogramFunctionChildNode(n logicalpkg.Node) (logicalpkg.Node, string, bool) {
+	switch h := n.(type) {
+	case *logicalpkg.HistogramQuantilePlan:
+		return h.Child, "histogram_quantile", true
+	case *logicalpkg.HistogramFractionPlan:
+		return h.Child, "histogram_fraction", true
+	case *logicalpkg.HistogramQuantilesPlan:
+		return h.Child, "histogram_quantiles", true
+	default:
+		return nil, "", false
+	}
 }
 
 // histogramFunctionChildAggregation returns the immediate AggregationPlan

@@ -113,6 +113,41 @@ func nativeSelectorToStorage(sel *native.SelectorSource) storage.SelectorSource 
 	}
 }
 
+// renderAggregationSourceView is the pure-logical analog of
+// renderAggregationSource. Instead of dereferencing a NativeFragment's
+// Selector / ValueExpr / TagsExpr / SourcePromQL fields, it reads them
+// from a SourceExprView on the analysis-side LoweringInfo.
+//
+// The returned storage.AggregationSource is byte-identical to what
+// renderAggregationSource produces for the equivalent Fragment (the
+// view's Selector is the same *SelectorSource pointer stored in
+// info.Fragment.Selector, and the remaining fields are value-typed
+// mirrors captured at Analyze time).
+func renderAggregationSourceView(view *native.SourceExprView, params RenderParams) (storage.AggregationSource, error) {
+	if view == nil {
+		return storage.AggregationSource{}, fmt.Errorf("aggregation source view is nil")
+	}
+	if view.Selector != nil {
+		storageSel := nativeSelectorToStorage(view.Selector)
+		return storage.AggregationSource{
+			Selector:  &storageSel,
+			ValueExpr: view.ValueExpr,
+			TagsExpr:  view.TagsExpr,
+		}, nil
+	}
+	if view.SourcePromQL == nil {
+		return storage.AggregationSource{}, fmt.Errorf("aggregation source view is missing its PromQL leaf")
+	}
+	if params.ResolveSourcePromQL == nil {
+		return storage.AggregationSource{}, fmt.Errorf("native fragment render requires a source PromQL resolver")
+	}
+	promQL, err := params.ResolveSourcePromQL(view.SourcePromQL)
+	if err != nil {
+		return storage.AggregationSource{}, err
+	}
+	return storage.AggregationSource{PromQLLeaf: promQL, ValueExpr: view.ValueExpr, TagsExpr: view.TagsExpr}, nil
+}
+
 // renderSourceExprView renders a source-expression view (LeafSource,
 // UnarySourceExpr, or BinaryScalarSourceExpr) directly from the
 // analysis-side SourceExprView without constructing a NativeFragment.

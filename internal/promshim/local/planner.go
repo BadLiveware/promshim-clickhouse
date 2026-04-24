@@ -2,6 +2,7 @@ package local
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/local/exec"
@@ -98,7 +99,7 @@ func (e *Evaluator) executeDelegated(ctx context.Context, expr parser.Expr, para
 	switch params.Mode {
 	case EvalModeInstant:
 		sql, queryParams := storage.BuildInstantQuerySQL(storage.QueryConfig{Database: e.database, Table: e.table}, promQL, params.EvaluationTime.UnixMilli())
-		response, err := e.client.Execute(ctx, sql, queryParams)
+		response, err := e.executeDelegatedQuery(ctx, sql, queryParams)
 		if err != nil {
 			return nil, WithInternalContext(NormalizeInternalError(err), "executing delegated ClickHouse instant query for %q", expr.String())
 		}
@@ -128,7 +129,7 @@ func (e *Evaluator) executeDelegated(ctx context.Context, expr parser.Expr, para
 		}
 	case EvalModeRange:
 		sql, queryParams := storage.BuildRangeQuerySQL(storage.QueryConfig{Database: e.database, Table: e.table}, promQL, params.Start.UnixMilli(), params.End.UnixMilli(), params.Step.Milliseconds())
-		response, err := e.client.Execute(ctx, sql, queryParams)
+		response, err := e.executeDelegatedQuery(ctx, sql, queryParams)
 		if err != nil {
 			return nil, WithInternalContext(NormalizeInternalError(err), "executing delegated ClickHouse range query for %q", expr.String())
 		}
@@ -145,6 +146,13 @@ func (e *Evaluator) executeDelegated(ctx context.Context, expr parser.Expr, para
 	default:
 		return nil, NewExecutionErrorf("unknown evaluation mode %q", params.Mode)
 	}
+}
+
+func (e *Evaluator) executeDelegatedQuery(ctx context.Context, sql string, params map[string]string) (*http.Response, error) {
+	if e.client.TransportKind() == storage.TransportNative {
+		return e.client.ExecuteHTTPJSON(ctx, sql, params)
+	}
+	return e.client.Execute(ctx, sql, params)
 }
 
 func buildPlan(expr parser.Expr) (Plan, error) {

@@ -5,6 +5,7 @@ services:
       CLICKHOUSE_PASSWORD: otel
     ports:
       - "28123:8123"
+      - "29000:9000"
       - "29092:9092"
     volumes:
       - ../clickhouse/config.d/prometheus.xml:/etc/clickhouse-server/config.d/prometheus.xml:ro
@@ -52,7 +53,9 @@ services:
     depends_on:
       - clickhouse
     environment:
+      PROM_SHIM_CLICKHOUSE_TRANSPORT: ${PROM_SHIM_CLICKHOUSE_TRANSPORT:-http}
       PROM_SHIM_CLICKHOUSE_ENDPOINT: http://clickhouse:8123/
+      PROM_SHIM_CLICKHOUSE_NATIVE_ADDR: clickhouse:9000
       PROM_SHIM_CLICKHOUSE_DATABASE: observability
       PROM_SHIM_CLICKHOUSE_TABLE: prometheus
       PROM_SHIM_CLICKHOUSE_USERNAME: default

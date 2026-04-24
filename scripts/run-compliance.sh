@@ -131,8 +131,22 @@ wait_for_http() {
   fatal "${name} did not become ready within ${READY_TIMEOUT}s (${url})"
 }
 
+wait_for_tcp() {
+  local name="$1" host="$2" port="$3" deadline=$(( $(date +%s) + READY_TIMEOUT ))
+  while (( $(date +%s) < deadline )); do
+    if (echo >"/dev/tcp/${host}/${port}") >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  fatal "${name} did not become ready within ${READY_TIMEOUT}s (${host}:${port})"
+}
+
 log "Waiting for ClickHouse (:28123), Prometheus (:29090), promshim (:29091)."
 wait_for_http "ClickHouse"           "http://localhost:28123/ping"
+if [[ "${PROM_SHIM_CLICKHOUSE_TRANSPORT:-http}" == "native" ]]; then
+  wait_for_tcp "ClickHouse native" "localhost" "29000"
+fi
 wait_for_http "Prometheus reference" "http://localhost:29090/-/ready"
 wait_for_http "promshim"             "http://localhost:29091/-/ready"
 
@@ -140,10 +154,14 @@ wait_for_http "promshim"             "http://localhost:29091/-/ready"
 # even if ClickHouse isn't yet reachable. Probe a real query so the tester
 # doesn't see a wave of 502s during the first second of the run.
 log "Probing promshim -> ClickHouse integration."
+smoke_query="http://localhost:29091/api/v1/query?query=up"
+if [[ "${PROM_SHIM_CLICKHOUSE_TRANSPORT:-http}" == "native" ]]; then
+  smoke_query="http://localhost:29091/api/v1/query?query=sum(demo_memory_usage_bytes)"
+fi
 smoke_deadline=$(( $(date +%s) + READY_TIMEOUT ))
 smoke_ok=0
 while (( $(date +%s) < smoke_deadline )); do
-  if curl -fsS "http://localhost:29091/api/v1/query?query=up" >/dev/null 2>&1; then
+  if curl -fsS "$smoke_query" >/dev/null 2>&1; then
     smoke_ok=1
     break
   fi
@@ -151,6 +169,12 @@ while (( $(date +%s) < smoke_deadline )); do
 done
 if (( smoke_ok == 0 )); then
   fatal "promshim did not successfully serve a query within ${READY_TIMEOUT}s"
+fi
+if [[ "${PROM_SHIM_CLICKHOUSE_TRANSPORT:-http}" == "native" ]]; then
+  # The native TCP listener can accept a first query while ClickHouse is still
+  # finishing startup; give the pool a short stabilization window before the
+  # compliance tester fans out concurrent requests.
+  sleep 5
 fi
 
 OVERALL_EXIT=0

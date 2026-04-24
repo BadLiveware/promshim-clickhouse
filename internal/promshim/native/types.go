@@ -300,6 +300,17 @@ type LoweringInfo struct {
 	// FragmentKindSyntheticSeries/OutputKindScalar with Func=="literal".
 	// Nil otherwise. See SyntheticSeriesView.
 	SyntheticSeries *SyntheticSeriesView
+
+	// RangeFunctionSubquery mirrors RangeFunctionFragment.Child when the
+	// range-function's child is a subquery fragment
+	// (FragmentKindSubquery). Populated during the Analyze walk on each
+	// of the seven range-function plan kinds (RangeFunctionPlan, RatePlan,
+	// IncreasePlan, DeltaPlan, ChangesPlan, DerivPlan, QuantileOverTimePlan)
+	// whenever that child is a Subquery fragment. Holds the same
+	// *SubqueryFragment pointer stored in info.Fragment.RangeFunction.Child.
+	// Subquery so the renderer can drive the subquery-fast-path branches
+	// without dereferencing info.Fragment.RangeFunction. Nil otherwise.
+	RangeFunctionSubquery *SubqueryFragment
 }
 
 // SourceExprView is the analysis-side mirror of the Selector / ValueExpr /

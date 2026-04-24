@@ -48,11 +48,11 @@ func renderRangeFunctionLogical(ctx LoweringCtx, n logicalpkg.Node) (renderedFra
 // The fast-path branches that need SelectorSource data (for the
 // BuildRangeMatrixSelectorRowsQuerySQL,
 // BuildRangeWindowSelectorDirectAggregateQuerySQLWithFinalTags, and
-// BuildRangeWindowSelectorQuerySQLWithFinalTags helpers) still consult the
-// cached range-function Fragment for its applySelectorProjection-narrowed
-// Selector, via rangeFunctionSelectorFragment. That cached read mirrors the
-// same mechanism fusedRangeLeafSelectorFragment uses and retires when the
-// selector-narrowing derivation moves fully onto the logical side.
+// BuildRangeWindowSelectorQuerySQLWithFinalTags helpers) read the
+// applySelectorProjection-narrowed Selector off the leaf's LoweringInfo
+// (LeafSelector + SourceExprView) directly. Subquery-child fast paths
+// read the cached SubqueryFragment off the range-function node's own
+// LoweringInfo.RangeFunctionSubquery (Task 13c-7b).
 func renderRangeFunctionLogicalDirect(ctx LoweringCtx, n logicalpkg.Node) (renderedFragment, error) {
 	childNode, _, ok := rangeFunctionChildNode(n)
 	if !ok || childNode == nil {
@@ -88,11 +88,12 @@ func renderRangeFunctionLogicalDirect(ctx LoweringCtx, n logicalpkg.Node) (rende
 //  5. subquery child: tryRenderSubqueryRowsSource fast path OR
 //     Lower on the subquery + buildRangeFunctionOverWindowedArraysSQL.
 //
-// The fast-path branches that carry SelectorSource data consult the cached
-// range-function Fragment's Child (via rangeFunctionSelectorFragment) so the
-// applySelectorProjection narrowing applied during native.Analyze flows
-// through byte-identically with the Fragment path. Selector-narrowing
-// derivation moves fully onto the logical side in a later phase.
+// The fast-path branches that carry SelectorSource data read the
+// applySelectorProjection-narrowed Selector off the leaf's LoweringInfo
+// (LeafSelector + SourceExprView) directly. Subquery-child fast paths
+// read the cached SubqueryFragment off LoweringInfo.RangeFunctionSubquery
+// — populated during native.Analyze at each of the seven range-function
+// emission sites. No info.Fragment dereference remains on this path.
 //
 // Phase 6d (Task 13a Phase 6d): branches 4 (instant) and 4, 5-fallback
 // (range) are the RenderFragment call sites retired in this phase — they
@@ -154,15 +155,19 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 			}
 		case *logicalpkg.SubqueryPlan:
 			if child != nil && child.Child != nil && canUseInstantRangeFunctionRowsFastPath(fn) {
-				subqueryFragment, err := rangeFunctionSelectorFragment(ctx, n)
-				if err != nil {
-					return renderedFragment{}, err
-				}
-				if subqueryFragment != nil && subqueryFragment.Kind == native.FragmentKindSubquery && subqueryFragment.Subquery != nil && subqueryFragment.Subquery.Child != nil {
-					if childRowsSQL, childParams, ok, err := tryRenderSubqueryRowsSource(cfg, subqueryFragment.Subquery, params); err != nil {
+				// Pure-logical read: the range-function node's LoweringInfo
+				// carries the cached SubqueryFragment directly via
+				// RangeFunctionSubquery (see analysis.go — populated at each
+				// of the seven range-function Analyze emission sites for
+				// subquery children). We no longer dereference
+				// info.Fragment.RangeFunction here.
+				info := ctx.NativeAnalysis.InfoFor(n)
+				if info != nil && info.RangeFunctionSubquery != nil && info.RangeFunctionSubquery.Child != nil {
+					subqueryFrag := info.RangeFunctionSubquery
+					if childRowsSQL, childParams, ok, err := tryRenderSubqueryRowsSource(cfg, subqueryFrag, params); err != nil {
 						return renderedFragment{}, err
 					} else if ok {
-						sql, err := buildInstantRangeFunctionOverRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, subqueryRowsOutputTagsExpr(subqueryFragment.Subquery, fn), params.EvaluationTimeMS)
+						sql, err := buildInstantRangeFunctionOverRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, subqueryRowsOutputTagsExpr(subqueryFrag, fn), params.EvaluationTimeMS)
 						if err != nil {
 							return renderedFragment{}, err
 						}
@@ -297,21 +302,21 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 		case *logicalpkg.SubqueryPlan:
 			if child != nil && child.Child != nil {
 				// Subquery-child fast path first: reuse tryRenderSubqueryRowsSource
-				// against the cached subquery fragment (same as Phase 6c).
-				subqueryFragment, err := rangeFunctionSelectorFragment(ctx, n)
-				if err != nil {
-					return renderedFragment{}, err
-				}
-				if subqueryFragment != nil && subqueryFragment.Kind == native.FragmentKindSubquery && subqueryFragment.Subquery != nil && subqueryFragment.Subquery.Child != nil {
-					if childRowsSQL, childParams, ok, err := tryRenderSubqueryRowsSource(cfg, subqueryFragment.Subquery, params); err != nil {
+				// against the cached subquery fragment, read off the range-
+				// function node's LoweringInfo.RangeFunctionSubquery — no
+				// info.Fragment dereference required.
+				info := ctx.NativeAnalysis.InfoFor(n)
+				if info != nil && info.RangeFunctionSubquery != nil && info.RangeFunctionSubquery.Child != nil {
+					subqueryFrag := info.RangeFunctionSubquery
+					if childRowsSQL, childParams, ok, err := tryRenderSubqueryRowsSource(cfg, subqueryFrag, params); err != nil {
 						return renderedFragment{}, err
 					} else if ok {
 						var sql string
-						childTagsExpr := subqueryRowsOutputTagsExpr(subqueryFragment.Subquery, fn)
+						childTagsExpr := subqueryRowsOutputTagsExpr(subqueryFrag, fn)
 						if canUseRangeFunctionRowsFastPath(fn) {
-							sql, err = buildRangeFunctionOverRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, childTagsExpr, params.StartMS, params.EndMS, params.StepMS, subqueryFragment.Subquery.Range.Milliseconds(), subqueryFragment.Subquery.Offset.Milliseconds())
+							sql, err = buildRangeFunctionOverRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, childTagsExpr, params.StartMS, params.EndMS, params.StepMS, subqueryFrag.Range.Milliseconds(), subqueryFrag.Offset.Milliseconds())
 						} else {
-							sql, err = buildRangeFunctionOverWindowedRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, paramNumber, paramNumbers, params.StartMS, params.EndMS, params.StepMS, subqueryFragment.Subquery.Range.Milliseconds(), subqueryFragment.Subquery.Offset.Milliseconds())
+							sql, err = buildRangeFunctionOverWindowedRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, paramNumber, paramNumbers, params.StartMS, params.EndMS, params.StepMS, subqueryFrag.Range.Milliseconds(), subqueryFrag.Offset.Milliseconds())
 						}
 						if err != nil {
 							return renderedFragment{}, err
@@ -349,29 +354,6 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 	default:
 		return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
 	}
-}
-
-// rangeFunctionSelectorFragment fetches the already-optimized range-function
-// child Fragment (the selector or subquery fragment) from the cached
-// native.Analysis. Fast-path branches of renderRangeFunctionLogicalBody need
-// the narrowed SelectorSource data (RequireFullTags / RequiredTagLabels)
-// populated by applySelectorProjection during native.Analyze; that
-// narrowing doesn't have a standalone logical representation yet, so we
-// read the cached Fragment directly — the same mechanism
-// fusedRangeLeafSelectorFragment uses.
-//
-// This is a transitional read of the cached Fragment. A future phase can
-// replace it by re-deriving the narrowing on the logical side, at which
-// point the cached range-function Fragment is no longer consulted here.
-func rangeFunctionSelectorFragment(ctx LoweringCtx, rangeNode logicalpkg.Node) (*native.NativeFragment, error) {
-	if ctx.NativeAnalysis == nil {
-		return nil, fmt.Errorf("range function (logical) requires a native analysis")
-	}
-	info := ctx.NativeAnalysis.InfoFor(rangeNode)
-	if info == nil || info.Fragment == nil || info.Fragment.RangeFunction == nil {
-		return nil, nil
-	}
-	return info.Fragment.RangeFunction.Child, nil
 }
 
 // rangeFunctionChildNode returns the child logical node and the range-function

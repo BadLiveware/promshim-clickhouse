@@ -560,6 +560,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 					Child:       child.Fragment,
 				},
 			}
+			info.RangeFunctionSubquery = rangeFunctionSubqueryChild(child.Fragment)
 			return info
 		}
 		if n.Func == "predict_linear" && n.ParamNumber != nil && child.Fragment != nil && child.OutputKind == OutputKindRangeMatrix && isSupportedNativeRangeChildFragment(child.Fragment) {
@@ -575,6 +576,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 					Child:       child.Fragment,
 				},
 			}
+			info.RangeFunctionSubquery = rangeFunctionSubqueryChild(child.Fragment)
 			return info
 		}
 		if n.Func == "resets" && child.Fragment != nil && child.OutputKind == OutputKindRangeMatrix && isSupportedNativeRangeChildFragment(child.Fragment) {
@@ -590,6 +592,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 					Child:       child.Fragment,
 				},
 			}
+			info.RangeFunctionSubquery = rangeFunctionSubqueryChild(child.Fragment)
 			return info
 		}
 		if (n.Func == "double_exponential_smoothing" || n.Func == "holt_winters") && len(n.ParamNumbers) == 2 && n.ParamNumbers[0] != nil && n.ParamNumbers[1] != nil && child.Fragment != nil && child.OutputKind == OutputKindRangeMatrix && isSupportedNativeRangeChildFragment(child.Fragment) {
@@ -605,6 +608,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 					Child:        child.Fragment,
 				},
 			}
+			info.RangeFunctionSubquery = rangeFunctionSubqueryChild(child.Fragment)
 			return info
 		}
 		info.NativeReason = fmt.Sprintf("range function %q currently stays on the local execution path until native range lowering lands", n.Func)
@@ -774,6 +778,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 					Child: child.Fragment,
 				},
 			}
+			info.RangeFunctionSubquery = rangeFunctionSubqueryChild(child.Fragment)
 			return info
 		}
 		info.NativeReason = fmt.Sprintf("%s currently stays on the local execution path until native range lowering lands", n.Func)
@@ -796,6 +801,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 					Child: child.Fragment,
 				},
 			}
+			info.RangeFunctionSubquery = rangeFunctionSubqueryChild(child.Fragment)
 			return info
 		}
 		info.NativeReason = "increase currently stays on the local execution path until native range lowering lands"
@@ -818,6 +824,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 					Child: child.Fragment,
 				},
 			}
+			info.RangeFunctionSubquery = rangeFunctionSubqueryChild(child.Fragment)
 			return info
 		}
 		info.NativeReason = fmt.Sprintf("%s currently stays on the local execution path until native range lowering lands", n.Func)
@@ -840,6 +847,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 					Child: child.Fragment,
 				},
 			}
+			info.RangeFunctionSubquery = rangeFunctionSubqueryChild(child.Fragment)
 			return info
 		}
 		info.NativeReason = "changes currently stays on the local execution path until native range lowering lands"
@@ -862,6 +870,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 					Child: child.Fragment,
 				},
 			}
+			info.RangeFunctionSubquery = rangeFunctionSubqueryChild(child.Fragment)
 			return info
 		}
 		info.NativeReason = "deriv currently stays on the local execution path until native range lowering lands"
@@ -885,6 +894,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 					Child:       child.Fragment,
 				},
 			}
+			info.RangeFunctionSubquery = rangeFunctionSubqueryChild(child.Fragment)
 			return info
 		}
 		info.NativeReason = "quantile_over_time currently requires a lowerable matrix child to run fully in native SQL"
@@ -1342,6 +1352,23 @@ func runtimeTransformOfFragment(fragment *NativeFragment) *RuntimeValueTransform
 		return nil
 	}
 	return fragment.ValueTransform.RuntimeTransform
+}
+
+// rangeFunctionSubqueryChild returns the SubqueryFragment carried by a
+// range-function child fragment, if any. It is populated onto
+// LoweringInfo.RangeFunctionSubquery at each of the seven range-function
+// Analyze emission sites so the renderer can dispatch the subquery-child
+// fast paths without dereferencing info.Fragment.RangeFunction.
+//
+// The returned pointer aliases fragment.Subquery so any upstream in-place
+// mutations remain visible (applySelectorProjection does not mutate the
+// Subquery sub-struct, but the aliasing discipline matches LeafSelector
+// and AggregationSupport.Source).
+func rangeFunctionSubqueryChild(child *NativeFragment) *SubqueryFragment {
+	if child == nil || child.Kind != FragmentKindSubquery {
+		return nil
+	}
+	return child.Subquery
 }
 
 func (info *LoweringInfo) String() string {

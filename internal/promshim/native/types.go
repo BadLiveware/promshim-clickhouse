@@ -240,6 +240,14 @@ type LoweringInfo struct {
 	// join for which JoinShape is set. Populated only when JoinShape is
 	// non-empty.
 	JoinLabels []string
+
+	// RuntimeValueTransform mirrors fragment.ValueTransform.RuntimeTransform
+	// for nodes whose ValueTransform fragment carries a post-SQL runtime
+	// correction (currently: PromQL modulo correction on scalar-involving
+	// modulo expressions). Consumed by nativeSubtreePlan.execute() to
+	// apply the correction to decoded samples without dereferencing
+	// NativeFragment.
+	RuntimeValueTransform *RuntimeValueTransform
 }
 
 // SelectorShape carries per-node selector/shape metadata that tier-2

@@ -146,6 +146,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 				info.NativeReason = "scalar-expression/vector arithmetic lowers via a native value-transform wrapper"
 				info.LabelLineage = lineage
 				info.Fragment = frag
+				info.RuntimeValueTransform = runtimeTransformOfFragment(frag)
 				return info
 			}
 			if frag, lineage, ok := applyComparisonFilterTransform(n.Op, n.ReturnBool, rhs.Fragment, rhs.LabelLineage, lhsLiteral, true); ok {
@@ -168,6 +169,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 				info.NativeReason = "vector/scalar-expression arithmetic lowers via a native value-transform wrapper"
 				info.LabelLineage = lineage
 				info.Fragment = frag
+				info.RuntimeValueTransform = runtimeTransformOfFragment(frag)
 				return info
 			}
 			if frag, lineage, ok := applyComparisonFilterTransform(n.Op, n.ReturnBool, lhs.Fragment, lhs.LabelLineage, rhsLiteral, false); ok {
@@ -197,6 +199,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 					info.NativeReason = "scalar-vector arithmetic lowers via a native value-transform wrapper"
 					info.LabelLineage = lineage
 					info.Fragment = frag
+					info.RuntimeValueTransform = runtimeTransformOfFragment(frag)
 				}
 				return info
 			}
@@ -234,6 +237,7 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 					info.NativeReason = "vector-scalar arithmetic lowers via a native value-transform wrapper"
 					info.LabelLineage = lineage
 					info.Fragment = frag
+					info.RuntimeValueTransform = runtimeTransformOfFragment(frag)
 				}
 				return info
 			}
@@ -1253,6 +1257,18 @@ func sortedKeys(values map[string]LabelLineageState) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// runtimeTransformOfFragment extracts the post-SQL runtime value
+// transform (if any) from a ValueTransform fragment, so callers can
+// mirror it onto LoweringInfo without dereferencing NativeFragment
+// themselves. Returns nil for fragments that don't carry a runtime
+// correction (i.e., everything except the PromQL modulo wrapper).
+func runtimeTransformOfFragment(fragment *NativeFragment) *RuntimeValueTransform {
+	if fragment == nil || fragment.ValueTransform == nil {
+		return nil
+	}
+	return fragment.ValueTransform.RuntimeTransform
 }
 
 func (info *LoweringInfo) String() string {

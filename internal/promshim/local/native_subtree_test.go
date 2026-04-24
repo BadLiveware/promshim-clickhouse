@@ -71,6 +71,10 @@ func TestNativeSubtreePlanAppliesRuntimeModuloCorrectionToInstantVectors(t *test
 	}
 
 	scalar := -7.333333333333334
+	runtimeTransform := &nativeplan.RuntimeValueTransform{
+		Op:     nativeplan.RuntimeValueTransformPromQLModulo,
+		Scalar: &scalar,
+	}
 	plan := &nativeSubtreePlan{
 		Kind: "binary",
 		Expr: "demo_memory_usage_bytes % (1 * 2 + 4 / 6 - 10)",
@@ -85,15 +89,12 @@ func TestNativeSubtreePlanAppliesRuntimeModuloCorrectionToInstantVectors(t *test
 					ValueExpr:  "{value}",
 					TagsExpr:   "{tags}",
 				},
-				ValueExpr: "{value}",
-				RuntimeTransform: &nativeplan.RuntimeValueTransform{
-					Op:     nativeplan.RuntimeValueTransformPromQLModulo,
-					Scalar: &scalar,
-				},
-				DropsMetric: true,
+				ValueExpr:        "{value}",
+				RuntimeTransform: runtimeTransform,
+				DropsMetric:      true,
 			},
 		},
-		Info:               &nativeplan.LoweringInfo{OutputKind: nativeplan.OutputKindInstantVector},
+		Info:               &nativeplan.LoweringInfo{OutputKind: nativeplan.OutputKindInstantVector, RuntimeValueTransform: runtimeTransform},
 		OptimizationReport: &nativeplan.OptimizationReport{RequiredInputStartMS: 0, RequiredInputEndMS: 0},
 	}
 
@@ -127,6 +128,10 @@ func TestNativeSubtreePlanAppliesRuntimeModuloCorrectionToRangeMatrices(t *testi
 	}
 
 	scalar := -7.333333333333334
+	runtimeTransform := &nativeplan.RuntimeValueTransform{
+		Op:     nativeplan.RuntimeValueTransformPromQLModulo,
+		Scalar: &scalar,
+	}
 	plan := &nativeSubtreePlan{
 		Kind: "binary",
 		Expr: "demo_memory_usage_bytes % (1 * 2 + 4 / 6 - 10)",
@@ -141,15 +146,12 @@ func TestNativeSubtreePlanAppliesRuntimeModuloCorrectionToRangeMatrices(t *testi
 					ValueExpr:  "{value}",
 					TagsExpr:   "{tags}",
 				},
-				ValueExpr: "{value}",
-				RuntimeTransform: &nativeplan.RuntimeValueTransform{
-					Op:     nativeplan.RuntimeValueTransformPromQLModulo,
-					Scalar: &scalar,
-				},
-				DropsMetric: true,
+				ValueExpr:        "{value}",
+				RuntimeTransform: runtimeTransform,
+				DropsMetric:      true,
 			},
 		},
-		Info:               &nativeplan.LoweringInfo{OutputKind: nativeplan.OutputKindInstantVector},
+		Info:               &nativeplan.LoweringInfo{OutputKind: nativeplan.OutputKindInstantVector, RuntimeValueTransform: runtimeTransform},
 		OptimizationReport: &nativeplan.OptimizationReport{RequiredInputStartMS: 0, RequiredInputEndMS: 0},
 	}
 

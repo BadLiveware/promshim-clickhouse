@@ -315,7 +315,7 @@ func readBenchReport(path string, _ calibrationSource) ([]sample, error) {
 			if result.CostFamily != "" {
 				s.family = result.CostFamily
 			}
-			if result.StrategyFlap {
+			if modeAffectsRoutingCalibration(mode) && result.StrategyFlap {
 				s.strategyFlap = true
 			}
 			if result.Error != "" {
@@ -597,6 +597,15 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func modeAffectsRoutingCalibration(mode string) bool {
+	switch mode {
+	case "off", "prefer", "prefer@cost_prefer":
+		return true
+	default:
+		return false
+	}
 }
 
 func readJSON(path string, out any) error {

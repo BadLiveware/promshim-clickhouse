@@ -120,6 +120,52 @@ func TestMedianDoesNotMutateInput(t *testing.T) {
 	}
 }
 
+func TestReadBenchReportIgnoresUnrelatedModeStrategyFlaps(t *testing.T) {
+	root := t.TempDir()
+	reportPath := filepath.Join(root, "bench-report.json")
+	writeFixtureJSON(t, reportPath, map[string]any{
+		"schemaVersion": 2,
+		"corpusPath":    "harness/corpus/unit.json",
+		"runLabels": map[string]string{
+			"profile":   "7d",
+			"density":   "sparse",
+			"transport": "native",
+		},
+		"rows": []any{
+			map[string]any{
+				"name":     "rate_1h_instant",
+				"endpoint": "query",
+				"category": "rate",
+				"shim": map[string]any{
+					"prefer": map[string]any{"p50Ms": 40.0, "strategy": "native_sql", "routingPolicy": "strict", "costFamily": "rate"},
+					"off": map[string]any{"p50Ms": 15.0, "strategy": "local", "routingPolicy": "strict", "costFamily": "rate"},
+					"force_supported": map[string]any{"p50Ms": 39.0, "strategy": "native_sql", "routingPolicy": "strict", "costFamily": "rate", "strategyFlap": true},
+					"prefer@cost_prefer": map[string]any{"p50Ms": 16.0, "strategy": "local", "routingPolicy": "cost_prefer", "costFamily": "rate", "strictCandidate": "native_sql", "selectedCandidate": "full_local", "servedCandidate": "full_local"},
+				},
+			},
+		},
+	})
+
+	samples, err := readBenchReport(reportPath, calibrationSource{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 1 {
+		t.Fatalf("samples = %d, want 1", len(samples))
+	}
+	if samples[0].strategyFlap {
+		t.Fatalf("strategyFlap = true, want false when only force_supported flaps")
+	}
+
+	classes := summarizeSamples(samples)
+	if len(classes) != 1 {
+		t.Fatalf("classes = %d, want 1", len(classes))
+	}
+	if classes[0].Recommendation == "do_not_route_due_to_strategy_flip" {
+		t.Fatalf("recommendation=%q, want non-flap recommendation", classes[0].Recommendation)
+	}
+}
+
 func TestBuildCalibrationMarksInsufficientData(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module test\n"), 0o644); err != nil {

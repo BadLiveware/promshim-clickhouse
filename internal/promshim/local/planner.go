@@ -72,9 +72,10 @@ func (p *delegatedExprPlan) explain() ExplainNode {
 }
 
 type Evaluator struct {
-	database string
-	table    string
-	client   *storage.Client
+	database  string
+	table     string
+	client    *storage.Client
+	localMemo map[string]model.RuntimeValue
 }
 
 func NewEvaluator(database, table string, client *storage.Client) *Evaluator {
@@ -82,7 +83,9 @@ func NewEvaluator(database, table string, client *storage.Client) *Evaluator {
 }
 
 func (e *Evaluator) Evaluate(ctx context.Context, plan Plan, params EvalParams) (model.RuntimeValue, error) {
-	value, err := plan.execute(ctx, e, params)
+	requestEvaluator := *e
+	requestEvaluator.localMemo = map[string]model.RuntimeValue{}
+	value, err := plan.execute(ctx, &requestEvaluator, params)
 	if err != nil {
 		return nil, WithInternalContext(err, "evaluating query plan in %s mode", params.Mode)
 	}
@@ -289,6 +292,12 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nati
 		rhs, err := buildExecPlanWithAnalysis(node.RHS, ctx, analysis)
 		if err != nil {
 			return nil, WithInternalContext(err, "building execution right operand plan for binary expression %q", node.ExprString())
+		}
+		lhsExpr := logicalExprString(node.LHS)
+		rhsExpr := logicalExprString(node.RHS)
+		if lhsExpr != "" && lhsExpr == rhsExpr && shouldMemoizeRepeatedLocalPlan(lhs) && shouldMemoizeRepeatedLocalPlan(rhs) {
+			lhs = memoizeLocalPlan(lhsExpr, lhs)
+			rhs = memoizeLocalPlan(lhsExpr, rhs)
 		}
 		return annotateQueryPlan(&localBinaryPlan{Expr: node.ExprString(), Op: node.Op, VectorMatching: cloneVectorMatching(node.VectorMatching), ReturnBool: node.ReturnBool, LHS: lhs, RHS: rhs}, analysis.InfoFor(node)), nil
 	case *logicalAggregationPlan:

@@ -281,7 +281,7 @@ func readSweepMemory(manifestPath string, paths []string) (map[string]map[string
 			warnings = append(warnings, fmt.Sprintf("memory summary %s: %v", path, err))
 			continue
 		}
-		report := absPath(summary.SourceReport)
+		report := absPath(resolvePath(root, summary.SourceReport))
 		byReport[report] = map[string]memoryQueryLogEntry{}
 		for _, row := range summary.ClickHouseQueryLog {
 			byReport[report][row.LogComment] = row

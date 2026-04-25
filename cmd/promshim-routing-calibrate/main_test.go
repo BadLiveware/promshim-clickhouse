@@ -43,7 +43,7 @@ func TestBuildCalibrationFromSweepManifest(t *testing.T) {
 	})
 	writeFixtureJSON(t, filepath.Join(root, memoryRel), map[string]any{
 		"schemaVersion": 1,
-		"sourceReport":  filepath.Join(root, reportRel),
+		"sourceReport":  reportRel,
 		"clickHouseQueryLog": []any{
 			map[string]any{"logComment": "promshim-bench query=plain_selector mode=prefer policy=strict", "selectedRows": 42, "readCompressedBytes": 100, "functionExecute": 7, "memoryP95Bytes": 2048},
 		},
@@ -173,7 +173,7 @@ func writeSimpleSweep(t *testing.T, root, runName, family, mode string, preferP5
 		"rows": []any{map[string]any{"name": "q_" + family, "endpoint": "query", "category": family, "prom": map[string]any{"p50Ms": 1.0}, "shim": shim}},
 	})
 	memoryRel := filepath.Join("harness", "artifacts", "sweeps", runName, "memory-summary-bench-report.json")
-	writeFixtureJSON(t, filepath.Join(root, memoryRel), map[string]any{"schemaVersion": 1, "sourceReport": filepath.Join(root, reportRel), "clickHouseQueryLog": []any{map[string]any{"logComment": "promshim-bench query=q_" + family + " mode=prefer policy=strict", "selectedRows": 1}}})
+	writeFixtureJSON(t, filepath.Join(root, memoryRel), map[string]any{"schemaVersion": 1, "sourceReport": reportRel, "clickHouseQueryLog": []any{map[string]any{"logComment": "promshim-bench query=q_" + family + " mode=prefer policy=strict", "selectedRows": 1}}})
 	manifestPath := filepath.Join(artifactDir, "manifest.json")
 	writeFixtureJSON(t, manifestPath, map[string]any{
 		"schemaVersion": 1,

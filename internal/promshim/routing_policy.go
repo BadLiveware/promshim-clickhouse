@@ -94,9 +94,13 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 		info.Reason = "missing_estimate"
 		return info
 	}
-	for _, capName := range m.capHits(class) {
-		info.CapHits = append(info.CapHits, capName)
-		routingmetrics.ObserveOverCap(class.Family, capName)
+	info.CapEvaluations = m.capEvaluations(class)
+	for _, capEval := range info.CapEvaluations {
+		if !capEval.Exceeded {
+			continue
+		}
+		info.CapHits = append(info.CapHits, capEval.Name)
+		routingmetrics.ObserveOverCap(class.Family, capEval.Name)
 	}
 	if len(info.CapHits) > 0 {
 		info.Decision = "strict_over_cap"
@@ -157,23 +161,24 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 }
 
 func costPreferServingCandidateAllowed(class httpapi.QueryCostClass) bool {
-	// Safety rail: 04 only enables served CBE changes for short-window instant
-	// rate/increase queries with a single selector. Range, histogram, and broad
-	// aggregation families stay strict/reference until they have dedicated
-	// evidence and tighter caps in later plan slices.
-	if class.Endpoint != "query" {
+	// Served local overrides are enabled one measured family at a time. Keep
+	// range queries, joins, subqueries, and multi-selector shapes strict until
+	// they have separate caps and evidence.
+	if class.Endpoint != "query" || class.SelectorCount == 0 || class.HasVectorJoin || class.HasSubquery {
 		return false
 	}
-	if class.Family != "rate" && class.Family != "increase" {
+	switch class.Family {
+	case "rate", "increase":
+		return !class.HasHistogram
+	case "binary":
+		return class.HasRepeatedRangeFunc && class.HasRangeFunction && !class.HasHistogram && !class.HasAggregation && !class.HasSelectionAgg && !class.HasLabelMutation
+	case "histogram_quantile":
+		return class.HasHistogram && class.HasAggregation && class.HasRangeFunction
+	case "aggregation":
+		return class.HasAggregation && !class.HasHistogram && !class.HasSelectionAgg
+	default:
 		return false
 	}
-	if class.SelectorCount != 1 {
-		return false
-	}
-	if class.HasHistogram || class.HasVectorJoin || class.HasSubquery {
-		return false
-	}
-	return true
 }
 
 func hasKnownCostPreferDivergence(class httpapi.QueryCostClass) bool {
@@ -197,36 +202,49 @@ func missingEstimateFields(class httpapi.QueryCostClass) []string {
 	if class.SelectorCount == 0 || class.EstimatedSeries != 0 {
 		return nil
 	}
+	if class.EstimateState.Fresh && class.EstimateState.Missing == 0 && class.EstimateState.Stale == 0 {
+		return nil
+	}
 	if class.EstimateState.Stale > 0 {
 		return []string{"selector_stats_stale"}
 	}
 	return []string{"selector_stats"}
 }
 
-func (m costModel) capHits(class httpapi.QueryCostClass) []string {
-	var hits []string
-	if class.EstimatedInputSamples > m.MaxLocalInputSamples {
-		hits = append(hits, "maxLocalInputSamples")
-	}
-	if class.EstimatedOutputPoints > m.MaxLocalOutputPoints {
-		hits = append(hits, "maxLocalOutputPoints")
-	}
-	if class.EstimatedSeries > m.MaxLocalOutputSeries {
-		hits = append(hits, "maxLocalOutputSeries")
-	}
-	if class.LocalRoundTrips > m.MaxLocalRoundTrips {
-		hits = append(hits, "maxLocalRoundTrips")
+func (m costModel) capEvaluations(class httpapi.QueryCostClass) []httpapi.RoutingCapEvaluation {
+	evaluations := []httpapi.RoutingCapEvaluation{
+		capEvaluation("maxLocalInputSamples", class.EstimatedInputSamples, m.MaxLocalInputSamples, "samples"),
+		capEvaluation("maxLocalOutputPoints", class.EstimatedOutputPoints, m.MaxLocalOutputPoints, "points"),
+		capEvaluation("maxLocalOutputSeries", class.EstimatedSeries, m.MaxLocalOutputSeries, "series"),
+		capEvaluation("maxLocalRoundTrips", int64(class.LocalRoundTrips), int64(m.MaxLocalRoundTrips), "round_trips"),
 	}
 	if class.HasSubquery {
-		hits = append(hits, "subquery")
+		evaluations = append(evaluations, capEvaluation("subquery", 1, 0, "bool"))
 	}
-	if class.HasVectorJoin && class.EstimatedSeries > 1000 {
-		hits = append(hits, "highCardinalityVectorJoin")
+	if class.HasVectorJoin {
+		evaluations = append(evaluations, capEvaluation("highCardinalityVectorJoin", class.EstimatedSeries, 1000, "series"))
 	}
-	if class.RangePointsPerSeries > 240 && class.Family != "range_selector" {
-		hits = append(hits, "rangePointsPerSeries")
+	if class.Family != "range_selector" && class.RangePointsPerSeries > 0 {
+		evaluations = append(evaluations, capEvaluation("rangePointsPerSeries", class.RangePointsPerSeries, 240, "points_per_series"))
 	}
-	return hits
+	return evaluations
+}
+
+func capEvaluation(name string, estimate, limit int64, unit string) httpapi.RoutingCapEvaluation {
+	evaluation := httpapi.RoutingCapEvaluation{Name: name, Estimate: estimate, Limit: limit, Unit: unit}
+	if limit <= 0 {
+		evaluation.Exceeded = estimate > limit
+		if evaluation.Exceeded {
+			evaluation.OverBy = estimate - limit
+		}
+		return evaluation
+	}
+	evaluation.Usage = float64(estimate) / float64(limit)
+	evaluation.Exceeded = estimate > limit
+	if evaluation.Exceeded {
+		evaluation.OverBy = estimate - limit
+	}
+	return evaluation
 }
 
 func estimateRoutingCost(class httpapi.QueryCostClass) *httpapi.RoutingCost {
@@ -245,8 +263,12 @@ func familyBases(family string) (native, local float64) {
 		return 24, 7
 	case "rate", "range_rate", "increase":
 		return 30, 20
+	case "binary":
+		return 45, 25
 	case "histogram_quantile":
 		return 150, 35
+	case "aggregation":
+		return 40, 25
 	default:
 		return 0, 0
 	}
@@ -268,8 +290,18 @@ func familyGate(class httpapi.QueryCostClass) string {
 		return "selector_instant"
 	case "rate", "increase":
 		return "rate_instant"
+	case "binary":
+		if class.HasRepeatedRangeFunc {
+			return "binary_repeated_rate_instant"
+		}
+		return "binary_instant"
 	case "histogram_quantile":
 		return "histogram_instant"
+	case "aggregation":
+		if class.HasRangeFunction {
+			return "range_aggregation_instant"
+		}
+		return "aggregation_instant"
 	case "range_selector":
 		return "range_selector_tiny"
 	default:
@@ -283,8 +315,12 @@ func localCandidateFamily(class httpapi.QueryCostClass) bool {
 		return class.Endpoint == "query"
 	case "rate", "increase":
 		return class.Endpoint == "query" && class.SelectorCount == 1
+	case "binary":
+		return class.Endpoint == "query" && class.SelectorCount == 2 && class.HasRepeatedRangeFunc && !class.HasVectorJoin
 	case "histogram_quantile":
 		return class.Endpoint == "query" && !class.HasVectorJoin
+	case "aggregation":
+		return class.Endpoint == "query" && !class.HasHistogram && !class.HasSelectionAgg && !class.HasVectorJoin
 	case "range_selector":
 		return class.RangePointsPerSeries > 0 && class.RangePointsPerSeries <= 60
 	default:

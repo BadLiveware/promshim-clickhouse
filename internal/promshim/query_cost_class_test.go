@@ -119,6 +119,45 @@ func TestClassifyQueryCostFamilies(t *testing.T) {
 			},
 		},
 		{
+			name:     "binary default vector matching",
+			query:    `rate(up[5m]) + rate(up[5m])`,
+			endpoint: "query",
+			want:     "binary",
+			check: func(t *testing.T, got httpapi.QueryCostClass) {
+				if got.HasVectorJoin {
+					t.Fatalf("default one-to-one binary matching should not be high-cardinality vector join: %+v", got)
+				}
+				if got.SelectorCount != 2 {
+					t.Fatalf("selector count = %d", got.SelectorCount)
+				}
+				if !got.HasRepeatedRangeFunc {
+					t.Fatalf("expected repeated range function metadata: %+v", got)
+				}
+			},
+		},
+		{
+			name:     "binary non-repeated rate operands",
+			query:    `rate(up[5m]) + rate(other_metric[5m])`,
+			endpoint: "query",
+			want:     "binary",
+			check: func(t *testing.T, got httpapi.QueryCostClass) {
+				if got.HasRepeatedRangeFunc {
+					t.Fatalf("different rate operands should not be marked repeated: %+v", got)
+				}
+			},
+		},
+		{
+			name:     "binary explicit on matching",
+			query:    `up + on(job) other_metric`,
+			endpoint: "query",
+			want:     "vector_match",
+			check: func(t *testing.T, got httpapi.QueryCostClass) {
+				if !got.HasVectorJoin {
+					t.Fatalf("explicit vector matching should be classified as vector join: %+v", got)
+				}
+			},
+		},
+		{
 			name:     "label mutation",
 			query:    `label_replace(up, "job_copy", "$1", "job", "(.+)")`,
 			endpoint: "query",

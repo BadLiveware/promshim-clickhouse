@@ -50,6 +50,7 @@ type QueryCostClass struct {
 	EstimateState         EstimateState `json:"estimateState"`
 	HasAggregation        bool          `json:"hasAggregation"`
 	HasRangeFunction      bool          `json:"hasRangeFunction"`
+	HasRepeatedRangeFunc  bool          `json:"hasRepeatedRangeFunction"`
 	HasVectorJoin         bool          `json:"hasVectorJoin"`
 	HasHistogram          bool          `json:"hasHistogram"`
 	HasSubquery           bool          `json:"hasSubquery"`
@@ -72,6 +73,16 @@ type RoutingCost struct {
 	Native float64 `json:"native"`
 	Local  float64 `json:"local"`
 	Unit   string  `json:"unit"`
+}
+
+type RoutingCapEvaluation struct {
+	Name     string  `json:"name"`
+	Estimate int64   `json:"estimate"`
+	Limit    int64   `json:"limit"`
+	Exceeded bool    `json:"exceeded"`
+	OverBy   int64   `json:"overBy,omitempty"`
+	Usage    float64 `json:"usage"`
+	Unit     string  `json:"unit"`
 }
 
 type CandidateCost struct {
@@ -103,22 +114,23 @@ type CandidateDecision struct {
 }
 
 type RoutingInfo struct {
-	Policy             string               `json:"policy"`
-	StrictStrategy     string               `json:"strictStrategy"`
-	SelectedStrategy   string               `json:"selectedStrategy"`
-	WouldSelect        string               `json:"wouldSelect"`
-	Decision           string               `json:"decision"`
-	Reason             string               `json:"reason"`
-	EstimatesAvailable bool                 `json:"estimatesAvailable"`
-	MissingEstimates   []string             `json:"missingEstimates,omitempty"`
-	Cost               *RoutingCost         `json:"cost,omitempty"`
-	Caps               map[string]int64     `json:"caps,omitempty"`
-	CapHits            []string             `json:"capHits,omitempty"`
-	EnabledFamilies    []string             `json:"enabledFamilies,omitempty"`
-	CandidateDecision  *CandidateDecision   `json:"candidateDecision,omitempty"`
-	Candidates         []ExecutionCandidate `json:"candidates,omitempty"`
-	Class              QueryCostClass       `json:"class"`
-	SettingsProfile    string               `json:"settingsProfile,omitempty"`
+	Policy             string                 `json:"policy"`
+	StrictStrategy     string                 `json:"strictStrategy"`
+	SelectedStrategy   string                 `json:"selectedStrategy"`
+	WouldSelect        string                 `json:"wouldSelect"`
+	Decision           string                 `json:"decision"`
+	Reason             string                 `json:"reason"`
+	EstimatesAvailable bool                   `json:"estimatesAvailable"`
+	MissingEstimates   []string               `json:"missingEstimates,omitempty"`
+	Cost               *RoutingCost           `json:"cost,omitempty"`
+	Caps               map[string]int64       `json:"caps,omitempty"`
+	CapHits            []string               `json:"capHits,omitempty"`
+	CapEvaluations     []RoutingCapEvaluation `json:"capEvaluations,omitempty"`
+	EnabledFamilies    []string               `json:"enabledFamilies,omitempty"`
+	CandidateDecision  *CandidateDecision     `json:"candidateDecision,omitempty"`
+	Candidates         []ExecutionCandidate   `json:"candidates,omitempty"`
+	Class              QueryCostClass         `json:"class"`
+	SettingsProfile    string                 `json:"settingsProfile,omitempty"`
 }
 
 type InstantQueryRequest struct {

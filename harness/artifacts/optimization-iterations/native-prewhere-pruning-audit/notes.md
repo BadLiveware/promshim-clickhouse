@@ -150,4 +150,4 @@ Current follow-up should prefer non-invasive explain-only work
 
 - Scope: audit-only decision; no renderer or served-routing changes.
 - Rollback: normal revert of decision/ledger documentation if superseded.
-- Commit: `pending` (this attempt's semantic commit).
+- Commit: `5ca71c0 docs: defer manual PREWHERE rewrite candidate`.

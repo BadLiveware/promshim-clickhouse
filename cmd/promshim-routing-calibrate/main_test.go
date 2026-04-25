@@ -35,8 +35,8 @@ func TestBuildCalibrationFromSweepManifest(t *testing.T) {
 				"category": "selector_plain",
 				"prom":     map[string]any{"p50Ms": 1.0},
 				"shim": map[string]any{
-					"prefer": map[string]any{"p50Ms": 10.0, "strategy": "native_sql", "routingPolicy": "strict", "costFamily": "selector"},
-					"off":    map[string]any{"p50Ms": 5.0, "strategy": "local", "routingPolicy": "strict", "costFamily": "selector"},
+					"prefer": map[string]any{"p50Ms": 10.0, "strategy": "native_sql", "routingPolicy": "strict", "costFamily": "selector", "settingsProfile": "default_safe"},
+					"off":    map[string]any{"p50Ms": 5.0, "strategy": "local", "routingPolicy": "strict", "costFamily": "selector", "settingsProfile": "default_safe"},
 				},
 			},
 		},
@@ -53,7 +53,7 @@ func TestBuildCalibrationFromSweepManifest(t *testing.T) {
 		"schemaVersion": 1,
 		"runName":       "unit",
 		"artifactDir":   "harness/artifacts/sweeps/unit",
-		"axes":          map[string]any{"profile": "7d", "density": "sparse", "transport": "native", "shimModes": []string{"prefer", "off"}, "memoryMode": "summary", "corpusSet": "native"},
+		"axes":          map[string]any{"profile": "7d", "density": "sparse", "transport": "native", "shimModes": []string{"prefer", "off"}, "memoryMode": "summary", "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1", "promshimSettingsProfile": "default_safe", "corpusSet": "native"},
 		"endpoints":     map[string]string{"promshim": "http://localhost:29191"},
 		"compliance":    map[string]any{"status": "skipped"},
 		"bench":         map[string]any{"reports": []any{map[string]any{"path": reportRel, "profile": "7d", "density": "sparse", "transport": "native"}}, "memoryReports": []string{memoryRel}},
@@ -73,11 +73,14 @@ func TestBuildCalibrationFromSweepManifest(t *testing.T) {
 	if class.LocalNativeRatioMedian != 0.5 {
 		t.Fatalf("local/native = %v, want 0.5", class.LocalNativeRatioMedian)
 	}
+	if class.ClickHouseReferenceProfile != "promshim-ch-timeseries-reference-v1" || class.PromshimSettingsProfile != "default_safe" {
+		t.Fatalf("profile dimensions missing: %+v", class)
+	}
 	if class.Memory == nil || class.Memory.SelectedRowsMedian != 42 {
 		t.Fatalf("memory join missing: %+v", class.Memory)
 	}
 	md := renderMarkdown(out)
-	if !containsAll(md, []string{"sweep `unit`", "local_candidate", "selector", "Strict cand."}) {
+	if !containsAll(md, []string{"sweep `unit`", "local_candidate", "selector", "Settings profile", "CH ref profile", "promshim-ch-timeseries-reference-v1"}) {
 		t.Fatalf("markdown missing expected content:\n%s", md)
 	}
 }
@@ -99,6 +102,29 @@ func TestBuildCalibrationMergesMultipleSweeps(t *testing.T) {
 	}
 	if len(out.Classes) < 2 {
 		t.Fatalf("classes = %d, want at least 2", len(out.Classes))
+	}
+}
+
+func TestCalibrationKeepsSettingsProfilesSeparate(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifestA := writeSimpleSweep(t, root, "run-default-safe", "selector", "prefer", 10.0, 5.0)
+	manifestB := writeSimpleSweepWithSettingsProfile(t, root, "run-benchmark-control", "selector", "prefer", 11.0, 6.0, "benchmark_control")
+
+	out, err := buildCalibration([]string{manifestA, manifestB}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profiles := map[string]bool{}
+	for _, class := range out.Classes {
+		if class.Family == "selector" {
+			profiles[class.PromshimSettingsProfile] = true
+		}
+	}
+	if !profiles["default_safe"] || !profiles["benchmark_control"] || len(profiles) != 2 {
+		t.Fatalf("settings profile dimensions were mixed: %+v", out.Classes)
 	}
 }
 
@@ -198,15 +224,20 @@ func TestBuildCalibrationMarksInsufficientData(t *testing.T) {
 
 func writeSimpleSweep(t *testing.T, root, runName, family, mode string, preferP50, offP50 float64) string {
 	t.Helper()
+	return writeSimpleSweepWithSettingsProfile(t, root, runName, family, mode, preferP50, offP50, "default_safe")
+}
+
+func writeSimpleSweepWithSettingsProfile(t *testing.T, root, runName, family, mode string, preferP50, offP50 float64, settingsProfile string) string {
+	t.Helper()
 	artifactDir := filepath.Join(root, "harness", "artifacts", "sweeps", runName)
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	reportRel := filepath.Join("harness", "artifacts", "sweeps", runName, "bench-report.json")
 	shim := map[string]any{}
-	shim[mode] = map[string]any{"p50Ms": preferP50, "strategy": "native_sql", "routingPolicy": "cost_prefer", "costFamily": family, "strictCandidate": "native_sql", "selectedCandidate": "full_local", "servedCandidate": "full_local"}
+	shim[mode] = map[string]any{"p50Ms": preferP50, "strategy": "native_sql", "routingPolicy": "cost_prefer", "costFamily": family, "strictCandidate": "native_sql", "selectedCandidate": "full_local", "servedCandidate": "full_local", "settingsProfile": settingsProfile}
 	if offP50 > 0 {
-		shim["off"] = map[string]any{"p50Ms": offP50, "strategy": "local", "routingPolicy": "strict", "costFamily": family}
+		shim["off"] = map[string]any{"p50Ms": offP50, "strategy": "local", "routingPolicy": "strict", "costFamily": family, "settingsProfile": settingsProfile}
 	}
 	writeFixtureJSON(t, filepath.Join(root, reportRel), map[string]any{
 		"schemaVersion": 2,
@@ -225,7 +256,7 @@ func writeSimpleSweep(t *testing.T, root, runName, family, mode string, preferP5
 		"schemaVersion": 1,
 		"runName":       runName,
 		"artifactDir":   filepath.Join("harness", "artifacts", "sweeps", runName),
-		"axes":          map[string]any{"profile": "7d", "density": "sparse", "transport": "native"},
+		"axes":          map[string]any{"profile": "7d", "density": "sparse", "transport": "native", "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1", "promshimSettingsProfile": settingsProfile},
 		"compliance":    map[string]any{"status": "skipped"},
 		"bench":         map[string]any{"reports": []any{map[string]any{"path": reportRel, "profile": "7d", "density": "sparse", "transport": "native"}}, "memoryReports": []string{memoryRel}},
 	})

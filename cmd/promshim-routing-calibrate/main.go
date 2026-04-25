@@ -25,12 +25,14 @@ type sweepManifest struct {
 	RunName     string `json:"runName"`
 	ArtifactDir string `json:"artifactDir"`
 	Axes        struct {
-		Profile    string   `json:"profile"`
-		Density    string   `json:"density"`
-		Transport  string   `json:"transport"`
-		ShimModes  []string `json:"shimModes"`
-		MemoryMode string   `json:"memoryMode"`
-		CorpusSet  string   `json:"corpusSet"`
+		Profile                    string   `json:"profile"`
+		Density                    string   `json:"density"`
+		Transport                  string   `json:"transport"`
+		ShimModes                  []string `json:"shimModes"`
+		MemoryMode                 string   `json:"memoryMode"`
+		ClickHouseReferenceProfile string   `json:"clickHouseReferenceProfile"`
+		PromshimSettingsProfile    string   `json:"promshimSettingsProfile"`
+		CorpusSet                  string   `json:"corpusSet"`
 	} `json:"axes"`
 	Endpoints  map[string]string `json:"endpoints"`
 	Compliance struct {
@@ -84,6 +86,7 @@ type benchShimResult struct {
 	Strategy           string  `json:"strategy"`
 	CHRoundtrips       int     `json:"chRoundtrips"`
 	CHMillis           int     `json:"chMillis"`
+	SettingsProfile    string  `json:"settingsProfile"`
 	StrategyFlap       bool    `json:"strategyFlap"`
 	Error              string  `json:"error"`
 }
@@ -116,37 +119,41 @@ type calibrationOutput struct {
 }
 
 type calibrationSource struct {
-	SweepName        string            `json:"sweepName,omitempty"`
-	ManifestPath     string            `json:"manifestPath,omitempty"`
-	BenchReports     []string          `json:"benchReports"`
-	MemoryReports    []string          `json:"memoryReports,omitempty"`
-	ComplianceStatus string            `json:"complianceStatus,omitempty"`
-	Endpoints        map[string]string `json:"endpoints,omitempty"`
+	SweepName                  string            `json:"sweepName,omitempty"`
+	ManifestPath               string            `json:"manifestPath,omitempty"`
+	BenchReports               []string          `json:"benchReports"`
+	MemoryReports              []string          `json:"memoryReports,omitempty"`
+	ComplianceStatus           string            `json:"complianceStatus,omitempty"`
+	ClickHouseReferenceProfile string            `json:"clickHouseReferenceProfile,omitempty"`
+	PromshimSettingsProfile    string            `json:"promshimSettingsProfile,omitempty"`
+	Endpoints                  map[string]string `json:"endpoints,omitempty"`
 }
 
 type calibrationClass struct {
-	Family                 string          `json:"family"`
-	Profile                string          `json:"profile,omitempty"`
-	Density                string          `json:"density,omitempty"`
-	Transport              string          `json:"transport,omitempty"`
-	CorpusPath             string          `json:"corpusPath,omitempty"`
-	Rows                   int             `json:"rows"`
-	NativeP50MedianMS      float64         `json:"nativeP50MedianMs,omitempty"`
-	LocalP50MedianMS       float64         `json:"localP50MedianMs,omitempty"`
-	CostPreferP50MedianMS  float64         `json:"costPreferP50MedianMs,omitempty"`
-	PromP50MedianMS        float64         `json:"promP50MedianMs,omitempty"`
-	LocalNativeRatioMedian float64         `json:"localNativeRatioMedian,omitempty"`
-	StrictCandidate        string          `json:"strictCandidate,omitempty"`
-	SelectedCandidate      string          `json:"selectedCandidate,omitempty"`
-	ServedCandidate        string          `json:"servedCandidate,omitempty"`
-	CandidateFlipRows      int             `json:"candidateFlipRows,omitempty"`
-	Recommendation         string          `json:"recommendation"`
-	Confidence             string          `json:"confidence"`
-	CoverageNotes          []string        `json:"coverageNotes,omitempty"`
-	Reasons                []string        `json:"reasons"`
-	Memory                 *memoryCounters `json:"memory,omitempty"`
-	StrategyFlips          int             `json:"strategyFlips,omitempty"`
-	MissingMemoryComments  int             `json:"missingMemoryComments,omitempty"`
+	Family                     string          `json:"family"`
+	Profile                    string          `json:"profile,omitempty"`
+	Density                    string          `json:"density,omitempty"`
+	Transport                  string          `json:"transport,omitempty"`
+	ClickHouseReferenceProfile string          `json:"clickHouseReferenceProfile,omitempty"`
+	PromshimSettingsProfile    string          `json:"promshimSettingsProfile,omitempty"`
+	CorpusPath                 string          `json:"corpusPath,omitempty"`
+	Rows                       int             `json:"rows"`
+	NativeP50MedianMS          float64         `json:"nativeP50MedianMs,omitempty"`
+	LocalP50MedianMS           float64         `json:"localP50MedianMs,omitempty"`
+	CostPreferP50MedianMS      float64         `json:"costPreferP50MedianMs,omitempty"`
+	PromP50MedianMS            float64         `json:"promP50MedianMs,omitempty"`
+	LocalNativeRatioMedian     float64         `json:"localNativeRatioMedian,omitempty"`
+	StrictCandidate            string          `json:"strictCandidate,omitempty"`
+	SelectedCandidate          string          `json:"selectedCandidate,omitempty"`
+	ServedCandidate            string          `json:"servedCandidate,omitempty"`
+	CandidateFlipRows          int             `json:"candidateFlipRows,omitempty"`
+	Recommendation             string          `json:"recommendation"`
+	Confidence                 string          `json:"confidence"`
+	CoverageNotes              []string        `json:"coverageNotes,omitempty"`
+	Reasons                    []string        `json:"reasons"`
+	Memory                     *memoryCounters `json:"memory,omitempty"`
+	StrategyFlips              int             `json:"strategyFlips,omitempty"`
+	MissingMemoryComments      int             `json:"missingMemoryComments,omitempty"`
 }
 
 type memoryCounters struct {
@@ -158,6 +165,7 @@ type memoryCounters struct {
 
 type sample struct {
 	name, family, profile, density, transport, corpusPath string
+	clickHouseReferenceProfile, promshimSettingsProfile   string
 	strictCandidate, selectedCandidate, servedCandidate   string
 	promP50, nativeP50, localP50, costPreferP50           float64
 	strategyFlap, candidateFlip                           bool
@@ -165,7 +173,7 @@ type sample struct {
 	missingMemory                                         bool
 }
 
-type groupKey struct{ family, profile, density, transport, corpusPath string }
+type groupKey struct{ family, profile, density, transport, clickHouseReferenceProfile, promshimSettingsProfile, corpusPath string }
 
 func main() {
 	var sweeps, legacyBench stringList
@@ -233,7 +241,7 @@ func readSweep(path string) ([]sample, calibrationSource, []string, error) {
 	if err := readJSON(path, &manifest); err != nil {
 		return nil, calibrationSource{}, nil, fmt.Errorf("read sweep manifest %q: %w", path, err)
 	}
-	source := calibrationSource{SweepName: manifest.RunName, ManifestPath: path, ComplianceStatus: manifest.Compliance.Status, Endpoints: manifest.Endpoints}
+	source := calibrationSource{SweepName: manifest.RunName, ManifestPath: path, ComplianceStatus: manifest.Compliance.Status, ClickHouseReferenceProfile: manifest.Axes.ClickHouseReferenceProfile, PromshimSettingsProfile: manifest.Axes.PromshimSettingsProfile, Endpoints: manifest.Endpoints}
 	memoryByReport, missingByReport, warnings := readSweepMemory(path, manifest.Bench.MemoryReports)
 	var samples []sample
 	root := repoRootFor(path)
@@ -255,6 +263,12 @@ func readSweep(path string) ([]sample, calibrationSource, []string, error) {
 			}
 			if benchSamples[i].transport == "" {
 				benchSamples[i].transport = firstNonEmpty(report.Transport, manifest.Axes.Transport)
+			}
+			if benchSamples[i].clickHouseReferenceProfile == "" {
+				benchSamples[i].clickHouseReferenceProfile = manifest.Axes.ClickHouseReferenceProfile
+			}
+			if benchSamples[i].promshimSettingsProfile == "" {
+				benchSamples[i].promshimSettingsProfile = manifest.Axes.PromshimSettingsProfile
 			}
 			comments := benchLogComments(benchSamples[i], "prefer")
 			if entry, ok := findMemoryEntry(mem, comments); ok {
@@ -315,6 +329,9 @@ func readBenchReport(path string, _ calibrationSource) ([]sample, error) {
 			if result.CostFamily != "" {
 				s.family = result.CostFamily
 			}
+			if result.SettingsProfile != "" && s.promshimSettingsProfile == "" {
+				s.promshimSettingsProfile = result.SettingsProfile
+			}
 			if modeAffectsRoutingCalibration(mode) && result.StrategyFlap {
 				s.strategyFlap = true
 			}
@@ -355,7 +372,7 @@ func readBenchReport(path string, _ calibrationSource) ([]sample, error) {
 func summarizeSamples(samples []sample) []calibrationClass {
 	groups := map[groupKey][]sample{}
 	for _, s := range samples {
-		key := groupKey{s.family, s.profile, s.density, s.transport, s.corpusPath}
+		key := groupKey{s.family, s.profile, s.density, s.transport, s.clickHouseReferenceProfile, s.promshimSettingsProfile, s.corpusPath}
 		groups[key] = append(groups[key], s)
 	}
 	keys := make([]groupKey, 0, len(groups))
@@ -421,24 +438,26 @@ func summarizeSamples(samples []sample) []calibrationClass {
 			coverageNotes = append(coverageNotes, "candidate headers missing in class rows")
 		}
 		class := calibrationClass{
-			Family:                 key.family,
-			Profile:                key.profile,
-			Density:                key.density,
-			Transport:              key.transport,
-			CorpusPath:             key.corpusPath,
-			Rows:                   len(vals),
-			NativeP50MedianMS:      median(native),
-			LocalP50MedianMS:       median(local),
-			CostPreferP50MedianMS:  median(costPrefer),
-			PromP50MedianMS:        median(prom),
-			LocalNativeRatioMedian: median(ratios),
-			StrictCandidate:        mostFrequent(strictCandidates),
-			SelectedCandidate:      mostFrequent(selectedCandidates),
-			ServedCandidate:        mostFrequent(servedCandidates),
-			CandidateFlipRows:      candidateFlipRows,
-			CoverageNotes:          coverageNotes,
-			StrategyFlips:          flips,
-			MissingMemoryComments:  missingMemory,
+			Family:                     key.family,
+			Profile:                    key.profile,
+			Density:                    key.density,
+			Transport:                  key.transport,
+			ClickHouseReferenceProfile: key.clickHouseReferenceProfile,
+			PromshimSettingsProfile:    key.promshimSettingsProfile,
+			CorpusPath:                 key.corpusPath,
+			Rows:                       len(vals),
+			NativeP50MedianMS:          median(native),
+			LocalP50MedianMS:           median(local),
+			CostPreferP50MedianMS:      median(costPrefer),
+			PromP50MedianMS:            median(prom),
+			LocalNativeRatioMedian:     median(ratios),
+			StrictCandidate:            mostFrequent(strictCandidates),
+			SelectedCandidate:          mostFrequent(selectedCandidates),
+			ServedCandidate:            mostFrequent(servedCandidates),
+			CandidateFlipRows:          candidateFlipRows,
+			CoverageNotes:              coverageNotes,
+			StrategyFlips:              flips,
+			MissingMemoryComments:      missingMemory,
 		}
 		class.Recommendation, class.Reasons = recommend(class)
 		class.Confidence = classConfidence(class)
@@ -490,6 +509,12 @@ func renderMarkdown(out calibrationOutput) string {
 		for _, report := range source.BenchReports {
 			fmt.Fprintf(&b, "  - bench `%s`\n", report)
 		}
+		if source.ClickHouseReferenceProfile != "" {
+			fmt.Fprintf(&b, "  - ClickHouse reference profile `%s`\n", source.ClickHouseReferenceProfile)
+		}
+		if source.PromshimSettingsProfile != "" {
+			fmt.Fprintf(&b, "  - promshim settings profile `%s`\n", source.PromshimSettingsProfile)
+		}
 		for _, memory := range source.MemoryReports {
 			fmt.Fprintf(&b, "  - memory `%s`\n", memory)
 		}
@@ -501,10 +526,10 @@ func renderMarkdown(out calibrationOutput) string {
 		}
 	}
 	fmt.Fprintf(&b, "\n## Class recommendations\n\n")
-	fmt.Fprintf(&b, "| Family | Profile | Density | Rows | Native p50 ms | Local p50 ms | CostPrefer p50 ms | L/N | Strict cand. | Selected cand. | Served cand. | Cand. flips | Confidence | Recommendation | Reasons |\n")
-	fmt.Fprintf(&b, "|---|---|---|---:|---:|---:|---:|---:|---|---|---|---:|---|---|---|\n")
+	fmt.Fprintf(&b, "| Family | Profile | Density | Settings profile | CH ref profile | Rows | Native p50 ms | Local p50 ms | CostPrefer p50 ms | L/N | Strict cand. | Selected cand. | Served cand. | Cand. flips | Confidence | Recommendation | Reasons |\n")
+	fmt.Fprintf(&b, "|---|---|---|---|---|---:|---:|---:|---:|---:|---|---|---|---:|---|---|---|\n")
 	for _, class := range out.Classes {
-		fmt.Fprintf(&b, "| %s | %s | %s | %d | %s | %s | %s | %s | %s | %s | %s | %d | %s | %s | %s |\n", class.Family, class.Profile, class.Density, class.Rows, fmtFloat(class.NativeP50MedianMS), fmtFloat(class.LocalP50MedianMS), fmtFloat(class.CostPreferP50MedianMS), fmtFloat(class.LocalNativeRatioMedian), firstNonEmpty(class.StrictCandidate, "—"), firstNonEmpty(class.SelectedCandidate, "—"), firstNonEmpty(class.ServedCandidate, "—"), class.CandidateFlipRows, class.Confidence, class.Recommendation, strings.Join(class.Reasons, "; "))
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %d | %s | %s | %s | %s | %s | %s | %s | %d | %s | %s | %s |\n", class.Family, class.Profile, class.Density, firstNonEmpty(class.PromshimSettingsProfile, "—"), firstNonEmpty(class.ClickHouseReferenceProfile, "—"), class.Rows, fmtFloat(class.NativeP50MedianMS), fmtFloat(class.LocalP50MedianMS), fmtFloat(class.CostPreferP50MedianMS), fmtFloat(class.LocalNativeRatioMedian), firstNonEmpty(class.StrictCandidate, "—"), firstNonEmpty(class.SelectedCandidate, "—"), firstNonEmpty(class.ServedCandidate, "—"), class.CandidateFlipRows, class.Confidence, class.Recommendation, strings.Join(class.Reasons, "; "))
 		if len(class.CoverageNotes) > 0 {
 			fmt.Fprintf(&b, "  - coverage: %s\n", strings.Join(class.CoverageNotes, "; "))
 		}

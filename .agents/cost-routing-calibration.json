@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-04-25T10:43:58Z",
+  "generatedAt": "2026-04-25T16:36:55Z",
   "sources": [
     {
-      "sweepName": "cbe-shadow-rate-7d-sparse",
-      "manifestPath": "harness/artifacts/sweeps/cbe-shadow-rate-7d-sparse/manifest.json",
+      "sweepName": "promshim-optimization-foundation-7d-sparse",
+      "manifestPath": "harness/artifacts/sweeps/promshim-optimization-foundation-7d-sparse/manifest.json",
       "benchReports": [
-        "harness/artifacts/sweeps/cbe-shadow-rate-7d-sparse/bench-report-7d-sparse-bench-native-lowering-7d.json"
+        "harness/artifacts/sweeps/promshim-optimization-foundation-7d-sparse/bench-report-7d-sparse-bench-optimization-tuning-7d.json"
       ],
       "memoryReports": [
-        "harness/artifacts/sweeps/cbe-shadow-rate-7d-sparse/memory-summary-bench-report-7d-sparse-bench-native-lowering-7d.json"
+        "harness/artifacts/sweeps/promshim-optimization-foundation-7d-sparse/memory-summary-bench-report-7d-sparse-bench-optimization-tuning-7d.json"
       ],
       "complianceStatus": "skipped",
       "endpoints": {
@@ -19,15 +19,17 @@
       }
     },
     {
-      "sweepName": "cbe-prefer-rate-7d-sparse-warm",
-      "manifestPath": "harness/artifacts/sweeps/cbe-prefer-rate-7d-sparse-warm/manifest.json",
+      "sweepName": "settings-profile-default-safe-smoke",
+      "manifestPath": "harness/artifacts/sweeps/settings-profile-default-safe-smoke/manifest.json",
       "benchReports": [
-        "harness/artifacts/sweeps/cbe-prefer-rate-7d-sparse-warm/bench-report-7d-sparse-bench-native-lowering-7d.json"
+        "harness/artifacts/sweeps/settings-profile-default-safe-smoke/bench-report-7d-sparse-bench-optimization-tuning-7d.json"
       ],
       "memoryReports": [
-        "harness/artifacts/sweeps/cbe-prefer-rate-7d-sparse-warm/memory-summary-bench-report-7d-sparse-bench-native-lowering-7d.json"
+        "harness/artifacts/sweeps/settings-profile-default-safe-smoke/memory-summary-bench-report-7d-sparse-bench-optimization-tuning-7d.json"
       ],
       "complianceStatus": "skipped",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "default_safe",
       "endpoints": {
         "clickhouse": "http://localhost:28124",
         "prometheus": "http://localhost:29190",
@@ -35,35 +37,17 @@
       }
     },
     {
-      "sweepName": "cbe-prefer-rate-long-range-sparse",
-      "manifestPath": "harness/artifacts/sweeps/cbe-prefer-rate-long-range-sparse/manifest.json",
+      "sweepName": "settings-profile-benchmark-control-smoke",
+      "manifestPath": "harness/artifacts/sweeps/settings-profile-benchmark-control-smoke/manifest.json",
       "benchReports": [
-        "harness/artifacts/sweeps/cbe-prefer-rate-long-range-sparse/bench-report-1y-sparse-bench-native-lowering-1y.json",
-        "harness/artifacts/sweeps/cbe-prefer-rate-long-range-sparse/bench-report-30d-sparse-bench-native-lowering-30d.json",
-        "harness/artifacts/sweeps/cbe-prefer-rate-long-range-sparse/bench-report-7d-sparse-bench-native-lowering-7d.json"
+        "harness/artifacts/sweeps/settings-profile-benchmark-control-smoke/bench-report-7d-sparse-bench-optimization-tuning-7d.json"
       ],
       "memoryReports": [
-        "harness/artifacts/sweeps/cbe-prefer-rate-long-range-sparse/memory-summary-bench-report-1y-sparse-bench-native-lowering-1y.json",
-        "harness/artifacts/sweeps/cbe-prefer-rate-long-range-sparse/memory-summary-bench-report-30d-sparse-bench-native-lowering-30d.json",
-        "harness/artifacts/sweeps/cbe-prefer-rate-long-range-sparse/memory-summary-bench-report-7d-sparse-bench-native-lowering-7d.json"
+        "harness/artifacts/sweeps/settings-profile-benchmark-control-smoke/memory-summary-bench-report-7d-sparse-bench-optimization-tuning-7d.json"
       ],
       "complianceStatus": "skipped",
-      "endpoints": {
-        "clickhouse": "http://localhost:28124",
-        "prometheus": "http://localhost:29190",
-        "promshim": "http://localhost:29191"
-      }
-    },
-    {
-      "sweepName": "cbe-prefer-rate-7d-dense-processing",
-      "manifestPath": "harness/artifacts/sweeps/cbe-prefer-rate-7d-dense-processing/manifest.json",
-      "benchReports": [
-        "harness/artifacts/sweeps/cbe-prefer-rate-7d-dense-processing/bench-report-7d-dense-bench-processing-7d.json"
-      ],
-      "memoryReports": [
-        "harness/artifacts/sweeps/cbe-prefer-rate-7d-dense-processing/memory-summary-bench-report-7d-dense-bench-processing-7d.json"
-      ],
-      "complianceStatus": "skipped",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "benchmark_control",
       "endpoints": {
         "clickhouse": "http://localhost:28124",
         "prometheus": "http://localhost:29190",
@@ -74,77 +58,30 @@
   "classes": [
     {
       "family": "aggregation",
-      "profile": "1y",
-      "density": "sparse",
-      "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-1y.json",
-      "rows": 2,
-      "localP50MedianMs": 2368.111,
-      "costPreferP50MedianMs": 2369.046,
-      "promP50MedianMs": 53.38,
-      "recommendation": "insufficient_data",
-      "confidence": "low",
-      "coverageNotes": [
-        "candidate headers missing in class rows"
-      ],
-      "reasons": [
-        "native/local pair missing from sweep"
-      ],
-      "memory": {
-        "selectedRowsMedian": 1829665824,
-        "readCompressedBytesMedian": 2410561853.5,
-        "functionExecuteMedian": 2492882,
-        "memoryP95BytesMedian": 213069239.075
-      }
-    },
-    {
-      "family": "aggregation",
-      "profile": "30d",
-      "density": "sparse",
-      "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-30d.json",
-      "rows": 2,
-      "localP50MedianMs": 920.213,
-      "costPreferP50MedianMs": 929.792,
-      "promP50MedianMs": 25.995,
-      "recommendation": "insufficient_data",
-      "confidence": "low",
-      "coverageNotes": [
-        "candidate headers missing in class rows"
-      ],
-      "reasons": [
-        "native/local pair missing from sweep"
-      ],
-      "memory": {
-        "selectedRowsMedian": 1757117472,
-        "readCompressedBytesMedian": 1710115375,
-        "functionExecuteMedian": 1190137,
-        "memoryP95BytesMedian": 147561404.04999998
-      }
-    },
-    {
-      "family": "aggregation",
       "profile": "7d",
-      "density": "dense",
+      "density": "sparse",
       "transport": "native",
-      "corpusPath": "harness/corpus/bench-processing-7d.json",
-      "rows": 5,
-      "localP50MedianMs": 80.097,
-      "costPreferP50MedianMs": 79.627,
-      "promP50MedianMs": 46.982,
-      "recommendation": "insufficient_data",
-      "confidence": "low",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 4,
+      "nativeP50MedianMs": 106.169,
+      "localP50MedianMs": 23.591,
+      "promP50MedianMs": 11.326500000000001,
+      "localNativeRatioMedian": 0.5233661180599403,
+      "recommendation": "native_required",
+      "confidence": "medium",
       "coverageNotes": [
+        "no cost_prefer rows in class",
         "candidate headers missing in class rows"
       ],
       "reasons": [
-        "native/local pair missing from sweep"
+        "native remains preferred for family; local/native median 0.52"
       ],
       "memory": {
-        "selectedRowsMedian": 1686338616,
-        "readCompressedBytesMedian": 6514980470,
-        "functionExecuteMedian": 349456,
-        "memoryP95BytesMedian": 278419599.3
+        "selectedRowsMedian": 863019048,
+        "readCompressedBytesMedian": 670326895,
+        "functionExecuteMedian": 207865.5,
+        "memoryP95BytesMedian": 98540026.04999998
       }
     },
     {
@@ -152,134 +89,13 @@
       "profile": "7d",
       "density": "sparse",
       "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-7d.json",
-      "rows": 6,
-      "localP50MedianMs": 783.4920000000001,
-      "costPreferP50MedianMs": 786.587,
-      "promP50MedianMs": 23.372500000000002,
-      "recommendation": "insufficient_data",
-      "confidence": "low",
-      "coverageNotes": [
-        "candidate headers missing in class rows"
-      ],
-      "reasons": [
-        "native/local pair missing from sweep"
-      ],
-      "memory": {
-        "selectedRowsMedian": 4315095240,
-        "readCompressedBytesMedian": 3330908630.5,
-        "functionExecuteMedian": 1809894.5,
-        "memoryP95BytesMedian": 132384914.25
-      }
-    },
-    {
-      "family": "histogram_quantile",
-      "profile": "1y",
-      "density": "sparse",
-      "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-1y.json",
-      "rows": 1,
-      "nativeP50MedianMs": 159.191,
-      "costPreferP50MedianMs": 160.049,
-      "promP50MedianMs": 17.004,
-      "recommendation": "insufficient_data",
-      "confidence": "low",
-      "coverageNotes": [
-        "candidate headers missing in class rows"
-      ],
-      "reasons": [
-        "native/local pair missing from sweep"
-      ],
-      "memory": {
-        "selectedRowsMedian": 1688304672,
-        "readCompressedBytesMedian": 1365609785,
-        "functionExecuteMedian": 237972,
-        "memoryP95BytesMedian": 7464659.75
-      }
-    },
-    {
-      "family": "histogram_quantile",
-      "profile": "30d",
-      "density": "sparse",
-      "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-30d.json",
-      "rows": 1,
-      "nativeP50MedianMs": 160.928,
-      "costPreferP50MedianMs": 160.59,
-      "promP50MedianMs": 16.436,
-      "recommendation": "insufficient_data",
-      "confidence": "low",
-      "coverageNotes": [
-        "candidate headers missing in class rows"
-      ],
-      "reasons": [
-        "native/local pair missing from sweep"
-      ],
-      "memory": {
-        "selectedRowsMedian": 1688697888,
-        "readCompressedBytesMedian": 1391486360,
-        "functionExecuteMedian": 239144,
-        "memoryP95BytesMedian": 7533877.999999999
-      }
-    },
-    {
-      "family": "histogram_quantile",
-      "profile": "7d",
-      "density": "dense",
-      "transport": "native",
-      "corpusPath": "harness/corpus/bench-processing-7d.json",
-      "rows": 2,
-      "nativeP50MedianMs": 2710.723,
-      "costPreferP50MedianMs": 2712.599,
-      "promP50MedianMs": 154.193,
-      "recommendation": "insufficient_data",
-      "confidence": "low",
-      "coverageNotes": [
-        "candidate headers missing in class rows"
-      ],
-      "reasons": [
-        "native/local pair missing from sweep"
-      ],
-      "memory": {
-        "selectedRowsMedian": 1733543076,
-        "readCompressedBytesMedian": 9396282733.5,
-        "functionExecuteMedian": 5078979.5,
-        "memoryP95BytesMedian": 393204922.72499996
-      }
-    },
-    {
-      "family": "histogram_quantile",
-      "profile": "7d",
-      "density": "sparse",
-      "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-7d.json",
-      "rows": 3,
-      "nativeP50MedianMs": 158.502,
-      "costPreferP50MedianMs": 158.933,
-      "promP50MedianMs": 0.644,
-      "recommendation": "insufficient_data",
-      "confidence": "low",
-      "coverageNotes": [
-        "candidate headers missing in class rows"
-      ],
-      "reasons": [
-        "native/local pair missing from sweep"
-      ],
-      "memory": {
-        "selectedRowsMedian": 4154122440,
-        "readCompressedBytesMedian": 2343593562,
-        "functionExecuteMedian": 561109,
-        "memoryP95BytesMedian": 6777638.699999999
-      }
-    },
-    {
-      "family": "processing_range_sum_rate",
-      "profile": "7d",
-      "density": "dense",
-      "transport": "native",
-      "corpusPath": "harness/corpus/bench-processing-7d.json",
-      "rows": 1,
-      "promP50MedianMs": 1119.225,
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "benchmark_control",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 4,
+      "nativeP50MedianMs": 412.42850000000004,
+      "localP50MedianMs": 828.3335,
+      "promP50MedianMs": 10.975499999999998,
       "recommendation": "insufficient_data",
       "confidence": "low",
       "coverageNotes": [
@@ -289,333 +105,613 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
-      "missingMemoryComments": 1
-    },
-    {
-      "family": "range_function",
-      "profile": "1y",
-      "density": "sparse",
-      "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-1y.json",
-      "rows": 1,
-      "nativeP50MedianMs": 38.213,
-      "costPreferP50MedianMs": 40.889,
-      "promP50MedianMs": 18.018,
-      "recommendation": "insufficient_data",
-      "confidence": "low",
-      "coverageNotes": [
-        "candidate headers missing in class rows"
-      ],
-      "reasons": [
-        "native/local pair missing from sweep"
-      ],
       "memory": {
-        "selectedRowsMedian": 1714453536,
-        "readCompressedBytesMedian": 1281636810,
-        "functionExecuteMedian": 172969,
-        "memoryP95BytesMedian": 58060330.84999999
+        "selectedRowsMedian": 5213246342.5,
+        "readCompressedBytesMedian": 4132444043,
+        "functionExecuteMedian": 1462730,
+        "memoryP95BytesMedian": 99801431.6
       }
     },
     {
-      "family": "range_function",
-      "profile": "30d",
-      "density": "sparse",
-      "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-30d.json",
-      "rows": 1,
-      "nativeP50MedianMs": 42.267,
-      "costPreferP50MedianMs": 42.076,
-      "promP50MedianMs": 19.133,
-      "recommendation": "insufficient_data",
-      "confidence": "low",
-      "coverageNotes": [
-        "candidate headers missing in class rows"
-      ],
-      "reasons": [
-        "native/local pair missing from sweep"
-      ],
-      "memory": {
-        "selectedRowsMedian": 1718975520,
-        "readCompressedBytesMedian": 1503121916,
-        "functionExecuteMedian": 176947,
-        "memoryP95BytesMedian": 75669953.3
-      }
-    },
-    {
-      "family": "range_function",
+      "family": "aggregation",
       "profile": "7d",
       "density": "sparse",
       "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-7d.json",
-      "rows": 3,
-      "nativeP50MedianMs": 35.856,
-      "costPreferP50MedianMs": 36.028000000000006,
-      "promP50MedianMs": 7.517,
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 4,
+      "nativeP50MedianMs": 421.961,
+      "localP50MedianMs": 840.8785,
+      "promP50MedianMs": 11.217500000000001,
       "recommendation": "insufficient_data",
       "confidence": "low",
       "coverageNotes": [
+        "no cost_prefer rows in class",
         "candidate headers missing in class rows"
       ],
       "reasons": [
-        "native/local pair missing from sweep"
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
       "memory": {
-        "selectedRowsMedian": 4197867720,
-        "readCompressedBytesMedian": 2152996789,
-        "functionExecuteMedian": 390036,
-        "memoryP95BytesMedian": 42026979.05
+        "selectedRowsMedian": 4350227294.5,
+        "readCompressedBytesMedian": 3453656429,
+        "functionExecuteMedian": 1254628.5,
+        "memoryP95BytesMedian": 99520057
       }
     },
     {
-      "family": "range_range_function",
-      "profile": "1y",
-      "density": "sparse",
-      "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-1y.json",
-      "rows": 1,
-      "nativeP50MedianMs": 540.572,
-      "costPreferP50MedianMs": 556.249,
-      "promP50MedianMs": 129.445,
-      "recommendation": "insufficient_data",
-      "confidence": "low",
-      "coverageNotes": [
-        "candidate headers missing in class rows"
-      ],
-      "reasons": [
-        "native/local pair missing from sweep"
-      ],
-      "memory": {
-        "selectedRowsMedian": 1966174248,
-        "readCompressedBytesMedian": 3520209448,
-        "functionExecuteMedian": 4290129,
-        "memoryP95BytesMedian": 213696814.64999998
-      }
-    },
-    {
-      "family": "range_range_function",
-      "profile": "30d",
-      "density": "sparse",
-      "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-30d.json",
-      "rows": 1,
-      "nativeP50MedianMs": 435.981,
-      "costPreferP50MedianMs": 434.458,
-      "promP50MedianMs": 60.624,
-      "recommendation": "insufficient_data",
-      "confidence": "low",
-      "coverageNotes": [
-        "candidate headers missing in class rows"
-      ],
-      "reasons": [
-        "native/local pair missing from sweep"
-      ],
-      "memory": {
-        "selectedRowsMedian": 1822257192,
-        "readCompressedBytesMedian": 2199312543,
-        "functionExecuteMedian": 3508005,
-        "memoryP95BytesMedian": 113573368.55
-      }
-    },
-    {
-      "family": "range_rate",
-      "profile": "1y",
-      "density": "sparse",
-      "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-1y.json",
-      "rows": 1,
-      "nativeP50MedianMs": 9674.608,
-      "costPreferP50MedianMs": 9639.24,
-      "promP50MedianMs": 121.581,
-      "recommendation": "insufficient_data",
-      "confidence": "low",
-      "coverageNotes": [
-        "candidate headers missing in class rows"
-      ],
-      "reasons": [
-        "native/local pair missing from sweep"
-      ],
-      "memory": {
-        "selectedRowsMedian": 1966111776,
-        "readCompressedBytesMedian": 3796999107,
-        "functionExecuteMedian": 9745290,
-        "memoryP95BytesMedian": 473981703.2
-      }
-    },
-    {
-      "family": "range_rate",
-      "profile": "30d",
-      "density": "sparse",
-      "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-30d.json",
-      "rows": 1,
-      "nativeP50MedianMs": 7127.83,
-      "costPreferP50MedianMs": 7023.855,
-      "promP50MedianMs": 59.623,
-      "recommendation": "insufficient_data",
-      "confidence": "low",
-      "coverageNotes": [
-        "candidate headers missing in class rows"
-      ],
-      "reasons": [
-        "native/local pair missing from sweep"
-      ],
-      "memory": {
-        "selectedRowsMedian": 1822194720,
-        "readCompressedBytesMedian": 2400633598,
-        "functionExecuteMedian": 8206425,
-        "memoryP95BytesMedian": 283318085
-      }
-    },
-    {
-      "family": "range_rate",
+      "family": "binary",
       "profile": "7d",
       "density": "sparse",
       "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-7d.json",
-      "rows": 3,
-      "nativeP50MedianMs": 524.269,
-      "costPreferP50MedianMs": 529.0985000000001,
-      "promP50MedianMs": 8.32,
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 91.575,
+      "localP50MedianMs": 29.025,
+      "promP50MedianMs": 0.795,
+      "localNativeRatioMedian": 0.3169533169533169,
       "recommendation": "insufficient_data",
       "confidence": "low",
       "coverageNotes": [
+        "no cost_prefer rows in class",
         "candidate headers missing in class rows"
       ],
       "reasons": [
-        "native/local pair missing from sweep"
+        "no initial rule for local/native median 0.32"
       ],
       "memory": {
-        "selectedRowsMedian": 4197867720,
-        "readCompressedBytesMedian": 2124619241,
-        "functionExecuteMedian": 2081529,
-        "memoryP95BytesMedian": 91332224.64999999
+        "selectedRowsMedian": 1661648976,
+        "readCompressedBytesMedian": 632243731,
+        "functionExecuteMedian": 168403,
+        "memoryP95BytesMedian": 14943025
       }
     },
     {
-      "family": "rate",
-      "profile": "1y",
-      "density": "sparse",
-      "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-1y.json",
-      "rows": 3,
-      "nativeP50MedianMs": 41.205,
-      "costPreferP50MedianMs": 41.484,
-      "promP50MedianMs": 10.739,
-      "recommendation": "insufficient_data",
-      "confidence": "low",
-      "coverageNotes": [
-        "candidate headers missing in class rows"
-      ],
-      "reasons": [
-        "native/local pair missing from sweep"
-      ],
-      "memory": {
-        "selectedRowsMedian": 1693219872,
-        "readCompressedBytesMedian": 1087823120,
-        "functionExecuteMedian": 170387,
-        "memoryP95BytesMedian": 22688377.049999997
-      }
-    },
-    {
-      "family": "rate",
-      "profile": "30d",
-      "density": "sparse",
-      "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-30d.json",
-      "rows": 3,
-      "nativeP50MedianMs": 40.355,
-      "costPreferP50MedianMs": 40.363,
-      "promP50MedianMs": 9.527,
-      "recommendation": "insufficient_data",
-      "confidence": "low",
-      "coverageNotes": [
-        "candidate headers missing in class rows"
-      ],
-      "reasons": [
-        "native/local pair missing from sweep"
-      ],
-      "memory": {
-        "selectedRowsMedian": 1692040224,
-        "readCompressedBytesMedian": 1016574717,
-        "functionExecuteMedian": 168329,
-        "memoryP95BytesMedian": 16911906.45
-      }
-    },
-    {
-      "family": "rate",
+      "family": "binary",
       "profile": "7d",
       "density": "sparse",
       "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-7d.json",
-      "rows": 9,
-      "nativeP50MedianMs": 38.642,
-      "localP50MedianMs": 14.803,
-      "costPreferP50MedianMs": 39.6815,
-      "promP50MedianMs": 2.27,
-      "localNativeRatioMedian": 0.3961885903647435,
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "benchmark_control",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 89.766,
+      "promP50MedianMs": 0.822,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
+      ],
+      "memory": {
+        "selectedRowsMedian": 10110422074,
+        "readCompressedBytesMedian": 4280171972,
+        "functionExecuteMedian": 1038713,
+        "memoryP95BytesMedian": 15220910.599999998
+      }
+    },
+    {
+      "family": "binary",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 90.601,
+      "promP50MedianMs": 0.79,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
+      ],
+      "memory": {
+        "selectedRowsMedian": 8448773098,
+        "readCompressedBytesMedian": 3645069308,
+        "functionExecuteMedian": 870240,
+        "memoryP95BytesMedian": 15142433
+      }
+    },
+    {
+      "family": "histogram_quantile",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 161.521,
+      "localP50MedianMs": 19.302,
+      "promP50MedianMs": 0.629,
+      "localNativeRatioMedian": 0.11950148897047444,
       "recommendation": "local_candidate",
-      "confidence": "high",
+      "confidence": "low",
       "coverageNotes": [
+        "no cost_prefer rows in class",
         "candidate headers missing in class rows"
       ],
       "reasons": [
-        "local/native median 0.40 \u003c= 0.70 for bounded candidate family"
+        "local/native median 0.12 \u003c= 0.70 for bounded candidate family"
       ],
       "memory": {
-        "selectedRowsMedian": 4163461320,
-        "readCompressedBytesMedian": 1796467865,
-        "functionExecuteMedian": 389904,
-        "memoryP95BytesMedian": 16901392.65
+        "selectedRowsMedian": 830824488,
+        "readCompressedBytesMedian": 454872325,
+        "functionExecuteMedian": 111706,
+        "memoryP95BytesMedian": 6668890.15
       }
     },
     {
-      "family": "selector",
-      "profile": "1y",
+      "family": "histogram_quantile",
+      "profile": "7d",
       "density": "sparse",
       "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-1y.json",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "benchmark_control",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
       "rows": 1,
-      "nativeP50MedianMs": 11.806,
-      "costPreferP50MedianMs": 12.095,
-      "promP50MedianMs": 8.139,
+      "nativeP50MedianMs": 158.266,
+      "promP50MedianMs": 0.656,
       "recommendation": "insufficient_data",
       "confidence": "low",
       "coverageNotes": [
+        "no cost_prefer rows in class",
         "candidate headers missing in class rows"
       ],
       "reasons": [
-        "native/local pair missing from sweep"
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
       "memory": {
-        "selectedRowsMedian": 53885064,
-        "readCompressedBytesMedian": 175188840,
-        "functionExecuteMedian": 21960,
-        "memoryP95BytesMedian": 265672
+        "selectedRowsMedian": 5055211037,
+        "readCompressedBytesMedian": 3009978525,
+        "functionExecuteMedian": 689644,
+        "memoryP95BytesMedian": 6739620
       }
     },
     {
-      "family": "selector",
-      "profile": "30d",
+      "family": "histogram_quantile",
+      "profile": "7d",
       "density": "sparse",
       "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-30d.json",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
       "rows": 1,
-      "nativeP50MedianMs": 12.484,
-      "costPreferP50MedianMs": 12.385,
-      "promP50MedianMs": 8.623,
+      "nativeP50MedianMs": 159.687,
+      "promP50MedianMs": 0.666,
       "recommendation": "insufficient_data",
       "confidence": "low",
       "coverageNotes": [
+        "no cost_prefer rows in class",
         "candidate headers missing in class rows"
       ],
       "reasons": [
-        "native/local pair missing from sweep"
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
       "memory": {
-        "selectedRowsMedian": 53885064,
-        "readCompressedBytesMedian": 201672816,
-        "functionExecuteMedian": 22536,
-        "memoryP95BytesMedian": 286562.4
+        "selectedRowsMedian": 4224386549,
+        "readCompressedBytesMedian": 2560103286,
+        "functionExecuteMedian": 577403,
+        "memoryP95BytesMedian": 6745818
+      }
+    },
+    {
+      "family": "increase",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 48.609,
+      "localP50MedianMs": 9.846,
+      "promP50MedianMs": 0.397,
+      "localNativeRatioMedian": 0.2025550823921496,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "no initial rule for local/native median 0.20"
+      ],
+      "memory": {
+        "selectedRowsMedian": 830824488,
+        "readCompressedBytesMedian": 156603051,
+        "functionExecuteMedian": 73852,
+        "memoryP95BytesMedian": 1250708.65
+      }
+    },
+    {
+      "family": "increase",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "benchmark_control",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 47.983,
+      "promP50MedianMs": 0.434,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
+      ],
+      "memory": {
+        "selectedRowsMedian": 5055211037,
+        "readCompressedBytesMedian": 1028042789,
+        "functionExecuteMedian": 452215,
+        "memoryP95BytesMedian": 1241925.7999999984
+      }
+    },
+    {
+      "family": "increase",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 47.639,
+      "promP50MedianMs": 0.278,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
+      ],
+      "memory": {
+        "selectedRowsMedian": 4224386549,
+        "readCompressedBytesMedian": 871152198,
+        "functionExecuteMedian": 378500,
+        "memoryP95BytesMedian": 1354304
+      }
+    },
+    {
+      "family": "range_function",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 36.86,
+      "localP50MedianMs": 73.469,
+      "promP50MedianMs": 7.395,
+      "localNativeRatioMedian": 1.9931904503526856,
+      "recommendation": "native_required",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "native remains preferred for family; local/native median 1.99"
+      ],
+      "memory": {
+        "selectedRowsMedian": 839573544,
+        "readCompressedBytesMedian": 381515649,
+        "functionExecuteMedian": 77892,
+        "memoryP95BytesMedian": 43903648.05
+      }
+    },
+    {
+      "family": "range_function",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "benchmark_control",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 36.126,
+      "promP50MedianMs": 7.203,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
+      ],
+      "memory": {
+        "selectedRowsMedian": 5111016485,
+        "readCompressedBytesMedian": 2620153362,
+        "functionExecuteMedian": 485091,
+        "memoryP95BytesMedian": 42012431.599999994
+      }
+    },
+    {
+      "family": "range_function",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 37.87,
+      "promP50MedianMs": 7.141,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
+      ],
+      "memory": {
+        "selectedRowsMedian": 4271442941,
+        "readCompressedBytesMedian": 2243349089,
+        "functionExecuteMedian": 407208,
+        "memoryP95BytesMedian": 42687434
+      }
+    },
+    {
+      "family": "range_rate",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 538.228,
+      "localP50MedianMs": 3574.785,
+      "promP50MedianMs": 8.544,
+      "localNativeRatioMedian": 6.641767057826795,
+      "recommendation": "native_required",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "native remains preferred for family; local/native median 6.64"
+      ],
+      "memory": {
+        "selectedRowsMedian": 839573544,
+        "readCompressedBytesMedian": 359540611,
+        "functionExecuteMedian": 416409,
+        "memoryP95BytesMedian": 87302517.75
+      }
+    },
+    {
+      "family": "range_rate",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "benchmark_control",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 535.132,
+      "promP50MedianMs": 8.383,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
+      ],
+      "memory": {
+        "selectedRowsMedian": 5111073829,
+        "readCompressedBytesMedian": 2456687660,
+        "functionExecuteMedian": 2859679,
+        "memoryP95BytesMedian": 89323643.8
+      }
+    },
+    {
+      "family": "range_rate",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 526.599,
+      "promP50MedianMs": 8.505,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
+      ],
+      "memory": {
+        "selectedRowsMedian": 4271500285,
+        "readCompressedBytesMedian": 2112226867,
+        "functionExecuteMedian": 2443654,
+        "memoryP95BytesMedian": 89410861
+      }
+    },
+    {
+      "family": "range_selector",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 305.188,
+      "localP50MedianMs": 14.261,
+      "promP50MedianMs": 2.751,
+      "localNativeRatioMedian": 0.04672857386266826,
+      "recommendation": "native_required",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "native remains preferred for family; local/native median 0.05"
+      ],
+      "memory": {
+        "selectedRowsMedian": 10549764,
+        "readCompressedBytesMedian": 43699236,
+        "functionExecuteMedian": 5532,
+        "memoryP95BytesMedian": 391841.4
+      }
+    },
+    {
+      "family": "range_selector",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "benchmark_control",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 13.008,
+      "promP50MedianMs": 3.272,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
+      ],
+      "memory": {
+        "selectedRowsMedian": 74867531,
+        "readCompressedBytesMedian": 328044942,
+        "functionExecuteMedian": 37436,
+        "memoryP95BytesMedian": 391477.8
+      }
+    },
+    {
+      "family": "range_selector",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 13.315,
+      "promP50MedianMs": 2.938,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
+      ],
+      "memory": {
+        "selectedRowsMedian": 64317767,
+        "readCompressedBytesMedian": 284345706,
+        "functionExecuteMedian": 31904,
+        "memoryP95BytesMedian": 391809
+      }
+    },
+    {
+      "family": "rate",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 2,
+      "nativeP50MedianMs": 38.5065,
+      "localP50MedianMs": 21.758,
+      "promP50MedianMs": 1.4629999999999999,
+      "localNativeRatioMedian": 0.562636119304447,
+      "recommendation": "local_candidate",
+      "confidence": "medium",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "local/native median 0.56 \u003c= 0.70 for bounded candidate family"
+      ],
+      "memory": {
+        "selectedRowsMedian": 831758376,
+        "readCompressedBytesMedian": 298912953,
+        "functionExecuteMedian": 78027.5,
+        "memoryP95BytesMedian": 10174794.775
+      }
+    },
+    {
+      "family": "rate",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "benchmark_control",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 2,
+      "nativeP50MedianMs": 38.2745,
+      "promP50MedianMs": 1.645,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
+      ],
+      "memory": {
+        "selectedRowsMedian": 5060814365,
+        "readCompressedBytesMedian": 2015499594.5,
+        "functionExecuteMedian": 481519.5,
+        "memoryP95BytesMedian": 10290116.6
+      }
+    },
+    {
+      "family": "rate",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 2,
+      "nativeP50MedianMs": 37.968,
+      "promP50MedianMs": 1.3619999999999999,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
+      ],
+      "memory": {
+        "selectedRowsMedian": 4229055989,
+        "readCompressedBytesMedian": 1718460881.5,
+        "functionExecuteMedian": 403576,
+        "memoryP95BytesMedian": 10322814.5
       }
     },
     {
@@ -623,24 +719,163 @@
       "profile": "7d",
       "density": "sparse",
       "transport": "native",
-      "corpusPath": "harness/corpus/bench-native-lowering-7d.json",
-      "rows": 6,
-      "nativeP50MedianMs": 12.587499999999999,
-      "costPreferP50MedianMs": 12.5495,
-      "promP50MedianMs": 0.275,
-      "recommendation": "insufficient_data",
-      "confidence": "low",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 2,
+      "nativeP50MedianMs": 31.15,
+      "localP50MedianMs": 13.1685,
+      "promP50MedianMs": 0.457,
+      "localNativeRatioMedian": 0.4228183704815948,
+      "recommendation": "local_candidate",
+      "confidence": "medium",
       "coverageNotes": [
+        "no cost_prefer rows in class",
         "candidate headers missing in class rows"
       ],
       "reasons": [
-        "native/local pair missing from sweep"
+        "local/native median 0.42 \u003c= 0.70 for bounded candidate family"
       ],
       "memory": {
-        "selectedRowsMedian": 133893360,
-        "readCompressedBytesMedian": 506245980,
-        "functionExecuteMedian": 55980,
-        "memoryP95BytesMedian": 286632
+        "selectedRowsMedian": 26778672,
+        "readCompressedBytesMedian": 101249196,
+        "functionExecuteMedian": 11196,
+        "memoryP95BytesMedian": 285800
+      }
+    },
+    {
+      "family": "selector",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "benchmark_control",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 2,
+      "nativeP50MedianMs": 12.7545,
+      "promP50MedianMs": 0.47000000000000003,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
+      ],
+      "memory": {
+        "selectedRowsMedian": 187359315,
+        "readCompressedBytesMedian": 700203449,
+        "functionExecuteMedian": 75814,
+        "memoryP95BytesMedian": 286712
+      }
+    },
+    {
+      "family": "selector",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 2,
+      "nativeP50MedianMs": 12.6495,
+      "promP50MedianMs": 0.2745,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
+      ],
+      "memory": {
+        "selectedRowsMedian": 160580643,
+        "readCompressedBytesMedian": 598954253,
+        "functionExecuteMedian": 64618,
+        "memoryP95BytesMedian": 286712
+      }
+    },
+    {
+      "family": "vector_match",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 19.892,
+      "localP50MedianMs": 16.753,
+      "promP50MedianMs": 0.203,
+      "localNativeRatioMedian": 0.8421978684898452,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "no initial rule for local/native median 0.84"
+      ],
+      "memory": {
+        "selectedRowsMedian": 31236,
+        "readCompressedBytesMedian": 25272,
+        "functionExecuteMedian": 4752,
+        "memoryP95BytesMedian": 4397347.2
+      }
+    },
+    {
+      "family": "vector_match",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "benchmark_control",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 18.92,
+      "promP50MedianMs": 0.194,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
+      ],
+      "memory": {
+        "selectedRowsMedian": 190019,
+        "readCompressedBytesMedian": 153738,
+        "functionExecuteMedian": 28908,
+        "memoryP95BytesMedian": 4398363.2
+      }
+    },
+    {
+      "family": "vector_match",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1",
+      "promshimSettingsProfile": "default_safe",
+      "corpusPath": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 18.765,
+      "promP50MedianMs": 0.64,
+      "recommendation": "insufficient_data",
+      "confidence": "low",
+      "coverageNotes": [
+        "no cost_prefer rows in class",
+        "candidate headers missing in class rows"
+      ],
+      "reasons": [
+        "insufficient candidate data: native/local pair missing and no cost_prefer rows"
+      ],
+      "memory": {
+        "selectedRowsMedian": 158783,
+        "readCompressedBytesMedian": 128466,
+        "functionExecuteMedian": 24156,
+        "memoryP95BytesMedian": 4398872
       }
     }
   ]

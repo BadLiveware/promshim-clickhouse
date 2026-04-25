@@ -6,8 +6,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/local"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 )
 
 func TestQueryExplainReturnsDelegatedWholeQueryPlanWhenClassifierAllowsIt(t *testing.T) {
@@ -1259,5 +1261,153 @@ func TestQueryRangeRejectsMatrixExpressionType(t *testing.T) {
 	}
 	if !strings.Contains(res.Body.String(), "invalid expression type") || !strings.Contains(res.Body.String(), "range query") {
 		t.Fatalf("expected invalid expression type message, got %s", res.Body.String())
+	}
+}
+
+func TestQueryHeadersIncludeStrictRoutingMetadata(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=1&routing_policy=cost_shadow", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	checks := map[string]string{
+		"X-Promshim-Routing-Policy":    "cost_shadow",
+		"X-Promshim-Routing-Decision":  "strict_low_confidence",
+		"X-Promshim-Strict-Strategy":   "local",
+		"X-Promshim-Selected-Strategy": "local",
+		"X-Promshim-Routing-Reason":    "family_not_local_candidate",
+		"X-Promshim-Cost-Family":       "scalar",
+	}
+	for key, want := range checks {
+		if got := res.Header().Get(key); got != want {
+			t.Fatalf("%s = %q, want %q", key, got, want)
+		}
+	}
+}
+
+func TestQueryRejectsInvalidRoutingPolicy(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=1&routing_policy=bogus", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "unsupported routing policy") {
+		t.Fatalf("expected routing policy error, got %s", res.Body.String())
+	}
+}
+
+func TestNativeLoweringOffIgnoresCostRoutingPolicy(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=1&native_lowering_mode=off&routing_policy=cost_shadow", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("X-Promshim-Routing-Policy"); got != "strict" {
+		t.Fatalf("routing policy = %q, want strict", got)
+	}
+	if got := res.Header().Get("X-Promshim-Routing-Reason"); got != "native_lowering_mode_ignores_cost_routing" {
+		t.Fatalf("routing reason = %q", got)
+	}
+}
+
+func TestQueryExplainIncludesRoutingCostClass(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=rate(up%5B5m%5D)&time=300&routing_policy=cost_prefer", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Routing struct {
+				Policy   string `json:"policy"`
+				Decision string `json:"decision"`
+				Class    struct {
+					Family           string `json:"family"`
+					SelectorCount    int    `json:"selectorCount"`
+					HasRangeFunction bool   `json:"hasRangeFunction"`
+					LookbackMS       int64  `json:"lookbackMs"`
+				} `json:"class"`
+			} `json:"routing"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Routing.Policy != "cost_prefer" || body.Data.Routing.Decision != "strict_missing_estimate" {
+		t.Fatalf("unexpected routing: %#v", body.Data.Routing)
+	}
+	if body.Data.Routing.Class.Family != "rate" || !body.Data.Routing.Class.HasRangeFunction || body.Data.Routing.Class.SelectorCount != 1 {
+		t.Fatalf("unexpected cost class: %#v", body.Data.Routing.Class)
+	}
+	if body.Data.Routing.Class.LookbackMS != int64((5 * time.Minute).Milliseconds()) {
+		t.Fatalf("lookback = %d", body.Data.Routing.Class.LookbackMS)
+	}
+}
+
+func TestQueryCostClassUsesCachedSelectorEstimates(t *testing.T) {
+	service := &queryService{selectorStats: newSelectorStatsCache(time.Minute)}
+	eval := time.Unix(300, 0).UTC()
+	expr, err := logical.ParseExpression(`up{job="api"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sigs := extractSelectorSignatures(expr, queryCostTiming{Endpoint: "query", Start: eval, End: eval})
+	service.selectorStats.put(sigs[0], selectorStats{MatchedSeries: 4, SamplesPerSeries: 2, ObservedAt: time.Now().UTC()})
+	class := service.queryCostClass(`up{job="api"}`, queryCostTiming{Endpoint: "query", Start: eval, End: eval}, "native_sql")
+	if class.EstimatedSeries != 4 || class.EstimatedInputSamples != 8 || class.EstimatedOutputPoints != 4 {
+		t.Fatalf("unexpected cached estimates: %+v", class)
+	}
+}
+
+func TestRoutingMissingEstimateMetricExposed(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=up&time=300", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("query_explain status = %d: %s", res.Code, res.Body.String())
+	}
+
+	metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRes := httptest.NewRecorder()
+	handler.ServeHTTP(metricsRes, metricsReq)
+	if metricsRes.Code != http.StatusOK {
+		t.Fatalf("metrics status = %d", metricsRes.Code)
+	}
+	if !strings.Contains(metricsRes.Body.String(), "promshim_routing_estimate_missing_total") {
+		t.Fatalf("routing missing estimate metric not exposed:\n%s", metricsRes.Body.String())
 	}
 }

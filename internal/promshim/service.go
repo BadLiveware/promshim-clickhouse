@@ -17,10 +17,12 @@ import (
 )
 
 type queryService struct {
-	opts      Options
-	client    *storage.Client
-	evaluator *local.Evaluator
-	shadow    *shadow.Runner
+	opts             Options
+	client           *storage.Client
+	evaluator        *local.Evaluator
+	shadow           *shadow.Runner
+	selectorStats    *selectorStatsCache
+	selectorProbeSem chan struct{}
 }
 
 func (h *queryService) ClickHouseTransport() string {
@@ -46,9 +48,11 @@ func NewHandler(opts Options) (http.Handler, error) {
 		return nil, err
 	}
 	service := &queryService{
-		opts:      opts,
-		client:    client,
-		evaluator: local.NewEvaluator(opts.Database, opts.Table, client),
+		opts:             opts,
+		client:           client,
+		evaluator:        local.NewEvaluator(opts.Database, opts.Table, client),
+		selectorStats:    newSelectorStatsCache(5 * time.Minute),
+		selectorProbeSem: make(chan struct{}, 2),
 	}
 	service.shadow = shadow.NewRunner(service)
 	mux := http.NewServeMux()
@@ -62,37 +66,62 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 	if apiErr != nil {
 		return nil, apiErr
 	}
-	if mode == local.NativeLoweringModeShadow {
-		return h.instantQueryShadow(ctx, req)
-	}
-	_, evaluationTime, plan, analysis, apiErr := h.buildInstantPlan(req)
+	policy, apiErr := h.routingPolicyForRequest(req.RoutingPolicy)
 	if apiErr != nil {
 		return nil, apiErr
 	}
-
-	value, err := h.evaluator.Evaluate(ctx, plan, local.EvalParams{Mode: local.EvalModeInstant, EvaluationTime: evaluationTime})
+	if mode == local.NativeLoweringModeShadow {
+		return h.instantQueryShadow(ctx, req)
+	}
+	query, evaluationTime, plan, analysis, apiErr := h.buildInstantPlan(req)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
+	routing := h.routingInfoForInstant(query, evaluationTime, mode, policy, explain.Strategy)
+	selectedPlan, selectedAnalysis := plan, analysis
+	selectedExplain := explain
+	if routing.Decision == "local_override" {
+		localReq := req
+		localReq.NativeLoweringMode = string(local.NativeLoweringModeOff)
+		_, _, localPlan, localAnalysis, localErr := h.buildInstantPlan(localReq)
+		if localErr != nil {
+			routing.Decision = "strict_low_confidence"
+			routing.Reason = "local_plan_error"
+			routing.SelectedStrategy = routing.StrictStrategy
+		} else {
+			selectedPlan, selectedAnalysis = localPlan, localAnalysis
+			selectedExplain = local.ExplainPlanWithLowering(selectedPlan, selectedAnalysis.Root)
+		}
+	}
+	evalStart := time.Now()
+	value, err := h.evaluator.Evaluate(ctx, selectedPlan, local.EvalParams{Mode: local.EvalModeInstant, EvaluationTime: evaluationTime})
+	strictEvalDuration := time.Since(evalStart)
 	if err != nil {
 		return nil, local.ApiErrorToHTTP(err)
 	}
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, local.ApiErrorToHTTP(err)
 	}
-	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
+	if policy == RoutingPolicyCostShadow && routing.WouldSelect == "local" && routing.StrictStrategy != "local" {
+		h.runCostShadowInstant(ctx, req, value, routing, strictEvalDuration)
+	}
 	if req.Explain || mode.ForcesExplainResponse() {
 		resultType, result, err := httpapi.RenderInstantQueryValue(value)
 		if err != nil {
 			return nil, local.ApiErrorToHTTP(local.NewExecutionErrorf("rendering instant query response: %v", err))
 		}
-		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
+		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, Routing: &routing, Body: map[string]any{
 			"status":                "success",
 			"nativeLoweringMode":    string(mode),
 			"clickHouseTransport":   h.ClickHouseTransport(),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
-			"plan":                  explain,
+			"plan":                  selectedExplain,
+			"routing":               routing,
 		}}, nil
 	}
-	return &httpapi.Response{Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Stream: func(w http.ResponseWriter) error {
+	return &httpapi.Response{Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, Routing: &routing, Stream: func(w http.ResponseWriter) error {
 		return httpapi.WritePromSuccessInstantValue(w, value)
 	}}, nil
 }
@@ -102,37 +131,62 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 	if apiErr != nil {
 		return nil, apiErr
 	}
-	if mode == local.NativeLoweringModeShadow {
-		return h.rangeQueryShadow(ctx, req)
-	}
-	_, start, end, step, plan, analysis, apiErr := h.buildRangePlan(req)
+	policy, apiErr := h.routingPolicyForRequest(req.RoutingPolicy)
 	if apiErr != nil {
 		return nil, apiErr
 	}
-
-	value, err := h.evaluator.Evaluate(ctx, plan, local.EvalParams{Mode: local.EvalModeRange, Start: start, End: end, Step: step})
+	if mode == local.NativeLoweringModeShadow {
+		return h.rangeQueryShadow(ctx, req)
+	}
+	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(req)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
+	routing := h.routingInfoForRange(query, start, end, step, mode, policy, explain.Strategy)
+	selectedPlan, selectedAnalysis := plan, analysis
+	selectedExplain := explain
+	if routing.Decision == "local_override" {
+		localReq := req
+		localReq.NativeLoweringMode = string(local.NativeLoweringModeOff)
+		_, _, _, _, localPlan, localAnalysis, localErr := h.buildRangePlan(localReq)
+		if localErr != nil {
+			routing.Decision = "strict_low_confidence"
+			routing.Reason = "local_plan_error"
+			routing.SelectedStrategy = routing.StrictStrategy
+		} else {
+			selectedPlan, selectedAnalysis = localPlan, localAnalysis
+			selectedExplain = local.ExplainPlanWithLowering(selectedPlan, selectedAnalysis.Root)
+		}
+	}
+	evalStart := time.Now()
+	value, err := h.evaluator.Evaluate(ctx, selectedPlan, local.EvalParams{Mode: local.EvalModeRange, Start: start, End: end, Step: step})
+	strictEvalDuration := time.Since(evalStart)
 	if err != nil {
 		return nil, local.ApiErrorToHTTP(err)
 	}
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, local.ApiErrorToHTTP(err)
 	}
-	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
+	if policy == RoutingPolicyCostShadow && routing.WouldSelect == "local" && routing.StrictStrategy != "local" {
+		h.runCostShadowRange(ctx, req, value, routing, strictEvalDuration)
+	}
 	if req.Explain || mode.ForcesExplainResponse() {
 		resultType, result, err := httpapi.RenderRangeQueryValue(value)
 		if err != nil {
 			return nil, local.ApiErrorToHTTP(local.NewExecutionErrorf("rendering range query response: %v", err))
 		}
-		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
+		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, Routing: &routing, Body: map[string]any{
 			"status":                "success",
 			"nativeLoweringMode":    string(mode),
 			"clickHouseTransport":   h.ClickHouseTransport(),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
-			"plan":                  explain,
+			"plan":                  selectedExplain,
+			"routing":               routing,
 		}}, nil
 	}
-	return &httpapi.Response{Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Stream: func(w http.ResponseWriter) error {
+	return &httpapi.Response{Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, Routing: &routing, Stream: func(w http.ResponseWriter) error {
 		return httpapi.WritePromSuccessRangeValue(w, value)
 	}}, nil
 }
@@ -141,7 +195,7 @@ func (h *queryService) instantQueryShadow(ctx context.Context, req httpapi.Insta
 	servedReq := req
 	servedReq.NativeLoweringMode = string(local.NativeLoweringModeOff)
 	planStart := time.Now()
-	_, evaluationTime, plan, analysis, apiErr := h.buildInstantPlan(servedReq)
+	query, evaluationTime, plan, analysis, apiErr := h.buildInstantPlan(servedReq)
 	servedPlanDuration := time.Since(planStart)
 	if apiErr != nil {
 		return nil, apiErr
@@ -156,24 +210,26 @@ func (h *queryService) instantQueryShadow(ctx context.Context, req httpapi.Insta
 		return nil, local.ApiErrorToHTTP(err)
 	}
 	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
+	routing := h.routingInfoForInstant(query, evaluationTime, local.NativeLoweringModeShadow, RoutingPolicyStrict, explain.Strategy)
 	shadowReport := h.shadow.RunInstant(ctx, req, explain.Strategy, value, servedPlanDuration, servedEvalDuration)
 	if req.Explain {
 		resultType, result, err := httpapi.RenderInstantQueryValue(value)
 		if err != nil {
 			return nil, local.ApiErrorToHTTP(local.NewExecutionErrorf("rendering instant query response: %v", err))
 		}
-		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
+		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Routing: &routing, Body: map[string]any{
 			"status":                "success",
 			"nativeLoweringMode":    string(local.NativeLoweringModeShadow),
 			"clickHouseTransport":   h.ClickHouseTransport(),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
 			"plan":                  explain,
+			"routing":               routing,
 			"shadow":                shadowReport,
 			"shadowSummary":         h.shadow.Summary(),
 		}}, nil
 	}
-	return &httpapi.Response{Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Stream: func(w http.ResponseWriter) error {
+	return &httpapi.Response{Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Routing: &routing, Stream: func(w http.ResponseWriter) error {
 		return httpapi.WritePromSuccessInstantValue(w, value)
 	}}, nil
 }
@@ -182,7 +238,7 @@ func (h *queryService) rangeQueryShadow(ctx context.Context, req httpapi.RangeQu
 	servedReq := req
 	servedReq.NativeLoweringMode = string(local.NativeLoweringModeOff)
 	planStart := time.Now()
-	_, start, end, step, plan, analysis, apiErr := h.buildRangePlan(servedReq)
+	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(servedReq)
 	servedPlanDuration := time.Since(planStart)
 	if apiErr != nil {
 		return nil, apiErr
@@ -197,24 +253,26 @@ func (h *queryService) rangeQueryShadow(ctx context.Context, req httpapi.RangeQu
 		return nil, local.ApiErrorToHTTP(err)
 	}
 	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
+	routing := h.routingInfoForRange(query, start, end, step, local.NativeLoweringModeShadow, RoutingPolicyStrict, explain.Strategy)
 	shadowReport := h.shadow.RunRange(ctx, req, explain.Strategy, value, servedPlanDuration, servedEvalDuration)
 	if req.Explain {
 		resultType, result, err := httpapi.RenderRangeQueryValue(value)
 		if err != nil {
 			return nil, local.ApiErrorToHTTP(local.NewExecutionErrorf("rendering range query response: %v", err))
 		}
-		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
+		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Routing: &routing, Body: map[string]any{
 			"status":                "success",
 			"nativeLoweringMode":    string(local.NativeLoweringModeShadow),
 			"clickHouseTransport":   h.ClickHouseTransport(),
 			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
 			"data":                  map[string]any{"resultType": resultType, "result": result},
 			"plan":                  explain,
+			"routing":               routing,
 			"shadow":                shadowReport,
 			"shadowSummary":         h.shadow.Summary(),
 		}}, nil
 	}
-	return &httpapi.Response{Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Stream: func(w http.ResponseWriter) error {
+	return &httpapi.Response{Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Routing: &routing, Stream: func(w http.ResponseWriter) error {
 		return httpapi.WritePromSuccessRangeValue(w, value)
 	}}, nil
 }
@@ -224,12 +282,17 @@ func (h *queryService) ExplainInstant(_ context.Context, req httpapi.InstantQuer
 	if apiErr != nil {
 		return nil, apiErr
 	}
+	policy, apiErr := h.routingPolicyForRequest(req.RoutingPolicy)
+	if apiErr != nil {
+		return nil, apiErr
+	}
 	query, evaluationTime, plan, analysis, apiErr := h.buildInstantPlan(req)
 	if apiErr != nil {
 		return nil, apiErr
 	}
 	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
-	return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
+	routing := h.routingInfoForInstant(query, evaluationTime, mode, policy, explain.Strategy)
+	return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Routing: &routing, Body: map[string]any{
 		"status": "success",
 		"data": map[string]any{
 			"mode":                  string(local.EvalModeInstant),
@@ -239,6 +302,7 @@ func (h *queryService) ExplainInstant(_ context.Context, req httpapi.InstantQuer
 			"query":                 query,
 			"evaluationTime":        evaluationTime.UTC().Format(time.RFC3339Nano),
 			"plan":                  explain,
+			"routing":               routing,
 		},
 	}}, nil
 }
@@ -248,12 +312,17 @@ func (h *queryService) ExplainRange(_ context.Context, req httpapi.RangeQueryReq
 	if apiErr != nil {
 		return nil, apiErr
 	}
+	policy, apiErr := h.routingPolicyForRequest(req.RoutingPolicy)
+	if apiErr != nil {
+		return nil, apiErr
+	}
 	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(req)
 	if apiErr != nil {
 		return nil, apiErr
 	}
 	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
-	return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Body: map[string]any{
+	routing := h.routingInfoForRange(query, start, end, step, mode, policy, explain.Strategy)
+	return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Routing: &routing, Body: map[string]any{
 		"status": "success",
 		"data": map[string]any{
 			"mode":                  string(local.EvalModeRange),
@@ -265,6 +334,7 @@ func (h *queryService) ExplainRange(_ context.Context, req httpapi.RangeQueryReq
 			"end":                   end.UTC().Format(time.RFC3339Nano),
 			"step":                  step.String(),
 			"plan":                  explain,
+			"routing":               routing,
 		},
 	}}, nil
 }
@@ -383,6 +453,41 @@ func (h *queryService) nativeLoweringModeForRequest(requestMode string) (local.N
 		mode = parsed
 	}
 	return local.NormalizeNativeLoweringMode(mode), nil
+}
+
+func (h *queryService) routingPolicyForRequest(requestPolicy string) (RoutingPolicy, *httpapi.APIError) {
+	policy := h.opts.RoutingPolicy
+	if requestPolicy != "" {
+		parsed, err := ParseRoutingPolicy(requestPolicy)
+		if err != nil {
+			return "", local.BadRequestHTTPError(err.Error())
+		}
+		policy = parsed
+	}
+	return NormalizeRoutingPolicy(policy), nil
+}
+
+func (h *queryService) routingInfoForInstant(query string, evaluationTime time.Time, mode local.NativeLoweringMode, policy RoutingPolicy, strictStrategy string) httpapi.RoutingInfo {
+	timing := queryCostTiming{Endpoint: "query", Start: evaluationTime, End: evaluationTime}
+	class := h.queryCostClass(query, timing, strictStrategy)
+	h.maybeScheduleSelectorStatsProbes(query, timing, policy, class)
+	return routingDecisionForStrict(policy, mode, class, strictStrategy, h.opts.CostRoutingLocalFamilies)
+}
+
+func (h *queryService) routingInfoForRange(query string, start, end time.Time, step time.Duration, mode local.NativeLoweringMode, policy RoutingPolicy, strictStrategy string) httpapi.RoutingInfo {
+	timing := queryCostTiming{Endpoint: "query_range", Start: start, End: end, Step: step}
+	class := h.queryCostClass(query, timing, strictStrategy)
+	h.maybeScheduleSelectorStatsProbes(query, timing, policy, class)
+	return routingDecisionForStrict(policy, mode, class, strictStrategy, h.opts.CostRoutingLocalFamilies)
+}
+
+func (h *queryService) queryCostClass(query string, timing queryCostTiming, strictStrategy string) httpapi.QueryCostClass {
+	expr, err := logical.ParseExpression(query)
+	if err != nil {
+		return httpapi.QueryCostClass{Endpoint: timing.Endpoint, Family: "unknown", RootStrategyStrict: strictStrategy, OutputKind: "unknown"}
+	}
+	class := classifyQueryCost(expr, timing, strictStrategy)
+	return applyCachedSelectorEstimates(class, extractSelectorSignatures(expr, timing), h.selectorStats, time.Now().UTC())
 }
 
 func (h *queryService) entireQueryDelegationForQuery(query string) *local.DelegationClassifierResult {

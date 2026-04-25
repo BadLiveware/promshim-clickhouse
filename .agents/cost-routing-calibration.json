@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-04-24T23:51:03Z",
+  "sources": [
+    {
+      "sweepName": "sweep-smoke-live-2",
+      "manifestPath": "harness/artifacts/sweeps/sweep-smoke-live-2/manifest.json",
+      "benchReports": [
+        "harness/artifacts/sweeps/sweep-smoke-live-2/bench-report-7d-sparse-bench-native-lowering-7d.json"
+      ],
+      "memoryReports": [
+        "harness/artifacts/sweeps/sweep-smoke-live-2/memory-summary-bench-report-7d-sparse-bench-native-lowering-7d.json"
+      ],
+      "complianceStatus": "skipped",
+      "endpoints": {
+        "clickhouse": "http://localhost:28124",
+        "prometheus": "http://localhost:29190",
+        "promshim": "http://localhost:29191"
+      }
+    }
+  ],
+  "classes": [
+    {
+      "family": "instant_avg_over_time",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "corpusPath": "harness/corpus/bench-native-lowering-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 17.084,
+      "promP50MedianMs": 6.972,
+      "recommendation": "insufficient_data",
+      "reasons": [
+        "native/local pair missing from sweep"
+      ],
+      "memory": {
+        "selectedRowsMedian": 42037308,
+        "readCompressedBytesMedian": 174693179,
+        "functionExecuteMedian": 11391,
+        "memoryP95BytesMedian": 18501754.4
+      }
+    },
+    {
+      "family": "instant_histogram_quantile",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "corpusPath": "harness/corpus/bench-native-lowering-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 132.809,
+      "promP50MedianMs": 0.7,
+      "recommendation": "insufficient_data",
+      "reasons": [
+        "native/local pair missing from sweep"
+      ],
+      "memory": {
+        "selectedRowsMedian": 42037308,
+        "readCompressedBytesMedian": 157705733,
+        "functionExecuteMedian": 44865,
+        "memoryP95BytesMedian": 6329982.95
+      }
+    },
+    {
+      "family": "instant_rate_long",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "corpusPath": "harness/corpus/bench-native-lowering-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 25.35,
+      "promP50MedianMs": 8.061,
+      "recommendation": "insufficient_data",
+      "reasons": [
+        "native/local pair missing from sweep"
+      ],
+      "memory": {
+        "selectedRowsMedian": 42037308,
+        "readCompressedBytesMedian": 178380590,
+        "functionExecuteMedian": 12588,
+        "memoryP95BytesMedian": 49143211.99999999
+      }
+    },
+    {
+      "family": "instant_rate_short",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "corpusPath": "harness/corpus/bench-native-lowering-7d.json",
+      "rows": 2,
+      "nativeP50MedianMs": 17.2245,
+      "promP50MedianMs": 1.454,
+      "recommendation": "insufficient_data",
+      "reasons": [
+        "native/local pair missing from sweep"
+      ],
+      "memory": {
+        "selectedRowsMedian": 42037308,
+        "readCompressedBytesMedian": 137084930,
+        "functionExecuteMedian": 10704,
+        "memoryP95BytesMedian": 8512794.4
+      }
+    },
+    {
+      "family": "instant_sum_rate",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "corpusPath": "harness/corpus/bench-native-lowering-7d.json",
+      "rows": 1,
+      "promP50MedianMs": 1.985,
+      "recommendation": "insufficient_data",
+      "reasons": [
+        "native/local pair missing from sweep"
+      ],
+      "memory": {
+        "selectedRowsMedian": 42037308,
+        "readCompressedBytesMedian": 147710911,
+        "functionExecuteMedian": 11098,
+        "memoryP95BytesMedian": 14170388.15
+      }
+    },
+    {
+      "family": "range_rate",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "corpusPath": "harness/corpus/bench-native-lowering-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 616.751,
+      "promP50MedianMs": 8.318,
+      "recommendation": "insufficient_data",
+      "reasons": [
+        "native/local pair missing from sweep"
+      ],
+      "memory": {
+        "selectedRowsMedian": 42037308,
+        "readCompressedBytesMedian": 212964811,
+        "functionExecuteMedian": 257913,
+        "memoryP95BytesMedian": 47167076.3
+      }
+    },
+    {
+      "family": "range_sum_rate",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "corpusPath": "harness/corpus/bench-native-lowering-7d.json",
+      "rows": 1,
+      "promP50MedianMs": 43.647,
+      "recommendation": "insufficient_data",
+      "reasons": [
+        "native/local pair missing from sweep"
+      ],
+      "memory": {
+        "selectedRowsMedian": 62902332,
+        "readCompressedBytesMedian": 506880110,
+        "functionExecuteMedian": 950670,
+        "memoryP95BytesMedian": 284900005.75
+      }
+    },
+    {
+      "family": "selector_plain",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "corpusPath": "harness/corpus/bench-native-lowering-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 9.405,
+      "promP50MedianMs": 0.344,
+      "recommendation": "insufficient_data",
+      "reasons": [
+        "native/local pair missing from sweep"
+      ],
+      "memory": {
+        "selectedRowsMedian": 18049690,
+        "readCompressedBytesMedian": 63292232,
+        "functionExecuteMedian": 7986,
+        "memoryP95BytesMedian": 763766.6999999988
+      }
+    },
+    {
+      "family": "selector_regex",
+      "profile": "7d",
+      "density": "sparse",
+      "transport": "native",
+      "corpusPath": "harness/corpus/bench-native-lowering-7d.json",
+      "rows": 1,
+      "nativeP50MedianMs": 10.21,
+      "promP50MedianMs": 0.377,
+      "recommendation": "insufficient_data",
+      "reasons": [
+        "native/local pair missing from sweep"
+      ],
+      "memory": {
+        "selectedRowsMedian": 18510490,
+        "readCompressedBytesMedian": 64355148,
+        "functionExecuteMedian": 8012,
+        "memoryP95BytesMedian": 279776
+      }
+    }
+  ]
+}

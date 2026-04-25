@@ -53,3 +53,33 @@ func TestLoadOptionsFromEnvRejectsUnknownClickHouseCompression(t *testing.T) {
 		t.Fatalf("LoadOptionsFromEnv unknown compression error = %v, want compression env error", err)
 	}
 }
+
+func TestLoadOptionsFromEnvRoutingPolicy(t *testing.T) {
+	t.Setenv("PROM_SHIM_ROUTING_POLICY", "cost_shadow")
+	opts, err := LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatalf("LoadOptionsFromEnv cost_shadow: %v", err)
+	}
+	if opts.RoutingPolicy != RoutingPolicyCostShadow {
+		t.Fatalf("RoutingPolicy = %q, want %q", opts.RoutingPolicy, RoutingPolicyCostShadow)
+	}
+}
+
+func TestLoadOptionsFromEnvRejectsUnknownRoutingPolicy(t *testing.T) {
+	t.Setenv("PROM_SHIM_ROUTING_POLICY", "surprise")
+	_, err := LoadOptionsFromEnv()
+	if err == nil || !strings.Contains(err.Error(), "PROM_SHIM_ROUTING_POLICY") {
+		t.Fatalf("LoadOptionsFromEnv unknown routing policy error = %v, want routing policy env error", err)
+	}
+}
+
+func TestLoadOptionsFromEnvCostRoutingLocalFamilies(t *testing.T) {
+	t.Setenv("PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES", "selector_instant, rate_instant")
+	opts, err := LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(opts.CostRoutingLocalFamilies) != 2 || opts.CostRoutingLocalFamilies[0] != "selector_instant" || opts.CostRoutingLocalFamilies[1] != "rate_instant" {
+		t.Fatalf("CostRoutingLocalFamilies = %+v", opts.CostRoutingLocalFamilies)
+	}
+}

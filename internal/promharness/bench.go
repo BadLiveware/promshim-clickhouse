@@ -20,22 +20,23 @@ import (
 )
 
 type BenchConfig struct {
-	PromURL        string
-	ShimURL        string
-	CorpusPath     string
-	ArtifactDir    string
-	ArtifactName   string
-	Manifest       Manifest
-	Repeats        int
-	WarmupRepeats  int
-	BaselinePath   string
-	UpdateBaseline bool
-	Timeout        time.Duration
-	ShimModes      []string
-	IncludeProm    bool
-	IncludePromSet bool
-	RunLabels      map[string]string
-	MemoryMode     string
+	PromURL         string
+	ShimURL         string
+	CorpusPath      string
+	ArtifactDir     string
+	ArtifactName    string
+	Manifest        Manifest
+	Repeats         int
+	WarmupRepeats   int
+	BaselinePath    string
+	UpdateBaseline  bool
+	Timeout         time.Duration
+	ShimModes       []string
+	RoutingPolicies []string
+	IncludeProm     bool
+	IncludePromSet  bool
+	RunLabels       map[string]string
+	MemoryMode      string
 }
 
 type BenchRow struct {
@@ -73,13 +74,20 @@ type BenchTiming struct {
 
 type BenchShimModeResult struct {
 	BenchTiming
-	Strategy       string `json:"strategy,omitempty"`
-	FallbackReason string `json:"fallbackReason,omitempty"`
-	CHRoundtrips   int    `json:"chRoundtrips"`
-	CHMillis       int    `json:"chMillis"`
-	Unsupported    bool   `json:"unsupported,omitempty"`
-	StrategyFlap   bool   `json:"strategyFlap,omitempty"`
-	Error          string `json:"error,omitempty"`
+	NativeLoweringMode string `json:"nativeLoweringMode,omitempty"`
+	RoutingPolicy      string `json:"routingPolicy,omitempty"`
+	RoutingDecision    string `json:"routingDecision,omitempty"`
+	RoutingReason      string `json:"routingReason,omitempty"`
+	StrictStrategy     string `json:"strictStrategy,omitempty"`
+	SelectedStrategy   string `json:"selectedStrategy,omitempty"`
+	CostFamily         string `json:"costFamily,omitempty"`
+	Strategy           string `json:"strategy,omitempty"`
+	FallbackReason     string `json:"fallbackReason,omitempty"`
+	CHRoundtrips       int    `json:"chRoundtrips"`
+	CHMillis           int    `json:"chMillis"`
+	Unsupported        bool   `json:"unsupported,omitempty"`
+	StrategyFlap       bool   `json:"strategyFlap,omitempty"`
+	Error              string `json:"error,omitempty"`
 }
 
 type BenchRowV2 struct {
@@ -215,6 +223,9 @@ func normalizeBenchConfig(cfg BenchConfig) BenchConfig {
 	if len(cfg.ShimModes) == 0 {
 		cfg.ShimModes = []string{"force_supported", "off"}
 	}
+	if len(cfg.RoutingPolicies) == 0 {
+		cfg.RoutingPolicies = []string{"strict"}
+	}
 	if !cfg.IncludePromSet {
 		cfg.IncludeProm = true
 	}
@@ -238,28 +249,39 @@ func benchOneQueryV2(client *http.Client, cfg BenchConfig, spec QuerySpec) Bench
 	}
 
 	for _, mode := range cfg.ShimModes {
-		modeSpec := spec
-		modeSpec.NativeLoweringMode = mode
-		latencies, samples, err := repeatWithHeaders(client, cfg, cfg.ShimURL, modeSpec, cfg.WarmupRepeats, cfg.Repeats)
-		result := BenchShimModeResult{}
-		if err != nil {
-			result.Error = fmt.Sprintf("%s: %v", mode, err)
-			if mode == "force_supported" {
-				result.Unsupported = true
+		for _, policy := range cfg.RoutingPolicies {
+			modeSpec := spec
+			modeSpec.NativeLoweringMode = mode
+			modeSpec.RoutingPolicy = policy
+			latencies, samples, err := repeatWithHeaders(client, cfg, cfg.ShimURL, modeSpec, cfg.WarmupRepeats, cfg.Repeats)
+			result := BenchShimModeResult{NativeLoweringMode: mode, RoutingPolicy: policy}
+			if err != nil {
+				result.Error = fmt.Sprintf("%s/%s: %v", mode, policy, err)
+				if mode == "force_supported" {
+					result.Unsupported = true
+				}
+			} else {
+				result.P50MS = p50(latencies)
+				result.P95MS = p95(latencies)
+				if len(samples) > 0 {
+					sample := samples[0]
+					result.Strategy = sample.strategy
+					result.FallbackReason = sample.fallbackReason
+					result.CHRoundtrips = sample.roundtrips
+					result.CHMillis = sample.millis
+					if sample.routingPolicy != "" {
+						result.RoutingPolicy = sample.routingPolicy
+					}
+					result.RoutingDecision = sample.routingDecision
+					result.RoutingReason = sample.routingReason
+					result.StrictStrategy = sample.strictStrategy
+					result.SelectedStrategy = sample.selectedStrategy
+					result.CostFamily = sample.costFamily
+				}
+				result.StrategyFlap = detectStrategyFlap(samples)
 			}
-		} else {
-			result.P50MS = p50(latencies)
-			result.P95MS = p95(latencies)
-			if len(samples) > 0 {
-				sample := samples[0]
-				result.Strategy = sample.strategy
-				result.FallbackReason = sample.fallbackReason
-				result.CHRoundtrips = sample.roundtrips
-				result.CHMillis = sample.millis
-			}
-			result.StrategyFlap = detectStrategyFlap(samples)
+			row.Shim[benchResultKey(mode, policy, len(cfg.RoutingPolicies) > 1)] = result
 		}
-		row.Shim[mode] = result
 	}
 
 	if promP50 > 0 {
@@ -271,6 +293,13 @@ func benchOneQueryV2(client *http.Client, cfg BenchConfig, spec QuerySpec) Bench
 		}
 	}
 	return row
+}
+
+func benchResultKey(mode, policy string, includePolicy bool) string {
+	if !includePolicy || strings.TrimSpace(policy) == "" || policy == "strict" {
+		return mode
+	}
+	return mode + "@" + policy
 }
 
 func classifyPromBand(promP50 float64, target *TargetPromP50MS) string {
@@ -350,10 +379,16 @@ func benchOneQuery(client *http.Client, cfg BenchConfig, spec QuerySpec) BenchRo
 }
 
 type headerSample struct {
-	strategy       string
-	fallbackReason string
-	roundtrips     int
-	millis         int
+	strategy         string
+	fallbackReason   string
+	roundtrips       int
+	millis           int
+	routingPolicy    string
+	routingDecision  string
+	routingReason    string
+	strictStrategy   string
+	selectedStrategy string
+	costFamily       string
 }
 
 func repeatWithHeaders(client *http.Client, cfg BenchConfig, baseURL string, spec QuerySpec, warmup, repeats int) ([]float64, []headerSample, error) {
@@ -408,7 +443,11 @@ func benchLogComment(spec QuerySpec) string {
 	if mode == "" {
 		mode = "prom"
 	}
-	return "promshim-bench query=" + sanitizeLogCommentPart(spec.Name) + " mode=" + sanitizeLogCommentPart(mode)
+	comment := "promshim-bench query=" + sanitizeLogCommentPart(spec.Name) + " mode=" + sanitizeLogCommentPart(mode)
+	if policy := strings.TrimSpace(spec.RoutingPolicy); policy != "" {
+		comment += " policy=" + sanitizeLogCommentPart(policy)
+	}
+	return comment
 }
 
 func sanitizeLogCommentPart(value string) string {
@@ -434,6 +473,12 @@ func parseHeaders(h http.Header) headerSample {
 	}
 	s.strategy = h.Get("X-Promshim-Strategy")
 	s.fallbackReason = h.Get("X-Promshim-Fallback-Reason")
+	s.routingPolicy = h.Get("X-Promshim-Routing-Policy")
+	s.routingDecision = h.Get("X-Promshim-Routing-Decision")
+	s.routingReason = h.Get("X-Promshim-Routing-Reason")
+	s.strictStrategy = h.Get("X-Promshim-Strict-Strategy")
+	s.selectedStrategy = h.Get("X-Promshim-Selected-Strategy")
+	s.costFamily = h.Get("X-Promshim-Cost-Family")
 	if v := h.Get("X-Promshim-CH-Roundtrips"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			s.roundtrips = n

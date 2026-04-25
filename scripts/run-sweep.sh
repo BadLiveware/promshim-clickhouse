@@ -34,6 +34,9 @@ Options:
   --skip-compliance              Skip compliance pass.
   --skip-bench                   Skip benchmark pass.
   --shim-modes LIST              Bench modes, e.g. prefer,force_supported,off.
+  --routing-policies LIST        Routing policies, e.g. strict,cost_shadow.
+  --cost-routing-local-families LIST
+                                  Enable cost-prefer local families on the benchmark shim.
   --include-prom BOOL            Include Prometheus timing in v2 bench reports (default true).
   --memory {off|summary|detailed}
                                   Capture memory trade-off artifacts (default summary).
@@ -89,6 +92,8 @@ EXECUTE=0
 SKIP_COMPLIANCE=0
 SKIP_BENCH=0
 SHIM_MODES="prefer,force_supported,off"
+ROUTING_POLICIES="strict"
+COST_ROUTING_LOCAL_FAMILIES=""
 INCLUDE_PROM="true"
 MEMORY_MODE="summary"
 CORPUS_SET=""
@@ -107,6 +112,8 @@ while [[ $# -gt 0 ]]; do
     --skip-compliance) SKIP_COMPLIANCE=1; shift ;;
     --skip-bench)   SKIP_BENCH=1; shift ;;
     --shim-modes)   SHIM_MODES="$2"; shift 2 ;;
+    --routing-policies) ROUTING_POLICIES="$2"; shift 2 ;;
+    --cost-routing-local-families) COST_ROUTING_LOCAL_FAMILIES="$2"; shift 2 ;;
     --include-prom) INCLUDE_PROM="$2"; shift 2 ;;
     --memory)       MEMORY_MODE="$2"; shift 2 ;;
     --corpus-set)   CORPUS_SET="$2"; shift 2 ;;
@@ -207,7 +214,7 @@ PY
 }
 
 compose() {
-  (cd "$BENCH_DIR" && PROM_SHIM_CLICKHOUSE_TRANSPORT="$TRANSPORT" docker compose "$@")
+  (cd "$BENCH_DIR" && PROM_SHIM_CLICKHOUSE_TRANSPORT="$TRANSPORT" PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES="$COST_ROUTING_LOCAL_FAMILIES" docker compose "$@")
 }
 
 start_bench_stack() {
@@ -431,6 +438,8 @@ print_sweep_plan() {
   echo "Compliance: $([[ $SKIP_COMPLIANCE == 1 ]] && echo skipped || echo enabled)"
   echo "Benchmark: $([[ $SKIP_BENCH == 1 ]] && echo skipped || echo enabled)"
   echo "Benchmark modes: ${SHIM_MODES}"
+  echo "Routing policies: ${ROUTING_POLICIES}"
+  echo "Cost routing local families: ${COST_ROUTING_LOCAL_FAMILIES:-none}"
   echo "Memory mode: ${MEMORY_MODE}"
   echo
   echo "Datasets:"
@@ -456,19 +465,20 @@ print_sweep_plan() {
 
 generate_sweep_artifacts() {
   local artifact_dir="$1" compliance_status="$2" bench_status="$3"
-  python3 - "$REPO_ROOT" "$artifact_dir" "$RUN_NAME" "$PROFILE" "$DENSITY" "$TRANSPORT" "$SEED_POLICY" "$SHIM_MODES" "$INCLUDE_PROM" "$CORPUS_SET" "$compliance_status" "$bench_status" "$BENCH_PROM_URL" "$BENCH_SHIM_URL" "$BENCH_CH_URL" "$MEMORY_MODE" <<'PY'
+  python3 - "$REPO_ROOT" "$artifact_dir" "$RUN_NAME" "$PROFILE" "$DENSITY" "$TRANSPORT" "$SEED_POLICY" "$SHIM_MODES" "$ROUTING_POLICIES" "$COST_ROUTING_LOCAL_FAMILIES" "$INCLUDE_PROM" "$CORPUS_SET" "$compliance_status" "$bench_status" "$BENCH_PROM_URL" "$BENCH_SHIM_URL" "$BENCH_CH_URL" "$MEMORY_MODE" <<'PY'
 import json, pathlib, sys
 from datetime import datetime, timezone
 
 (repo, artifact_dir, run_name, profile, density, transport, seed_policy,
- shim_modes, include_prom, corpus_set, compliance_status, bench_status,
- prom_url, shim_url, ch_url, memory_mode) = sys.argv[1:17]
+ shim_modes, routing_policies, cost_routing_local_families, include_prom, corpus_set, compliance_status, bench_status,
+ prom_url, shim_url, ch_url, memory_mode) = sys.argv[1:19]
 root = pathlib.Path(repo)
 out_dir = root / artifact_dir
 reports = []
 memory_reports = []
 memory_details = []
 strategy_hist = {}
+routing_policy_hist = {}
 target_bands = {}
 slow_rows = []
 for mem_path in sorted(out_dir.glob("memory-summary*.json")):
@@ -484,12 +494,18 @@ for path in sorted(out_dir.glob("bench-report*.json")):
         continue
     rel = str(path.relative_to(root))
     labels = data.get("runLabels") or {}
+    report_routing_policies = set()
+    for row in data.get("rows") or []:
+        for result in (row.get("shim") or {}).values():
+            if result.get("routingPolicy"):
+                report_routing_policies.add(result["routingPolicy"])
     reports.append({
         "path": rel,
         "corpusPath": data.get("corpusPath"),
         "profile": labels.get("profile"),
         "density": labels.get("density"),
         "transport": labels.get("transport"),
+        "routingPolicies": sorted(report_routing_policies),
         "rowCount": len(data.get("rows") or []),
     })
     for key, value in (data.get("summary", {}).get("strategyHistogram") or {}).items():
@@ -500,10 +516,13 @@ for path in sorted(out_dir.glob("bench-report*.json")):
         prom = (row.get("prom") or {}).get("p50Ms")
         for mode, result in (row.get("shim") or {}).items():
             p50 = result.get("p50Ms") or 0
+            routing_policy = result.get("routingPolicy") or "unknown"
+            routing_policy_hist[routing_policy] = routing_policy_hist.get(routing_policy, 0) + 1
             slow_rows.append({
                 "query": row.get("name"),
                 "category": row.get("category"),
                 "mode": mode,
+                "routingPolicy": routing_policy,
                 "strategy": result.get("strategy"),
                 "promP50Ms": prom,
                 "shimP50Ms": p50,
@@ -522,6 +541,8 @@ manifest = {
         "transport": transport,
         "seedPolicy": seed_policy,
         "shimModes": [m for m in shim_modes.split(",") if m],
+        "routingPolicies": [p for p in routing_policies.split(",") if p] or sorted(k for k in routing_policy_hist.keys() if k != "unknown"),
+        "costRoutingLocalFamilies": [f for f in cost_routing_local_families.split(",") if f],
         "includeProm": include_prom,
         "memoryMode": memory_mode,
         "corpusSet": corpus_set,
@@ -540,6 +561,7 @@ summary = {
     "memoryReportCount": len(memory_reports),
     "memoryDetailCount": len(memory_details),
     "strategyHistogram": strategy_hist,
+    "routingPolicyHistogram": routing_policy_hist,
     "targetBands": target_bands,
     "topSlowRows": slow_rows[:20],
 }
@@ -557,6 +579,8 @@ lines = [
     f"- Profiles: `{profile}`",
     f"- Density: `{density}`",
     f"- Modes: `{shim_modes}`",
+    f"- Routing policies: `{routing_policies or ','.join(sorted(k for k in routing_policy_hist.keys() if k != 'unknown')) or 'n/a'}`",
+    f"- Cost routing local families: `{cost_routing_local_families or 'none'}`",
     f"- Memory mode: `{memory_mode}`",
     f"- Memory summaries: `{len(memory_reports)}`",
     f"- Memory detail manifests: `{len(memory_details)}`",
@@ -569,18 +593,25 @@ if strategy_hist:
         lines.append(f"- `{key}`: {value}")
 else:
     lines.append("- No benchmark strategy data captured.")
+lines += ["", "## Routing policy histogram", ""]
+if routing_policy_hist:
+    for key, value in sorted(routing_policy_hist.items()):
+        lines.append(f"- `{key}`: {value}")
+else:
+    lines.append("- No routing policy data captured.")
 lines += ["", "## Prometheus target bands", ""]
 if target_bands:
     for key, value in sorted(target_bands.items()):
         lines.append(f"- `{key}`: {value}")
 else:
     lines.append("- No target-band data captured.")
-lines += ["", "## Top slow rows", "", "| Query | Mode | Strategy | Prom p50 ms | Shim p50 ms | S/P | Report |", "|---|---|---|---:|---:|---:|---|"]
+lines += ["", "## Top slow rows", "", "| Query | Mode | Routing policy | Strategy | Prom p50 ms | Shim p50 ms | S/P | Report |", "|---|---|---|---|---:|---:|---:|---|"]
 for row in slow_rows[:10]:
     ratio = row.get("shimPromRatio")
-    lines.append("| {query} | {mode} | {strategy} | {prom} | {shim} | {ratio} | `{report}` |".format(
+    lines.append("| {query} | {mode} | {routing_policy} | {strategy} | {prom} | {shim} | {ratio} | `{report}` |".format(
         query=row.get("query") or "",
         mode=row.get("mode") or "",
+        routing_policy=row.get("routingPolicy") or "",
         strategy=row.get("strategy") or "",
         prom=f"{row['promP50Ms']:.2f}" if row.get("promP50Ms") is not None else "—",
         shim=f"{row['shimP50Ms']:.2f}" if row.get("shimP50Ms") is not None else "—",
@@ -635,6 +666,7 @@ run_sweep() {
             --corpus "$corpus" \
             --eval-time "$eval_time" \
             --shim-modes "$SHIM_MODES" \
+            --routing-policies "$ROUTING_POLICIES" \
             --include-prom "$INCLUDE_PROM" \
             --ch-url "$BENCH_CH_URL" \
             --memory "$MEMORY_MODE" \

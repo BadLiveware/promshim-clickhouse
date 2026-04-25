@@ -5,13 +5,14 @@ import (
 	"testing"
 )
 
-func TestBuildQueryURLIncludesNativeLoweringModeAndExplainForInstantQueries(t *testing.T) {
+func TestBuildQueryURLIncludesNativeLoweringModeExplainAndRoutingPolicyForInstantQueries(t *testing.T) {
 	url, err := buildQueryURL("http://shim:9090", Manifest{BaseUnixSeconds: 1700000000}, QuerySpec{
 		Endpoint:           "query",
 		Query:              `sum by (job) (harness_up)`,
 		TimeOffsetSeconds:  540,
 		Explain:            true,
 		NativeLoweringMode: "shadow",
+		RoutingPolicy:      "cost_shadow",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -22,6 +23,7 @@ func TestBuildQueryURLIncludesNativeLoweringModeAndExplainForInstantQueries(t *t
 		"time=2023-11-14T22%3A22%3A20Z",
 		"explain=1",
 		"native_lowering_mode=shadow",
+		"routing_policy=cost_shadow",
 	} {
 		if !strings.Contains(url, fragment) {
 			t.Fatalf("expected %q to contain %q", url, fragment)

@@ -179,6 +179,38 @@ overridden per request with `native_lowering_mode=...`.
 Shadow mode exposes process-local counters/histograms under `/metrics`. It is
 intended for rollout confidence, not durable audit storage.
 
+## Cost routing policies
+
+Cost routing is an opt-in routing policy layered on top of the native lowering
+mode. Strict routing remains the default and keeps the priority order above:
+whole-query delegation, native SQL, local with pushdown, then full local.
+`force_supported`, `off`, and the existing native-lowering `shadow` mode ignore
+cost routing so they continue to serve as native-only, local-baseline, and
+native-shadow visibility modes.
+
+The global policy is controlled by `PROM_SHIM_ROUTING_POLICY` and can be
+overridden per request with `routing_policy=...`.
+
+| Policy | Served result | Use case |
+|---|---|---|
+| `strict` | First successful tier in priority order | Default and rollback behavior. |
+| `cost_shadow` | Strict result | Computes the cost decision and may run bounded alternate candidates in the background for evidence. |
+| `cost_prefer` | Strict unless all cost gates pass | Opt-in local/dev rollout for bounded families with estimates, hard caps, and a predicted win. |
+
+Local overrides under `cost_prefer` require explicit family gates through
+`PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES`, for example
+`selector_instant,rate_instant`. Missing estimates, disabled families, hard-cap
+violations, low-confidence predictions, histogram helpers without their own
+evidence, and broad range-query candidates all fall back to strict routing.
+Removing the family gate or setting `PROM_SHIM_ROUTING_POLICY=strict` is the
+configuration-only rollback path.
+
+Successful query responses include stable routing headers such as
+`X-Promshim-Routing-Policy`, `X-Promshim-Routing-Decision`,
+`X-Promshim-Strict-Strategy`, `X-Promshim-Selected-Strategy`,
+`X-Promshim-Routing-Reason`, and `X-Promshim-Cost-Family`. Explain responses
+include the same routing metadata plus the enabled cost-routing local families.
+
 ## PromQL coverage
 
 ### Supported in tier 2 native SQL
@@ -304,6 +336,8 @@ upstream ClickHouse changes easier to audit.
 | `PROM_SHIM_REQUEST_TIMEOUT_SECONDS` | `30` | ClickHouse request timeout. |
 | `PROM_SHIM_CLICKHOUSE_VERSION` | `26.3` | Version used by the delegation capability classifier. |
 | `PROM_SHIM_NATIVE_LOWERING_MODE` | `prefer` | Global lowering mode; see execution modes above. |
+| `PROM_SHIM_ROUTING_POLICY` | `strict` | Global cost-routing policy; see cost routing policies above. |
+| `PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES` | empty | Comma-separated family gates eligible for `cost_prefer` local overrides, e.g. `selector_instant,rate_instant`. |
 | `PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES` | `50000` | Reject range queries above this point count per series. |
 | `PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES` | `5000` | Chunk eligible local range plans above this point count per series. |
 | `PROM_SHIM_MAX_RESPONSE_SERIES` | `5000` | Reject responses with more series than this limit. |
@@ -312,6 +346,7 @@ upstream ClickHouse changes easier to audit.
 Per-request knobs:
 
 - `native_lowering_mode=off|prefer|explain|shadow|force_supported`
+- `routing_policy=strict|cost_shadow|cost_prefer`
 - `explain=1` or `explain=true`
 - `X-Promshim-Log-Comment: ...` to forward a ClickHouse `log_comment` for query
   log/profile correlation.

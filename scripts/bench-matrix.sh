@@ -90,6 +90,7 @@ for report_meta in manifest.get("bench", {}).get("reports", []):
                 "transport": transport,
                 "corpus": corpus,
                 "mode": mode,
+                "routingPolicy": result.get("routingPolicy") or "",
                 "strategy": result.get("strategy") or "",
                 "promP50Ms": prom,
                 "shimP50Ms": shim,
@@ -107,25 +108,25 @@ print()
 print(f"Manifest: `{manifest_path}`")
 print()
 if per_query:
-    print("| Category | Query | Profile | Density | Transport | Corpus | Mode | Strategy | Prom band | Prom p50 | Shim p50 | S/P |")
-    print("|---|---|---|---|---|---|---|---|---|---:|---:|---:|")
-    for row in sorted(rows, key=lambda r: (r["category"], r["query"] or "", r["profile"], r["density"], r["mode"])):
-        print(f"| {row['category']} | {row['query']} | {row['profile']} | {row['density']} | {row['transport']} | {row['corpus']} | {row['mode']} | {row['strategy']} | {row['promBand']} | {r2(row['promP50Ms'])} | {r2(row['shimP50Ms'])} | {rx(row['ratio'])} |")
+    print("| Category | Query | Profile | Density | Transport | Corpus | Mode | Routing policy | Strategy | Prom band | Prom p50 | Shim p50 | S/P |")
+    print("|---|---|---|---|---|---|---|---|---|---|---:|---:|---:|")
+    for row in sorted(rows, key=lambda r: (r["category"], r["query"] or "", r["profile"], r["density"], r["mode"], r["routingPolicy"])):
+        print(f"| {row['category']} | {row['query']} | {row['profile']} | {row['density']} | {row['transport']} | {row['corpus']} | {row['mode']} | {row['routingPolicy'] or 'n/a'} | {row['strategy']} | {row['promBand']} | {r2(row['promP50Ms'])} | {r2(row['shimP50Ms'])} | {rx(row['ratio'])} |")
 else:
     buckets = {}
     for row in rows:
-        key = (row["category"], row["profile"], row["density"], row["transport"], row["mode"])
+        key = (row["category"], row["profile"], row["density"], row["transport"], row["mode"], row["routingPolicy"])
         buckets.setdefault(key, []).append(row)
-    print("| Category | Profile | Density | Transport | Mode | Count | Strategies | Prom p50 med | Shim p50 med | S/P med | Target bands |")
-    print("|---|---|---|---|---|---:|---|---:|---:|---:|---|")
+    print("| Category | Profile | Density | Transport | Mode | Routing policy | Count | Strategies | Prom p50 med | Shim p50 med | S/P med | Target bands |")
+    print("|---|---|---|---|---|---|---:|---|---:|---:|---:|---|")
     for key, vals in sorted(buckets.items()):
-        category, profile, density, transport, mode = key
+        category, profile, density, transport, mode, routing_policy = key
         prom_vals = [v["promP50Ms"] for v in vals if v.get("promP50Ms") is not None]
         shim_vals = [v["shimP50Ms"] for v in vals if v.get("shimP50Ms") is not None]
         ratio_vals = [v["ratio"] for v in vals if v.get("ratio") is not None]
         strategies = ", ".join(f"{s}:{sum(1 for v in vals if v['strategy']==s)}" for s in sorted({v['strategy'] for v in vals}))
         bands = ", ".join(f"{b}:{sum(1 for v in vals if v['promBand']==b)}" for b in sorted({v['promBand'] for v in vals}))
-        print(f"| {category} | {profile} | {density} | {transport} | {mode} | {len(vals)} | {strategies} | {r2(statistics.median(prom_vals) if prom_vals else None)} | {r2(statistics.median(shim_vals) if shim_vals else None)} | {rx(statistics.median(ratio_vals) if ratio_vals else None)} | {bands} |")
+        print(f"| {category} | {profile} | {density} | {transport} | {mode} | {routing_policy or 'n/a'} | {len(vals)} | {strategies} | {r2(statistics.median(prom_vals) if prom_vals else None)} | {r2(statistics.median(shim_vals) if shim_vals else None)} | {rx(statistics.median(ratio_vals) if ratio_vals else None)} | {bands} |")
 print()
 PY
   exit 0

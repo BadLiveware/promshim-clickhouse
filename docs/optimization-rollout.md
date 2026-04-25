@@ -54,6 +54,66 @@ Reports and explain output must preserve these as separate concepts:
 Shadow work must be bounded. Do not let alternate execution concurrency distort
 the benchmark or production workload that it is supposed to measure.
 
+## CBE family gate validation
+
+Before enabling or broadening a `cost_prefer` local family gate, preserve three
+named benchmark artifacts for the candidate family:
+
+1. Shadow discovery: run `strict,cost_shadow` with a shadow warmup. This should
+   expose selected-vs-strict candidate flips while the served candidate remains
+   strict/reference.
+2. Negative prefer control: run `strict,cost_prefer` with the family gate but
+   without shadow-warmed estimates. This must fail safe to strict/reference,
+   typically with `strict_missing_estimate`.
+3. Shadow-warmed prefer: run `strict,cost_prefer` with the family gate after a
+   `cost_shadow` warmup. Only the intended bounded rows may serve the alternate
+   candidate; over-cap, stale, missing-estimate, delegated, and unsupported rows
+   must remain strict/reference.
+
+Example command sequence:
+
+```bash
+./scripts/run-sweep.sh \
+  --name cbe-<family>-shadow-7d-sparse \
+  --profile 7d --density sparse --seed reuse \
+  --skip-compliance --shim-modes prefer \
+  --routing-policies strict,cost_shadow \
+  --warmup-routing-policies cost_shadow \
+  --corpus-set optimization --memory summary
+
+./scripts/run-sweep.sh \
+  --name cbe-<family>-prefer-negative-7d-sparse \
+  --profile 7d --density sparse --seed reuse \
+  --skip-compliance --shim-modes prefer \
+  --routing-policies strict,cost_prefer \
+  --warmup-routing-policies cost_prefer \
+  --cost-routing-local-families <family> \
+  --corpus-set optimization --memory summary
+
+./scripts/run-sweep.sh \
+  --name cbe-<family>-prefer-warmed-7d-sparse \
+  --profile 7d --density sparse --seed reuse \
+  --skip-compliance --shim-modes prefer \
+  --routing-policies strict,cost_prefer \
+  --warmup-routing-policies cost_shadow \
+  --cost-routing-local-families <family> \
+  --corpus-set optimization --memory summary
+```
+
+For each artifact, render the summary and per-query matrix:
+
+```bash
+./scripts/bench-artifact-summary.sh harness/artifacts/sweeps/<run-name>
+./scripts/bench-matrix.sh \
+  --sweep harness/artifacts/sweeps/<run-name>/manifest.json \
+  --per-query
+```
+
+Reviewers should confirm candidate flips, served candidates, routing reasons,
+hard-cap decisions, and zero missing log comments before accepting a served CBE
+change. Dense or long-range controls are required when the candidate family can
+cliff on cardinality, window width, output points, or range duration.
+
 ## Calibration refresh workflow
 
 Calibration is generated from named artifacts. It must not be hand-entered from

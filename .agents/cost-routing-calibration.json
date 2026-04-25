@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-04-25T18:14:07Z",
+  "generatedAt": "2026-04-25T20:26:24Z",
   "sources": [
     {
       "sweepName": "promshim-optimization-foundation-7d-sparse",
@@ -77,6 +77,11 @@
       "reasons": [
         "native remains preferred for family; local/native median 0.52"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 12600,
+        "groupingLabelCountMedian": 1,
+        "queryLengthMedian": 48
+      },
       "memory": {
         "selectedRowsMedian": 863019048,
         "readCompressedBytesMedian": 670326895,
@@ -105,6 +110,11 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 12600,
+        "groupingLabelCountMedian": 1,
+        "queryLengthMedian": 48
+      },
       "memory": {
         "selectedRowsMedian": 5213246342.5,
         "readCompressedBytesMedian": 4132444043,
@@ -133,6 +143,11 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 12600,
+        "groupingLabelCountMedian": 1,
+        "queryLengthMedian": 48
+      },
       "memory": {
         "selectedRowsMedian": 4350227294.5,
         "readCompressedBytesMedian": 3453656429,
@@ -161,6 +176,10 @@
       "reasons": [
         "no initial rule for local/native median 0.32"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 3600,
+        "queryLengthMedian": 85
+      },
       "memory": {
         "selectedRowsMedian": 1661648976,
         "readCompressedBytesMedian": 632243731,
@@ -188,6 +207,10 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 3600,
+        "queryLengthMedian": 85
+      },
       "memory": {
         "selectedRowsMedian": 10110422074,
         "readCompressedBytesMedian": 4280171972,
@@ -215,6 +238,10 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 3600,
+        "queryLengthMedian": 85
+      },
       "memory": {
         "selectedRowsMedian": 8448773098,
         "readCompressedBytesMedian": 3645069308,
@@ -243,6 +270,11 @@
       "reasons": [
         "local/native median 0.12 \u003c= 0.70 for bounded candidate family"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 3600,
+        "groupingLabelCountMedian": 1,
+        "queryLengthMedian": 90
+      },
       "memory": {
         "selectedRowsMedian": 830824488,
         "readCompressedBytesMedian": 454872325,
@@ -270,6 +302,11 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 3600,
+        "groupingLabelCountMedian": 1,
+        "queryLengthMedian": 90
+      },
       "memory": {
         "selectedRowsMedian": 5055211037,
         "readCompressedBytesMedian": 3009978525,
@@ -297,6 +334,11 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 3600,
+        "groupingLabelCountMedian": 1,
+        "queryLengthMedian": 90
+      },
       "memory": {
         "selectedRowsMedian": 4224386549,
         "readCompressedBytesMedian": 2560103286,
@@ -325,6 +367,10 @@
       "reasons": [
         "local/native median 0.20 \u003c= 0.70 for bounded candidate family"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 3600,
+        "queryLengthMedian": 53
+      },
       "memory": {
         "selectedRowsMedian": 830824488,
         "readCompressedBytesMedian": 156603051,
@@ -352,6 +398,10 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 3600,
+        "queryLengthMedian": 53
+      },
       "memory": {
         "selectedRowsMedian": 5055211037,
         "readCompressedBytesMedian": 1028042789,
@@ -379,6 +429,10 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 3600,
+        "queryLengthMedian": 53
+      },
       "memory": {
         "selectedRowsMedian": 4224386549,
         "readCompressedBytesMedian": 871152198,
@@ -407,6 +461,10 @@
       "reasons": [
         "native remains preferred for family; local/native median 1.99"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 86400,
+        "queryLengthMedian": 42
+      },
       "memory": {
         "selectedRowsMedian": 839573544,
         "readCompressedBytesMedian": 381515649,
@@ -434,6 +492,10 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 86400,
+        "queryLengthMedian": 42
+      },
       "memory": {
         "selectedRowsMedian": 5111016485,
         "readCompressedBytesMedian": 2620153362,
@@ -461,6 +523,10 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 86400,
+        "queryLengthMedian": 42
+      },
       "memory": {
         "selectedRowsMedian": 4271442941,
         "readCompressedBytesMedian": 2243349089,
@@ -489,6 +555,10 @@
       "reasons": [
         "native remains preferred for family; local/native median 6.64"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 300,
+        "queryLengthMedian": 38
+      },
       "memory": {
         "selectedRowsMedian": 839573544,
         "readCompressedBytesMedian": 359540611,
@@ -516,6 +586,10 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 300,
+        "queryLengthMedian": 38
+      },
       "memory": {
         "selectedRowsMedian": 5111073829,
         "readCompressedBytesMedian": 2456687660,
@@ -543,6 +617,10 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 300,
+        "queryLengthMedian": 38
+      },
       "memory": {
         "selectedRowsMedian": 4271500285,
         "readCompressedBytesMedian": 2112226867,
@@ -571,6 +649,10 @@
       "reasons": [
         "native remains preferred for family; local/native median 0.05"
       ],
+      "features": {
+        "selectorCountMedian": 1,
+        "queryLengthMedian": 41
+      },
       "memory": {
         "selectedRowsMedian": 10549764,
         "readCompressedBytesMedian": 43699236,
@@ -598,6 +680,10 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "selectorCountMedian": 1,
+        "queryLengthMedian": 41
+      },
       "memory": {
         "selectedRowsMedian": 74867531,
         "readCompressedBytesMedian": 328044942,
@@ -625,6 +711,10 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "selectorCountMedian": 1,
+        "queryLengthMedian": 41
+      },
       "memory": {
         "selectedRowsMedian": 64317767,
         "readCompressedBytesMedian": 284345706,
@@ -653,6 +743,10 @@
       "reasons": [
         "local/native median 0.56 \u003c= 0.70 for bounded candidate family"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 12600,
+        "queryLengthMedian": 38
+      },
       "memory": {
         "selectedRowsMedian": 831758376,
         "readCompressedBytesMedian": 298912953,
@@ -680,6 +774,10 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 12600,
+        "queryLengthMedian": 38
+      },
       "memory": {
         "selectedRowsMedian": 5060814365,
         "readCompressedBytesMedian": 2015499594.5,
@@ -707,6 +805,10 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "rangeWindowSecondsMedian": 12600,
+        "queryLengthMedian": 38
+      },
       "memory": {
         "selectedRowsMedian": 4229055989,
         "readCompressedBytesMedian": 1718460881.5,
@@ -735,6 +837,10 @@
       "reasons": [
         "local/native median 0.42 \u003c= 0.70 for bounded candidate family"
       ],
+      "features": {
+        "selectorCountMedian": 1,
+        "queryLengthMedian": 42.5
+      },
       "memory": {
         "selectedRowsMedian": 26778672,
         "readCompressedBytesMedian": 101249196,
@@ -762,6 +868,10 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "selectorCountMedian": 1,
+        "queryLengthMedian": 42.5
+      },
       "memory": {
         "selectedRowsMedian": 187359315,
         "readCompressedBytesMedian": 700203449,
@@ -789,6 +899,10 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "selectorCountMedian": 1,
+        "queryLengthMedian": 42.5
+      },
       "memory": {
         "selectedRowsMedian": 160580643,
         "readCompressedBytesMedian": 598954253,
@@ -817,6 +931,9 @@
       "reasons": [
         "no initial rule for local/native median 0.84"
       ],
+      "features": {
+        "queryLengthMedian": 68
+      },
       "memory": {
         "selectedRowsMedian": 31236,
         "readCompressedBytesMedian": 25272,
@@ -844,6 +961,9 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "queryLengthMedian": 68
+      },
       "memory": {
         "selectedRowsMedian": 190019,
         "readCompressedBytesMedian": 153738,
@@ -871,6 +991,9 @@
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
       ],
+      "features": {
+        "queryLengthMedian": 68
+      },
       "memory": {
         "selectedRowsMedian": 158783,
         "readCompressedBytesMedian": 128466,

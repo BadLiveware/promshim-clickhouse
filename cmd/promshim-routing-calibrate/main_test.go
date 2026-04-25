@@ -144,6 +144,59 @@ func TestRecommendKeepsRangeRateNativeRequired(t *testing.T) {
 	}
 }
 
+func TestExtractQueryFeatures(t *testing.T) {
+	features := extractQueryFeatures("sum by (job,instance) (rate(http_requests_total{job=\"demo\"}[1h]))")
+	if features.rangeWindowSeconds != 3600 {
+		t.Fatalf("rangeWindowSeconds=%v, want 3600", features.rangeWindowSeconds)
+	}
+	if features.selectorCount != 1 {
+		t.Fatalf("selectorCount=%v, want 1", features.selectorCount)
+	}
+	if features.groupingLabelCount != 2 {
+		t.Fatalf("groupingLabelCount=%v, want 2", features.groupingLabelCount)
+	}
+	if features.queryLength <= 0 {
+		t.Fatalf("queryLength=%v, want > 0", features.queryLength)
+	}
+}
+
+func TestBuildCalibrationIncludesFeatureMedians(t *testing.T) {
+	report := benchReportV2{
+		SchemaVersion: 2,
+		CorpusPath:    "harness/corpus/unit.json",
+		RunLabels:     map[string]string{"profile": "7d", "density": "sparse", "transport": "native"},
+		Rows: []benchRowV2{{
+			Name:     "range_selector_1h",
+			Query:    "sum by (job) (rate(up{job=\"demo\"}[1h]))",
+			Endpoint: "query",
+			Category: "rate",
+			Shim: map[string]benchShimResult{
+				"prefer": {P50MS: 10, Strategy: "native_sql", RoutingPolicy: "strict", CostFamily: "rate"},
+				"off":    {P50MS: 5, Strategy: "local", RoutingPolicy: "strict", CostFamily: "rate"},
+			},
+		}},
+	}
+	path := filepath.Join(t.TempDir(), "bench-report.json")
+	writeFixtureJSON(t, path, report)
+	samples, err := readBenchReport(path, calibrationSource{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	classes := summarizeSamples(samples)
+	if len(classes) != 1 {
+		t.Fatalf("classes=%d, want 1", len(classes))
+	}
+	if classes[0].Features == nil {
+		t.Fatalf("features=nil, want populated features")
+	}
+	if classes[0].Features.RangeWindowSecondsMedian != 3600 {
+		t.Fatalf("range median=%v, want 3600", classes[0].Features.RangeWindowSecondsMedian)
+	}
+	if classes[0].Features.SelectorCountMedian != 1 {
+		t.Fatalf("selector median=%v, want 1", classes[0].Features.SelectorCountMedian)
+	}
+}
+
 func TestMedianDoesNotMutateInput(t *testing.T) {
 	values := []float64{3, 1, 2}
 	if got := median(values); got != 2 {

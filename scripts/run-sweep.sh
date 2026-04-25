@@ -44,6 +44,7 @@ Options:
                                   Capture memory trade-off artifacts (default summary).
   --clickhouse-reference-profile NAME
                                   Reference profile label recorded in sweep artifacts (default default-benchmark-compose).
+  --settings-profile NAME        promshim ClickHouse settings profile for benchmark containers (default default_safe).
   --corpus-set {native|processing|optimization|both}
                                   Benchmark corpus family (default: native; dense defaults to processing).
   --profile {7d|30d|1y|all}      Profile to inspect/seed (default for setup: all).
@@ -102,6 +103,7 @@ COST_ROUTING_LOCAL_FAMILIES=""
 INCLUDE_PROM="true"
 MEMORY_MODE="summary"
 CLICKHOUSE_REFERENCE_PROFILE="${PROM_SHIM_BENCH_CLICKHOUSE_REFERENCE_PROFILE:-default-benchmark-compose}"
+SETTINGS_PROFILE="${PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE:-default_safe}"
 CORPUS_SET=""
 YES=0
 
@@ -124,6 +126,7 @@ while [[ $# -gt 0 ]]; do
     --include-prom) INCLUDE_PROM="$2"; shift 2 ;;
     --memory)       MEMORY_MODE="$2"; shift 2 ;;
     --clickhouse-reference-profile) CLICKHOUSE_REFERENCE_PROFILE="$2"; shift 2 ;;
+    --settings-profile) SETTINGS_PROFILE="$2"; shift 2 ;;
     --corpus-set)   CORPUS_SET="$2"; shift 2 ;;
     --profile)      PROFILE="$2"; shift 2 ;;
     --density)      DENSITY="$2"; shift 2 ;;
@@ -230,7 +233,7 @@ compose() {
   if [[ "$CLICKHOUSE_REFERENCE_PROFILE" == "promshim-ch-timeseries-reference-v1" ]]; then
     compose_args+=("-f" "docker-compose.reference.yml")
   fi
-  (cd "$BENCH_DIR" && PROM_SHIM_CLICKHOUSE_TRANSPORT="$TRANSPORT" PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES="$COST_ROUTING_LOCAL_FAMILIES" PROM_SHIM_DISABLE_OPTIMIZED_IR="${PROM_SHIM_DISABLE_OPTIMIZED_IR:-}" PROM_SHIM_DISABLE_NATIVE_AGGREGATION_LABEL_PROJECTION="${PROM_SHIM_DISABLE_NATIVE_AGGREGATION_LABEL_PROJECTION:-}" docker compose "${compose_args[@]}" "$@")
+  (cd "$BENCH_DIR" && PROM_SHIM_CLICKHOUSE_TRANSPORT="$TRANSPORT" PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE="$SETTINGS_PROFILE" PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES="$COST_ROUTING_LOCAL_FAMILIES" PROM_SHIM_DISABLE_OPTIMIZED_IR="${PROM_SHIM_DISABLE_OPTIMIZED_IR:-}" PROM_SHIM_DISABLE_NATIVE_AGGREGATION_LABEL_PROJECTION="${PROM_SHIM_DISABLE_NATIVE_AGGREGATION_LABEL_PROJECTION:-}" docker compose "${compose_args[@]}" "$@")
 }
 
 start_bench_stack() {
@@ -462,6 +465,7 @@ print_sweep_plan() {
   echo "Cost routing local families: ${COST_ROUTING_LOCAL_FAMILIES:-none}"
   echo "Memory mode: ${MEMORY_MODE}"
   echo "ClickHouse reference profile: ${CLICKHOUSE_REFERENCE_PROFILE}"
+  echo "promshim settings profile: ${SETTINGS_PROFILE}"
   echo
   echo "Datasets:"
   for p in $(profiles_for "$PROFILE"); do
@@ -486,13 +490,13 @@ print_sweep_plan() {
 
 generate_sweep_artifacts() {
   local artifact_dir="$1" compliance_status="$2" bench_status="$3"
-  python3 - "$REPO_ROOT" "$artifact_dir" "$RUN_NAME" "$PROFILE" "$DENSITY" "$TRANSPORT" "$SEED_POLICY" "$SHIM_MODES" "$ROUTING_POLICIES" "$WARMUP_ROUTING_POLICIES" "$COST_ROUTING_LOCAL_FAMILIES" "$INCLUDE_PROM" "$CORPUS_SET" "$compliance_status" "$bench_status" "$BENCH_PROM_URL" "$BENCH_SHIM_URL" "$BENCH_CH_URL" "$MEMORY_MODE" "$CLICKHOUSE_REFERENCE_PROFILE" <<'PY'
+  python3 - "$REPO_ROOT" "$artifact_dir" "$RUN_NAME" "$PROFILE" "$DENSITY" "$TRANSPORT" "$SEED_POLICY" "$SHIM_MODES" "$ROUTING_POLICIES" "$WARMUP_ROUTING_POLICIES" "$COST_ROUTING_LOCAL_FAMILIES" "$INCLUDE_PROM" "$CORPUS_SET" "$compliance_status" "$bench_status" "$BENCH_PROM_URL" "$BENCH_SHIM_URL" "$BENCH_CH_URL" "$MEMORY_MODE" "$CLICKHOUSE_REFERENCE_PROFILE" "$SETTINGS_PROFILE" <<'PY'
 import json, pathlib, sys
 from datetime import datetime, timezone
 
 (repo, artifact_dir, run_name, profile, density, transport, seed_policy,
  shim_modes, routing_policies, warmup_routing_policies, cost_routing_local_families, include_prom, corpus_set, compliance_status, bench_status,
- prom_url, shim_url, ch_url, memory_mode, clickhouse_reference_profile) = sys.argv[1:21]
+ prom_url, shim_url, ch_url, memory_mode, clickhouse_reference_profile, settings_profile) = sys.argv[1:22]
 root = pathlib.Path(repo)
 out_dir = root / artifact_dir
 reports = []
@@ -568,6 +572,7 @@ manifest = {
         "includeProm": include_prom,
         "memoryMode": memory_mode,
         "clickHouseReferenceProfile": clickhouse_reference_profile,
+        "promshimSettingsProfile": settings_profile,
         "corpusSet": corpus_set,
     },
     "endpoints": {"prometheus": prom_url, "promshim": shim_url, "clickhouse": ch_url},
@@ -587,6 +592,7 @@ summary = {
     "routingPolicyHistogram": routing_policy_hist,
     "targetBands": target_bands,
     "clickHouseReferenceProfile": clickhouse_reference_profile,
+    "promshimSettingsProfile": settings_profile,
     "topSlowRows": slow_rows[:20],
 }
 out_dir.mkdir(parents=True, exist_ok=True)
@@ -608,6 +614,7 @@ lines = [
     f"- Cost routing local families: `{cost_routing_local_families or 'none'}`",
     f"- Memory mode: `{memory_mode}`",
     f"- ClickHouse reference profile: `{clickhouse_reference_profile}`",
+    f"- promshim settings profile: `{settings_profile}`",
     f"- Memory summaries: `{len(memory_reports)}`",
     f"- Memory detail manifests: `{len(memory_details)}`",
     "",

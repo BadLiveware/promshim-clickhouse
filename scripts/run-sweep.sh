@@ -237,8 +237,8 @@ compose() {
 }
 
 start_bench_stack() {
-  log "Starting isolated benchmark stack (transport=${TRANSPORT})."
-  compose up -d
+  log "Starting isolated benchmark stack (transport=${TRANSPORT}; rebuilding buildable services if needed)."
+  compose up -d --build
   wait_for_http "ClickHouse" "${BENCH_CH_URL}/ping" "-u" "default:otel"
   wait_for_ch_schema
   wait_for_http "Prometheus" "${BENCH_PROM_URL}/-/ready"
@@ -491,7 +491,7 @@ print_sweep_plan() {
 generate_sweep_artifacts() {
   local artifact_dir="$1" compliance_status="$2" bench_status="$3"
   python3 - "$REPO_ROOT" "$artifact_dir" "$RUN_NAME" "$PROFILE" "$DENSITY" "$TRANSPORT" "$SEED_POLICY" "$SHIM_MODES" "$ROUTING_POLICIES" "$WARMUP_ROUTING_POLICIES" "$COST_ROUTING_LOCAL_FAMILIES" "$INCLUDE_PROM" "$CORPUS_SET" "$compliance_status" "$bench_status" "$BENCH_PROM_URL" "$BENCH_SHIM_URL" "$BENCH_CH_URL" "$MEMORY_MODE" "$CLICKHOUSE_REFERENCE_PROFILE" "$SETTINGS_PROFILE" <<'PY'
-import json, pathlib, sys
+import json, pathlib, subprocess, sys
 from datetime import datetime, timezone
 
 (repo, artifact_dir, run_name, profile, density, transport, seed_policy,
@@ -555,6 +555,79 @@ for path in sorted(out_dir.glob("bench-report*.json")):
                 "report": rel,
             })
 slow_rows.sort(key=lambda r: (r.get("shimP50Ms") or 0), reverse=True)
+
+def run_cmd_result(args, cwd=root):
+    try:
+        completed = subprocess.run(args, cwd=cwd, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except FileNotFoundError as exc:
+        return {"ok": False, "stdout": "", "stderr": str(exc), "returncode": None}
+    except subprocess.CalledProcessError as exc:
+        return {
+            "ok": False,
+            "stdout": (exc.stdout or "").strip(),
+            "stderr": (exc.stderr or "").strip(),
+            "returncode": exc.returncode,
+        }
+    return {"ok": True, "stdout": completed.stdout.strip(), "stderr": completed.stderr.strip(), "returncode": completed.returncode}
+
+def run_cmd(args, cwd=root):
+    result = run_cmd_result(args, cwd=cwd)
+    return result["stdout"] if result["ok"] else None
+
+def benchmark_stack_provenance():
+    git_status = run_cmd(["git", "status", "--porcelain"]) or ""
+    provenance = {
+        "composeBuildRequested": bench_status != "skipped",
+        "git": {
+            "revision": run_cmd(["git", "rev-parse", "HEAD"]),
+            "dirty": bool(git_status),
+            "statusPorcelain": git_status.splitlines()[:50],
+        },
+        "promshim": {},
+    }
+    if bench_status == "skipped":
+        return provenance
+    bench_dir = root / "harness" / "bench"
+    compose_args = ["docker", "compose", "-f", "docker-compose.yml"]
+    if clickhouse_reference_profile == "promshim-ch-timeseries-reference-v1":
+        compose_args += ["-f", "docker-compose.reference.yml"]
+    provenance["composeFiles"] = compose_args[3::2]
+    container_result = run_cmd_result(compose_args + ["ps", "-q", "promshim"], cwd=bench_dir)
+    container_id = container_result["stdout"]
+    if not container_result["ok"] or not container_id:
+        provenance["promshim"].update({
+            "available": False,
+            "reason": "compose_ps_failed" if not container_result["ok"] else "container_not_found",
+            "returncode": container_result["returncode"],
+            "stderr": container_result["stderr"],
+        })
+        return provenance
+    provenance["promshim"]["containerId"] = container_id
+    inspect_result = run_cmd_result(["docker", "inspect", container_id])
+    raw = inspect_result["stdout"]
+    if not inspect_result["ok"] or not raw:
+        provenance["promshim"].update({
+            "available": False,
+            "reason": "docker_inspect_failed",
+            "returncode": inspect_result["returncode"],
+            "stderr": inspect_result["stderr"],
+        })
+        return provenance
+    try:
+        info = json.loads(raw)[0]
+    except Exception as exc:
+        provenance["promshim"].update({"available": False, "reason": "docker_inspect_invalid_json", "error": str(exc)})
+        return provenance
+    config = info.get("Config") or {}
+    provenance["promshim"].update({
+        "available": True,
+        "containerName": (info.get("Name") or "").lstrip("/"),
+        "containerCreatedAt": info.get("Created"),
+        "image": config.get("Image"),
+        "imageId": info.get("Image"),
+    })
+    return provenance
+
 manifest = {
     "schemaVersion": 1,
     "runName": run_name,
@@ -576,6 +649,7 @@ manifest = {
         "corpusSet": corpus_set,
     },
     "endpoints": {"prometheus": prom_url, "promshim": shim_url, "clickhouse": ch_url},
+    "benchmarkStack": benchmark_stack_provenance(),
     "compliance": {"status": compliance_status, "log": f"{artifact_dir}/compliance.log" if compliance_status != "skipped" else None},
     "bench": {"status": bench_status, "reports": reports, "memoryReports": memory_reports, "memoryDetailManifests": memory_details},
     "summaries": {"markdown": f"{artifact_dir}/summary.md", "json": f"{artifact_dir}/summary.json"},

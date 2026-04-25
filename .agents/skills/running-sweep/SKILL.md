@@ -191,6 +191,9 @@ per-query/per-mode heap captures. Cgroup current/peak is not captured yet.
 - If `manifest.json` lacks run labels/profile/density, suspect a CLI parsing
   regression around Go boolean flags; `run-bench.sh` must pass boolean flags as
   `--include-prom=true`, not `--include-prom true`.
+- `run-sweep.sh` rebuilds buildable benchmark services on stack start. Docker
+  cache keeps no-op rebuilds cheap, and this prevents post-change sweeps from
+  accidentally measuring an already-running old promshim image.
 - If memory summaries have missing log comments, rerun from a quiet stack and
   verify `X-Promshim-Log-Comment` propagation.
 

@@ -30,6 +30,8 @@ single tier win unconditionally.
 
 ## Requirements
 
+- Prefer family work that is expected to reduce rows/bytes read or transfer size
+  before family work whose only obvious effect is SQL-text simplification.
 - Every family optimization must declare:
   - the targeted query family;
   - the candidate types affected;
@@ -45,9 +47,67 @@ single tier win unconditionally.
   under `~/code/external/` for patterns and pitfalls, then document why the
   adopted approach fits promshim.
 
+## Ranked implementation queue
+
+Use this queue to decide what to build next. It is intentionally biased toward
+high-signal, lower-risk work that should improve routing quality and/or reduce
+work done before tackling fragile semantic surfaces.
+
+### Build next
+
+1. **Exact selector time-bound derivation for instant/range/rollup families**
+   - Why first: strongest expected `SelectedRows` / `SelectedBytes` signal.
+   - Dependencies: stage-01 invariants and stage-02 time-bound metadata.
+   - Proof required: EXPLAIN + ProfileEvents evidence of narrower reads,
+     unchanged results.
+
+2. **Projection/label pruning for selectors, rollups, and simple aggregations**
+   - Why next: reusable across native SQL, subtree pushdown, and local paths.
+   - Dependencies: explicit required-label/output metadata.
+   - Proof required: lower transfer/intermediate width, unchanged output labels.
+
+3. **Repeated-selector fingerprinting and exact-reuse exploitation**
+   - Why next: improves both candidate quality and query-family optimization.
+   - Dependencies: selector equivalence metadata and blocked-reuse reasons.
+   - Proof required: executor-visible change (`FunctionExecute`, duplicate scan
+     work, round trips), not shorter SQL.
+
+4. **Safe aggregation pushdown for simple `by` / `without` families**
+   - Why next: likely win once pruning and time bounds exist.
+   - Dependencies: grouping/output-label invariants and caps.
+   - Proof required: lower transfer/memory, identical result labels/values.
+
+### Build later
+
+5. **Measured settings-profile specialization by family**
+   - Example: a repeated-selective profile that tests query condition cache.
+   - Wait until family metadata and query/log correlation are solid.
+
+6. **Cross-family SQL shape cleanup that has a concrete runtime mechanism**
+   - Example: avoid unnecessary sort/materialization/array work.
+   - Only take items with a named expected signal.
+
+7. **More ambitious decorrelation/subquery-to-join rewrites**
+   - Useful after the pass framework and explain traces are mature.
+
+### Avoid for now
+
+8. **Vector-matching-heavy SQL rewrites as an early optimization target**
+   - Too much semantic risk for the current evidence level.
+
+9. **Rollout based on SQL readability or p50-only improvements**
+   - Cosmetic SQL churn and noisy latency deltas are not enough.
+
+10. **Hidden dependence on projections/materialized views/server tuning**
+   - Keep these explicit in deployment guidance unless intentionally adopted.
+
 ## Implementation tasks by family
 
 ### 1. Instant vector selectors
+
+These are good early targets for time-bound tightening, selector fingerprinting,
+and careful testing of whether local execution still beats native SQL for tiny
+inputs.
 
 Typical examples:
 
@@ -73,6 +133,9 @@ Expected signals:
 - clear CBE route reason based on cardinality/sample estimates.
 
 ### 2. Range selectors and rollups
+
+This family is the main proving ground for exact time-bound derivation and
+storage-side pruning claims.
 
 Typical examples:
 
@@ -106,6 +169,10 @@ Expected signals:
 
 ### 3. Aggregations
 
+Start with the simplest grouping/label-retention cases and use them to prove out
+projection pruning plus safe aggregation pushdown before touching more fragile
+histogram/NaN-sensitive families.
+
 Typical examples:
 
 ```promql
@@ -134,6 +201,10 @@ Expected signals:
 - unchanged output label sets.
 
 ### 4. Repeated subexpressions and selector reuse
+
+The bar for success here is executor-visible change, not prettier SQL. If
+ClickHouse normalizes both shapes to the same `EXPLAIN SYNTAX`/PLAN, treat the
+rewrite as cosmetic.
 
 Typical examples:
 
@@ -190,6 +261,18 @@ Expected signals:
 - no served native/hybrid candidate without shadow evidence.
 
 ### 6. Cross-family SQL shape improvements
+
+These improvements should usually be driven by one of four concrete mechanisms:
+read less data, move less data, execute fewer functions, or avoid unnecessary
+materialization/sorting. "Shorter SQL" is not a mechanism.
+
+A cross-family SQL-shape item should only enter the `Build next` queue if it
+already has:
+- a targeted family or families;
+- a named expected signal;
+- an explanation of why ClickHouse's analyzer/planner will see a materially
+  different shape; and
+- a fallback plan if EXPLAIN/ProfileEvents show no real win.
 
 Work:
 

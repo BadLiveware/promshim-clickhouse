@@ -31,6 +31,8 @@ strong enough.
 ## Requirements
 
 - Rewrites must be semantics-preserving within declared preconditions.
+- Prefer IR work that exposes exact time bounds, selector equivalence, and
+  required-column/label sets before work that merely changes SQL shape.
 - Rewrites must be deterministic so before/after artifacts are reviewable.
 - Rewrites must expose why they ran or skipped.
 - Rewrites must not silently expand supported PromQL semantics.
@@ -80,6 +82,9 @@ Expected signals:
 
 ### 3. Time-bound derivation
 
+This is the highest-priority early optimization surface because it directly
+supports the strongest expected signal: lower rows/bytes read.
+
 - [ ] Derive the exact selector time interval required by each query shape,
   including query start/end, step, range windows, lookback, and any required
   Prometheus compatibility slop.
@@ -93,6 +98,8 @@ Expected signals:
   where current SQL scans wider intervals than necessary;
 - unchanged result rows and values;
 - clearer CBE sample-count estimates.
+- candidate SQL that gives ClickHouse's analyzer/PREWHERE heuristics better
+  opportunities to prune without requiring promshim to force PREWHERE blindly.
 
 ### 4. Selector deduplication metadata
 
@@ -111,6 +118,10 @@ Expected signals once exploited:
 
 ### 5. Projection-pruning metadata
 
+Treat this as semantic IR work, not a renderer-only cleanup pass. The same
+required-column/label set should inform native SQL rendering, subtree pushdown,
+and local materialization.
+
 - [ ] Derive labels required by each downstream operator.
 - [ ] Preserve labels required for output, grouping, vector matching, and
   correctness-sensitive behavior.
@@ -126,6 +137,10 @@ Expected signals once exploited:
 - no output label regressions.
 
 ### 6. Conservative simplification passes
+
+Do not treat SQL-text simplification itself as success. If a pass claims less
+work, that claim still needs executor-visible evidence later via EXPLAIN and
+ProfileEvents.
 
 - [ ] Fold scalar-only constant expressions when Prometheus semantics are clear.
 - [ ] Detect impossible matcher sets and represent empty results explicitly.

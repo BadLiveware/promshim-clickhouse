@@ -31,6 +31,9 @@ production behavior.
 ## Requirements
 
 - Optimizations must roll out family-by-family.
+- SQL-text-only diffs do not justify rollout. Any claim of reuse, pushdown, or
+  simplification must still point to EXPLAIN/ProfileEvents evidence that the
+  executor is doing less work.
 - Shadow evidence must precede served `cost_prefer` behavior for risky routes.
 - Calibration must be derived from named sweep artifacts, not hand-entered
   impressions.
@@ -81,11 +84,18 @@ production behavior.
 
 ### 4. Regression detection
 
+Regression detection should be able to distinguish between:
+- a real executor-visible optimization win;
+- a route/strategy flip that changed behavior for the wrong reason; and
+- a cosmetic SQL rewrite with no meaningful runtime effect.
+
 - [ ] Treat strategy/candidate flips as review-worthy events, not background
   noise.
 - [ ] Alert or fail validation when a family unexpectedly falls back from native
   SQL to local/reference or from optimized candidate to strict.
 - [ ] Compare expected and actual ProfileEvents for known optimization claims.
+- [ ] Treat byte-identical `EXPLAIN SYNTAX` on before/after shapes as evidence
+  against claims that the SQL rewrite itself improved execution.
 - [ ] Preserve before/after artifact directories and avoid overwriting the only
   baseline capture.
 - [ ] Add focused tests for any bug found through sweep artifacts.
@@ -105,6 +115,11 @@ production behavior.
   - compliance result;
   - negative controls;
   - rollback gate.
+- [ ] Explicitly record whether a claimed optimization depended on:
+  - tighter bounds/pruning;
+  - transfer reduction/projection pruning;
+  - expression/subtree reuse;
+  - storage/layout assumptions from the reference deployment profile.
 - [ ] Document how to disable a rewrite, candidate family, or settings profile.
 - [ ] Document how to interpret explain output for optimized IR and CBE routing.
 - [ ] Document known unsupported or shadow-only families.

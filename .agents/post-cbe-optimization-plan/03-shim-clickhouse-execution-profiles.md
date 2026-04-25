@@ -30,6 +30,8 @@ query-family measurements.
 ## Requirements
 
 - Settings must be allowlisted and scoped to promshim-owned ClickHouse queries.
+- Profiles should prefer shape-driven wins (better bounds, pruning, transfer
+  reduction) over fragile manual forcing of planner behavior.
 - Settings must be version-aware when ClickHouse support varies.
 - Unsupported settings must be visible and must not silently change semantics.
 - Settings must have bounded, stable profile names.
@@ -48,6 +50,10 @@ query-family measurements.
 ## Implementation tasks
 
 ### 1. Build the settings allowlist
+
+The first pass should bias toward settings with clear semantics and measurable
+signals, especially settings that help repeated selective reads, safety, and
+traceability.
 
 - [ ] Survey `~/code/external/ClickHouse` for relevant settings, default values,
   scope, version availability, ProfileEvents, query-log fields, and EXPLAIN
@@ -69,6 +75,13 @@ query-family measurements.
   - fewer round trips;
   - bounded latency;
   - safer timeout/cancellation behavior.
+- [ ] Explicitly classify:
+  - `use_query_condition_cache` as a candidate for repeated selective dashboard
+    workloads;
+  - query cache as freshness-sensitive and likely unsuitable for PromQL default
+    paths;
+  - PREWHERE-related tuning as something to measure per query family rather than
+    a blanket profile default.
 - [ ] Reject settings whose behavior is not understood or cannot be validated.
 
 ### 2. Add traceability settings and query identity
@@ -102,6 +115,8 @@ measurements justify them.
 Candidate profiles:
 
 - `default_safe` — traceability plus safety caps.
+- `repeated_selective` — repeated selective dashboard/profile candidate that may
+  experiment with query condition cache when evidence supports it.
 - `tiny_instant` — low-overhead profile for small instant selectors.
 - `simple_range` — balanced profile for bounded range selectors.
 - `long_range_scan` — throughput-oriented profile for wide scans.
@@ -110,6 +125,10 @@ Candidate profiles:
   first.
 - `subtree_pushdown` — profile for hybrid plans where transfer volume matters.
 - `benchmark_control` — controlled profile for apples-to-apples experiments.
+
+Profiles should stay small in number and clearly explain why a family is mapped
+there. Do not create many near-duplicate profiles that differ only in cosmetic
+SQL-shape preferences.
 
 For each profile:
 

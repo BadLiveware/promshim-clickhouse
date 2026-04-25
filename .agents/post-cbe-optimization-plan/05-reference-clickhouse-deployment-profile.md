@@ -29,8 +29,15 @@ data.
 
 ## Requirements
 
-- Recommendations must be labeled as advisory unless promshim truly requires
-  them for correctness.
+- Recommendations must be labeled with explicit evidence level:
+  - `required-for-correctness` (rare; must cite semantic dependency);
+  - `advisory-for-performance`;
+  - `benchmark-reference-only`;
+  - `experimental-not-default`.
+- First-party sources are normative for operator/server guidance:
+  - `clickhouse.com/docs`;
+  - `github.com/ClickHouse/clickhouse-operator`.
+  External operator/vendor material may be used as examples, not authority.
 - Benchmark reports should name the reference profile when results depend on it.
 - The docs must distinguish:
   - server-level tuning;
@@ -40,9 +47,8 @@ data.
   - distributed ClickHouse concerns.
 - Do not change production-facing defaults without explicit validation and
   rollback guidance.
-- Use `~/code/external/ClickHouse`, `~/code/external/hyperdx`, and other local
-  ClickHouse-backed examples as inputs for deployment guidance, but label every
-  recommendation by its evidence level and fit for promshim.
+- Do not present server/operator tuning as a hidden correctness dependency for
+  promshim routing or semantics.
 
 ## Implementation tasks
 
@@ -58,6 +64,11 @@ data.
   represent.
 - [ ] Record assumptions about `TimeSeries` engine usage, retention, and query
   freshness.
+- [ ] Record explicit assumption blocks for:
+  - topology (single-node vs distributed);
+  - ClickHouse/operator versions;
+  - storage/cache warmness;
+  - observability surfaces enabled for evidence collection.
 
 ### 2. Resource and concurrency guidance
 
@@ -70,18 +81,32 @@ data.
   for dashboard workloads.
 - [ ] Describe expected behavior under concurrent ingestion/merge pressure.
 - [ ] Provide symptoms and evidence to inspect when ClickHouse is saturated.
+- [ ] For each recommendation, map expected validation signals (duration,
+  memory, read rows/bytes, ProfileEvents) and where to inspect them
+  (`system.query_log`, `system.query_thread_log`, `system.processes`).
 
 ### 3. Storage and cache guidance
 
+This stage should explicitly document which optimizations are storage/layout
+choices that operators may adopt, rather than hidden requirements of promshim.
+
 - [ ] Document storage expectations such as local SSD preference and retention
   tradeoffs.
+- [ ] Document ordering-key guidance for common promshim-style time + label
+  filter patterns and explain that this is usually the highest-leverage
+  storage-side optimization.
+- [ ] Document when projections and materialized views are worth considering for
+  hot query families, and when they should remain optional deployment choices.
 - [ ] Describe relevant cache surfaces at a high level:
   - filesystem cache;
   - mark/index caches;
   - uncompressed cache, if appropriate;
-  - query cache caveats.
+  - query cache caveats;
+  - query condition cache suitability for repeated selective dashboard queries.
 - [ ] Call out freshness/semantic caution before recommending query cache for
   PromQL paths.
+- [ ] Distinguish query cache from query condition cache so operators do not
+  confuse repeated-filter pruning with result caching.
 - [ ] Explain how storage/caching affects interpretation of wall-clock versus
   ProfileEvents.
 
@@ -93,8 +118,10 @@ data.
   - read rows/bytes;
   - memory usage;
   - ProfileEvents.
-- [ ] Document how promshim request IDs and CBE candidate IDs correlate with
-  `system.query_log`.
+- [ ] Document correlation workflow across:
+  - promshim request IDs and CBE candidate IDs;
+  - `system.query_log` and `system.query_thread_log`;
+  - `system.processors_profile_log` and EXPLAIN output.
 - [ ] Include warnings about noisy query-log windows and manual probes during
   sweeps.
 - [ ] Point users to named sweep artifacts as the reproducible measurement path.
@@ -121,8 +148,11 @@ If distributed ClickHouse is in scope for the docs:
 
 Documentation-only validation:
 
-- [ ] Check that every recommendation is labeled as advisory, required, or
-  benchmark-reference-only.
+- [ ] Check that every recommendation uses one of:
+  `required-for-correctness`, `advisory-for-performance`,
+  `benchmark-reference-only`, `experimental-not-default`.
+- [ ] Check that each recommendation cites at least one source URL and expected
+  validation signal.
 - [ ] Check that no operator/server setting is presented as a promshim-owned
   query setting.
 - [ ] Check that distributed guidance is either validated or explicitly scoped as

@@ -31,9 +31,17 @@ preserve.
 
 ## Requirements
 
+- Prefer optimization work that is expected to **read less data** before work
+  that only rearranges SQL text or expression structure. Exact time bounds,
+  predicate selectivity, and column/label pruning should be first-class
+  expected signals.
 - Every optimization claim must identify the expected signal before measurement:
   storage pruning, fewer function executions, lower memory, fewer round trips,
   smaller transfer, better route choice, or reduced local CPU/memory.
+- Shorter SQL text, alias reuse, or a cleaner-looking renderer diff is not a
+  valid optimization signal on its own. Claims of reuse or simplification must
+  still connect to `EXPLAIN` and/or ProfileEvents evidence that the executor is
+  doing less work.
 - Explain output must make it possible to connect a PromQL request to:
   - original query family;
   - original IR shape;
@@ -132,6 +140,13 @@ survey should identify useful ideas, not copy architecture wholesale.
 
 ### 5. Inventory ClickHouse tuning surfaces
 
+The inventory should explicitly separate:
+- statement/session settings promshim may own;
+- storage/layout choices such as ordering keys, projections, and materialized
+  views that usually belong in deployment guidance;
+- caches whose semantics differ, such as query condition cache versus query
+  cache.
+
 - [ ] Split settings into categories:
   - server/operator recommendation;
   - user/profile setting;
@@ -148,6 +163,12 @@ survey should identify useful ideas, not copy architecture wholesale.
   - risk;
   - validation signal;
   - whether promshim may set it.
+- [ ] Include explicit inventory entries for:
+  - `use_query_condition_cache` and analyzer dependency;
+  - any PREWHERE-related behavior that might tempt manual forcing;
+  - query cache freshness caveats;
+  - projections/materialized views as deployment-profile options rather than
+    hidden shim assumptions.
 - [ ] Do not enable performance settings in this stage; only create the inventory
   and evidence requirements.
 

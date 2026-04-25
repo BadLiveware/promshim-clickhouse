@@ -40,6 +40,31 @@ This plan separates three related but distinct tracks:
    - Advisory defaults and benchmark assumptions, not hidden promshim
      correctness dependencies.
 
+## Research-backed priorities
+
+The initial research pass suggests a practical order of attack for this plan:
+
+1. **Read less data first**
+   - exact selector time-bound derivation;
+   - matcher normalization;
+   - projection/label pruning;
+   - safe aggregation pushdown for simple families.
+2. **Treat reuse as real only if ClickHouse does less work**
+   - repeated-selector and subtree reuse should be judged by `EXPLAIN` and
+     ProfileEvents evidence, not shorter SQL text.
+3. **Keep storage/layout optimizations explicit**
+   - ordering keys, projections, materialized views, and cache choices are
+     powerful, but should usually live in the reference deployment profile
+     unless promshim explicitly chooses to depend on them.
+4. **Keep vector matching conservative**
+   - high-risk binary/vector matching work should stay shadow-first until IR
+     semantics, caps, and differential evidence are strong.
+
+These priorities come from the local evidence discipline plus external examples
+from official ClickHouse docs/engineering material, Prometheus operator docs,
+and optimizer patterns from DataFusion and Calcite. They refine the execution
+order below; they do not replace the hard constraints in this plan.
+
 ## Execution order
 
 1. [`01-optimization-evidence-and-contracts.md`](01-optimization-evidence-and-contracts.md)
@@ -54,6 +79,8 @@ This plan separates three related but distinct tracks:
 4. [`04-query-family-optimization.md`](04-query-family-optimization.md)
    - Optimize specific query families using IR rewrites, SQL shape changes,
      pushdown/local candidates, and CBE evidence.
+   - Includes a ranked implementation queue: build next / build later / avoid
+     for now.
 5. [`05-reference-clickhouse-deployment-profile.md`](05-reference-clickhouse-deployment-profile.md)
    - Document the recommended ClickHouse server/operator profile and the
      assumptions behind promshim benchmark results.
@@ -121,6 +148,18 @@ behavior without shadow/cost evidence and rollback controls.
   semantic tests and differential evidence.
 
 ## Source evidence, examples, and workflows to reuse
+
+Start with official, directly relevant sources before secondary examples:
+
+- ClickHouse docs: PREWHERE, EXPLAIN, projections, query condition cache,
+  time-series query performance, and `prometheusQuery`.
+- ClickHouse engineering material on query optimization and storage/layout.
+- Prometheus operator and vector-matching docs for semantic guardrails.
+- Local playbooks in `.pi/skills/` for measurement/compliance discipline.
+
+Use external repos under `~/code/external/` as pattern libraries after the
+official sources clarify what is actually available in ClickHouse and what
+PromQL semantics must preserve.
 
 - [`../cbe-candidate-routing-plan/`](../cbe-candidate-routing-plan/) defines the
   current CBE candidate model and rollout discipline.

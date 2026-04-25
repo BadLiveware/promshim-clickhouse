@@ -54,6 +54,7 @@ func TestLocalMemoizedPlanReusesDeepCopiedRuntimeValue(t *testing.T) {
 }
 
 func TestBuildPlanMemoizesRepeatedLocalRateOperands(t *testing.T) {
+	t.Setenv(DisableLocalRepeatedExpressionCacheEnv, "")
 	expr, err := logical.ParseExpression("(rate(up[5m]) + rate(up[5m])) / 2")
 	if err != nil {
 		t.Fatal(err)
@@ -76,5 +77,28 @@ func TestBuildPlanMemoizesRepeatedLocalRateOperands(t *testing.T) {
 	}
 	if _, ok := repeated.RHS.(*localMemoizedPlan); !ok {
 		t.Fatalf("expected memoized right rate operand, got %T", repeated.RHS)
+	}
+}
+
+func TestBuildPlanHonorsLocalRepeatedExpressionCacheDisableEnv(t *testing.T) {
+	t.Setenv(DisableLocalRepeatedExpressionCacheEnv, "true")
+	expr, err := logical.ParseExpression("rate(up[5m]) + rate(up[5m])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeInstant, NativeLoweringMode: NativeLoweringModeOff})
+	if err != nil {
+		t.Fatalf("build plan: %v", err)
+	}
+	repeated, ok := built.(*localBinaryPlan)
+	if !ok {
+		t.Fatalf("expected binary plan, got %T", built)
+	}
+	if _, ok := repeated.LHS.(*localMemoizedPlan); ok {
+		t.Fatalf("left operand unexpectedly memoized with env gate set")
+	}
+	if _, ok := repeated.RHS.(*localMemoizedPlan); ok {
+		t.Fatalf("right operand unexpectedly memoized with env gate set")
 	}
 }

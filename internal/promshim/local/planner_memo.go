@@ -3,11 +3,14 @@ package local
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 )
+
+const DisableLocalRepeatedExpressionCacheEnv = "PROM_SHIM_DISABLE_LOCAL_REPEATED_EXPRESSION_CACHE"
 
 type localMemoizedPlan struct {
 	Expr  string
@@ -22,8 +25,20 @@ func memoizeLocalPlan(expr string, inner Plan) Plan {
 }
 
 func shouldMemoizeRepeatedLocalPlan(plan Plan) bool {
+	if localRepeatedExpressionCacheDisabled() {
+		return false
+	}
 	switch plan.(type) {
 	case *localRatePlan, *localIncreasePlan, *localRangeFunctionPlan:
+		return true
+	default:
+		return false
+	}
+}
+
+func localRepeatedExpressionCacheDisabled() bool {
+	switch os.Getenv(DisableLocalRepeatedExpressionCacheEnv) {
+	case "1", "true", "TRUE", "yes", "YES", "on", "ON":
 		return true
 	default:
 		return false

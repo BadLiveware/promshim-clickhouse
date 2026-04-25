@@ -70,11 +70,25 @@ Run `harness/compliance/scripts/native-gap-report.sh` against the latest native 
 
 Each number should trend down over time. None are allowlistable.
 
-## New work lives in tiers 1 and 2 only
+## Tier scope and CBE candidates
 
-Execution priority is strict: tier 1 (whole-query delegation) > tier 2 (native SQL lowering) > tier 3 (local exec with subtree pushdown) > tier 4 (full local). **New coverage, pushdown shapes, and refactors are allowed only in tiers 1 and 2.** Tiers 3 and 4 are frozen — fix correctness regressions there, but do not expand.
+Execution priority is capability priority, not a lower-tier freeze: tier 1
+(whole-query delegation) > tier 2 (native SQL lowering) > tier 3 (local exec
+with subtree pushdown) > tier 4 (full local). Tier 1 remains preferred when it
+can answer correctly; below that, CBE may choose among known-correct tiers 2, 3,
+and 4 when measured costs make that safe.
 
-If a compliance fix can live in tier 1 or 2, put it there. A compliance failure is never justification to grow tier 3/4.
+Tier 3/4 work is allowed when it supports CBE routing quality, safety caps,
+observability, performance for already-supported semantics, or correctness of a
+lower-tier candidate. New semantic coverage in tiers 3/4 still needs a CBE plan,
+a correctness bug, or an explicit user request. Keep every candidate visible in
+compliance/differential validation; known divergences, uncertain estimates,
+over-cap inputs, or absent validation must route to the safe/reference path.
+
+If a compliance fix can live in tier 1 or 2 and that is the right root cause,
+put it there. Do not expand tiers 3/4 opportunistically just to shrink
+native-mode gaps or bypass a tier 1/2 bug; do not reject targeted lower-tier
+CBE/correctness work merely because it touches tier 3/4.
 
 ## Common rationalizations
 
@@ -84,6 +98,8 @@ If a compliance fix can live in tier 1 or 2, put it there. A compliance failure 
 | "It's only a small value diff" | A value diff means wrong numbers. Tolerances cover bounded float drift, not structural disagreement. |
 | "Pass #1 is green, so diff_failure in pass #2 doesn't matter" | It does — prefer fell back after the native path computed wrong numbers. Silent correctness bug. |
 | "Pass #2 failed so the suite is broken" | Pass #2 is informational. Prefer-mode exit code is the only gate. |
+| "Tiers 3/4 are frozen, so any lower-tier CBE patch is out of scope" | No. AGENTS allows tier 3/4 CBE work for routing quality, safety caps, observability, performance for supported semantics, and correctness of lower-tier candidates. Validate it and keep divergences visible. |
+| "CBE can use tiers 3/4 now, so I'll add lower-tier semantic coverage for convenience" | Only do this when justified by a CBE plan, a correctness bug, or an explicit user request. Do not grow lower tiers opportunistically or hide gaps. |
 | "I'll wrap it in a 10-minute timeout to be safe" | Warm run is ~15s. Run it in the foreground. |
 | "This deviance simplifies the SQL massively, I'll just add it" | Category 3 requires explicit user approval in the current conversation. Stop and ask. |
 
@@ -91,13 +107,15 @@ If a compliance fix can live in tier 1 or 2, put it there. A compliance failure 
 
 - Adding an entry to `expected-failures.json` without user approval
 - Wrapping `scripts/run-compliance.sh` in a minute-long timeout
-- Expanding tier 3 or tier 4 to close a compliance gap
+- Expanding tier 3/4 without a CBE, correctness, or explicit-user-request justification
+- Treating tier 3/4 allowance as permission to hide divergences, skip validation, or add allowlist entries
+- Forcing work into tier 1/2 solely because old guidance said tier 3/4 is frozen
 - Writing an allowlist `reason` that amounts to "shim does not yet support X"
 
 ## Reference
 
 - `harness/compliance/README.md` — full harness layout, fixture window, "gaps stay visible" policy.
-- `AGENTS.md` § "Execution priority" — strict tier ordering and frozen-tier rule.
+- `AGENTS.md` § "Execution priority" — CBE candidate routing and tier 3/4 allowed-work rule.
 - `scripts/run-compliance.sh --help` — low-level compliance flag reference.
 - `scripts/run-sweep.sh --help` — named combined compliance/benchmark sweep workflow.
 - `harness/compliance/expected-failures.json` — the live allowlist (keep it short).

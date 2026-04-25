@@ -8,6 +8,7 @@ import (
 	"time"
 
 	httpapi "github.com/BadLiveware/promshim-clickhouse/internal/promshim/httpapi"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/routingmetrics"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -155,10 +156,12 @@ func estimateSamplesPerSeries(sig selectorSignature) int64 {
 	if end < start {
 		return 1
 	}
-	span := end - start + sig.LookbackMS
+	span := end - start
 	if span <= 0 {
 		return 1
 	}
+	// Signature bounds are already expanded by lookback and offset, so estimate
+	// over the exact probed time span instead of adding lookback a second time.
 	// A conservative fallback until optional scrape-interval estimates land.
 	const defaultScrapeIntervalMS = int64(15000)
 	return span/defaultScrapeIntervalMS + 1
@@ -176,7 +179,7 @@ func walkSelectorSignatures(expr parser.Expr, timing queryCostTiming, inheritedL
 	}
 	switch node := expr.(type) {
 	case *parser.VectorSelector:
-		lookback := inheritedLookback
+		lookback := inheritedLookback + logical.DefaultInstantSelectorLookback
 		offset := inheritedOffset + node.OriginalOffset
 		*out = append(*out, newSelectorSignature(node.LabelMatchers, timing, lookback, offset))
 	case *parser.MatrixSelector:

@@ -19,9 +19,13 @@
 #   --eval-time <RFC3339>         (default: compliance fixture end_time from baseline eval-time)
 #   --output DIR                  (default: harness/artifacts/ch-explain/<timestamp>)
 #   --shim-url URL                (default: http://localhost:29091)
+#   --ch-url URL                  (default: http://localhost:28123)
+#   --log-comment COMMENT         bounded query_log correlation comment
+#   --native-mode MODE            native_lowering_mode request parameter
+#   --routing-policy POLICY       routing_policy request parameter
 #   --skip-syntax                 omit EXPLAIN SYNTAX
 #   --skip-plan                   omit EXPLAIN PLAN
-#   --skip-pipeline               omit EXPLAIN PIPELINE json=1
+#   --skip-pipeline               omit EXPLAIN PIPELINE
 #   --skip-estimate               omit EXPLAIN ESTIMATE
 #   -h, --help
 set -euo pipefail
@@ -40,14 +44,19 @@ MODE=instant
 RANGE_SECONDS=300
 STEP=15
 EVAL_TIME=2026-04-21T21:45:42Z
+LOG_COMMENT=""
+NATIVE_MODE=""
+ROUTING_POLICY=""
 DO_SYNTAX=1
 DO_PLAN=1
 DO_PIPELINE=1
 DO_ESTIMATE=1
 
-usage() { sed -n '1,/^set -e/p' "$0" | head -n 28; exit "${1:-0}"; }
+usage() { sed -n '1,/^set -e/p' "$0" | head -n 34; exit "${1:-0}"; }
 
-[[ $# -gt 0 ]] || usage 64
+if [[ $# -eq 0 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage $([[ $# -eq 0 ]] && echo 64 || echo 0)
+fi
 PROMQL="$1"; shift
 
 while [[ $# -gt 0 ]]; do
@@ -58,6 +67,12 @@ while [[ $# -gt 0 ]]; do
     --eval-time)      EVAL_TIME="$2"; shift 2 ;;
     --output)         OUTPUT_DIR="$2"; shift 2 ;;
     --shim-url)       SHIM_URL="$2"; shift 2 ;;
+    --ch-url)         CH_URL="$2"; shift 2 ;;
+    --ch-user)        CH_USER="$2"; shift 2 ;;
+    --ch-pass)        CH_PASS="$2"; shift 2 ;;
+    --log-comment)    LOG_COMMENT="$2"; shift 2 ;;
+    --native-mode)    NATIVE_MODE="$2"; shift 2 ;;
+    --routing-policy) ROUTING_POLICY="$2"; shift 2 ;;
     --skip-syntax)    DO_SYNTAX=0; shift ;;
     --skip-plan)      DO_PLAN=0; shift ;;
     --skip-pipeline)  DO_PIPELINE=0; shift ;;
@@ -69,6 +84,13 @@ done
 
 [[ -n "$OUTPUT_DIR" ]] || OUTPUT_DIR="${REPO_ROOT}/harness/artifacts/ch-explain/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$OUTPUT_DIR"
+if [[ -z "$LOG_COMMENT" ]]; then
+  LOG_COMMENT="ch-explain-$(date +%Y%m%d-%H%M%S)-$$"
+fi
+if [[ ! "$LOG_COMMENT" =~ ^[A-Za-z0-9_.:-]{1,120}$ ]]; then
+  echo "--log-comment must match [A-Za-z0-9_.:-]{1,120}" >&2
+  exit 64
+fi
 
 ch_query() {
   # arg1: SQL; arg2: optional URL query params; stdout: response body
@@ -82,24 +104,35 @@ END_UNIX=$EVAL_UNIX
 # 1. Snapshot the query_log cutoff so we can identify shim-issued queries.
 T0=$(ch_query "SELECT toUnixTimestamp64Micro(now64(6))")
 
+curl_shim() {
+  local endpoint="$1"; shift
+  local args=(-sfS -G "${SHIM_URL}${endpoint}" -H "X-Promshim-Log-Comment: ${LOG_COMMENT}")
+  if [[ -n "$NATIVE_MODE" ]]; then
+    args+=(--data-urlencode "native_lowering_mode=${NATIVE_MODE}")
+  fi
+  if [[ -n "$ROUTING_POLICY" ]]; then
+    args+=(--data-urlencode "routing_policy=${ROUTING_POLICY}")
+  fi
+  args+=("$@" -w '\n{"http_status":%{http_code}}\n')
+  curl "${args[@]}"
+}
+
 # 2. Issue the PromQL via shim. We use curl -G with --data-urlencode so the
 #    query string survives reserved chars.
 case "$MODE" in
   instant)
-    echo "[ch-explain] shim: instant query at eval_time=${EVAL_TIME}"
-    SHIM_BODY=$(curl -sfS -G "${SHIM_URL}/api/v1/query" \
+    echo "[ch-explain] shim: instant query at eval_time=${EVAL_TIME} log_comment=${LOG_COMMENT}"
+    SHIM_BODY=$(curl_shim "/api/v1/query" \
       --data-urlencode "query=${PROMQL}" \
-      --data-urlencode "time=${EVAL_UNIX}" \
-      -w '\n{"http_status":%{http_code}}\n')
+      --data-urlencode "time=${EVAL_UNIX}")
     ;;
   range)
-    echo "[ch-explain] shim: range query ${START_UNIX}→${END_UNIX} step=${STEP}s"
-    SHIM_BODY=$(curl -sfS -G "${SHIM_URL}/api/v1/query_range" \
+    echo "[ch-explain] shim: range query ${START_UNIX}→${END_UNIX} step=${STEP}s log_comment=${LOG_COMMENT}"
+    SHIM_BODY=$(curl_shim "/api/v1/query_range" \
       --data-urlencode "query=${PROMQL}" \
       --data-urlencode "start=${START_UNIX}" \
       --data-urlencode "end=${END_UNIX}" \
-      --data-urlencode "step=${STEP}" \
-      -w '\n{"http_status":%{http_code}}\n')
+      --data-urlencode "step=${STEP}")
     ;;
   *) echo "unknown --mode: $MODE" >&2; exit 64 ;;
 esac
@@ -110,14 +143,23 @@ echo "$SHIM_BODY" >"${OUTPUT_DIR}/shim-response.txt"
 #    user/database and skip self-queries.
 ch_query "SYSTEM FLUSH LOGS" >/dev/null
 
-SQLS_SQL=$(cat <<SQL
-SELECT query
+QUERY_LOG_SQL=$(cat <<SQL
+SELECT
+  event_time_microseconds,
+  query_duration_ms,
+  read_rows,
+  read_bytes,
+  result_rows,
+  memory_usage,
+  Settings,
+  ProfileEvents,
+  query
 FROM system.query_log
 WHERE event_time_microseconds >= fromUnixTimestamp64Micro(${T0})
   AND type = 'QueryFinish'
   AND is_initial_query
   AND query_kind = 'Select'
-  AND has(databases, 'observability')
+  AND Settings['log_comment'] = '${LOG_COMMENT}'
   AND query NOT LIKE '%system.query_log%'
   AND query NOT ILIKE 'EXPLAIN%'
   AND query NOT ILIKE 'SYSTEM %'
@@ -126,7 +168,8 @@ FORMAT JSONEachRow
 SQL
 )
 
-mapfile -t SQLS < <(ch_query "$SQLS_SQL" | jq -r '.query')
+ch_query "$QUERY_LOG_SQL" >"${OUTPUT_DIR}/query-log.jsonl"
+mapfile -t SQLS < <(jq -r '.query' "${OUTPUT_DIR}/query-log.jsonl")
 
 if [[ ${#SQLS[@]} -eq 0 ]]; then
   echo "[ch-explain] no matching SQL found in system.query_log" >&2
@@ -165,7 +208,7 @@ for SQL in "${SQLS[@]}"; do
     ch_query "EXPLAIN PLAN indexes=1, actions=1, optimize=1 ${CLEAN_SQL} FORMAT TSVRaw" >"${QDIR}/explain-plan.txt" || echo "PLAN failed" >"${QDIR}/explain-plan.txt"
   fi
   if (( DO_PIPELINE == 1 )); then
-    ch_query "EXPLAIN PIPELINE json=1 ${CLEAN_SQL} FORMAT TSVRaw" >"${QDIR}/explain-pipeline.json" || echo "{}" >"${QDIR}/explain-pipeline.json"
+    ch_query "EXPLAIN PIPELINE ${CLEAN_SQL} FORMAT TSVRaw" >"${QDIR}/explain-pipeline.txt" || echo "PIPELINE failed" >"${QDIR}/explain-pipeline.txt"
   fi
   if (( DO_ESTIMATE == 1 )); then
     ch_query "EXPLAIN ESTIMATE ${CLEAN_SQL} FORMAT JSONEachRow" >"${QDIR}/explain-estimate.json" || echo "{}" >"${QDIR}/explain-estimate.json"
@@ -181,7 +224,11 @@ done
   echo "- promql: \`${PROMQL}\`"
   echo "- mode: ${MODE}"
   echo "- eval_time: ${EVAL_TIME}"
+  echo "- log_comment: ${LOG_COMMENT}"
+  [[ -n "$NATIVE_MODE" ]] && echo "- native_lowering_mode: ${NATIVE_MODE}"
+  [[ -n "$ROUTING_POLICY" ]] && echo "- routing_policy: ${ROUTING_POLICY}"
   echo "- git: $(git -C "$REPO_ROOT" log -1 --pretty='%h %s' 2>/dev/null || echo unknown)"
+  echo "- query_log: \`query-log.jsonl\`"
   echo "- captured_sqls: ${#SQLS[@]}"
   echo
   for i in $(seq 1 "${#SQLS[@]}"); do
@@ -190,7 +237,7 @@ done
     echo "- SQL: \`q${i}/query.sql\`"
     (( DO_SYNTAX   == 1 )) && echo "- EXPLAIN SYNTAX: \`q${i}/explain-syntax.sql\`"
     (( DO_PLAN     == 1 )) && echo "- EXPLAIN PLAN: \`q${i}/explain-plan.txt\`"
-    (( DO_PIPELINE == 1 )) && echo "- EXPLAIN PIPELINE: \`q${i}/explain-pipeline.json\`"
+    (( DO_PIPELINE == 1 )) && echo "- EXPLAIN PIPELINE: \`q${i}/explain-pipeline.txt\`"
     (( DO_ESTIMATE == 1 )) && echo "- EXPLAIN ESTIMATE: \`q${i}/explain-estimate.json\`"
     echo
   done

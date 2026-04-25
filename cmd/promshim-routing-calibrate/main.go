@@ -157,12 +157,12 @@ type memoryCounters struct {
 }
 
 type sample struct {
-	name, family, profile, density, transport, corpusPath        string
-	strictCandidate, selectedCandidate, servedCandidate          string
-	promP50, nativeP50, localP50, costPreferP50                 float64
-	strategyFlap, candidateFlip                                   bool
-	memory                                                        *memoryQueryLogEntry
-	missingMemory                                                 bool
+	name, family, profile, density, transport, corpusPath string
+	strictCandidate, selectedCandidate, servedCandidate   string
+	promP50, nativeP50, localP50, costPreferP50           float64
+	strategyFlap, candidateFlip                           bool
+	memory                                                *memoryQueryLogEntry
+	missingMemory                                         bool
 }
 
 type groupKey struct{ family, profile, density, transport, corpusPath string }
@@ -256,9 +256,10 @@ func readSweep(path string) ([]sample, calibrationSource, []string, error) {
 			if benchSamples[i].transport == "" {
 				benchSamples[i].transport = firstNonEmpty(report.Transport, manifest.Axes.Transport)
 			}
-			if entry, ok := mem[benchLogComment(benchSamples[i], "prefer")]; ok {
+			comments := benchLogComments(benchSamples[i], "prefer")
+			if entry, ok := findMemoryEntry(mem, comments); ok {
 				benchSamples[i].memory = &entry
-			} else if missing[benchLogComment(benchSamples[i], "prefer")] {
+			} else if hasMissingMemoryComment(missing, comments) {
 				benchSamples[i].missingMemory = true
 			}
 		}
@@ -461,11 +462,11 @@ func recommend(class calibrationClass) (string, []string) {
 		return "insufficient_data", []string{reason}
 	}
 	family := strings.ToLower(class.Family)
-	if class.LocalNativeRatioMedian <= 0.70 && (strings.Contains(family, "selector") || strings.Contains(family, "rate") || strings.Contains(family, "histogram")) {
-		return "local_candidate", []string{fmt.Sprintf("local/native median %.2f <= 0.70 for bounded candidate family", class.LocalNativeRatioMedian)}
-	}
 	if strings.Contains(family, "range") || strings.Contains(family, "subquery") || strings.Contains(family, "aggregation") || class.LocalNativeRatioMedian >= 1.0 {
 		return "native_required", []string{fmt.Sprintf("native remains preferred for family; local/native median %.2f", class.LocalNativeRatioMedian)}
+	}
+	if class.LocalNativeRatioMedian <= 0.70 && (strings.Contains(family, "selector") || strings.Contains(family, "rate") || strings.Contains(family, "histogram")) {
+		return "local_candidate", []string{fmt.Sprintf("local/native median %.2f <= 0.70 for bounded candidate family", class.LocalNativeRatioMedian)}
 	}
 	return "insufficient_data", []string{fmt.Sprintf("no initial rule for local/native median %.2f", class.LocalNativeRatioMedian)}
 }
@@ -521,8 +522,32 @@ func mostFrequent(items map[string]int) string {
 	return best
 }
 
-func benchLogComment(s sample, mode string) string {
-	return "promshim-bench query=" + sanitizeLogCommentPart(s.name) + " mode=" + sanitizeLogCommentPart(mode)
+func benchLogComments(s sample, mode string) []string {
+	base := "promshim-bench query=" + sanitizeLogCommentPart(s.name) + " mode=" + sanitizeLogCommentPart(mode)
+	return []string{
+		base + " policy=strict",
+		base + " policy=cost_shadow",
+		base + " policy=cost_prefer",
+		base,
+	}
+}
+
+func findMemoryEntry(entries map[string]memoryQueryLogEntry, comments []string) (memoryQueryLogEntry, bool) {
+	for _, comment := range comments {
+		if entry, ok := entries[comment]; ok {
+			return entry, true
+		}
+	}
+	return memoryQueryLogEntry{}, false
+}
+
+func hasMissingMemoryComment(missing map[string]bool, comments []string) bool {
+	for _, comment := range comments {
+		if missing[comment] {
+			return true
+		}
+	}
+	return false
 }
 
 func sanitizeLogCommentPart(value string) string {
@@ -541,7 +566,7 @@ func sanitizeLogCommentPart(value string) string {
 }
 
 func median(values []float64) float64 {
-	clean := values[:0]
+	clean := make([]float64, 0, len(values))
 	for _, v := range values {
 		if v > 0 && !math.IsNaN(v) && !math.IsInf(v, 0) {
 			clean = append(clean, v)

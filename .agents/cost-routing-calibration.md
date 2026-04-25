@@ -1,6 +1,6 @@
 # Cost routing calibration
 
-Generated: `2026-04-25T02:25:50Z`
+Generated: `2026-04-25T10:28:50Z`
 
 ## Sources
 
@@ -27,17 +27,17 @@ Generated: `2026-04-25T02:25:50Z`
 |---|---|---|---:|---:|---:|---:|---:|---|---|---|---:|---|---|---|
 | aggregation | 1y | sparse | 2 | — | 2401.51 | 2369.05 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
   - coverage: candidate headers missing in class rows
-| aggregation | 30d | sparse | 2 | — | 920.43 | 929.79 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
+| aggregation | 30d | sparse | 2 | — | 929.58 | 929.79 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
   - coverage: candidate headers missing in class rows
-| aggregation | 7d | dense | 5 | — | 80.10 | 79.63 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
+| aggregation | 7d | dense | 5 | — | 79.63 | 79.63 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
   - coverage: candidate headers missing in class rows
 | aggregation | 7d | sparse | 6 | — | 783.49 | 786.59 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
   - coverage: candidate headers missing in class rows
-| histogram_quantile | 1y | sparse | 1 | 160.05 | — | 160.05 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
+| histogram_quantile | 1y | sparse | 1 | 159.19 | — | 160.05 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
   - coverage: candidate headers missing in class rows
 | histogram_quantile | 30d | sparse | 1 | 160.93 | — | 160.59 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
   - coverage: candidate headers missing in class rows
-| histogram_quantile | 7d | dense | 2 | 2710.72 | — | 2712.60 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
+| histogram_quantile | 7d | dense | 2 | 2729.03 | — | 2712.60 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
   - coverage: candidate headers missing in class rows
 | histogram_quantile | 7d | sparse | 3 | 158.50 | — | 158.93 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
   - coverage: candidate headers missing in class rows
@@ -45,11 +45,11 @@ Generated: `2026-04-25T02:25:50Z`
   - coverage: no cost_prefer rows in class; candidate headers missing in class rows
 | range_function | 1y | sparse | 1 | 38.21 | — | 40.89 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
   - coverage: candidate headers missing in class rows
-| range_function | 30d | sparse | 1 | 42.08 | — | 42.08 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
+| range_function | 30d | sparse | 1 | 42.27 | — | 42.08 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
   - coverage: candidate headers missing in class rows
 | range_function | 7d | sparse | 3 | 35.71 | — | 36.03 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
   - coverage: candidate headers missing in class rows
-| range_range_function | 1y | sparse | 1 | 540.57 | — | 556.25 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
+| range_range_function | 1y | sparse | 1 | 556.25 | — | 556.25 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
   - coverage: candidate headers missing in class rows
 | range_range_function | 30d | sparse | 1 | 435.98 | — | 434.46 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
   - coverage: candidate headers missing in class rows
@@ -61,9 +61,9 @@ Generated: `2026-04-25T02:25:50Z`
   - coverage: candidate headers missing in class rows
 | rate | 1y | sparse | 3 | 41.20 | — | 41.48 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
   - coverage: candidate headers missing in class rows
-| rate | 30d | sparse | 3 | 40.36 | — | 40.36 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
+| rate | 30d | sparse | 3 | 40.35 | — | 40.36 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
   - coverage: candidate headers missing in class rows
-| rate | 7d | sparse | 9 | 38.64 | 14.80 | 39.68 | 0.40 | — | — | — | 0 | high | local_candidate | local/native median 0.40 <= 0.70 for bounded candidate family |
+| rate | 7d | sparse | 9 | 38.82 | 14.80 | 39.68 | 0.40 | — | — | — | 0 | high | local_candidate | local/native median 0.40 <= 0.70 for bounded candidate family |
   - coverage: candidate headers missing in class rows
 | selector | 1y | sparse | 1 | 11.81 | — | 12.10 | — | — | — | — | 0 | low | insufficient_data | native/local pair missing from sweep |
   - coverage: candidate headers missing in class rows

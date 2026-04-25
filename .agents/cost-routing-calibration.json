@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-04-25T02:25:50Z",
+  "generatedAt": "2026-04-25T10:28:50Z",
   "sources": [
     {
       "sweepName": "cbe-shadow-rate-7d-sparse",
@@ -89,7 +89,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 1829665824,
+        "readCompressedBytesMedian": 2410561853.5,
+        "functionExecuteMedian": 2492882,
+        "memoryP95BytesMedian": 213069239.075
+      }
     },
     {
       "family": "aggregation",
@@ -98,7 +104,7 @@
       "transport": "native",
       "corpusPath": "harness/corpus/bench-native-lowering-30d.json",
       "rows": 2,
-      "localP50MedianMs": 920.4285,
+      "localP50MedianMs": 929.5765,
       "costPreferP50MedianMs": 929.792,
       "promP50MedianMs": 25.995,
       "recommendation": "insufficient_data",
@@ -108,7 +114,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 1757117472,
+        "readCompressedBytesMedian": 1710115375,
+        "functionExecuteMedian": 1190137,
+        "memoryP95BytesMedian": 147561404.04999998
+      }
     },
     {
       "family": "aggregation",
@@ -117,7 +129,7 @@
       "transport": "native",
       "corpusPath": "harness/corpus/bench-processing-7d.json",
       "rows": 5,
-      "localP50MedianMs": 80.097,
+      "localP50MedianMs": 79.627,
       "costPreferP50MedianMs": 79.627,
       "promP50MedianMs": 46.982,
       "recommendation": "insufficient_data",
@@ -127,7 +139,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 1686338616,
+        "readCompressedBytesMedian": 6514980470,
+        "functionExecuteMedian": 349456,
+        "memoryP95BytesMedian": 278419599.3
+      }
     },
     {
       "family": "aggregation",
@@ -146,7 +164,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 4315095240,
+        "readCompressedBytesMedian": 3330908630.5,
+        "functionExecuteMedian": 1809894.5,
+        "memoryP95BytesMedian": 132384914.25
+      }
     },
     {
       "family": "histogram_quantile",
@@ -155,7 +179,7 @@
       "transport": "native",
       "corpusPath": "harness/corpus/bench-native-lowering-1y.json",
       "rows": 1,
-      "nativeP50MedianMs": 160.049,
+      "nativeP50MedianMs": 159.191,
       "costPreferP50MedianMs": 160.049,
       "promP50MedianMs": 17.004,
       "recommendation": "insufficient_data",
@@ -165,7 +189,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 1688304672,
+        "readCompressedBytesMedian": 1365609785,
+        "functionExecuteMedian": 237972,
+        "memoryP95BytesMedian": 7464659.75
+      }
     },
     {
       "family": "histogram_quantile",
@@ -184,7 +214,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 1688697888,
+        "readCompressedBytesMedian": 1391486360,
+        "functionExecuteMedian": 239144,
+        "memoryP95BytesMedian": 7533877.999999999
+      }
     },
     {
       "family": "histogram_quantile",
@@ -193,7 +229,7 @@
       "transport": "native",
       "corpusPath": "harness/corpus/bench-processing-7d.json",
       "rows": 2,
-      "nativeP50MedianMs": 2710.723,
+      "nativeP50MedianMs": 2729.0285,
       "costPreferP50MedianMs": 2712.599,
       "promP50MedianMs": 154.193,
       "recommendation": "insufficient_data",
@@ -203,7 +239,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 1733543076,
+        "readCompressedBytesMedian": 9396282733.5,
+        "functionExecuteMedian": 5078979.5,
+        "memoryP95BytesMedian": 393204922.72499996
+      }
     },
     {
       "family": "histogram_quantile",
@@ -222,7 +264,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 4154122440,
+        "readCompressedBytesMedian": 2343593562,
+        "functionExecuteMedian": 561109,
+        "memoryP95BytesMedian": 6777638.699999999
+      }
     },
     {
       "family": "processing_range_sum_rate",
@@ -240,7 +288,8 @@
       ],
       "reasons": [
         "insufficient candidate data: native/local pair missing and no cost_prefer rows"
-      ]
+      ],
+      "missingMemoryComments": 1
     },
     {
       "family": "range_function",
@@ -259,7 +308,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 1714453536,
+        "readCompressedBytesMedian": 1281636810,
+        "functionExecuteMedian": 172969,
+        "memoryP95BytesMedian": 58060330.84999999
+      }
     },
     {
       "family": "range_function",
@@ -268,7 +323,7 @@
       "transport": "native",
       "corpusPath": "harness/corpus/bench-native-lowering-30d.json",
       "rows": 1,
-      "nativeP50MedianMs": 42.076,
+      "nativeP50MedianMs": 42.267,
       "costPreferP50MedianMs": 42.076,
       "promP50MedianMs": 19.133,
       "recommendation": "insufficient_data",
@@ -278,7 +333,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 1718975520,
+        "readCompressedBytesMedian": 1503121916,
+        "functionExecuteMedian": 176947,
+        "memoryP95BytesMedian": 75669953.3
+      }
     },
     {
       "family": "range_function",
@@ -297,7 +358,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 4197867720,
+        "readCompressedBytesMedian": 2152996789,
+        "functionExecuteMedian": 390036,
+        "memoryP95BytesMedian": 42026979.05
+      }
     },
     {
       "family": "range_range_function",
@@ -306,7 +373,7 @@
       "transport": "native",
       "corpusPath": "harness/corpus/bench-native-lowering-1y.json",
       "rows": 1,
-      "nativeP50MedianMs": 540.572,
+      "nativeP50MedianMs": 556.249,
       "costPreferP50MedianMs": 556.249,
       "promP50MedianMs": 129.445,
       "recommendation": "insufficient_data",
@@ -316,7 +383,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 1966174248,
+        "readCompressedBytesMedian": 3520209448,
+        "functionExecuteMedian": 4290129,
+        "memoryP95BytesMedian": 213696814.64999998
+      }
     },
     {
       "family": "range_range_function",
@@ -335,7 +408,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 1822257192,
+        "readCompressedBytesMedian": 2199312543,
+        "functionExecuteMedian": 3508005,
+        "memoryP95BytesMedian": 113573368.55
+      }
     },
     {
       "family": "range_rate",
@@ -354,7 +433,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 1966111776,
+        "readCompressedBytesMedian": 3796999107,
+        "functionExecuteMedian": 9745290,
+        "memoryP95BytesMedian": 473981703.2
+      }
     },
     {
       "family": "range_rate",
@@ -373,7 +458,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 1822194720,
+        "readCompressedBytesMedian": 2400633598,
+        "functionExecuteMedian": 8206425,
+        "memoryP95BytesMedian": 283318085
+      }
     },
     {
       "family": "range_rate",
@@ -392,7 +483,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 4197867720,
+        "readCompressedBytesMedian": 2124619241,
+        "functionExecuteMedian": 2081529,
+        "memoryP95BytesMedian": 91332224.64999999
+      }
     },
     {
       "family": "rate",
@@ -411,7 +508,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 1693219872,
+        "readCompressedBytesMedian": 1087823120,
+        "functionExecuteMedian": 170387,
+        "memoryP95BytesMedian": 22688377.049999997
+      }
     },
     {
       "family": "rate",
@@ -420,7 +523,7 @@
       "transport": "native",
       "corpusPath": "harness/corpus/bench-native-lowering-30d.json",
       "rows": 3,
-      "nativeP50MedianMs": 40.363,
+      "nativeP50MedianMs": 40.355,
       "costPreferP50MedianMs": 40.363,
       "promP50MedianMs": 9.527,
       "recommendation": "insufficient_data",
@@ -430,7 +533,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 1692040224,
+        "readCompressedBytesMedian": 1016574717,
+        "functionExecuteMedian": 168329,
+        "memoryP95BytesMedian": 16911906.45
+      }
     },
     {
       "family": "rate",
@@ -439,7 +548,7 @@
       "transport": "native",
       "corpusPath": "harness/corpus/bench-native-lowering-7d.json",
       "rows": 9,
-      "nativeP50MedianMs": 38.642,
+      "nativeP50MedianMs": 38.821,
       "localP50MedianMs": 14.803,
       "costPreferP50MedianMs": 39.6815,
       "promP50MedianMs": 2.27,
@@ -451,7 +560,13 @@
       ],
       "reasons": [
         "local/native median 0.40 \u003c= 0.70 for bounded candidate family"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 4163461320,
+        "readCompressedBytesMedian": 1796467865,
+        "functionExecuteMedian": 389904,
+        "memoryP95BytesMedian": 16901392.65
+      }
     },
     {
       "family": "selector",
@@ -470,7 +585,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 53885064,
+        "readCompressedBytesMedian": 175188840,
+        "functionExecuteMedian": 21960,
+        "memoryP95BytesMedian": 265672
+      }
     },
     {
       "family": "selector",
@@ -489,7 +610,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 53885064,
+        "readCompressedBytesMedian": 201672816,
+        "functionExecuteMedian": 22536,
+        "memoryP95BytesMedian": 286562.4
+      }
     },
     {
       "family": "selector",
@@ -508,7 +635,13 @@
       ],
       "reasons": [
         "native/local pair missing from sweep"
-      ]
+      ],
+      "memory": {
+        "selectedRowsMedian": 133893360,
+        "readCompressedBytesMedian": 506245980,
+        "functionExecuteMedian": 55980,
+        "memoryP95BytesMedian": 286632
+      }
     }
   ]
 }

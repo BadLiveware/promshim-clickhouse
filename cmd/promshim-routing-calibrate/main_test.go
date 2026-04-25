@@ -45,7 +45,7 @@ func TestBuildCalibrationFromSweepManifest(t *testing.T) {
 		"schemaVersion": 1,
 		"sourceReport":  filepath.Join(root, reportRel),
 		"clickHouseQueryLog": []any{
-			map[string]any{"logComment": "promshim-bench query=plain_selector mode=prefer", "selectedRows": 42, "readCompressedBytes": 100, "functionExecute": 7, "memoryP95Bytes": 2048},
+			map[string]any{"logComment": "promshim-bench query=plain_selector mode=prefer policy=strict", "selectedRows": 42, "readCompressedBytes": 100, "functionExecute": 7, "memoryP95Bytes": 2048},
 		},
 	})
 	manifestPath := filepath.Join(artifactDir, "manifest.json")
@@ -102,6 +102,24 @@ func TestBuildCalibrationMergesMultipleSweeps(t *testing.T) {
 	}
 }
 
+func TestRecommendKeepsRangeRateNativeRequired(t *testing.T) {
+	class := calibrationClass{Family: "range_rate", NativeP50MedianMS: 10, LocalP50MedianMS: 5, LocalNativeRatioMedian: 0.5}
+	recommendation, reasons := recommend(class)
+	if recommendation != "native_required" {
+		t.Fatalf("recommendation=%q reasons=%v, want native_required", recommendation, reasons)
+	}
+}
+
+func TestMedianDoesNotMutateInput(t *testing.T) {
+	values := []float64{3, 1, 2}
+	if got := median(values); got != 2 {
+		t.Fatalf("median = %v, want 2", got)
+	}
+	if want := []float64{3, 1, 2}; !equalFloatSlices(values, want) {
+		t.Fatalf("median mutated input: got %v want %v", values, want)
+	}
+}
+
 func TestBuildCalibrationMarksInsufficientData(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module test\n"), 0o644); err != nil {
@@ -155,7 +173,7 @@ func writeSimpleSweep(t *testing.T, root, runName, family, mode string, preferP5
 		"rows": []any{map[string]any{"name": "q_" + family, "endpoint": "query", "category": family, "prom": map[string]any{"p50Ms": 1.0}, "shim": shim}},
 	})
 	memoryRel := filepath.Join("harness", "artifacts", "sweeps", runName, "memory-summary-bench-report.json")
-	writeFixtureJSON(t, filepath.Join(root, memoryRel), map[string]any{"schemaVersion": 1, "sourceReport": filepath.Join(root, reportRel), "clickHouseQueryLog": []any{map[string]any{"logComment": "promshim-bench query=q_" + family + " mode=prefer", "selectedRows": 1}}})
+	writeFixtureJSON(t, filepath.Join(root, memoryRel), map[string]any{"schemaVersion": 1, "sourceReport": filepath.Join(root, reportRel), "clickHouseQueryLog": []any{map[string]any{"logComment": "promshim-bench query=q_" + family + " mode=prefer policy=strict", "selectedRows": 1}}})
 	manifestPath := filepath.Join(artifactDir, "manifest.json")
 	writeFixtureJSON(t, manifestPath, map[string]any{
 		"schemaVersion": 1,
@@ -163,7 +181,7 @@ func writeSimpleSweep(t *testing.T, root, runName, family, mode string, preferP5
 		"artifactDir":   filepath.Join("harness", "artifacts", "sweeps", runName),
 		"axes":          map[string]any{"profile": "7d", "density": "sparse", "transport": "native"},
 		"compliance":    map[string]any{"status": "skipped"},
-		"bench":         map[string]any{"reports": []any{map[string]any{"path": reportRel, "profile": "7d", "density": "sparse", "transport": "native"},}, "memoryReports": []string{memoryRel}},
+		"bench":         map[string]any{"reports": []any{map[string]any{"path": reportRel, "profile": "7d", "density": "sparse", "transport": "native"}}, "memoryReports": []string{memoryRel}},
 	})
 	return manifestPath
 }
@@ -180,6 +198,18 @@ func writeFixtureJSON(t *testing.T, path string, value any) {
 	if err := os.WriteFile(path, append(payload, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func equalFloatSlices(a, b []float64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func containsAll(value string, needles []string) bool {

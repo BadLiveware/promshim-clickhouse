@@ -6,7 +6,10 @@ troubleshooting guide, not a correctness contract: promshim query semantics must
 remain correct without these server/operator choices.
 
 The reference profile name for benchmark notes is
-`promshim-ch-timeseries-reference-v1`.
+`promshim-ch-timeseries-reference-v1`. In the local benchmark harness this name
+selects an optional compose override that makes query-log, ProfileEvents, and
+settings attribution explicit; the default benchmark stack remains available as
+`default-benchmark-compose`.
 
 ## Evidence labels
 
@@ -55,7 +58,7 @@ Assumptions for `promshim-ch-timeseries-reference-v1`:
 | Local benchmark stack is single-node ClickHouse plus single Prometheus and promshim. | `benchmark-reference-only` | The harness models deterministic comparisons and query-log evidence, not production HA or cross-shard fanout. | Sweep manifest profile/density/transport; `system.query_log.hostname`; container compose files. |
 | Benchmark data is seeded with pinned profile end times and known sparse/dense datasets. | `benchmark-reference-only` | Results should name profile (`7d`, `30d`, `1y`), density, transport, settings profile, and corpus. | Sweep `manifest.json`; memory summary row counts; corpus path in bench report. |
 | Production deployments may be single-node, replicated, or distributed. | `advisory-for-performance` | Route and storage recommendations are topology-dependent; correctness must not rely on one topology. | Query-log `is_initial_query`, `initial_query_id`, distributed EXPLAIN output, per-replica logs. |
-| Query logging and ProfileEvents are enabled enough for tuning. | `benchmark-reference-only` for harness, `advisory-for-performance` for production | Without these, optimization claims cannot be attributed. | `system.query_log` rows with `ProfileEvents`, `Settings`, `log_comment`, read rows/bytes, memory. |
+| Query logging and ProfileEvents are enabled enough for tuning. | `benchmark-reference-only` for harness, `advisory-for-performance` for production | The benchmark override `harness/bench/docker-compose.reference.yml` mounts `harness/bench/clickhouse/users.d/reference-profile.xml`; production deployments should choose equivalent user/profile settings only for tuning windows where the overhead is acceptable. | `system.query_log` rows with `ProfileEvents`, `Settings`, `log_comment`, read rows/bytes, memory. |
 
 The local benchmark stack does **not** model multi-tenant admission control,
 object-storage latency, cross-zone network cost, full production retention,
@@ -176,9 +179,27 @@ The local benchmark compose stack intentionally models a measurement environment
 - query logging and generated log comments for memory summaries;
 - native ClickHouse transport by default for benchmark stack runs.
 
+The baseline benchmark compose profile is named `default-benchmark-compose` in
+sweep artifacts. Selecting `promshim-ch-timeseries-reference-v1` adds only the
+benchmark override `harness/bench/docker-compose.reference.yml`, which mounts
+`harness/bench/clickhouse/users.d/reference-profile.xml` for explicit
+`log_queries`, `log_profile_events`, and `log_query_settings` defaults. It does
+not change the compliance compose stack and does not configure external
+ClickHouse deployments.
+
 It does not attempt to be a production operator manifest. Compliance remains
 isolated from long-range benchmark data and should not inherit experimental
 reference-profile tuning beyond the safety/logging needed for validation.
+
+Current harness decision table:
+
+| Setting surface | Local benchmark decision | User/operator guidance | Evidence |
+|---|---|---|---|
+| Query logging and settings/ProfileEvents attribution | Adopted in the optional reference-profile override. | Enable for tuning windows or observability-sensitive deployments when overhead is acceptable. | `harness/artifacts/sweeps/ch-reference-profile-smoke/` manifest names `promshim-ch-timeseries-reference-v1`; memory summary has zero missing log comments. |
+| Result query cache | Rejected as a benchmark default. | Keep disabled for PromQL serving unless a separate freshness contract is designed. | Baseline artifacts rely on real execution and query-log counters, not cache-hit masking. |
+| Query condition cache | Not adopted as a server default. | Treat as a later repeated-selector experiment with version checks. | No before/after artifact currently proves a stable benefit for this corpus. |
+| Bounded `max_threads` / concurrency defaults | Not adopted as a server default yet. | Tune per deployment from dashboard concurrency and CPU saturation evidence. | Existing sparse baseline is single-run oriented; concurrent mixed-corpus evidence is still required. |
+| Projections/materialized views | Not adopted. | Consider only for named hot families with freshness/storage-cost validation. | No projection artifact proves a `TimeSeries` workload benefit. |
 
 If future harness defaults intentionally model more of
 `promshim-ch-timeseries-reference-v1`, the sweep manifest should name that

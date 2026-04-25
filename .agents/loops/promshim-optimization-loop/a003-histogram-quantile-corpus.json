@@ -1,0 +1,10 @@
+[
+  {
+    "name": "a003_histogram_quantile_1h_instant",
+    "endpoint": "query",
+    "query": "histogram_quantile(0.95, sum by (le) (rate(demo_api_request_duration_seconds_bucket[1h])))",
+    "category": "instant_histogram_quantile",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  }
+]

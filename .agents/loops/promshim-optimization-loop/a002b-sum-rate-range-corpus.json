@@ -1,0 +1,12 @@
+[
+  {
+    "name": "a002b_sum_rate_by_job_range_7d",
+    "endpoint": "query_range",
+    "query": "sum by (job) (rate(demo_cpu_usage_seconds_total[1h]))",
+    "category": "range_sum_rate",
+    "startOffsetSeconds": -604800,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 3600,
+    "compareMode": "structural"
+  }
+]

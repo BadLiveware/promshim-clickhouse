@@ -1,0 +1,28 @@
+[
+  {
+    "name": "a004_sum_rate_1h_by_job_instant_7d",
+    "endpoint": "query",
+    "query": "sum by (job) (rate(demo_cpu_usage_seconds_total[1h]))",
+    "category": "instant_range_aggregation",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  },
+  {
+    "name": "a004_sum_rate_6h_by_job_instant_7d",
+    "endpoint": "query",
+    "query": "sum by (job) (rate(demo_cpu_usage_seconds_total[6h]))",
+    "category": "instant_range_aggregation_guardrail",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  },
+  {
+    "name": "a004_sum_rate_1h_by_job_range_7d",
+    "endpoint": "query_range",
+    "query": "sum by (job) (rate(demo_cpu_usage_seconds_total[1h]))",
+    "category": "range_aggregation_guardrail",
+    "startOffsetSeconds": -604800,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 3600,
+    "compareMode": "structural"
+  }
+]

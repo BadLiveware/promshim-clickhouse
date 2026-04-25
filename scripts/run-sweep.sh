@@ -14,6 +14,7 @@ Common examples:
   ./scripts/run-sweep.sh --setup --profile all --density sparse --target both
   ./scripts/run-sweep.sh --name pr-42-default
   ./scripts/run-sweep.sh --profile 7d --density dense --corpus-set processing --estimate
+  ./scripts/run-sweep.sh --profile 7d --corpus-set optimization --skip-compliance
   ./scripts/run-sweep.sh --bench-status
   ./scripts/run-sweep.sh --bench-reset --yes
 
@@ -41,7 +42,7 @@ Options:
   --include-prom BOOL            Include Prometheus timing in v2 bench reports (default true).
   --memory {off|summary|detailed}
                                   Capture memory trade-off artifacts (default summary).
-  --corpus-set {native|processing|both}
+  --corpus-set {native|processing|optimization|both}
                                   Benchmark corpus family (default: native; dense defaults to processing).
   --profile {7d|30d|1y|all}      Profile to inspect/seed (default for setup: all).
   --density {sparse|dense|all}   Dataset density (default for setup: sparse).
@@ -146,8 +147,8 @@ case "$TRANSPORT" in
 esac
 if [[ -n "$CORPUS_SET" ]]; then
   case "$CORPUS_SET" in
-    native|processing|both) ;;
-    *) fatal "--corpus-set must be native|processing|both (got: $CORPUS_SET)" ;;
+    native|processing|optimization|both) ;;
+    *) fatal "--corpus-set must be native|processing|optimization|both (got: $CORPUS_SET)" ;;
   esac
 fi
 if (( ESTIMATE == 1 && EXECUTE == 0 )); then
@@ -408,6 +409,9 @@ corpus_paths_for() {
   fi
   if [[ "$set" == "processing" || "$set" == "both" ]]; then
     echo "harness/corpus/bench-processing${suffix}.json"
+  fi
+  if [[ "$set" == "optimization" ]]; then
+    echo "harness/corpus/bench-optimization-tuning${suffix}.json"
   fi
 }
 

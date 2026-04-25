@@ -1,20 +1,17 @@
 # Candidate ranking — retired shard
 
-The continuous optimization loop no longer keeps ranking rules in this separate
-file. Use the canonical loop file instead:
+The layered optimization loop no longer stores ranking rules in this file.
+
+Use the canonical tracked loop charter instead:
 
 ```text
-.ralph/layered-optimization-recursive.md
+.pi/plans/layered-optimization-iteration/README.md
 ```
 
-Current rolling ranking artifacts remain:
+The current backlog is input to the unbounded loop, not a finite scope boundary:
 
 ```text
 harness/artifacts/optimization-backlog.md
-harness/artifacts/optimization-results.md
-harness/artifacts/optimization-negative-results.md
 ```
 
-Keep only 1–3 active hypotheses visible in the canonical loop file and replenish
-them after each accepted, rejected, deferred, or split attempt. Research output
-is seed material only; it does not outrank fresh local evidence.
+Do not add decision rules here. Update the charter when ranking policy changes.

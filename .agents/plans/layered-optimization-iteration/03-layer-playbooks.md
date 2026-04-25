@@ -1,19 +1,11 @@
 # Layer playbooks — retired shard
 
-Layer-specific evidence rules now live in the canonical loop file and in the
-project playbooks named by `AGENTS.md`.
-
-Read the relevant playbook before acting when its trigger fires:
-
-- `.pi/skills/running-sweep/SKILL.md` — benchmark sweeps, seed/profile setup,
-  and sweep artifact review.
-- `.pi/skills/measuring-ch-optimizations/SKILL.md` — ClickHouse/native SQL,
-  CSE, alias, pushdown, scan-reduction, and performance claims.
-- `.pi/skills/running-compliance/SKILL.md` — compliance runs/failures and
-  expected-failure policy.
-
-For all other layer rules, resume from:
+Layer-specific triggers and required playbook references now live in the
+canonical tracked loop charter:
 
 ```text
-.ralph/layered-optimization-recursive.md
+.pi/plans/layered-optimization-iteration/README.md
 ```
+
+The project playbooks named by `AGENTS.md` remain authoritative when their
+triggers fire. Do not duplicate their rules here.

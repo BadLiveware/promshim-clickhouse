@@ -22,6 +22,8 @@ const (
 )
 
 const (
+	benchmarkControlMaxThreads = 4
+
 	settingAllowTimeSeries                 = "allow_experimental_time_series_table"
 	settingQuoteDenormals                  = "output_format_json_quote_denormals"
 	settingMaxExecutionTime                = "max_execution_time"
@@ -182,7 +184,10 @@ func ResolveSettingsProfile(cfg SettingsProfileConfig, purpose QueryPurpose, fam
 		} else {
 			skip(settingUseQueryConditionCache, "version_unsupported", "25.3")
 		}
-	case SettingsProfileTinyInstant, SettingsProfileSimpleRange, SettingsProfileLongRangeScan, SettingsProfileAggregationHeavy, SettingsProfileJoinHeavy, SettingsProfileSubtreePushdown, SettingsProfileBenchmarkControl:
+	case SettingsProfileBenchmarkControl:
+		add(settingMaxThreads, benchmarkControlMaxThreads, "benchmark_variance_thread_bound", "")
+		skip(settingUseQueryConditionCache, "profile_gate_empty_until_measured", "25.3")
+	case SettingsProfileTinyInstant, SettingsProfileSimpleRange, SettingsProfileLongRangeScan, SettingsProfileAggregationHeavy, SettingsProfileJoinHeavy, SettingsProfileSubtreePushdown:
 		skip(settingUseQueryConditionCache, "profile_gate_empty_until_measured", "25.3")
 	}
 

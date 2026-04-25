@@ -373,7 +373,7 @@ upstream ClickHouse changes easier to audit.
 | `PROM_SHIM_CLICKHOUSE_CONN_MAX_LIFETIME_SECONDS` | `3600` | Native driver connection maximum lifetime. |
 | `PROM_SHIM_REQUEST_TIMEOUT_SECONDS` | `30` | ClickHouse request timeout. The `default_safe` ClickHouse settings profile also sends this as `max_execution_time`. |
 | `PROM_SHIM_CLICKHOUSE_VERSION` | `26.3` | Version used by delegation and settings-profile capability classifiers. |
-| `PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE` | `default_safe` | Shim-owned per-query ClickHouse settings profile. Supported names: `none`, `default_safe`, `repeated_selective`, `tiny_instant`, `simple_range`, `long_range_scan`, `aggregation_heavy`, `join_heavy`, `subtree_pushdown`, `benchmark_control`. Performance profile names are gated and do not enable aggressive settings without evidence. |
+| `PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE` | `default_safe` | Shim-owned per-query ClickHouse settings profile. Supported names: `none`, `default_safe`, `repeated_selective`, `tiny_instant`, `simple_range`, `long_range_scan`, `aggregation_heavy`, `join_heavy`, `subtree_pushdown`, `benchmark_control`. `benchmark_control` is an explicit measurement profile that applies bounded `max_threads=4`; other performance profile names remain gated until measured evidence justifies applied settings. |
 | `PROM_SHIM_CLICKHOUSE_MAX_MEMORY_USAGE_BYTES` | `0` | Optional `default_safe` per-query `max_memory_usage` cap; `0` leaves it unset. |
 | `PROM_SHIM_CLICKHOUSE_MAX_ROWS_TO_READ` | `0` | Optional `default_safe` per-query `max_rows_to_read` cap; `0` leaves it unset until estimates justify a cap. |
 | `PROM_SHIM_CLICKHOUSE_MAX_RESULT_ROWS` | `0` | Optional `default_safe` per-query `max_result_rows` cap; `0` leaves it unset until a result-row contract is explicit. |
@@ -534,9 +534,9 @@ memory mode uses `PROM_SHIM_ENABLE_PPROF=1` in local harness stacks; keep that
 disabled in production unless the endpoint is otherwise protected.
 
 `run-bench.sh` and `seed-long-range.sh` remain available as lower-level/debug
-helpers, but avoid manual long-range loops for normal work because they are easy
-to accidentally point at the compliance stack. If using those helpers directly,
-pass explicit benchmark endpoints from `run-sweep.sh --bench-status`.
+helpers, but avoid manual long-range command repetition for normal work because
+it is easy to accidentally point at the compliance stack. If using those helpers
+directly, pass explicit benchmark endpoints from `run-sweep.sh --bench-status`.
 
 The legacy benchmark tripwire compares reference Prometheus, promshim native
 SQL, and local fallback behavior on pinned corpora:
@@ -711,10 +711,10 @@ That design chooses an explicit set of trade-offs:
 | `harness/` | Deterministic differential harness and query corpora. |
 | `harness/compliance/` | Upstream PromQL compliance harness integration. |
 | `scripts/` | Local validation, benchmark, profile, and stack helpers. |
-| `docs/optimizer-contracts.md` | Post-CBE optimizer evidence, IR invariant, query-family, explain, and rejection-reason contract. |
-| `docs/clickhouse-tuning-inventory.md` | Stage-01 inventory of ClickHouse tuning surfaces and shim-owned settings profile rules. |
+| `docs/optimizer-contracts.md` | Optimizer evidence, IR invariant, query-family, explain, and rejection-reason contract. |
+| `docs/clickhouse-tuning-inventory.md` | Inventory of ClickHouse tuning surfaces and shim-owned settings profile rules. |
 | `docs/clickhouse-reference-profile.md` | Operator-facing reference ClickHouse profile and benchmark-context guidance for promshim workloads. |
-| `docs/optimization-rollout.md` | Rollout, calibration, regression, and rollback checklist for optimization work. |
+| `docs/optimization-rollout.md` | Rollout, calibration, regression, and rollback guidance for optimization work. |
 
 ## Development rules of thumb
 

@@ -55,11 +55,33 @@ func TestRepeatedSelectiveProfileGatesConditionCache(t *testing.T) {
 	}
 }
 
+func TestBenchmarkControlProfileBoundsThreads(t *testing.T) {
+	resolution := ResolveSettingsProfile(SettingsProfileConfig{Name: SettingsProfileBenchmarkControl, ClickHouseVersion: "26.3", RequestTimeout: time.Second}, QueryPurposeRange, "range_1d", "native_sql")
+	if got := resolution.Settings[settingMaxThreads]; got != benchmarkControlMaxThreads {
+		t.Fatalf("max_threads = %#v, want %#v", got, benchmarkControlMaxThreads)
+	}
+	if !hasAppliedSetting(resolution.Explain.Applied, settingMaxThreads, "benchmark_variance_thread_bound") {
+		t.Fatalf("expected max_threads applied provenance, got %#v", resolution.Explain.Applied)
+	}
+	if _, ok := resolution.Settings[settingUseQueryCache]; ok {
+		t.Fatalf("benchmark_control must not enable result query cache")
+	}
+}
+
 func TestMergeProfileSettingsRejectsUnknownSetting(t *testing.T) {
 	_, err := MergeProfileSettings(map[string]any{settingReadonly: 2}, map[string]any{"unknown_setting": 1})
 	if err == nil {
 		t.Fatal("expected unknown setting error")
 	}
+}
+
+func hasAppliedSetting(applied []AppliedSetting, name, reason string) bool {
+	for _, setting := range applied {
+		if setting.Name == name && setting.ReasonCode == reason {
+			return true
+		}
+	}
+	return false
 }
 
 func hasSkippedSetting(skipped []SkippedSetting, name, reason string) bool {

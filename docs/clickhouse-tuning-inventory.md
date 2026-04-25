@@ -1,8 +1,8 @@
 # ClickHouse tuning inventory for promshim
 
 This inventory separates ClickHouse tuning surfaces that promshim may own from
-operator/deployment choices. Stage 01 records evidence requirements only; it does
-not enable performance settings.
+operator/deployment choices. It records evidence requirements for measured
+changes and separates safety defaults from opt-in benchmark controls.
 
 ## Classification rules
 
@@ -32,7 +32,7 @@ Promshim-owned settings must be:
 | `log_queries`, `log_profile_events`, `log_comment`, query ID | Shim-owned session/query setting / request metadata | Correlate promshim requests with `system.query_log` and ProfileEvents. | Per statement/session; already part of measurement discipline. | All benchmark/explain runs. | High-cardinality comments or raw query leakage. | Memory summaries have no missing log comments; query IDs map to benchmark rows. | Yes, with bounded comments and no raw tenant labels as metric labels. |
 | `max_execution_time`, `timeout_overflow_mode` | Shim-owned safety setting | Bound expensive ClickHouse statements. | Per query/session. | All ClickHouse candidates. | Too aggressive values can cause false failures; too lax values hide cliffs. | Timeout errors are explainable; strict/reference fallback where safe. | Yes after profile design. |
 | `max_memory_usage`, related memory caps | Shim-owned safety setting or user/profile setting | Bound query memory. | Session/profile. | Dense, histogram, vector-match, aggregation families. | OOM or spill behavior differences; version/default differences. | Query errors classified; `MemoryTrackerUsage` tracked. | Candidate for shim-owned safety profile after version checks. |
-| `max_threads` | Shim-owned profile knob or user/profile setting | Reduce variance, limit CPU, or tune latency/throughput. | Session/query. | Focused measurement, possibly selected heavy families. | Can improve one shape and harm another; affects p50 comparability. | Before/after sweep and CPU ProfileEvents by family. | Future measured profile only. |
+| `max_threads` | Shim-owned profile knob or user/profile setting | Reduce variance, limit CPU, or tune latency/throughput. | Session/query. | Focused measurement, possibly selected heavy families. | Can improve one shape and harm another; affects p50 comparability. | Before/after sweep and CPU ProfileEvents by family. | Applied only by explicit `benchmark_control` runs; not automatic serving. |
 | `use_query_condition_cache` | Version-dependent shim/profile knob | Reuse condition analysis for repeated predicates. Requires compatible analyzer behavior. | Query/user setting depending on version. | Repeated selector/matcher families, range scans. | Freshness/semantics differ from query cache; analyzer dependency. | `EXPLAIN PLAN`/ProfileEvents for repeated predicate work; no correctness drift. | Future candidate only with version gate and explicit explain field. |
 | Query cache (`use_query_cache` and related settings) | Unsafe/out-of-scope for default shim serving | Cache final query results. | Session/user/server. | Dashboard repeat queries. | Freshness and tenant isolation caveats; can mask measurement signals. | If tested, only with negative controls and clear freshness contract. | No default. Keep disabled for optimization measurement. |
 | PREWHERE automatic behavior | SQL-shape alternative / ClickHouse optimizer behavior | Push selective filters before full reads. | ClickHouse optimizer/analyzer decides. | Selector and matcher-heavy families. | Manual forcing can be cosmetic or harmful; hidden dependency on SQL shape. | `EXPLAIN PLAN indexes=1, actions=1`, `SelectedRows`, `SelectedBytes`. | Do not set a magic knob; prefer SQL predicates ClickHouse can push down. |
@@ -49,14 +49,19 @@ Promshim-owned settings must be:
 
 ## Settings profile contract
 
-Future settings profiles should be named and bounded. Suggested initial names:
+Settings profiles are named and bounded:
 
-- `none`: no shim-owned ClickHouse performance settings; measurement default.
-- `safety`: query IDs/log comments plus time and memory caps only.
-- `scan_pruning_experimental`: exact-selector scan-pruning helpers after version
-  checks and ProfileEvents evidence.
-- `processing_experimental`: heavy aggregation/range-function knobs after dense
-  negative controls.
+- `none`: minimal compatibility settings required for the `TimeSeries` target and
+  JSON denormal encoding.
+- `default_safe`: safety and provenance settings, including read-only scope,
+  request timeout, client-close cancellation, and optional caps.
+- `benchmark_control`: explicit measurement/calibration profile that adds
+  `max_threads=4` to reduce benchmark thread pressure; it is not selected
+  automatically for served traffic.
+- `repeated_selective`, `tiny_instant`, `simple_range`, `long_range_scan`,
+  `aggregation_heavy`, `join_heavy`, and `subtree_pushdown`: named
+  provenance profiles that remain evidence-gated until a dedicated experiment
+  justifies applied settings.
 
 Profiles must appear in explain output and sweep artifacts with both the profile
 name and the concrete statement settings sent to ClickHouse. Unknown or
@@ -95,13 +100,14 @@ ClickHouse configuration.
 | `max_result_rows` | Applied only when `PROM_SHIM_CLICKHOUSE_MAX_RESULT_ROWS>0`. | Query/session. | Core ClickHouse setting. | Explain reason `safety_result_cap`; default skip reason `requires_result_contract`. |
 | `use_query_condition_cache` | Named for `repeated_selective`, but skipped until a measured experiment justifies enabling it. | Query/session. | Added in ClickHouse 25.3; default changed in 25.4 per `src/Core/SettingsChangesHistory.cpp`. | Explain skip reasons `requires_measured_evidence` or `version_unsupported`. |
 | `use_query_cache` | Explicitly skipped by all non-`none` profiles. | Query/session. | Core result-cache family. | Explain skip reason `freshness_sensitive_not_default`. |
-| `max_threads` | Allowlisted for controlled benchmark experiments and explicit internal overrides, not set by default profiles. | Query/session. | Core ClickHouse setting. | Must be tied to a named benchmark/control profile before claims. |
+| `max_threads` | Applied as `4` only by `benchmark_control`; otherwise available only to explicit allowlisted internal overrides. | Query/session. | Core ClickHouse setting. | Explain reason `benchmark_variance_thread_bound`; artifacts `settings-profile-benchmark-control-smoke` compare it with `none` and `default_safe`. |
 
 The implemented profile names are `none`, `default_safe`, `repeated_selective`,
 `tiny_instant`, `simple_range`, `long_range_scan`, `aggregation_heavy`,
-`join_heavy`, `subtree_pushdown`, and `benchmark_control`. Except for
-`default_safe`, the names currently provide provenance and skip reasons; they do
-not enable aggressive performance settings without sweep/ProfileEvents evidence.
+`join_heavy`, `subtree_pushdown`, and `benchmark_control`. `benchmark_control`
+applies only the bounded measurement knob above; the remaining non-default
+performance-oriented names provide provenance and skip reasons until
+sweep/ProfileEvents evidence justifies applied settings.
 
 HyperDX/ClickStack survey notes from `~/code/external/hyperdx` reinforced this
 split: its ClickHouse client applies operational defaults such as
@@ -113,9 +119,10 @@ authority to enable planner knobs globally.
 
 ## Status
 
-No performance setting is enabled without evidence. The safety/provenance
-allowlist above is implemented, and the operator-facing reference profile lives
-in [`docs/clickhouse-reference-profile.md`](clickhouse-reference-profile.md).
-Future work may turn a skipped performance setting into an applied profile
-setting only after adding version checks, configuration gates, explain fields,
+No production performance setting is enabled without evidence. The
+safety/provenance allowlist above is implemented, `benchmark_control` is an
+explicit opt-in measurement profile, and the operator-facing reference profile
+lives in [`docs/clickhouse-reference-profile.md`](clickhouse-reference-profile.md).
+Future work may turn a skipped performance setting into an applied serving
+profile only after adding version checks, configuration gates, explain fields,
 named sweep evidence, and rollback notes.

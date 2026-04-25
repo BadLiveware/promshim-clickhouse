@@ -17,6 +17,10 @@ func (c *Client) QueryStringRows(ctx context.Context, req QueryRequest) (values 
 	if !ok {
 		return nil, fmt.Errorf("typed string row decoding requires %s transport, got %s", TransportNative, c.transportKind)
 	}
+	req, err = c.prepareQueryRequest(req)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := nativeTransport.QueryNativeRows(ctx, req)
 	if err != nil {
 		return nil, err
@@ -45,6 +49,10 @@ func (c *Client) QuerySeriesRows(ctx context.Context, req QueryRequest) (series 
 	nativeTransport, ok := c.transport.(*NativeDriverTransport)
 	if !ok {
 		return nil, fmt.Errorf("typed series row decoding requires %s transport, got %s", TransportNative, c.transportKind)
+	}
+	req, err = c.prepareQueryRequest(req)
+	if err != nil {
+		return nil, err
 	}
 	rows, err := nativeTransport.QueryNativeRows(ctx, req)
 	if err != nil {

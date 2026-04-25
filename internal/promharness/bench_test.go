@@ -43,6 +43,7 @@ func TestParseHeaders(t *testing.T) {
 	h.Set("X-Promshim-Fallback-Reason", "")
 	h.Set("X-Promshim-CH-Roundtrips", "7")
 	h.Set("X-Promshim-CH-Millis", "42")
+	h.Set("X-Promshim-Settings-Profile", "default_safe")
 	h.Set("X-Promshim-Routing-Policy", "strict")
 	h.Set("X-Promshim-Routing-Decision", "strict")
 	h.Set("X-Promshim-Routing-Reason", "strict_policy")
@@ -53,7 +54,7 @@ func TestParseHeaders(t *testing.T) {
 	h.Set("X-Promshim-Served-Candidate", "native_sql")
 	h.Set("X-Promshim-Cost-Family", "selector")
 	got := parseHeaders(h)
-	want := headerSample{strategy: "native_sql", fallbackReason: "", roundtrips: 7, millis: 42, routingPolicy: "strict", routingDecision: "strict", routingReason: "strict_policy", strictStrategy: "native_sql", selectedStrategy: "native_sql", strictCandidate: "native_sql", selectedCandidate: "native_sql", servedCandidate: "native_sql", costFamily: "selector"}
+	want := headerSample{strategy: "native_sql", fallbackReason: "", settingsProfile: "default_safe", roundtrips: 7, millis: 42, routingPolicy: "strict", routingDecision: "strict", routingReason: "strict_policy", strictStrategy: "native_sql", selectedStrategy: "native_sql", strictCandidate: "native_sql", selectedCandidate: "native_sql", servedCandidate: "native_sql", costFamily: "selector"}
 	if got != want {
 		t.Fatalf("parseHeaders = %+v, want %+v", got, want)
 	}

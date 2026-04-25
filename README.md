@@ -371,11 +371,17 @@ upstream ClickHouse changes easier to audit.
 | `PROM_SHIM_CLICKHOUSE_MAX_OPEN_CONNS` | `10` | Native driver maximum open connections. |
 | `PROM_SHIM_CLICKHOUSE_MAX_IDLE_CONNS` | `10` | Native driver maximum idle connections. |
 | `PROM_SHIM_CLICKHOUSE_CONN_MAX_LIFETIME_SECONDS` | `3600` | Native driver connection maximum lifetime. |
-| `PROM_SHIM_REQUEST_TIMEOUT_SECONDS` | `30` | ClickHouse request timeout. |
-| `PROM_SHIM_CLICKHOUSE_VERSION` | `26.3` | Version used by the delegation capability classifier. |
+| `PROM_SHIM_REQUEST_TIMEOUT_SECONDS` | `30` | ClickHouse request timeout. The `default_safe` ClickHouse settings profile also sends this as `max_execution_time`. |
+| `PROM_SHIM_CLICKHOUSE_VERSION` | `26.3` | Version used by delegation and settings-profile capability classifiers. |
+| `PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE` | `default_safe` | Shim-owned per-query ClickHouse settings profile. Supported names: `none`, `default_safe`, `repeated_selective`, `tiny_instant`, `simple_range`, `long_range_scan`, `aggregation_heavy`, `join_heavy`, `subtree_pushdown`, `benchmark_control`. Performance profile names are gated and do not enable aggressive settings without evidence. |
+| `PROM_SHIM_CLICKHOUSE_MAX_MEMORY_USAGE_BYTES` | `0` | Optional `default_safe` per-query `max_memory_usage` cap; `0` leaves it unset. |
+| `PROM_SHIM_CLICKHOUSE_MAX_ROWS_TO_READ` | `0` | Optional `default_safe` per-query `max_rows_to_read` cap; `0` leaves it unset until estimates justify a cap. |
+| `PROM_SHIM_CLICKHOUSE_MAX_RESULT_ROWS` | `0` | Optional `default_safe` per-query `max_result_rows` cap; `0` leaves it unset until a result-row contract is explicit. |
 | `PROM_SHIM_NATIVE_LOWERING_MODE` | `prefer` | Global lowering mode; see execution modes above. |
 | `PROM_SHIM_ROUTING_POLICY` | `strict` | Global cost-routing policy; see cost routing policies above. |
 | `PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES` | empty | Comma-separated family gates eligible for `cost_prefer` local overrides, e.g. `selector_instant,rate_instant`. |
+| `PROM_SHIM_DISABLE_OPTIMIZED_IR` | unset / false | Rollback/differential-testing gate that disables logical IR rewrite passes while preserving baseline planning. |
+| `PROM_SHIM_DISABLE_NATIVE_AGGREGATION_LABEL_PROJECTION` | unset / false | Rollback/differential-testing gate that disables native `by(...)` aggregation child label projection and restores full selector tag materialization. |
 | `PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES` | `50000` | Reject range queries above this point count per series. |
 | `PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES` | `5000` | Chunk eligible local range plans above this point count per series. |
 | `PROM_SHIM_MAX_RESPONSE_SERIES` | `5000` | Reject responses with more series than this limit. |
@@ -387,11 +393,16 @@ Per-request knobs:
 - `routing_policy=strict|cost_shadow|cost_prefer`
 - `explain=1` or `explain=true`
 - `X-Promshim-Log-Comment: ...` to forward a ClickHouse `log_comment` for query
-  log/profile correlation.
+  log/profile correlation. When omitted, promshim generates a bounded comment
+  containing endpoint, normalized mode/policy, and a hash of request parameters;
+  raw PromQL and label values are not included.
 
 Successful query responses include `X-Promshim-CH-Transport: http|native` so
 transport rollout can be correlated with strategy, round-trip, and duration
-headers. Explain responses include the same value as `clickHouseTransport`.
+headers. They also include `X-Promshim-Settings-Profile` when a settings profile
+was resolved. Explain responses include the same transport value as
+`clickHouseTransport` and settings provenance as `clickHouseSettingsProfile` and
+`plan.settingsProfile`.
 
 ## Quick start for local development
 
@@ -700,13 +711,18 @@ That design chooses an explicit set of trade-offs:
 | `harness/` | Deterministic differential harness and query corpora. |
 | `harness/compliance/` | Upstream PromQL compliance harness integration. |
 | `scripts/` | Local validation, benchmark, profile, and stack helpers. |
+| `docs/optimizer-contracts.md` | Post-CBE optimizer evidence, IR invariant, query-family, explain, and rejection-reason contract. |
+| `docs/clickhouse-tuning-inventory.md` | Stage-01 inventory of ClickHouse tuning surfaces and shim-owned settings profile rules. |
+| `docs/clickhouse-reference-profile.md` | Operator-facing reference ClickHouse profile and benchmark-context guidance for promshim workloads. |
+| `docs/optimization-rollout.md` | Rollout, calibration, regression, and rollback checklist for optimization work. |
 
 ## Development rules of thumb
 
 - Treat the execution priority as a hard invariant: whole-query delegation,
   then native SQL, then subtree pushdown, then local fallback.
-- Put new feature coverage in tier 1 or tier 2. Tiers 3 and 4 are fallbacks and
-  should only change for correctness fixes unless explicitly requested.
+- Put unrelated new semantic coverage in tier 1 or tier 2. CBE work may improve
+  tiers 3 and 4 as known-correct routing candidates when the change is tied to
+  routing quality, safety caps, observability, or measured performance.
 - Do not add compliance allowlist entries for shim gaps. Fix the gap or leave it
   visible.
 - Use the harness before claiming support. For native work, run the native-only

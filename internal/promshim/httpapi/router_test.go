@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,11 +67,13 @@ func (s *stubService) Series(ctx context.Context, _ MetadataRequest) (*Response,
 }
 
 func TestHandleQuerySetsPromshimHeaders(t *testing.T) {
+	var observedComment string
 	stub := &stubService{
 		response: &Response{
-			StatusCode:     http.StatusOK,
-			Strategy:       "native_sql",
-			FallbackReason: "",
+			StatusCode:      http.StatusOK,
+			Strategy:        "native_sql",
+			FallbackReason:  "",
+			SettingsProfile: "default_safe",
 			Routing: &RoutingInfo{
 				Policy:           "cost_shadow",
 				Decision:         "shadow_only",
@@ -88,6 +91,7 @@ func TestHandleQuerySetsPromshimHeaders(t *testing.T) {
 		},
 		transport: "native",
 		observeOnCall: func(ctx context.Context) {
+			observedComment = obs.LogCommentFromContext(ctx)
 			obs.FromContext(ctx).Observe(7 * time.Millisecond)
 			obs.FromContext(ctx).Observe(3 * time.Millisecond)
 		},
@@ -120,6 +124,12 @@ func TestHandleQuerySetsPromshimHeaders(t *testing.T) {
 	}
 	if got := rec.Header().Get("X-Promshim-CH-Transport"); got != "native" {
 		t.Fatalf("X-Promshim-CH-Transport = %q, want native", got)
+	}
+	if got := rec.Header().Get("X-Promshim-Settings-Profile"); got != "default_safe" {
+		t.Fatalf("X-Promshim-Settings-Profile = %q, want default_safe", got)
+	}
+	if observedComment == "" || !strings.Contains(observedComment, "endpoint=query") || strings.Contains(observedComment, "up") {
+		t.Fatalf("generated log comment = %q, want bounded hashed query comment", observedComment)
 	}
 }
 

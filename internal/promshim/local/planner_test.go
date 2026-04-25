@@ -1470,6 +1470,9 @@ func TestExplainPlanDescribesNativeAggregationStrategy(t *testing.T) {
 	if strings.Contains(strings.ToUpper(explain.RenderedSQL), "SELECT *") {
 		t.Fatalf("expected final rendered SQL to avoid SELECT *, got %q", explain.RenderedSQL)
 	}
+	if !strings.Contains(explain.RenderedSQL, "src.tags['job']") || strings.Contains(explain.RenderedSQL, "mapKeys(src.tags)") {
+		t.Fatalf("expected aggregation child selector to project only job label, got %q", explain.RenderedSQL)
+	}
 }
 
 func TestExplainPlanDescribesNativeTransformedAggregationStrategy(t *testing.T) {

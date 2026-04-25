@@ -14,6 +14,13 @@
     "timeOffsetSeconds": 0
   },
   {
+    "name": "sum_by_job_instant_long",
+    "endpoint": "query",
+    "query": "sum by (job) (demo_cpu_usage_seconds_total)",
+    "category": "aggregation_by_projection",
+    "timeOffsetSeconds": 0
+  },
+  {
     "name": "rate_1h_instant",
     "endpoint": "query",
     "query": "rate(demo_cpu_usage_seconds_total[1h])",
@@ -54,6 +61,14 @@
     "compareMode": "structural"
   },
   {
+    "name": "repeated_rate_average_1h_instant_long",
+    "endpoint": "query",
+    "query": "(rate(demo_cpu_usage_seconds_total[1h]) + rate(demo_cpu_usage_seconds_total[1h])) / 2",
+    "category": "instant_repeated_subexpr",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  },
+  {
     "name": "histogram_quantile_1h_instant",
     "endpoint": "query",
     "query": "histogram_quantile(0.95, sum by (le) (rate(demo_api_request_duration_seconds_bucket[1h])))",
@@ -70,6 +85,15 @@
     "endOffsetSeconds": 0,
     "stepSeconds": 300,
     "compareMode": "structural"
+  },
+  {
+    "name": "sum_by_job_range_7d",
+    "endpoint": "query_range",
+    "query": "sum by (job) (demo_cpu_usage_seconds_total)",
+    "category": "range_aggregation_by_projection",
+    "startOffsetSeconds": -604800,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 3600
   },
   {
     "name": "sum_rate_by_job_range_7d",

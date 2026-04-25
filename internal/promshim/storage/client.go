@@ -19,11 +19,13 @@ type Config struct {
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
+	SettingsProfile SettingsProfileConfig
 }
 
 type Client struct {
-	transportKind TransportKind
-	transport     Transport
+	transportKind   TransportKind
+	transport       Transport
+	settingsProfile SettingsProfileConfig
 }
 
 type QueryError struct {
@@ -53,7 +55,7 @@ func NewClient(cfg Config) (*Client, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &Client{transportKind: TransportHTTP, transport: transport}, nil
+		return &Client{transportKind: TransportHTTP, transport: transport, settingsProfile: normalizeClientSettingsProfile(cfg)}, nil
 	case TransportNative:
 		transport, err := NewNativeDriverTransport(NativeDriverTransportConfig{
 			Addr:            cfg.NativeAddr,
@@ -69,7 +71,7 @@ func NewClient(cfg Config) (*Client, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &Client{transportKind: TransportNative, transport: transport}, nil
+		return &Client{transportKind: TransportNative, transport: transport, settingsProfile: normalizeClientSettingsProfile(cfg)}, nil
 	default:
 		return nil, fmt.Errorf("unsupported clickhouse transport %q", transportKind)
 	}
@@ -80,7 +82,11 @@ func (c *Client) TransportKind() TransportKind {
 }
 
 func (c *Client) Query(ctx context.Context, req QueryRequest) (Rows, error) {
-	return c.transport.Query(ctx, req)
+	prepared, err := c.prepareQueryRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	return c.transport.Query(ctx, prepared)
 }
 
 func (c *Client) Execute(ctx context.Context, sql string, params map[string]string) (*http.Response, error) {
@@ -96,4 +102,26 @@ func (c *Client) Execute(ctx context.Context, sql string, params map[string]stri
 
 func (c *Client) Close() error {
 	return c.transport.Close()
+}
+
+func (c *Client) prepareQueryRequest(req QueryRequest) (QueryRequest, error) {
+	resolution := ResolveSettingsProfile(c.settingsProfile, req.Purpose, "", "")
+	settings, err := MergeProfileSettings(resolution.Settings, req.Settings)
+	if err != nil {
+		return QueryRequest{}, err
+	}
+	req.Settings = settings
+	return req, nil
+}
+
+func normalizeClientSettingsProfile(cfg Config) SettingsProfileConfig {
+	profile := cfg.SettingsProfile
+	profile.Name = NormalizeSettingsProfileName(profile.Name)
+	if profile.ClickHouseVersion == "" {
+		profile.ClickHouseVersion = "26.3"
+	}
+	if profile.RequestTimeout <= 0 {
+		profile.RequestTimeout = cfg.RequestTimeout
+	}
+	return profile
 }

@@ -1,6 +1,7 @@
 package logical
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -262,5 +263,41 @@ func TestAnalyzeRootSchemaInvariant(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestAnalyzePopulatesSelectorNormalizationAndReuseMetadata(t *testing.T) {
+	root := mustToLogical(t, `rate(up{job="api",instance=~"a|b"}[5m]) + rate(up{instance=~"a|b",job="api"}[5m])`)
+	analysis := Analyze(root)
+	var selectors []*NodeInfo
+	for _, info := range analysis.Info {
+		if info != nil && info.SelectorFingerprint != "" {
+			selectors = append(selectors, info)
+		}
+	}
+	if len(selectors) != 2 {
+		t.Fatalf("selector metadata count = %d, want 2", len(selectors))
+	}
+	for _, info := range selectors {
+		if !slices.IsSorted(info.NormalizedMatchers) {
+			t.Fatalf("matchers are not normalized: %v", info.NormalizedMatchers)
+		}
+		if info.SelectorReuseGroup == "" || info.SelectorReuseBlockedReason != "" {
+			t.Fatalf("expected repeated selector reuse group, got group=%q blocked=%q", info.SelectorReuseGroup, info.SelectorReuseBlockedReason)
+		}
+		if !slices.Contains(info.RequiredLabels, "__name__") || !slices.Contains(info.RequiredLabels, "job") || !slices.Contains(info.RequiredLabels, "instance") {
+			t.Fatalf("required labels missing matcher labels: %v", info.RequiredLabels)
+		}
+	}
+}
+
+func TestAnalyzeUniqueSelectorRecordsReuseBlockedReason(t *testing.T) {
+	root := mustToLogical(t, `up{job="api"}`)
+	info := Analyze(root).Info[root]
+	if info.SelectorFingerprint == "" {
+		t.Fatal("selector fingerprint missing")
+	}
+	if info.SelectorReuseGroup != "" || info.SelectorReuseBlockedReason != "unique_selector" {
+		t.Fatalf("unexpected reuse metadata: group=%q blocked=%q", info.SelectorReuseGroup, info.SelectorReuseBlockedReason)
 	}
 }

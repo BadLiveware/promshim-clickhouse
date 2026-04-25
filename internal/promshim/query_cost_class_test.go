@@ -28,6 +28,39 @@ func TestClassifyQueryCostFamilies(t *testing.T) {
 			},
 		},
 		{
+			name:     "range selector",
+			query:    `up{job="api"}`,
+			endpoint: "query_range",
+			want:     "range_selector",
+			check: func(t *testing.T, got httpapi.QueryCostClass) {
+				if got.RangePointsPerSeries != 6 {
+					t.Fatalf("range points = %d, want 6", got.RangePointsPerSeries)
+				}
+			},
+		},
+		{
+			name:     "aggregation",
+			query:    `sum by (job) (up)`,
+			endpoint: "query",
+			want:     "aggregation",
+			check: func(t *testing.T, got httpapi.QueryCostClass) {
+				if !got.HasAggregation || got.DropsAllLabels {
+					t.Fatalf("aggregation metadata = %+v", got)
+				}
+			},
+		},
+		{
+			name:     "selection aggregation",
+			query:    `topk(3, up)`,
+			endpoint: "query",
+			want:     "selection_aggregation",
+			check: func(t *testing.T, got httpapi.QueryCostClass) {
+				if !got.HasAggregation || !got.HasSelectionAgg {
+					t.Fatalf("selection aggregation metadata = %+v", got)
+				}
+			},
+		},
+		{
 			name:     "range rate",
 			query:    `rate(up[5m])`,
 			endpoint: "query_range",
@@ -49,6 +82,50 @@ func TestClassifyQueryCostFamilies(t *testing.T) {
 			check: func(t *testing.T, got httpapi.QueryCostClass) {
 				if !got.HasHistogram || !got.HasAggregation {
 					t.Fatalf("histogram/aggregation metadata missing: %+v", got)
+				}
+			},
+		},
+		{
+			name:     "range function",
+			query:    `avg_over_time(up[5m])`,
+			endpoint: "query",
+			want:     "range_function",
+			check: func(t *testing.T, got httpapi.QueryCostClass) {
+				if !got.HasRangeFunction || got.LookbackMS != int64((5*time.Minute).Milliseconds()) {
+					t.Fatalf("range function metadata = %+v", got)
+				}
+			},
+		},
+		{
+			name:     "increase",
+			query:    `increase(up[5m])`,
+			endpoint: "query",
+			want:     "increase",
+			check: func(t *testing.T, got httpapi.QueryCostClass) {
+				if !got.HasRangeFunction {
+					t.Fatalf("increase metadata = %+v", got)
+				}
+			},
+		},
+		{
+			name:     "binary scalar vector",
+			query:    `up * 1.5`,
+			endpoint: "query",
+			want:     "binary",
+			check: func(t *testing.T, got httpapi.QueryCostClass) {
+				if got.HasVectorJoin {
+					t.Fatalf("binary scalar/vector should not be vector join: %+v", got)
+				}
+			},
+		},
+		{
+			name:     "label mutation",
+			query:    `label_replace(up, "job_copy", "$1", "job", "(.+)")`,
+			endpoint: "query",
+			want:     "label_mutation",
+			check: func(t *testing.T, got httpapi.QueryCostClass) {
+				if !got.HasLabelMutation {
+					t.Fatalf("label mutation metadata = %+v", got)
 				}
 			},
 		},

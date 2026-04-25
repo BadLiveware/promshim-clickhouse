@@ -46,6 +46,7 @@ type BenchRow struct {
 	Category            string  `json:"category,omitempty"`
 	Strategy            string  `json:"strategy"`
 	FallbackReason      string  `json:"fallbackReason,omitempty"`
+	SettingsProfile     string  `json:"settingsProfile,omitempty"`
 	CHRoundtrips        int     `json:"chRoundtrips"`
 	CHMillis            int     `json:"chMillis"`
 	PromP50MS           float64 `json:"promP50Ms"`
@@ -86,6 +87,7 @@ type BenchShimModeResult struct {
 	CostFamily         string `json:"costFamily,omitempty"`
 	Strategy           string `json:"strategy,omitempty"`
 	FallbackReason     string `json:"fallbackReason,omitempty"`
+	SettingsProfile    string `json:"settingsProfile,omitempty"`
 	CHRoundtrips       int    `json:"chRoundtrips"`
 	CHMillis           int    `json:"chMillis"`
 	Unsupported        bool   `json:"unsupported,omitempty"`
@@ -270,6 +272,7 @@ func benchOneQueryV2(client *http.Client, cfg BenchConfig, spec QuerySpec) Bench
 					sample := samples[0]
 					result.Strategy = sample.strategy
 					result.FallbackReason = sample.fallbackReason
+					result.SettingsProfile = sample.settingsProfile
 					result.CHRoundtrips = sample.roundtrips
 					result.CHMillis = sample.millis
 					if sample.routingPolicy != "" {
@@ -361,6 +364,7 @@ func benchOneQuery(client *http.Client, cfg BenchConfig, spec QuerySpec) BenchRo
 		sample := nativeSamples[0]
 		row.Strategy = sample.strategy
 		row.FallbackReason = sample.fallbackReason
+		row.SettingsProfile = sample.settingsProfile
 		row.CHRoundtrips = sample.roundtrips
 		row.CHMillis = sample.millis
 		row.StrategyFlap = detectStrategyFlap(nativeSamples)
@@ -387,6 +391,7 @@ func benchOneQuery(client *http.Client, cfg BenchConfig, spec QuerySpec) BenchRo
 type headerSample struct {
 	strategy          string
 	fallbackReason    string
+	settingsProfile   string
 	roundtrips        int
 	millis            int
 	routingPolicy     string
@@ -482,6 +487,7 @@ func parseHeaders(h http.Header) headerSample {
 	}
 	s.strategy = h.Get("X-Promshim-Strategy")
 	s.fallbackReason = h.Get("X-Promshim-Fallback-Reason")
+	s.settingsProfile = h.Get("X-Promshim-Settings-Profile")
 	s.routingPolicy = h.Get("X-Promshim-Routing-Policy")
 	s.routingDecision = h.Get("X-Promshim-Routing-Decision")
 	s.routingReason = h.Get("X-Promshim-Routing-Reason")

@@ -429,19 +429,20 @@ func tryRenderSubqueryRowsSourceLogical(ctx LoweringCtx, n *logicalpkg.SubqueryP
 		return "", nil, false, err
 	}
 	childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(n.Child, startMS, endMS)
+	childParams := aggregationChildRenderParams(agg, RenderParams{
+		Mode:                native.RenderModeRange,
+		StartMS:             startMS,
+		EndMS:               endMS,
+		StepMS:              stepMS,
+		RequiredStartMS:     childRequiredStartMS,
+		RequiredEndMS:       childRequiredEndMS,
+		ResolveSourcePromQL: ctx.Params.ResolveSourcePromQL,
+	})
 	childCtx := LoweringCtx{
 		Config:         ctx.Config,
 		Analysis:       ctx.Analysis,
 		NativeAnalysis: ctx.NativeAnalysis,
-		Params: RenderParams{
-			Mode:                native.RenderModeRange,
-			StartMS:             startMS,
-			EndMS:               endMS,
-			StepMS:              stepMS,
-			RequiredStartMS:     childRequiredStartMS,
-			RequiredEndMS:       childRequiredEndMS,
-			ResolveSourcePromQL: ctx.Params.ResolveSourcePromQL,
-		},
+		Params:         childParams,
 	}
 	if !canFuseRangeAggregationLogicalDirect(agg, childCtx.Params) {
 		return "", nil, false, nil

@@ -31,6 +31,12 @@ func TestHTTPJSONTransportExecutePreservesHTTPRequest(t *testing.T) {
 		if got := query.Get("log_comment"); got != "bench-a" {
 			t.Fatalf("log_comment = %q, want bench-a", got)
 		}
+		if got := query.Get("max_execution_time"); got != "1" {
+			t.Fatalf("max_execution_time = %q, want 1", got)
+		}
+		if got := query.Get("readonly"); got != "2" {
+			t.Fatalf("readonly = %q, want 2", got)
+		}
 		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err != nil {
 			t.Fatalf("parse content type: %v", err)

@@ -9,6 +9,18 @@ type constantFoldUnaryNegation struct{}
 
 func (constantFoldUnaryNegation) Name() string { return "constant_fold_unary_negation" }
 
+func (constantFoldUnaryNegation) Metadata() PassMetadata {
+	return PassMetadata{
+		Name:                  "constant_fold_unary_negation",
+		Families:              []string{"binary", "range_function", "aggregation", "selector", "scalar"},
+		Preconditions:         []string{"subtree contains nested unary negation", "value kind is preserved by removing paired negations"},
+		PreservedInvariants:   []string{"value_kind", "time_requirements", "label_set", "vector_matching", "staleness_and_nan_behavior"},
+		MetadataProduced:      []string{"optimized_ir_shape"},
+		ExpectedSignals:       []string{"no_result_change", "potential_FunctionExecute_drop_when_renderer_exploits_shape"},
+		RollbackConfiguration: DisableOptimizedIREnv,
+	}
+}
+
 func (constantFoldUnaryNegation) Apply(root logical.Node, _ *logical.Analysis) (logical.Node, bool, error) {
 	newRoot, changed := foldDoubleNegations(root)
 	return newRoot, changed, nil

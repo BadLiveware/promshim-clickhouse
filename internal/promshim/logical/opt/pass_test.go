@@ -10,9 +10,16 @@ import (
 
 type noopPass struct{}
 
+type describedNoopPass struct{ noopPass }
+
 func (noopPass) Name() string { return "noop" }
 func (noopPass) Apply(n logical.Node, _ *logical.Analysis) (logical.Node, bool, error) {
 	return n, false, nil
+}
+
+func (describedNoopPass) Name() string { return "described_noop" }
+func (describedNoopPass) Metadata() opt.PassMetadata {
+	return opt.PassMetadata{Name: "described_noop", Families: []string{"selector"}, ExpectedSignals: []string{"no_result_change"}}
 }
 
 type alwaysErrPass struct{}
@@ -69,5 +76,41 @@ func TestOptimizeCapsIterations(t *testing.T) {
 	_, _, err := opt.Optimize(root, []opt.Pass{churnPass{}})
 	if err == nil {
 		t.Error("expected fixpoint-cap error")
+	}
+}
+
+func TestOptimizeWithTraceRecordsMetadataAndSkipReasons(t *testing.T) {
+	root := mustLogical(t, `up`)
+	out, analysis, trace, err := opt.OptimizeWithTrace(root, []opt.Pass{describedNoopPass{}})
+	if err != nil {
+		t.Fatalf("OptimizeWithTrace: %v", err)
+	}
+	if out != root || analysis == nil || trace == nil {
+		t.Fatalf("unexpected optimize result: out=%T analysis=%v trace=%v", out, analysis, trace)
+	}
+	if len(trace.Passes) != 1 {
+		t.Fatalf("trace pass count = %d, want 1", len(trace.Passes))
+	}
+	got := trace.Passes[0]
+	if got.Name != "described_noop" || got.Applied || len(got.SkipReasons) != 1 || got.SkipReasons[0] != "no_matching_subtree" {
+		t.Fatalf("unexpected pass result: %+v", got)
+	}
+	if len(got.Metadata.Families) != 1 || got.Metadata.Families[0] != "selector" {
+		t.Fatalf("metadata not preserved: %+v", got.Metadata)
+	}
+}
+
+func TestOptimizeWithTraceHonorsDisableEnv(t *testing.T) {
+	t.Setenv(opt.DisableOptimizedIREnv, "true")
+	root := mustLogical(t, `-(-up)`)
+	out, _, trace, err := opt.OptimizeWithTrace(root, opt.DefaultPassesForEnv())
+	if err != nil {
+		t.Fatalf("OptimizeWithTrace: %v", err)
+	}
+	if out != root {
+		t.Fatal("disabled optimized IR should return the original root")
+	}
+	if trace == nil || !trace.Disabled || trace.EnvGate != opt.DisableOptimizedIREnv {
+		t.Fatalf("unexpected disabled trace: %+v", trace)
 	}
 }

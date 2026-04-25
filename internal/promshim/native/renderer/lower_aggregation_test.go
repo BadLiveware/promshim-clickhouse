@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -86,6 +87,55 @@ func TestLowerAggregationGolden(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestAggregationByProjectsInstantChildLabels(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (up)`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if !strings.Contains(rq.SQL, "src.tags['job']") || strings.Contains(rq.SQL, "mapKeys(src.tags)") {
+		t.Fatalf("expected instant aggregation child selector to project job label only, got:\n%s", rq.SQL)
+	}
+}
+
+func TestAggregationByProjectionRollbackGate(t *testing.T) {
+	t.Setenv(DisableNativeAggregationLabelProjectionEnv, "true")
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (up)`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if strings.Contains(rq.SQL, "src.tags['job']") || !strings.Contains(rq.SQL, "mapKeys(src.tags)") {
+		t.Fatalf("expected rollback gate to preserve full selector labels, got:\n%s", rq.SQL)
+	}
+}
+
+func TestAggregationByKeepsFullLabelsForRangeFunctions(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (rate(http_requests_total[5m]))`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsRange(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if strings.Contains(rq.SQL, "src.tags['job']") || !strings.Contains(rq.SQL, "mapKeys(src.tags)") {
+		t.Fatalf("expected range-function aggregation to preserve full per-series labels before rate, got:\n%s", rq.SQL)
 	}
 }
 

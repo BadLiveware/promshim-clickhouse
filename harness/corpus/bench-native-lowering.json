@@ -42,6 +42,13 @@
     "timeOffsetSeconds": 0
   },
   {
+    "name": "sum_by_instance_job_mode_instant",
+    "endpoint": "query",
+    "query": "sum by (instance, job, mode) (demo_cpu_usage_seconds_total)",
+    "category": "aggregation_high_cardinality",
+    "timeOffsetSeconds": 0
+  },
+  {
     "name": "rate_instant",
     "endpoint": "query",
     "query": "rate(demo_cpu_usage_seconds_total[5m])",
@@ -54,6 +61,14 @@
     "endpoint": "query",
     "query": "sum by (job) (rate(demo_cpu_usage_seconds_total[5m]))",
     "category": "instant_sum_rate",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  },
+  {
+    "name": "repeated_rate_average_instant",
+    "endpoint": "query",
+    "query": "(rate(demo_cpu_usage_seconds_total[5m]) + rate(demo_cpu_usage_seconds_total[5m])) / 2",
+    "category": "instant_repeated_subexpr",
     "timeOffsetSeconds": 0,
     "compareMode": "structural"
   },

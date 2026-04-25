@@ -16,6 +16,16 @@ const (
 	cbeCandidateUnknown              cbeCandidateID = "unknown"
 )
 
+type cbeRejectReason string
+
+const (
+	cbeRejectUnsupportedShape cbeRejectReason = "unsupported_shape"
+	cbeRejectPolicyIgnored    cbeRejectReason = "policy_ignored"
+	cbeRejectMissingEstimate  cbeRejectReason = "missing_estimate"
+	cbeRejectOverCap          cbeRejectReason = "over_cap"
+	cbeRejectNotEligible      cbeRejectReason = "not_eligible"
+)
+
 func attachCBECandidates(info *httpapi.RoutingInfo, mode local.NativeLoweringMode) {
 	if info == nil {
 		return
@@ -102,13 +112,13 @@ func applyCandidateGates(candidate *httpapi.ExecutionCandidate, info httpapi.Rou
 		candidate.Eligible = len(candidate.RejectReasons) == 0
 		return
 	}
-	candidate.RejectReasons = append(candidate.RejectReasons, "unsupported_shape")
+	candidate.RejectReasons = append(candidate.RejectReasons, string(cbeRejectUnsupportedShape))
 	candidate.Eligible = false
 }
 
 func firstCandidateRejectReason(candidate httpapi.ExecutionCandidate) string {
 	if len(candidate.RejectReasons) == 0 {
-		return "not_eligible"
+		return string(cbeRejectNotEligible)
 	}
 	return candidate.RejectReasons[0]
 }
@@ -123,13 +133,13 @@ func boolLabel(value bool) string {
 func candidateRejectReasons(candidate httpapi.ExecutionCandidate, info httpapi.RoutingInfo, mode local.NativeLoweringMode) []string {
 	var reasons []string
 	if mode == local.NativeLoweringModeForceSupported && candidate.ID != string(cbeCandidateNativeSQL) {
-		reasons = append(reasons, "policy_ignored")
+		reasons = append(reasons, string(cbeRejectPolicyIgnored))
 	}
 	if !info.EstimatesAvailable && candidate.ID != string(cbeCandidateWholeQueryDelegation) {
-		reasons = append(reasons, "missing_estimate")
+		reasons = append(reasons, string(cbeRejectMissingEstimate))
 	}
 	if len(info.CapHits) > 0 {
-		reasons = append(reasons, "over_cap")
+		reasons = append(reasons, string(cbeRejectOverCap))
 	}
 	return reasons
 }

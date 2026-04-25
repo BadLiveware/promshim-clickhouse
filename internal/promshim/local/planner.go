@@ -173,10 +173,12 @@ func BuildEntireQueryDelegatedPlan(expr parser.Expr) (Plan, *nativeplan.Analysis
 	if err != nil {
 		return nil, nil, err
 	}
-	logicalRoot, _, err = logicalopt.Optimize(logicalRoot, logicalopt.DefaultPasses)
+	logicalRoot, logicalAnalysis, trace, err := logicalopt.OptimizeWithTrace(logicalRoot, logicalopt.DefaultPassesForEnv())
 	if err != nil {
 		return nil, nil, err
 	}
+	_ = trace
+	_ = logicalAnalysis
 	analysis := nativeplan.Analyze(logicalRoot)
 	return annotateQueryPlan(&delegatedExprPlan{Expr: expr}, analysis.Root), analysis, nil
 }
@@ -186,7 +188,7 @@ func BuildPlanWithContextAndAnalysis(expr parser.Expr, ctx PlanContext) (Plan, *
 	if err != nil {
 		return nil, nil, err
 	}
-	logicalRoot, logicalAnalysis, err := logicalopt.Optimize(logicalRoot, logicalopt.DefaultPasses)
+	logicalRoot, logicalAnalysis, trace, err := logicalopt.OptimizeWithTrace(logicalRoot, logicalopt.DefaultPassesForEnv())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -203,22 +205,23 @@ func BuildPlanWithContextAndAnalysis(expr parser.Expr, ctx PlanContext) (Plan, *
 	// nativeSubtreePlan, thread the logical root + analysis in so
 	// execute() can drive SQL via renderer.Lower. Subtree-pushdown
 	// sites (tier 3a) leave these nil.
-	attachLogicalRootForLower(plan, logicalRoot, logicalAnalysis)
+	attachLogicalRootForLower(plan, logicalRoot, logicalAnalysis, trace)
 	return plan, analysis, nil
 }
 
 // attachLogicalRootForLower populates the LogicalRoot/LogicalAnalysis
 // fields on a top-level nativeSubtreePlan so execute() can route
 // through renderer.Lower. No-op if plan isn't a nativeSubtreePlan.
-func attachLogicalRootForLower(plan Plan, logical logicalPlan, logicalAnalysis *logicalpkg.Analysis) {
+func attachLogicalRootForLower(plan Plan, logical logicalPlan, logicalAnalysis *logicalpkg.Analysis, trace *logicalopt.Trace) {
 	if native, ok := plan.(*nativeSubtreePlan); ok {
 		native.LogicalRoot = logical
 		native.LogicalAnalysis = logicalAnalysis
+		native.LogicalOptimizationTrace = trace
 	}
 }
 
 func buildExecPlan(plan logicalPlan) (Plan, error) {
-	optimized, _, err := logicalopt.Optimize(plan, logicalopt.DefaultPasses)
+	optimized, _, err := logicalopt.Optimize(plan, logicalopt.DefaultPassesForEnv())
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +230,7 @@ func buildExecPlan(plan logicalPlan) (Plan, error) {
 }
 
 func buildExecPlanWithContext(plan logicalPlan, ctx PlanContext) (Plan, error) {
-	optimized, _, err := logicalopt.Optimize(plan, logicalopt.DefaultPasses)
+	optimized, _, err := logicalopt.Optimize(plan, logicalopt.DefaultPassesForEnv())
 	if err != nil {
 		return nil, err
 	}

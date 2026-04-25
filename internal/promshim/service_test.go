@@ -29,8 +29,9 @@ func TestQueryExplainReturnsDelegatedWholeQueryPlanWhenClassifierAllowsIt(t *tes
 	var body struct {
 		Status string `json:"status"`
 		Data   struct {
-			Mode string            `json:"mode"`
-			Plan local.ExplainNode `json:"plan"`
+			Mode                      string                `json:"mode"`
+			ClickHouseSettingsProfile struct{ Name string } `json:"clickHouseSettingsProfile"`
+			Plan                      local.ExplainNode     `json:"plan"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
@@ -47,6 +48,12 @@ func TestQueryExplainReturnsDelegatedWholeQueryPlanWhenClassifierAllowsIt(t *tes
 	}
 	if body.Data.Plan.Lowering == nil {
 		t.Fatalf("expected lowering metadata in explain response, got %#v", body.Data.Plan)
+	}
+	if got := res.Header().Get("X-Promshim-Settings-Profile"); got != "default_safe" {
+		t.Fatalf("settings profile header = %q, want default_safe", got)
+	}
+	if body.Data.ClickHouseSettingsProfile.Name != "default_safe" || body.Data.Plan.SettingsProfile == nil || body.Data.Plan.SettingsProfile.Name != "default_safe" {
+		t.Fatalf("expected default_safe settings provenance, got body=%#v plan=%#v", body.Data.ClickHouseSettingsProfile, body.Data.Plan.SettingsProfile)
 	}
 }
 
@@ -1444,4 +1451,76 @@ func TestRoutingMissingEstimateMetricExposed(t *testing.T) {
 	if !strings.Contains(metricsRes.Body.String(), "promshim_routing_estimate_missing_total") {
 		t.Fatalf("routing missing estimate metric not exposed:\n%s", metricsRes.Body.String())
 	}
+}
+
+func TestQueryExplainIncludesLogicalOptimizationMetadata(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=rate(up%7Bjob%3D%22api%22%7D%5B5m%5D)&time=300", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Plan struct {
+				LogicalOptimization struct {
+					Passes []struct {
+						Name        string   `json:"name"`
+						SkipReasons []string `json:"skipReasons"`
+						Metadata    struct {
+							PreservedInvariants []string `json:"preservedInvariants"`
+							ExpectedSignals     []string `json:"expectedSignals"`
+						} `json:"metadata"`
+					} `json:"passes"`
+					Selectors []struct {
+						Fingerprint             string   `json:"fingerprint"`
+						NormalizedMatchers      []string `json:"normalizedMatchers"`
+						ReuseBlockedReason      string   `json:"reuseBlockedReason"`
+						RequiredLookbackSeconds float64  `json:"requiredLookbackSeconds"`
+						RequiredLabels          []string `json:"requiredLabels"`
+					} `json:"selectors"`
+				} `json:"logicalOptimization"`
+			} `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	opt := body.Data.Plan.LogicalOptimization
+	if len(opt.Passes) == 0 || opt.Passes[0].Name != "constant_fold_unary_negation" {
+		t.Fatalf("logical pass trace missing: %+v", opt.Passes)
+	}
+	if len(opt.Passes[0].SkipReasons) == 0 || len(opt.Passes[0].Metadata.PreservedInvariants) == 0 || len(opt.Passes[0].Metadata.ExpectedSignals) == 0 {
+		t.Fatalf("logical pass metadata incomplete: %+v", opt.Passes[0])
+	}
+	if len(opt.Selectors) != 1 {
+		t.Fatalf("selector metadata count = %d, want 1", len(opt.Selectors))
+	}
+	selector := opt.Selectors[0]
+	if selector.Fingerprint == "" || selector.RequiredLookbackSeconds != 300 || selector.ReuseBlockedReason != "unique_selector" {
+		t.Fatalf("unexpected selector metadata: %+v", selector)
+	}
+	if !containsAll(selector.RequiredLabels, []string{"__name__", "job"}) {
+		t.Fatalf("required labels = %v, want __name__ and job", selector.RequiredLabels)
+	}
+}
+
+func containsAll(values, required []string) bool {
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		seen[value] = struct{}{}
+	}
+	for _, value := range required {
+		if _, ok := seen[value]; !ok {
+			return false
+		}
+	}
+	return true
 }

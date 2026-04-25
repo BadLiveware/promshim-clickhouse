@@ -42,7 +42,9 @@ func tryRenderFusedRangeAggregationLogical(ctx LoweringCtx, n *logicalpkg.Aggreg
 	}
 	emitZeroOnEmpty := aggInfo.Aggregation.EmitZeroOnEmpty
 
-	sql, queryParams, err := renderFusedRangeAggregationLogicalSQL(ctx, n)
+	childCtx := ctx
+	childCtx.Params = aggregationChildRenderParams(n, ctx.Params)
+	sql, queryParams, err := renderFusedRangeAggregationLogicalSQL(childCtx, n)
 	if err != nil {
 		return renderedFragment{}, false, err
 	}
@@ -73,7 +75,9 @@ func renderFusedRangeAggregationLogicalRowsSQL(ctx LoweringCtx, n *logicalpkg.Ag
 	if !canFuseRangeAggregationLogicalDirect(n, ctx.Params) {
 		return "", nil, fmt.Errorf("fused range aggregation rows (logical) require a supported aggregation plan")
 	}
-	rowsSQL, rowParams, err := renderRangeFunctionRowsLogicalSQL(ctx, n.Child)
+	childCtx := ctx
+	childCtx.Params = aggregationChildRenderParams(n, ctx.Params)
+	rowsSQL, rowParams, err := renderRangeFunctionRowsLogicalSQL(childCtx, n.Child)
 	if err != nil {
 		return "", nil, err
 	}

@@ -29,6 +29,38 @@ func (h *queryService) ClickHouseTransport() string {
 	return string(h.opts.ClickHouseTransport)
 }
 
+func hSettingsProfileConfig(opts Options) storage.SettingsProfileConfig {
+	return storage.SettingsProfileConfig{
+		Name:                opts.ClickHouseSettingsProfile,
+		ClickHouseVersion:   opts.ClickHouseVersion,
+		RequestTimeout:      opts.RequestTimeout,
+		MaxMemoryUsageBytes: opts.ClickHouseMaxMemoryUsageBytes,
+		MaxRowsToRead:       opts.ClickHouseMaxRowsToRead,
+		MaxResultRows:       opts.ClickHouseMaxResultRows,
+	}
+}
+
+func (h *queryService) applySettingsProfileProvenance(routing *httpapi.RoutingInfo, explain *local.ExplainNode) storage.SettingsProfileExplain {
+	family := ""
+	candidate := ""
+	if routing != nil {
+		family = routing.Class.Family
+		routing.SettingsProfile = storage.NormalizeSettingsProfileName(h.opts.ClickHouseSettingsProfile)
+		if routing.CandidateDecision != nil {
+			candidate = routing.CandidateDecision.ServedCandidate
+		}
+		for i := range routing.Candidates {
+			routing.Candidates[i].SettingsProfile = routing.SettingsProfile
+		}
+	}
+	resolution := storage.ResolveSettingsProfile(hSettingsProfileConfig(h.opts), "", family, candidate)
+	if explain != nil {
+		profile := resolution.Explain
+		explain.SettingsProfile = &profile
+	}
+	return resolution.Explain
+}
+
 func NewHandler(opts Options) (http.Handler, error) {
 	opts = normalizeOptions(opts)
 	client, err := storage.NewClient(storage.Config{
@@ -43,6 +75,7 @@ func NewHandler(opts Options) (http.Handler, error) {
 		MaxOpenConns:    opts.ClickHouseMaxOpenConns,
 		MaxIdleConns:    opts.ClickHouseMaxIdleConns,
 		ConnMaxLifetime: opts.ClickHouseConnMaxLifetime,
+		SettingsProfile: hSettingsProfileConfig(opts),
 	})
 	if err != nil {
 		return nil, err
@@ -101,6 +134,7 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 			}
 		}
 	}
+	settingsProfile := h.applySettingsProfileProvenance(&routing, &selectedExplain)
 	evalStart := time.Now()
 	value, err := h.evaluator.Evaluate(ctx, selectedPlan, local.EvalParams{Mode: local.EvalModeInstant, EvaluationTime: evaluationTime})
 	strictEvalDuration := time.Since(evalStart)
@@ -118,17 +152,18 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 		if err != nil {
 			return nil, local.ApiErrorToHTTP(local.NewExecutionErrorf("rendering instant query response: %v", err))
 		}
-		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, Routing: &routing, Body: map[string]any{
-			"status":                "success",
-			"nativeLoweringMode":    string(mode),
-			"clickHouseTransport":   h.ClickHouseTransport(),
-			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
-			"data":                  map[string]any{"resultType": resultType, "result": result},
-			"plan":                  selectedExplain,
-			"routing":               routing,
+		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Body: map[string]any{
+			"status":                    "success",
+			"nativeLoweringMode":        string(mode),
+			"clickHouseTransport":       h.ClickHouseTransport(),
+			"clickHouseSettingsProfile": settingsProfile,
+			"entireQueryDelegation":     h.entireQueryDelegationForQuery(req.Query),
+			"data":                      map[string]any{"resultType": resultType, "result": result},
+			"plan":                      selectedExplain,
+			"routing":                   routing,
 		}}, nil
 	}
-	return &httpapi.Response{Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, Routing: &routing, Stream: func(w http.ResponseWriter) error {
+	return &httpapi.Response{Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Stream: func(w http.ResponseWriter) error {
 		return httpapi.WritePromSuccessInstantValue(w, value)
 	}}, nil
 }
@@ -173,6 +208,7 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 			}
 		}
 	}
+	settingsProfile := h.applySettingsProfileProvenance(&routing, &selectedExplain)
 	evalStart := time.Now()
 	value, err := h.evaluator.Evaluate(ctx, selectedPlan, local.EvalParams{Mode: local.EvalModeRange, Start: start, End: end, Step: step})
 	strictEvalDuration := time.Since(evalStart)
@@ -190,17 +226,18 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 		if err != nil {
 			return nil, local.ApiErrorToHTTP(local.NewExecutionErrorf("rendering range query response: %v", err))
 		}
-		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, Routing: &routing, Body: map[string]any{
-			"status":                "success",
-			"nativeLoweringMode":    string(mode),
-			"clickHouseTransport":   h.ClickHouseTransport(),
-			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
-			"data":                  map[string]any{"resultType": resultType, "result": result},
-			"plan":                  selectedExplain,
-			"routing":               routing,
+		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Body: map[string]any{
+			"status":                    "success",
+			"nativeLoweringMode":        string(mode),
+			"clickHouseTransport":       h.ClickHouseTransport(),
+			"clickHouseSettingsProfile": settingsProfile,
+			"entireQueryDelegation":     h.entireQueryDelegationForQuery(req.Query),
+			"data":                      map[string]any{"resultType": resultType, "result": result},
+			"plan":                      selectedExplain,
+			"routing":                   routing,
 		}}, nil
 	}
-	return &httpapi.Response{Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, Routing: &routing, Stream: func(w http.ResponseWriter) error {
+	return &httpapi.Response{Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Stream: func(w http.ResponseWriter) error {
 		return httpapi.WritePromSuccessRangeValue(w, value)
 	}}, nil
 }
@@ -225,25 +262,27 @@ func (h *queryService) instantQueryShadow(ctx context.Context, req httpapi.Insta
 	}
 	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
 	routing := h.routingInfoForInstant(query, evaluationTime, local.NativeLoweringModeShadow, RoutingPolicyStrict, explain.Strategy)
+	settingsProfile := h.applySettingsProfileProvenance(&routing, &explain)
 	shadowReport := h.shadow.RunInstant(ctx, req, explain.Strategy, value, servedPlanDuration, servedEvalDuration)
 	if req.Explain {
 		resultType, result, err := httpapi.RenderInstantQueryValue(value)
 		if err != nil {
 			return nil, local.ApiErrorToHTTP(local.NewExecutionErrorf("rendering instant query response: %v", err))
 		}
-		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Routing: &routing, Body: map[string]any{
-			"status":                "success",
-			"nativeLoweringMode":    string(local.NativeLoweringModeShadow),
-			"clickHouseTransport":   h.ClickHouseTransport(),
-			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
-			"data":                  map[string]any{"resultType": resultType, "result": result},
-			"plan":                  explain,
-			"routing":               routing,
-			"shadow":                shadowReport,
-			"shadowSummary":         h.shadow.Summary(),
+		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Body: map[string]any{
+			"status":                    "success",
+			"nativeLoweringMode":        string(local.NativeLoweringModeShadow),
+			"clickHouseTransport":       h.ClickHouseTransport(),
+			"clickHouseSettingsProfile": settingsProfile,
+			"entireQueryDelegation":     h.entireQueryDelegationForQuery(req.Query),
+			"data":                      map[string]any{"resultType": resultType, "result": result},
+			"plan":                      explain,
+			"routing":                   routing,
+			"shadow":                    shadowReport,
+			"shadowSummary":             h.shadow.Summary(),
 		}}, nil
 	}
-	return &httpapi.Response{Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Routing: &routing, Stream: func(w http.ResponseWriter) error {
+	return &httpapi.Response{Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Stream: func(w http.ResponseWriter) error {
 		return httpapi.WritePromSuccessInstantValue(w, value)
 	}}, nil
 }
@@ -268,25 +307,27 @@ func (h *queryService) rangeQueryShadow(ctx context.Context, req httpapi.RangeQu
 	}
 	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
 	routing := h.routingInfoForRange(query, start, end, step, local.NativeLoweringModeShadow, RoutingPolicyStrict, explain.Strategy)
+	settingsProfile := h.applySettingsProfileProvenance(&routing, &explain)
 	shadowReport := h.shadow.RunRange(ctx, req, explain.Strategy, value, servedPlanDuration, servedEvalDuration)
 	if req.Explain {
 		resultType, result, err := httpapi.RenderRangeQueryValue(value)
 		if err != nil {
 			return nil, local.ApiErrorToHTTP(local.NewExecutionErrorf("rendering range query response: %v", err))
 		}
-		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Routing: &routing, Body: map[string]any{
-			"status":                "success",
-			"nativeLoweringMode":    string(local.NativeLoweringModeShadow),
-			"clickHouseTransport":   h.ClickHouseTransport(),
-			"entireQueryDelegation": h.entireQueryDelegationForQuery(req.Query),
-			"data":                  map[string]any{"resultType": resultType, "result": result},
-			"plan":                  explain,
-			"routing":               routing,
-			"shadow":                shadowReport,
-			"shadowSummary":         h.shadow.Summary(),
+		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Body: map[string]any{
+			"status":                    "success",
+			"nativeLoweringMode":        string(local.NativeLoweringModeShadow),
+			"clickHouseTransport":       h.ClickHouseTransport(),
+			"clickHouseSettingsProfile": settingsProfile,
+			"entireQueryDelegation":     h.entireQueryDelegationForQuery(req.Query),
+			"data":                      map[string]any{"resultType": resultType, "result": result},
+			"plan":                      explain,
+			"routing":                   routing,
+			"shadow":                    shadowReport,
+			"shadowSummary":             h.shadow.Summary(),
 		}}, nil
 	}
-	return &httpapi.Response{Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Routing: &routing, Stream: func(w http.ResponseWriter) error {
+	return &httpapi.Response{Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Stream: func(w http.ResponseWriter) error {
 		return httpapi.WritePromSuccessRangeValue(w, value)
 	}}, nil
 }
@@ -306,17 +347,19 @@ func (h *queryService) ExplainInstant(_ context.Context, req httpapi.InstantQuer
 	}
 	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
 	routing := h.routingInfoForInstant(query, evaluationTime, mode, policy, explain.Strategy)
-	return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Routing: &routing, Body: map[string]any{
+	settingsProfile := h.applySettingsProfileProvenance(&routing, &explain)
+	return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Body: map[string]any{
 		"status": "success",
 		"data": map[string]any{
-			"mode":                  string(local.EvalModeInstant),
-			"nativeLoweringMode":    string(mode),
-			"clickHouseTransport":   h.ClickHouseTransport(),
-			"entireQueryDelegation": h.entireQueryDelegationForQuery(query),
-			"query":                 query,
-			"evaluationTime":        evaluationTime.UTC().Format(time.RFC3339Nano),
-			"plan":                  explain,
-			"routing":               routing,
+			"mode":                      string(local.EvalModeInstant),
+			"nativeLoweringMode":        string(mode),
+			"clickHouseTransport":       h.ClickHouseTransport(),
+			"clickHouseSettingsProfile": settingsProfile,
+			"entireQueryDelegation":     h.entireQueryDelegationForQuery(query),
+			"query":                     query,
+			"evaluationTime":            evaluationTime.UTC().Format(time.RFC3339Nano),
+			"plan":                      explain,
+			"routing":                   routing,
 		},
 	}}, nil
 }
@@ -336,19 +379,21 @@ func (h *queryService) ExplainRange(_ context.Context, req httpapi.RangeQueryReq
 	}
 	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
 	routing := h.routingInfoForRange(query, start, end, step, mode, policy, explain.Strategy)
-	return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, Routing: &routing, Body: map[string]any{
+	settingsProfile := h.applySettingsProfileProvenance(&routing, &explain)
+	return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Body: map[string]any{
 		"status": "success",
 		"data": map[string]any{
-			"mode":                  string(local.EvalModeRange),
-			"nativeLoweringMode":    string(mode),
-			"clickHouseTransport":   h.ClickHouseTransport(),
-			"entireQueryDelegation": h.entireQueryDelegationForQuery(query),
-			"query":                 query,
-			"start":                 start.UTC().Format(time.RFC3339Nano),
-			"end":                   end.UTC().Format(time.RFC3339Nano),
-			"step":                  step.String(),
-			"plan":                  explain,
-			"routing":               routing,
+			"mode":                      string(local.EvalModeRange),
+			"nativeLoweringMode":        string(mode),
+			"clickHouseTransport":       h.ClickHouseTransport(),
+			"clickHouseSettingsProfile": settingsProfile,
+			"entireQueryDelegation":     h.entireQueryDelegationForQuery(query),
+			"query":                     query,
+			"start":                     start.UTC().Format(time.RFC3339Nano),
+			"end":                       end.UTC().Format(time.RFC3339Nano),
+			"step":                      step.String(),
+			"plan":                      explain,
+			"routing":                   routing,
 		},
 	}}, nil
 }

@@ -27,6 +27,7 @@ type Analysis struct {
 func Analyze(root Node) *Analysis {
 	a := &Analysis{Root: root, Info: map[Node]*NodeInfo{}}
 	a.walk(root)
+	a.FinalizeMetadata()
 	return a
 }
 

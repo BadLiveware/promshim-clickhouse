@@ -50,6 +50,21 @@ data.
 - Do not present server/operator tuning as a hidden correctness dependency for
   promshim routing or semantics.
 
+## Research-backed checklist patch (reference-profile authoring)
+
+- [ ] Add a short "first-party source pack" section in the final doc with links
+  to ClickHouse operator overview/repo, settings docs, EXPLAIN docs, and
+  query-log/system-table references.
+- [ ] For every recommended server/operator setting, include:
+  evidence label, expected validation signal, and where to measure it.
+- [ ] Add an explicit benchmark-context disclaimer in the final profile:
+  reference profile improves reproducibility but is not a correctness
+  prerequisite for promshim.
+- [ ] Add a "single-node vs distributed" applicability table so readers can see
+  which recommendations and benchmark conclusions are topology-dependent.
+- [ ] Keep a direct link to `outputs/post-cbe-optimization-opportunities.md`
+  (and provenance sidecar) as the research snapshot feeding this stage.
+
 ## Implementation tasks
 
 ### 1. Define the reference workload

@@ -41,6 +41,21 @@ strong enough.
 - External optimizer examples may inform structure, but PromQL semantics and the
   local IR contract decide what is valid.
 
+## Research-backed checklist patch (quick wins)
+
+- [ ] Add a two-pass rewrite pattern for families that need pre-analysis:
+  collect semantic facts first, then rewrite with explicit preconditions and
+  skip reasons.
+- [ ] Prioritize "always optimizations" first in this stage:
+  predicate pushdown, projection pruning metadata, and safe limit pushdown.
+- [ ] Require every pass that claims runtime benefit to define an executor-visible
+  validation signal (for example `SelectedRows`, `ReadCompressedBytes`,
+  `FunctionExecute`) and not just SQL text simplification.
+- [ ] Add plan-shape visibility hooks so pass outcomes can be cross-checked with
+  `EXPLAIN SYNTAX`/`EXPLAIN PLAN` evidence in stage-04 measurements.
+- [ ] Preserve result naming/shape invariants explicitly in tests whenever a pass
+  rewrites expressions, projections, or aliases.
+
 ## Implementation tasks
 
 ### 1. Add a pass framework for IR optimization

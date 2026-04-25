@@ -47,6 +47,20 @@ query-family measurements.
   `~/code/external/ClickHouse` checkout or versioned docs/source before they are
   added to promshim's allowlist.
 
+## Research-backed checklist patch (quick wins)
+
+- [ ] Implement profile selection entirely through query/session-level settings
+  layers first; do not depend on global server defaults for stage-03 behavior.
+- [ ] For each profile, record explicit fallback behavior when a setting is
+  unsupported or version-gated.
+- [ ] Make profile provenance mandatory in explain/metrics artifacts:
+  selected profile, applied settings, skipped settings, and reason codes.
+- [ ] Add a minimal safety-first profile (`default_safe`) before any aggressive
+  tuning profile, and gate all performance profiles on measured evidence.
+- [ ] For repeated selective workloads, evaluate query-condition-cache usage as a
+  measured experiment, while keeping result query cache off the default PromQL
+  path unless freshness constraints are explicitly addressed.
+
 ## Implementation tasks
 
 ### 1. Build the settings allowlist

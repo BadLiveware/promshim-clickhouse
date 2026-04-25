@@ -47,6 +47,20 @@ single tier win unconditionally.
   under `~/code/external/` for patterns and pitfalls, then document why the
   adopted approach fits promshim.
 
+## Research-backed checklist patch (family optimization contract)
+
+- [ ] Require each family change to include a mini evidence bundle:
+  strict baseline, optimized/shadow run, and at least one negative control
+  profile where route cliffs are likely.
+- [ ] Treat `EXPLAIN SYNTAX` + `EXPLAIN PLAN` + `EXPLAIN PIPELINE` as mandatory
+  for SQL-shape claims; do not accept p50-only wins.
+- [ ] For reuse/CSE work, require executor-visible reduction (`FunctionExecute`,
+  duplicate scan work, round trips), not shorter SQL text.
+- [ ] Keep vector-matching and histogram-sensitive families shadow-first until
+  differential correctness evidence is stable.
+- [ ] When route flips occur, require explicit strict/selected/served candidate
+  explanation and rollback gate in the family report.
+
 ## Ranked implementation queue
 
 Use this queue to decide what to build next. It is intentionally biased toward

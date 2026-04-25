@@ -1,0 +1,5 @@
+# Optimization negative/deferred results
+
+| Candidate ID | Date | Decision | Layer | Hypothesis | Artifacts | Failed/blocked signal | Retry condition |
+|---|---|---|---|---|---|---|---|
+| `native-prewhere-pruning-audit` | 2026-04-25 | deferred | native SQL lowering / measurement | Manual PREWHERE rewrite opportunities may exist for high-read native SQL shapes. | `harness/artifacts/ch-explain/native-prewhere-pruning-audit-selector/`; `harness/artifacts/ch-explain/native-prewhere-pruning-audit-agg-rate/`; `harness/artifacts/optimization-iterations/native-prewhere-pruning-audit/notes.md` | Sampled shapes already show active primary-key/prewhere pruning (`SelectQueriesWithPrimaryKeyUsage>0`, non-zero `RowsReadByPrewhereReaders`, and reduced `SelectedMarks` vs `SelectedMarksTotal`), so no bounded manual PREWHERE gap is proven. | Reopen only with fresh shape-specific captures showing weak/no pruning on high-read native SQL, or a bounded SQL shape where explicit PREWHERE reduces read/mark counters without semantic risk. |

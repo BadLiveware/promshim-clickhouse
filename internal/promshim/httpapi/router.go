@@ -25,6 +25,94 @@ type Response struct {
 	// where the concept does not apply (labels, series, label_values).
 	Strategy       string
 	FallbackReason string
+	Routing        *RoutingInfo
+}
+
+type EstimateState struct {
+	Source        string `json:"source"`
+	Fresh         bool   `json:"fresh"`
+	GeneratedAt   string `json:"generatedAt,omitempty"`
+	TTLSeconds    int64  `json:"ttlSeconds,omitempty"`
+	SelectorCount int    `json:"selectorCount,omitempty"`
+	Missing       int    `json:"missing,omitempty"`
+	Stale         int    `json:"stale,omitempty"`
+}
+
+type QueryCostClass struct {
+	Endpoint              string        `json:"endpoint"`
+	Family                string        `json:"family"`
+	RootStrategyStrict    string        `json:"rootStrategyStrict"`
+	OutputKind            string        `json:"outputKind"`
+	EstimateState         EstimateState `json:"estimateState"`
+	HasAggregation        bool          `json:"hasAggregation"`
+	HasRangeFunction      bool          `json:"hasRangeFunction"`
+	HasVectorJoin         bool          `json:"hasVectorJoin"`
+	HasHistogram          bool          `json:"hasHistogram"`
+	HasSubquery           bool          `json:"hasSubquery"`
+	HasLabelMutation      bool          `json:"hasLabelMutation"`
+	HasSelectionAgg       bool          `json:"hasSelectionAgg"`
+	DropsAllLabels        bool          `json:"dropsAllLabels"`
+	SelectorCount         int           `json:"selectorCount"`
+	EstimatedSeries       int64         `json:"estimatedSeries"`
+	EstimatedInputSamples int64         `json:"estimatedInputSamples"`
+	EstimatedOutputPoints int64         `json:"estimatedOutputPoints"`
+	RangePointsPerSeries  int64         `json:"rangePointsPerSeries"`
+	LookbackMS            int64         `json:"lookbackMs"`
+	StepMS                int64         `json:"stepMs"`
+	OverlapSlots          float64       `json:"overlapSlots"`
+	NativeRoundTrips      int           `json:"nativeRoundTrips"`
+	LocalRoundTrips       int           `json:"localRoundTrips"`
+}
+
+type RoutingCost struct {
+	Native float64 `json:"native"`
+	Local  float64 `json:"local"`
+	Unit   string  `json:"unit"`
+}
+
+type CandidateCost struct {
+	Value float64 `json:"value"`
+	Unit  string  `json:"unit"`
+}
+
+type ExecutionCandidate struct {
+	ID                 string         `json:"id"`
+	Tier               string         `json:"tier"`
+	Strategy           string         `json:"strategy"`
+	Family             string         `json:"family"`
+	Strict             bool           `json:"strict"`
+	Selected           bool           `json:"selected"`
+	Served             bool           `json:"served"`
+	Supported          bool           `json:"supported"`
+	KnownCorrect       bool           `json:"knownCorrect"`
+	Eligible           bool           `json:"eligible"`
+	RejectReasons      []string       `json:"rejectReasons,omitempty"`
+	EstimatesAvailable bool           `json:"estimatesAvailable"`
+	EstimatedCost      *CandidateCost `json:"estimatedCost,omitempty"`
+}
+
+type CandidateDecision struct {
+	StrictCandidate   string `json:"strictCandidate"`
+	SelectedCandidate string `json:"selectedCandidate"`
+	ServedCandidate   string `json:"servedCandidate"`
+}
+
+type RoutingInfo struct {
+	Policy             string               `json:"policy"`
+	StrictStrategy     string               `json:"strictStrategy"`
+	SelectedStrategy   string               `json:"selectedStrategy"`
+	WouldSelect        string               `json:"wouldSelect"`
+	Decision           string               `json:"decision"`
+	Reason             string               `json:"reason"`
+	EstimatesAvailable bool                 `json:"estimatesAvailable"`
+	MissingEstimates   []string             `json:"missingEstimates,omitempty"`
+	Cost               *RoutingCost         `json:"cost,omitempty"`
+	Caps               map[string]int64     `json:"caps,omitempty"`
+	CapHits            []string             `json:"capHits,omitempty"`
+	EnabledFamilies    []string             `json:"enabledFamilies,omitempty"`
+	CandidateDecision  *CandidateDecision   `json:"candidateDecision,omitempty"`
+	Candidates         []ExecutionCandidate `json:"candidates,omitempty"`
+	Class              QueryCostClass       `json:"class"`
 }
 
 type InstantQueryRequest struct {
@@ -32,6 +120,7 @@ type InstantQueryRequest struct {
 	Time               string
 	Explain            bool
 	NativeLoweringMode string
+	RoutingPolicy      string
 }
 
 type RangeQueryRequest struct {
@@ -41,6 +130,7 @@ type RangeQueryRequest struct {
 	Step               string
 	Explain            bool
 	NativeLoweringMode string
+	RoutingPolicy      string
 }
 
 type MetadataRequest struct {
@@ -111,6 +201,7 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 		Time:               r.URL.Query().Get("time"),
 		Explain:            wantsExplain(r),
 		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
+		RoutingPolicy:      r.URL.Query().Get("routing_policy"),
 	})
 	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
 }
@@ -124,6 +215,7 @@ func (h *Handler) handleQueryRange(w http.ResponseWriter, r *http.Request) {
 		Step:               r.URL.Query().Get("step"),
 		Explain:            wantsExplain(r),
 		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
+		RoutingPolicy:      r.URL.Query().Get("routing_policy"),
 	})
 	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
 }
@@ -135,6 +227,7 @@ func (h *Handler) handleQueryExplain(w http.ResponseWriter, r *http.Request) {
 		Time:               r.URL.Query().Get("time"),
 		Explain:            true,
 		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
+		RoutingPolicy:      r.URL.Query().Get("routing_policy"),
 	})
 	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
 }
@@ -148,6 +241,7 @@ func (h *Handler) handleQueryRangeExplain(w http.ResponseWriter, r *http.Request
 		Step:               r.URL.Query().Get("step"),
 		Explain:            true,
 		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
+		RoutingPolicy:      r.URL.Query().Get("routing_policy"),
 	})
 	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
 }
@@ -221,6 +315,21 @@ func setPromshimHeaders(w http.ResponseWriter, resp *Response, metrics *obs.CHMe
 	}
 	if resp.FallbackReason != "" {
 		w.Header().Set("X-Promshim-Fallback-Reason", resp.FallbackReason)
+	}
+	if resp.Routing != nil {
+		w.Header().Set("X-Promshim-Routing-Policy", resp.Routing.Policy)
+		w.Header().Set("X-Promshim-Routing-Decision", resp.Routing.Decision)
+		w.Header().Set("X-Promshim-Strict-Strategy", resp.Routing.StrictStrategy)
+		w.Header().Set("X-Promshim-Selected-Strategy", resp.Routing.SelectedStrategy)
+		w.Header().Set("X-Promshim-Routing-Reason", resp.Routing.Reason)
+		if resp.Routing.CandidateDecision != nil {
+			w.Header().Set("X-Promshim-Strict-Candidate", resp.Routing.CandidateDecision.StrictCandidate)
+			w.Header().Set("X-Promshim-Selected-Candidate", resp.Routing.CandidateDecision.SelectedCandidate)
+			w.Header().Set("X-Promshim-Served-Candidate", resp.Routing.CandidateDecision.ServedCandidate)
+		}
+		if resp.Routing.Class.Family != "" {
+			w.Header().Set("X-Promshim-Cost-Family", resp.Routing.Class.Family)
+		}
 	}
 	if clickHouseTransport != "" {
 		w.Header().Set("X-Promshim-CH-Transport", clickHouseTransport)

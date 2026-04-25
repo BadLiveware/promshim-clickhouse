@@ -83,6 +83,7 @@ type QuerySpec struct {
 	RangeStepMatrix       bool                      `json:"rangeStepMatrix,omitempty"`
 	Explain               bool                      `json:"explain,omitempty"`
 	NativeLoweringMode    string                    `json:"nativeLoweringMode,omitempty"`
+	RoutingPolicy         string                    `json:"routingPolicy,omitempty"`
 	ExpectedStatus        string                    `json:"expectedStatus,omitempty"`
 	ExpectedErrorType     string                    `json:"expectedErrorType,omitempty"`
 	ExpectedErrorContains string                    `json:"expectedErrorContains,omitempty"`

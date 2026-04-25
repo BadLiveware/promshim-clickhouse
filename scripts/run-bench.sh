@@ -37,6 +37,8 @@ Options:
   --no-baseline      Disable baseline discovery/gating for this run.
   --update-baseline  Rewrite the baseline file from this run's results.
   --shim-modes LIST  Comma-separated v2 shim modes, e.g. prefer,force_supported,off.
+  --routing-policies LIST
+                     Comma-separated routing_policy values for v2 reports, e.g. strict,cost_shadow.
   --include-prom BOOL Include Prometheus timing in v2 reports (default true).
   --artifact-name NAME
                      Artifact file name for v2 reports.
@@ -98,6 +100,7 @@ MATRIX=0
 LONG_RANGE=""
 EVAL_TIME=""
 SHIM_MODES=""
+ROUTING_POLICIES=""
 INCLUDE_PROM=""
 ARTIFACT_NAME=""
 RUN_LABELS=()
@@ -118,6 +121,7 @@ while [[ $# -gt 0 ]]; do
     --no-baseline)     NO_BASELINE=1; BASELINE=""; shift ;;
     --update-baseline) UPDATE_BASELINE=1; shift ;;
     --shim-modes)      SHIM_MODES="$2"; shift 2 ;;
+    --routing-policies) ROUTING_POLICIES="$2"; shift 2 ;;
     --include-prom)    INCLUDE_PROM="$2"; shift 2 ;;
     --artifact-name)   ARTIFACT_NAME="$2"; shift 2 ;;
     --run-label)       RUN_LABELS+=("$2"); shift 2 ;;
@@ -159,6 +163,7 @@ if [[ -n "$LONG_RANGE" ]]; then
       PASSTHROUGH+=(--repeats "$REPEATS" --warmup "$WARMUP" --ready-timeout "$READY_TIMEOUT" --prom-url "$PROM_URL" --shim-url "$SHIM_URL" --ch-url "$CH_URL" --ch-user "$CH_USER" --ch-password "$CH_PASSWORD" --artifact-dir "$ARTIFACT_DIR")
       if [[ -n "$BASELINE" ]];      then PASSTHROUGH+=(--baseline "$BASELINE"); fi
       if [[ -n "$SHIM_MODES" ]];    then PASSTHROUGH+=(--shim-modes "$SHIM_MODES"); fi
+      if [[ -n "$ROUTING_POLICIES" ]]; then PASSTHROUGH+=(--routing-policies "$ROUTING_POLICIES"); fi
       if [[ -n "$INCLUDE_PROM" ]];  then PASSTHROUGH+=("--include-prom=${INCLUDE_PROM}"); fi
       if [[ -n "$ARTIFACT_NAME" ]]; then PASSTHROUGH+=(--artifact-name "$ARTIFACT_NAME"); fi
       if [[ -n "$MEMORY_MODE" ]];   then PASSTHROUGH+=(--memory "$MEMORY_MODE"); fi
@@ -258,6 +263,9 @@ fi
 if [[ -n "$SHIM_MODES" ]]; then
   ARGS+=(--shim-modes "$SHIM_MODES")
 fi
+if [[ -n "$ROUTING_POLICIES" ]]; then
+  ARGS+=(--routing-policies "$ROUTING_POLICIES")
+fi
 if [[ -n "$INCLUDE_PROM" ]]; then
   ARGS+=("--include-prom=${INCLUDE_PROM}")
 fi
@@ -342,12 +350,16 @@ import json, pathlib, re, sys, urllib.parse, urllib.request
 ch_url, user, password, shim_url, report_path, output_path = sys.argv[1:7]
 report = json.loads(pathlib.Path(report_path).read_text())
 comments = []
+def safe_part(value):
+    return ''.join(c if c.isalnum() or c in '_.-' else '_' for c in str(value or '').strip()) or 'unknown'
 for row in report.get("rows", []):
-    name = row.get("name") or "unknown"
-    safe_name = ''.join(c if c.isalnum() or c in '_.-' else '_' for c in name.strip()) or 'unknown'
-    for mode in (row.get("shim") or {}).keys():
-        safe_mode = ''.join(c if c.isalnum() or c in '_.-' else '_' for c in mode.strip()) or 'unknown'
-        comments.append(f"promshim-bench query={safe_name} mode={safe_mode}")
+    safe_name = safe_part(row.get("name") or "unknown")
+    for mode_key, result in (row.get("shim") or {}).items():
+        mode = result.get("nativeLoweringMode") or mode_key.split('@', 1)[0]
+        comment = f"promshim-bench query={safe_name} mode={safe_part(mode)}"
+        if result.get("routingPolicy"):
+            comment += f" policy={safe_part(result.get('routingPolicy'))}"
+        comments.append(comment)
 comments = sorted(set(comments))
 summary = {"schemaVersion": 1, "sourceReport": str(pathlib.Path(report_path)), "clickhouseURL": ch_url, "promshimURL": shim_url, "clickHouseQueryLog": [], "promshimMetricsAfter": {}, "errors": []}
 try:

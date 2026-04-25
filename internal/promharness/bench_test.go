@@ -43,8 +43,17 @@ func TestParseHeaders(t *testing.T) {
 	h.Set("X-Promshim-Fallback-Reason", "")
 	h.Set("X-Promshim-CH-Roundtrips", "7")
 	h.Set("X-Promshim-CH-Millis", "42")
+	h.Set("X-Promshim-Routing-Policy", "strict")
+	h.Set("X-Promshim-Routing-Decision", "strict")
+	h.Set("X-Promshim-Routing-Reason", "strict_policy")
+	h.Set("X-Promshim-Strict-Strategy", "native_sql")
+	h.Set("X-Promshim-Selected-Strategy", "native_sql")
+	h.Set("X-Promshim-Strict-Candidate", "native_sql")
+	h.Set("X-Promshim-Selected-Candidate", "native_sql")
+	h.Set("X-Promshim-Served-Candidate", "native_sql")
+	h.Set("X-Promshim-Cost-Family", "selector")
 	got := parseHeaders(h)
-	want := headerSample{strategy: "native_sql", fallbackReason: "", roundtrips: 7, millis: 42}
+	want := headerSample{strategy: "native_sql", fallbackReason: "", roundtrips: 7, millis: 42, routingPolicy: "strict", routingDecision: "strict", routingReason: "strict_policy", strictStrategy: "native_sql", selectedStrategy: "native_sql", strictCandidate: "native_sql", selectedCandidate: "native_sql", servedCandidate: "native_sql", costFamily: "selector"}
 	if got != want {
 		t.Fatalf("parseHeaders = %+v, want %+v", got, want)
 	}
@@ -52,7 +61,7 @@ func TestParseHeaders(t *testing.T) {
 
 func TestParseHeadersMissingDefaults(t *testing.T) {
 	got := parseHeaders(http.Header{})
-	if got.strategy != "" || got.roundtrips != 0 || got.millis != 0 {
+	if got.strategy != "" || got.roundtrips != 0 || got.millis != 0 || got.routingPolicy != "" {
 		t.Fatalf("expected zero-value on empty headers, got %+v", got)
 	}
 }
@@ -176,6 +185,15 @@ func TestRunBenchV2ModesAndLabels(t *testing.T) {
 		case "prefer":
 			w.Header().Set("X-Promshim-Strategy", "delegated_promql")
 			w.Header().Set("X-Promshim-CH-Roundtrips", "1")
+			w.Header().Set("X-Promshim-Routing-Policy", "strict")
+			w.Header().Set("X-Promshim-Routing-Decision", "strict")
+			w.Header().Set("X-Promshim-Routing-Reason", "strict_policy")
+			w.Header().Set("X-Promshim-Strict-Strategy", "delegated_promql")
+			w.Header().Set("X-Promshim-Selected-Strategy", "delegated_promql")
+			w.Header().Set("X-Promshim-Strict-Candidate", "whole_query_delegation")
+			w.Header().Set("X-Promshim-Selected-Candidate", "whole_query_delegation")
+			w.Header().Set("X-Promshim-Served-Candidate", "whole_query_delegation")
+			w.Header().Set("X-Promshim-Cost-Family", "selector")
 		case "force_supported":
 			w.Header().Set("X-Promshim-Strategy", "native_sql")
 			w.Header().Set("X-Promshim-CH-Roundtrips", "2")
@@ -232,6 +250,21 @@ func TestRunBenchV2ModesAndLabels(t *testing.T) {
 	if got := row.Shim["prefer"].Strategy; got != "delegated_promql" {
 		t.Fatalf("prefer strategy = %q", got)
 	}
+	if got := row.Shim["prefer"].RoutingPolicy; got != "strict" {
+		t.Fatalf("prefer routing policy = %q", got)
+	}
+	if got := row.Shim["prefer"].CostFamily; got != "selector" {
+		t.Fatalf("prefer cost family = %q", got)
+	}
+	if got := row.Shim["prefer"].StrictCandidate; got != "whole_query_delegation" {
+		t.Fatalf("prefer strict candidate = %q", got)
+	}
+	if got := row.Shim["prefer"].SelectedCandidate; got != "whole_query_delegation" {
+		t.Fatalf("prefer selected candidate = %q", got)
+	}
+	if got := row.Shim["prefer"].ServedCandidate; got != "whole_query_delegation" {
+		t.Fatalf("prefer served candidate = %q", got)
+	}
 	if got := row.Shim["force_supported"].CHRoundtrips; got != 2 {
 		t.Fatalf("force_supported roundtrips = %d", got)
 	}
@@ -246,9 +279,9 @@ func TestRunBenchV2ModesAndLabels(t *testing.T) {
 	}
 }
 
-func TestBenchLogCommentIncludesQueryAndMode(t *testing.T) {
-	comment := benchLogComment(QuerySpec{Name: "sum rate/by job", NativeLoweringMode: "force_supported"})
-	if comment != "promshim-bench query=sum_rate_by_job mode=force_supported" {
+func TestBenchLogCommentIncludesQueryModeAndPolicy(t *testing.T) {
+	comment := benchLogComment(QuerySpec{Name: "sum rate/by job", NativeLoweringMode: "force_supported", RoutingPolicy: "cost_shadow"})
+	if comment != "promshim-bench query=sum_rate_by_job mode=force_supported policy=cost_shadow" {
 		t.Fatalf("comment = %q", comment)
 	}
 	promComment := benchLogComment(QuerySpec{Name: "up"})
@@ -343,5 +376,42 @@ func TestSafeRatio(t *testing.T) {
 	}
 	if math.IsNaN(safeRatio(1, 1)) {
 		t.Fatal("safeRatio produced NaN")
+	}
+}
+
+func TestRunBenchV2RoutingPolicyAxis(t *testing.T) {
+	shimServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		policy := r.URL.Query().Get("routing_policy")
+		w.Header().Set("X-Promshim-Strategy", "native_sql")
+		w.Header().Set("X-Promshim-Routing-Policy", policy)
+		w.Header().Set("X-Promshim-Routing-Decision", "strict")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "success"})
+	}))
+	defer shimServer.Close()
+
+	corpusPath := filepath.Join(t.TempDir(), "corpus.json")
+	payload, _ := json.Marshal([]QuerySpec{{Name: "t", Endpoint: "query", Query: "up"}})
+	_ = os.WriteFile(corpusPath, payload, 0o644)
+
+	report, err := RunBenchV2(BenchConfig{
+		ShimURL:         shimServer.URL,
+		CorpusPath:      corpusPath,
+		Repeats:         1,
+		WarmupRepeats:   0,
+		ShimModes:       []string{"prefer"},
+		RoutingPolicies: []string{"strict", "cost_shadow"},
+		IncludeProm:     false,
+		IncludePromSet:  true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := report.Rows[0]
+	if row.Shim["prefer"].RoutingPolicy != "strict" {
+		t.Fatalf("strict policy result missing: %+v", row.Shim)
+	}
+	if row.Shim["prefer@cost_shadow"].RoutingPolicy != "cost_shadow" {
+		t.Fatalf("cost_shadow policy result missing: %+v", row.Shim)
 	}
 }

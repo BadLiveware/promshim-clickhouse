@@ -49,21 +49,22 @@ func (f runLabelFlags) Set(value string) error {
 
 func main() {
 	var (
-		corpusPath     = flag.String("corpus", "harness/corpus/bench-native-lowering.json", "Path to bench corpus JSON.")
-		artifactDir    = flag.String("artifact-dir", "harness/artifacts", "Directory to write bench report artifacts.")
-		artifactName   = flag.String("artifact-name", "bench-report.json", "Artifact file name for v2 reports (default bench-report.json when v2 is enabled).")
-		repeats        = flag.Int("repeats", 10, "Timed repeats per (query, mode).")
-		warmup         = flag.Int("warmup", 2, "Warmup repeats per (query, mode), discarded.")
-		baselinePath   = flag.String("baseline", "", "Optional baseline bench report for regression comparison.")
-		updateBaseline = flag.Bool("update-baseline", false, "Rewrite the baseline file from this run's results.")
-		promURL        = flag.String("prom-url", "http://localhost:29090", "Prometheus base URL.")
-		shimURL        = flag.String("shim-url", "http://localhost:29091", "promshim base URL.")
-		timeoutFlag    = flag.Duration("timeout", 30*time.Second, "Per-request HTTP timeout.")
-		evalTime       = flag.String("eval-time", "2026-04-21T21:45:42Z", "Bench evaluation time (manifest base). Corpus offsets are interpreted relative to this. Match the compliance fixture's end_time.")
-		shimModes      = flag.String("shim-modes", "", "Comma-separated shim native_lowering_mode values for v2 reports, e.g. prefer,force_supported,off.")
-		includeProm    = flag.Bool("include-prom", true, "Include Prometheus baseline timing in v2 reports.")
-		memoryMode     = flag.String("memory", "off", "Memory capture mode placeholder: off|summary|detailed. Detailed capture lands in a later sweep phase.")
-		legacyReport   = flag.Bool("legacy-report", false, "Force legacy v1 bench report output even when v2 flags are present.")
+		corpusPath      = flag.String("corpus", "harness/corpus/bench-native-lowering.json", "Path to bench corpus JSON.")
+		artifactDir     = flag.String("artifact-dir", "harness/artifacts", "Directory to write bench report artifacts.")
+		artifactName    = flag.String("artifact-name", "bench-report.json", "Artifact file name for v2 reports (default bench-report.json when v2 is enabled).")
+		repeats         = flag.Int("repeats", 10, "Timed repeats per (query, mode).")
+		warmup          = flag.Int("warmup", 2, "Warmup repeats per (query, mode), discarded.")
+		baselinePath    = flag.String("baseline", "", "Optional baseline bench report for regression comparison.")
+		updateBaseline  = flag.Bool("update-baseline", false, "Rewrite the baseline file from this run's results.")
+		promURL         = flag.String("prom-url", "http://localhost:29090", "Prometheus base URL.")
+		shimURL         = flag.String("shim-url", "http://localhost:29091", "promshim base URL.")
+		timeoutFlag     = flag.Duration("timeout", 30*time.Second, "Per-request HTTP timeout.")
+		evalTime        = flag.String("eval-time", "2026-04-21T21:45:42Z", "Bench evaluation time (manifest base). Corpus offsets are interpreted relative to this. Match the compliance fixture's end_time.")
+		shimModes       = flag.String("shim-modes", "", "Comma-separated shim native_lowering_mode values for v2 reports, e.g. prefer,force_supported,off.")
+		routingPolicies = flag.String("routing-policies", "", "Comma-separated routing_policy values for v2 reports, e.g. strict,cost_shadow.")
+		includeProm     = flag.Bool("include-prom", true, "Include Prometheus baseline timing in v2 reports.")
+		memoryMode      = flag.String("memory", "off", "Memory capture mode placeholder: off|summary|detailed. Detailed capture lands in a later sweep phase.")
+		legacyReport    = flag.Bool("legacy-report", false, "Force legacy v1 bench report output even when v2 flags are present.")
 	)
 	runLabels := runLabelFlags{}
 	flag.Var(runLabels, "run-label", "Run label for v2 reports, repeated as KEY=VALUE.")
@@ -82,26 +83,28 @@ func main() {
 	}
 
 	modeList := splitCSV(*shimModes)
-	useV2 := len(modeList) > 0 || includePromSet || len(runLabels) > 0 || *artifactName != "bench-report.json" || *memoryMode != "off"
+	routingPolicyList := splitCSV(*routingPolicies)
+	useV2 := len(modeList) > 0 || len(routingPolicyList) > 0 || includePromSet || len(runLabels) > 0 || *artifactName != "bench-report.json" || *memoryMode != "off"
 	if *legacyReport {
 		useV2 = false
 	}
 	if useV2 {
 		report, err := promharness.RunBenchV2(promharness.BenchConfig{
-			PromURL:        *promURL,
-			ShimURL:        *shimURL,
-			CorpusPath:     *corpusPath,
-			ArtifactDir:    *artifactDir,
-			ArtifactName:   *artifactName,
-			Manifest:       promharness.Manifest{BaseUnixSeconds: base.Unix()},
-			Repeats:        *repeats,
-			WarmupRepeats:  *warmup,
-			Timeout:        *timeoutFlag,
-			ShimModes:      modeList,
-			IncludeProm:    *includeProm,
-			IncludePromSet: includePromSet,
-			RunLabels:      map[string]string(runLabels),
-			MemoryMode:     *memoryMode,
+			PromURL:         *promURL,
+			ShimURL:         *shimURL,
+			CorpusPath:      *corpusPath,
+			ArtifactDir:     *artifactDir,
+			ArtifactName:    *artifactName,
+			Manifest:        promharness.Manifest{BaseUnixSeconds: base.Unix()},
+			Repeats:         *repeats,
+			WarmupRepeats:   *warmup,
+			Timeout:         *timeoutFlag,
+			ShimModes:       modeList,
+			RoutingPolicies: routingPolicyList,
+			IncludeProm:     *includeProm,
+			IncludePromSet:  includePromSet,
+			RunLabels:       map[string]string(runLabels),
+			MemoryMode:      *memoryMode,
 		})
 		if err != nil {
 			fail("RunBenchV2: %v", err)
@@ -196,7 +199,7 @@ func printTable(report promharness.BenchReport) {
 
 func printTableV2(report promharness.BenchReportV2) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "QUERY\tENDPOINT\tMODE\tSTRATEGY\tCH_RT\tCH_MS\tPROM_P50\tPROM_BAND\tSHIM_P50\tS/P\tNOTE")
+	fmt.Fprintln(w, "QUERY\tENDPOINT\tMODE\tROUTING\tSTRATEGY\tCH_RT\tCH_MS\tPROM_P50\tPROM_BAND\tSHIM_P50\tS/P\tNOTE")
 	for _, row := range report.Rows {
 		promP50 := 0.0
 		if row.Prom != nil {
@@ -216,10 +219,11 @@ func printTableV2(report promharness.BenchReportV2) {
 			if result.Error != "" {
 				note = "err: " + result.Error
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%d\t%.2f\t%s\t%.2f\t%.2f\t%s\n",
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%d\t%.2f\t%s\t%.2f\t%.2f\t%s\n",
 				truncate(row.Name, 44),
 				row.Endpoint,
 				mode,
+				routingPolicyForPrint(result.RoutingPolicy),
 				result.Strategy,
 				result.CHRoundtrips,
 				result.CHMillis,
@@ -256,6 +260,13 @@ func splitCSV(value string) []string {
 		}
 	}
 	return out
+}
+
+func routingPolicyForPrint(policy string) string {
+	if strings.TrimSpace(policy) == "" {
+		return "n/a"
+	}
+	return policy
 }
 
 func safePrintRatio(num, den float64) float64 {

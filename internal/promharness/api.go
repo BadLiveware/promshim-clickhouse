@@ -106,6 +106,9 @@ func buildQueryURL(baseURL string, manifest Manifest, spec QuerySpec) (string, e
 	if mode := strings.TrimSpace(spec.NativeLoweringMode); mode != "" {
 		query.Set("native_lowering_mode", mode)
 	}
+	if policy := strings.TrimSpace(spec.RoutingPolicy); policy != "" {
+		query.Set("routing_policy", policy)
+	}
 	switch spec.Endpoint {
 	case "query":
 		parsed.Path = "/api/v1/query"

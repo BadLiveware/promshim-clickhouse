@@ -484,7 +484,7 @@ func recommend(class calibrationClass) (string, []string) {
 	if strings.Contains(family, "range") || strings.Contains(family, "subquery") || strings.Contains(family, "aggregation") || class.LocalNativeRatioMedian >= 1.0 {
 		return "native_required", []string{fmt.Sprintf("native remains preferred for family; local/native median %.2f", class.LocalNativeRatioMedian)}
 	}
-	if class.LocalNativeRatioMedian <= 0.70 && (strings.Contains(family, "selector") || strings.Contains(family, "rate") || strings.Contains(family, "histogram")) {
+	if class.LocalNativeRatioMedian <= 0.70 && (strings.Contains(family, "selector") || strings.Contains(family, "rate") || strings.Contains(family, "increase") || strings.Contains(family, "histogram")) {
 		return "local_candidate", []string{fmt.Sprintf("local/native median %.2f <= 0.70 for bounded candidate family", class.LocalNativeRatioMedian)}
 	}
 	return "insufficient_data", []string{fmt.Sprintf("no initial rule for local/native median %.2f", class.LocalNativeRatioMedian)}

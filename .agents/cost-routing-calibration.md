@@ -1,6 +1,6 @@
 # Cost routing calibration
 
-Generated: `2026-04-25T16:36:55Z`
+Generated: `2026-04-25T18:14:07Z`
 
 ## Sources
 
@@ -40,7 +40,7 @@ Generated: `2026-04-25T16:36:55Z`
   - coverage: no cost_prefer rows in class; candidate headers missing in class rows
 | histogram_quantile | 7d | sparse | default_safe | promshim-ch-timeseries-reference-v1 | 1 | 159.69 | — | — | — | — | — | — | 0 | low | insufficient_data | insufficient candidate data: native/local pair missing and no cost_prefer rows |
   - coverage: no cost_prefer rows in class; candidate headers missing in class rows
-| increase | 7d | sparse | default_safe | — | 1 | 48.61 | 9.85 | — | 0.20 | — | — | — | 0 | low | insufficient_data | no initial rule for local/native median 0.20 |
+| increase | 7d | sparse | default_safe | — | 1 | 48.61 | 9.85 | — | 0.20 | — | — | — | 0 | low | local_candidate | local/native median 0.20 <= 0.70 for bounded candidate family |
   - coverage: no cost_prefer rows in class; candidate headers missing in class rows
 | increase | 7d | sparse | benchmark_control | promshim-ch-timeseries-reference-v1 | 1 | 47.98 | — | — | — | — | — | — | 0 | low | insufficient_data | insufficient candidate data: native/local pair missing and no cost_prefer rows |
   - coverage: no cost_prefer rows in class; candidate headers missing in class rows

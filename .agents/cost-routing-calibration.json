@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-04-25T16:36:55Z",
+  "generatedAt": "2026-04-25T18:14:07Z",
   "sources": [
     {
       "sweepName": "promshim-optimization-foundation-7d-sparse",
@@ -316,14 +316,14 @@
       "localP50MedianMs": 9.846,
       "promP50MedianMs": 0.397,
       "localNativeRatioMedian": 0.2025550823921496,
-      "recommendation": "insufficient_data",
+      "recommendation": "local_candidate",
       "confidence": "low",
       "coverageNotes": [
         "no cost_prefer rows in class",
         "candidate headers missing in class rows"
       ],
       "reasons": [
-        "no initial rule for local/native median 0.20"
+        "local/native median 0.20 \u003c= 0.70 for bounded candidate family"
       ],
       "memory": {
         "selectedRowsMedian": 830824488,

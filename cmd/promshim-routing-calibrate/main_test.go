@@ -128,6 +128,14 @@ func TestCalibrationKeepsSettingsProfilesSeparate(t *testing.T) {
 	}
 }
 
+func TestRecommendIncludesIncreaseLocalCandidate(t *testing.T) {
+	class := calibrationClass{Family: "increase", NativeP50MedianMS: 10, LocalP50MedianMS: 2, LocalNativeRatioMedian: 0.2}
+	recommendation, reasons := recommend(class)
+	if recommendation != "local_candidate" {
+		t.Fatalf("recommendation=%q reasons=%v, want local_candidate", recommendation, reasons)
+	}
+}
+
 func TestRecommendKeepsRangeRateNativeRequired(t *testing.T) {
 	class := calibrationClass{Family: "range_rate", NativeP50MedianMS: 10, LocalP50MedianMS: 5, LocalNativeRatioMedian: 0.5}
 	recommendation, reasons := recommend(class)

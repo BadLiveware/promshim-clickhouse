@@ -95,6 +95,15 @@ func TestOptimizeWithTraceRecordsMetadataAndSkipReasons(t *testing.T) {
 	if got.Name != "described_noop" || got.Applied || len(got.SkipReasons) != 1 || got.SkipReasons[0] != "no_matching_subtree" {
 		t.Fatalf("unexpected pass result: %+v", got)
 	}
+	if got.InspectedNodes <= 0 {
+		t.Fatalf("inspected nodes not recorded: %+v", got)
+	}
+	if got.OptimizerTimeMicros <= 0 {
+		t.Fatalf("optimizer time must be positive: %+v", got)
+	}
+	if got.BeforeFingerprint == "" || got.AfterFingerprint == "" || got.BeforeFingerprint != got.AfterFingerprint {
+		t.Fatalf("unexpected fingerprints for no-op pass: %+v", got)
+	}
 	if len(got.Metadata.Families) != 1 || got.Metadata.Families[0] != "selector" {
 		t.Fatalf("metadata not preserved: %+v", got.Metadata)
 	}

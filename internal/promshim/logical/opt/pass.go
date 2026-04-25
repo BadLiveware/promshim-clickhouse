@@ -1,9 +1,12 @@
 package opt
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 )
@@ -21,11 +24,15 @@ type PassMetadata struct {
 }
 
 type PassResult struct {
-	Name        string       `json:"name"`
-	Iteration   int          `json:"iteration"`
-	Applied     bool         `json:"applied"`
-	SkipReasons []string     `json:"skipReasons,omitempty"`
-	Metadata    PassMetadata `json:"metadata"`
+	Name              string       `json:"name"`
+	Iteration         int          `json:"iteration"`
+	Applied           bool         `json:"applied"`
+	SkipReasons       []string     `json:"skipReasons,omitempty"`
+	InspectedNodes    int          `json:"inspectedNodes,omitempty"`
+	OptimizerTimeMicros int64      `json:"optimizerTimeMicros,omitempty"`
+	BeforeFingerprint string       `json:"beforeFingerprint,omitempty"`
+	AfterFingerprint  string       `json:"afterFingerprint,omitempty"`
+	Metadata          PassMetadata `json:"metadata"`
 }
 
 type Trace struct {
@@ -95,13 +102,32 @@ func OptimizeWithTrace(root logical.Node, passes []Pass) (logical.Node, *logical
 		changed := false
 		for _, p := range passes {
 			metadata := passMetadata(p)
+			beforeFingerprint := logicalFingerprint(root)
+			beforeNodes := inspectedNodeCount(analysis)
+			started := time.Now()
 			next, didChange, err := p.Apply(root, analysis)
+			elapsedMicros := time.Since(started).Microseconds()
+			if elapsedMicros == 0 {
+				elapsedMicros = 1
+			}
 			if err != nil {
 				return nil, nil, trace, fmt.Errorf("opt: pass %q: %w", p.Name(), err)
 			}
-			result := PassResult{Name: p.Name(), Iteration: iter + 1, Applied: didChange, Metadata: metadata}
+			result := PassResult{
+				Name:               p.Name(),
+				Iteration:          iter + 1,
+				Applied:            didChange,
+				InspectedNodes:     beforeNodes,
+				OptimizerTimeMicros: elapsedMicros,
+				BeforeFingerprint:  beforeFingerprint,
+				AfterFingerprint:   beforeFingerprint,
+				Metadata:           metadata,
+			}
 			if !didChange {
 				result.SkipReasons = []string{"no_matching_subtree"}
+			}
+			if didChange {
+				result.AfterFingerprint = logicalFingerprint(next)
 			}
 			trace.Passes = append(trace.Passes, result)
 			if didChange {
@@ -131,4 +157,27 @@ func passMetadata(pass Pass) PassMetadata {
 // DefaultPasses is the canonical ordered pass list applied to every query.
 var DefaultPasses = []Pass{
 	constantFoldUnaryNegation{},
+}
+
+func inspectedNodeCount(analysis *logical.Analysis) int {
+	if analysis == nil {
+		return 0
+	}
+	return len(analysis.Info)
+}
+
+func logicalFingerprint(node logical.Node) string {
+	if node == nil {
+		return ""
+	}
+	described, ok := node.(interface{ ExprString() string })
+	if !ok {
+		return ""
+	}
+	expr := described.ExprString()
+	if expr == "" {
+		return ""
+	}
+	sum := sha1.Sum([]byte(expr))
+	return hex.EncodeToString(sum[:])[:12]
 }

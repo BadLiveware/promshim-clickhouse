@@ -948,6 +948,38 @@ func TestQueryExplainHonorsNativeLoweringModeOff(t *testing.T) {
 	}
 }
 
+func TestQueryRangeExplainPreferUsesNativeAggregationOverRangeFunction(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	url := "/api/v1/query_range_explain?query=sum%20by%20(job)%20(rate(up%5B5m%5D))&start=0&end=300&step=30&native_lowering_mode=prefer"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200 for prefer range aggregation explain, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			NativeLoweringMode string            `json:"nativeLoweringMode"`
+			Plan               local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.NativeLoweringMode != string(local.NativeLoweringModePrefer) {
+		t.Fatalf("expected prefer mode in explain response, got %#v", body.Data)
+	}
+	if body.Data.Plan.Strategy != "native_sql" {
+		t.Fatalf("expected native_sql plan for prefer range aggregation, got %#v", body.Data.Plan)
+	}
+}
+
 func TestQueryRangeExplainForceSupportedAllowsAnchoredAggregationRoot(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {

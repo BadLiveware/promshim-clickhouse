@@ -300,7 +300,12 @@ func maybeBuildNativeAggregationPlan(node *logicalAggregationPlan, ctx PlanConte
 		return nil, false, nil
 	}
 	decision := decideNativeAggregationPushdownFromAnalysis(node, analysis, ctx)
-	if !decision.Eligible && !ctx.NativeLoweringMode.ForcesNativeRoot() {
+	canRenderNativeAggregation := ctx.PreferNativeAggregationPushdown && info.Aggregation != nil && info.Aggregation.Eligible
+	// decision only describes tier-3 source-view pushdown eligibility. Full
+	// native aggregation rendering also supports sources such as rate() that do
+	// not expose an Aggregation.SourceView, but it must still respect request
+	// contexts that deliberately disable native aggregation pushdown.
+	if !decision.Eligible && !ctx.NativeLoweringMode.ForcesNativeRoot() && !canRenderNativeAggregation {
 		return nil, false, nil
 	}
 	optimized, err := nativeplan.OptimizeFromInfo(info, node, analysis, nativeplan.OptimizationContext{
@@ -326,7 +331,7 @@ func maybeBuildNativeAggregationPlan(node *logicalAggregationPlan, ctx PlanConte
 		children = buildNativeSubtreeChildren(info)
 	}
 	reason := decision.Reason
-	if reason == "" || ctx.NativeLoweringMode.ForcesNativeRoot() && !decision.Eligible {
+	if reason == "" || !decision.Eligible {
 		reason = info.NativeReason
 	}
 	return newNativeSubtreePlan("aggregation", node.ExprString(), reason, estimateRangePlan(ctx), children, optimized, analysis.InfoFor(node), node, analysis), true, nil

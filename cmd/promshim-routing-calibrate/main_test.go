@@ -137,9 +137,9 @@ func TestReadBenchReportIgnoresUnrelatedModeStrategyFlaps(t *testing.T) {
 				"endpoint": "query",
 				"category": "rate",
 				"shim": map[string]any{
-					"prefer": map[string]any{"p50Ms": 40.0, "strategy": "native_sql", "routingPolicy": "strict", "costFamily": "rate"},
-					"off": map[string]any{"p50Ms": 15.0, "strategy": "local", "routingPolicy": "strict", "costFamily": "rate"},
-					"force_supported": map[string]any{"p50Ms": 39.0, "strategy": "native_sql", "routingPolicy": "strict", "costFamily": "rate", "strategyFlap": true},
+					"prefer":             map[string]any{"p50Ms": 40.0, "strategy": "native_sql", "routingPolicy": "strict", "costFamily": "rate"},
+					"off":                map[string]any{"p50Ms": 15.0, "strategy": "local", "routingPolicy": "strict", "costFamily": "rate"},
+					"force_supported":    map[string]any{"p50Ms": 39.0, "strategy": "native_sql", "routingPolicy": "strict", "costFamily": "rate", "strategyFlap": true},
 					"prefer@cost_prefer": map[string]any{"p50Ms": 16.0, "strategy": "local", "routingPolicy": "cost_prefer", "costFamily": "rate", "strictCandidate": "native_sql", "selectedCandidate": "full_local", "servedCandidate": "full_local"},
 				},
 			},

@@ -70,14 +70,13 @@ func renderFusedRangeAggregationLogicalSQL(ctx LoweringCtx, n *logicalpkg.Aggreg
 // renderRangeFunctionRowsLogicalSQL and wraps the result with the
 // aggregation subquery built from the AggregationPlan's Op, Grouping,
 // Without, ParamNumber, and ParamString fields (all read directly off
-// the logical plan).
+// the logical plan). Callers pass Params already adjusted for the
+// aggregation child so label projection is applied exactly once.
 func renderFusedRangeAggregationLogicalRowsSQL(ctx LoweringCtx, n *logicalpkg.AggregationPlan) (string, map[string]string, error) {
 	if !canFuseRangeAggregationLogicalDirect(n, ctx.Params) {
 		return "", nil, fmt.Errorf("fused range aggregation rows (logical) require a supported aggregation plan")
 	}
-	childCtx := ctx
-	childCtx.Params = aggregationChildRenderParams(n, ctx.Params)
-	rowsSQL, rowParams, err := renderRangeFunctionRowsLogicalSQL(childCtx, n.Child)
+	rowsSQL, rowParams, err := renderRangeFunctionRowsLogicalSQL(ctx, n.Child)
 	if err != nil {
 		return "", nil, err
 	}

@@ -58,15 +58,18 @@ func routingDecisionForStrict(policy RoutingPolicy, mode local.NativeLoweringMod
 		// execution semantics. This keeps force_supported native-only visibility and
 		// the existing shadow/off behavior independent from future cost policy work.
 		info := baseRoutingInfo(RoutingPolicyStrict, "strict", "native_lowering_mode_ignores_cost_routing", class, strictStrategy)
+		attachCBECandidates(&info, mode)
 		recordRoutingInfo(info)
 		return info
 	}
 	if effectivePolicy == RoutingPolicyStrict {
 		info := baseRoutingInfo(effectivePolicy, "strict", "strict_policy", class, strictStrategy)
+		attachCBECandidates(&info, mode)
 		recordRoutingInfo(info)
 		return info
 	}
 	info := defaultCostModel().decide(class, strictStrategy, effectivePolicy, enabledFamilies)
+	attachCBECandidates(&info, mode)
 	recordRoutingInfo(info)
 	return info
 }
@@ -124,12 +127,58 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 			info.Reason = "family_gate_disabled"
 			return info
 		}
+		if !costPreferServingCandidateAllowed(class) {
+			info.WouldSelect = strictStrategy
+			info.Decision = "strict_low_confidence"
+			info.Reason = "candidate_serving_disabled"
+			return info
+		}
+		if strictStrategy == "local" {
+			// Safety rail: strict may already be local because native planning for the
+			// expression root is unavailable (for example aggregation/range-local paths).
+			// That is not a CBE win over native and must not be reported as one.
+			info.WouldSelect = strictStrategy
+			info.Decision = "strict_low_confidence"
+			info.Reason = "strict_reference_already_local"
+			return info
+		}
+		if hasKnownCostPreferDivergence(class) {
+			info.WouldSelect = strictStrategy
+			info.Decision = "strict_low_confidence"
+			info.Reason = "known_divergence"
+			return info
+		}
 		info.Decision = "local_override"
 		info.SelectedStrategy = "local"
 		return info
 	}
 	info.Decision = "shadow_only"
 	return info
+}
+
+func costPreferServingCandidateAllowed(class httpapi.QueryCostClass) bool {
+	// Safety rail: 04 only enables served CBE changes for short-window instant
+	// rate/increase queries with a single selector. Range, histogram, and broad
+	// aggregation families stay strict/reference until they have dedicated
+	// evidence and tighter caps in later plan slices.
+	if class.Endpoint != "query" {
+		return false
+	}
+	if class.Family != "rate" && class.Family != "increase" {
+		return false
+	}
+	if class.SelectorCount != 1 {
+		return false
+	}
+	if class.HasHistogram || class.HasVectorJoin || class.HasSubquery {
+		return false
+	}
+	return true
+}
+
+func hasKnownCostPreferDivergence(class httpapi.QueryCostClass) bool {
+	_ = class
+	return false
 }
 
 func baseRoutingInfo(policy RoutingPolicy, decision, reason string, class httpapi.QueryCostClass, strictStrategy string) httpapi.RoutingInfo {
@@ -145,10 +194,13 @@ func recordRoutingInfo(info httpapi.RoutingInfo) {
 }
 
 func missingEstimateFields(class httpapi.QueryCostClass) []string {
-	if class.SelectorCount > 0 && class.EstimatedSeries == 0 {
-		return []string{"selector_stats"}
+	if class.SelectorCount == 0 || class.EstimatedSeries != 0 {
+		return nil
 	}
-	return nil
+	if class.EstimateState.Stale > 0 {
+		return []string{"selector_stats_stale"}
+	}
+	return []string{"selector_stats"}
 }
 
 func (m costModel) capHits(class httpapi.QueryCostClass) []string {

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	httpapi "github.com/BadLiveware/promshim-clickhouse/internal/promshim/httpapi"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 )
 
@@ -46,6 +47,35 @@ func TestApplyCachedSelectorEstimates(t *testing.T) {
 	class = applyCachedSelectorEstimates(class, sigs, cache, now)
 	if class.EstimatedSeries != 3 || class.EstimatedInputSamples != 12 || class.EstimatedOutputPoints != 3 {
 		t.Fatalf("unexpected estimates: %+v", class)
+	}
+	if class.EstimateState.Source != "cache" || !class.EstimateState.Fresh || class.EstimateState.GeneratedAt == "" || class.EstimateState.TTLSeconds != 60 {
+		t.Fatalf("unexpected estimate state: %+v", class.EstimateState)
+	}
+}
+
+func TestApplyCachedSelectorEstimatesRequiresAllSelectors(t *testing.T) {
+	cache := newSelectorStatsCache(time.Minute)
+	now := time.Now().UTC()
+	sig1 := selectorSignature{Matchers: []string{`__name__="a"`}, StartMS: 0, EndMS: 60000}
+	sig2 := selectorSignature{Matchers: []string{`__name__="b"`}, StartMS: 0, EndMS: 60000}
+	cache.put(sig1, selectorStats{MatchedSeries: 2, SamplesPerSeries: 5, ObservedAt: now})
+	class := applyCachedSelectorEstimates(httpapi.QueryCostClass{Endpoint: "query", Family: "selector"}, []selectorSignature{sig1, sig2}, cache, now)
+	if class.EstimatedSeries != 0 || class.EstimatedInputSamples != 0 {
+		t.Fatalf("partial cache should not populate estimates: %+v", class)
+	}
+	if class.EstimateState.Source != "cache" || class.EstimateState.Missing != 1 || class.EstimateState.Fresh {
+		t.Fatalf("unexpected partial estimate state: %+v", class.EstimateState)
+	}
+}
+
+func TestApplyCachedSelectorEstimatesMarksStaleSelectors(t *testing.T) {
+	cache := newSelectorStatsCache(time.Minute)
+	now := time.Now().UTC()
+	sig := selectorSignature{Matchers: []string{`__name__="a"`}, StartMS: 0, EndMS: 60000}
+	cache.put(sig, selectorStats{MatchedSeries: 2, SamplesPerSeries: 5, ObservedAt: now.Add(-2 * time.Minute)})
+	class := applyCachedSelectorEstimates(httpapi.QueryCostClass{Endpoint: "query", Family: "selector"}, []selectorSignature{sig}, cache, now)
+	if class.EstimatedSeries != 0 || class.EstimateState.Stale != 1 || class.EstimateState.Fresh {
+		t.Fatalf("stale cache should not populate estimates: %+v", class)
 	}
 }
 

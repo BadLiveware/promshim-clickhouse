@@ -35,6 +35,7 @@ Options:
   --skip-bench                   Skip benchmark pass.
   --shim-modes LIST              Bench modes, e.g. prefer,force_supported,off.
   --routing-policies LIST        Routing policies, e.g. strict,cost_shadow.
+  --warmup-routing-policies LIST Run a benchmark warmup pass with these routing policies before measured bench reports.
   --cost-routing-local-families LIST
                                   Enable cost-prefer local families on the benchmark shim.
   --include-prom BOOL            Include Prometheus timing in v2 bench reports (default true).
@@ -93,6 +94,7 @@ SKIP_COMPLIANCE=0
 SKIP_BENCH=0
 SHIM_MODES="prefer,force_supported,off"
 ROUTING_POLICIES="strict"
+WARMUP_ROUTING_POLICIES=""
 COST_ROUTING_LOCAL_FAMILIES=""
 INCLUDE_PROM="true"
 MEMORY_MODE="summary"
@@ -113,6 +115,7 @@ while [[ $# -gt 0 ]]; do
     --skip-bench)   SKIP_BENCH=1; shift ;;
     --shim-modes)   SHIM_MODES="$2"; shift 2 ;;
     --routing-policies) ROUTING_POLICIES="$2"; shift 2 ;;
+    --warmup-routing-policies) WARMUP_ROUTING_POLICIES="$2"; shift 2 ;;
     --cost-routing-local-families) COST_ROUTING_LOCAL_FAMILIES="$2"; shift 2 ;;
     --include-prom) INCLUDE_PROM="$2"; shift 2 ;;
     --memory)       MEMORY_MODE="$2"; shift 2 ;;
@@ -439,6 +442,7 @@ print_sweep_plan() {
   echo "Benchmark: $([[ $SKIP_BENCH == 1 ]] && echo skipped || echo enabled)"
   echo "Benchmark modes: ${SHIM_MODES}"
   echo "Routing policies: ${ROUTING_POLICIES}"
+  echo "Warmup routing policies: ${WARMUP_ROUTING_POLICIES:-none}"
   echo "Cost routing local families: ${COST_ROUTING_LOCAL_FAMILIES:-none}"
   echo "Memory mode: ${MEMORY_MODE}"
   echo
@@ -465,13 +469,13 @@ print_sweep_plan() {
 
 generate_sweep_artifacts() {
   local artifact_dir="$1" compliance_status="$2" bench_status="$3"
-  python3 - "$REPO_ROOT" "$artifact_dir" "$RUN_NAME" "$PROFILE" "$DENSITY" "$TRANSPORT" "$SEED_POLICY" "$SHIM_MODES" "$ROUTING_POLICIES" "$COST_ROUTING_LOCAL_FAMILIES" "$INCLUDE_PROM" "$CORPUS_SET" "$compliance_status" "$bench_status" "$BENCH_PROM_URL" "$BENCH_SHIM_URL" "$BENCH_CH_URL" "$MEMORY_MODE" <<'PY'
+  python3 - "$REPO_ROOT" "$artifact_dir" "$RUN_NAME" "$PROFILE" "$DENSITY" "$TRANSPORT" "$SEED_POLICY" "$SHIM_MODES" "$ROUTING_POLICIES" "$WARMUP_ROUTING_POLICIES" "$COST_ROUTING_LOCAL_FAMILIES" "$INCLUDE_PROM" "$CORPUS_SET" "$compliance_status" "$bench_status" "$BENCH_PROM_URL" "$BENCH_SHIM_URL" "$BENCH_CH_URL" "$MEMORY_MODE" <<'PY'
 import json, pathlib, sys
 from datetime import datetime, timezone
 
 (repo, artifact_dir, run_name, profile, density, transport, seed_policy,
- shim_modes, routing_policies, cost_routing_local_families, include_prom, corpus_set, compliance_status, bench_status,
- prom_url, shim_url, ch_url, memory_mode) = sys.argv[1:19]
+ shim_modes, routing_policies, warmup_routing_policies, cost_routing_local_families, include_prom, corpus_set, compliance_status, bench_status,
+ prom_url, shim_url, ch_url, memory_mode) = sys.argv[1:20]
 root = pathlib.Path(repo)
 out_dir = root / artifact_dir
 reports = []
@@ -542,6 +546,7 @@ manifest = {
         "seedPolicy": seed_policy,
         "shimModes": [m for m in shim_modes.split(",") if m],
         "routingPolicies": [p for p in routing_policies.split(",") if p] or sorted(k for k in routing_policy_hist.keys() if k != "unknown"),
+        "warmupRoutingPolicies": [p for p in warmup_routing_policies.split(",") if p],
         "costRoutingLocalFamilies": [f for f in cost_routing_local_families.split(",") if f],
         "includeProm": include_prom,
         "memoryMode": memory_mode,
@@ -580,6 +585,7 @@ lines = [
     f"- Density: `{density}`",
     f"- Modes: `{shim_modes}`",
     f"- Routing policies: `{routing_policies or ','.join(sorted(k for k in routing_policy_hist.keys() if k != 'unknown')) or 'n/a'}`",
+    f"- Warmup routing policies: `{warmup_routing_policies or 'none'}`",
     f"- Cost routing local families: `{cost_routing_local_families or 'none'}`",
     f"- Memory mode: `{memory_mode}`",
     f"- Memory summaries: `{len(memory_reports)}`",
@@ -657,6 +663,31 @@ run_sweep() {
           local stem artifact_name
           stem=$(basename "$corpus" .json)
           artifact_name="bench-report-${p}-${d}-${stem}.json"
+          if [[ -n "$WARMUP_ROUTING_POLICIES" ]]; then
+            log "Running warmup benchmark profile=${p} density=${d} corpus=${corpus} routing=${WARMUP_ROUTING_POLICIES}."
+            if ! "${REPO_ROOT}/scripts/run-bench.sh" \
+              --prom-url "$BENCH_PROM_URL" \
+              --shim-url "$BENCH_SHIM_URL" \
+              --artifact-dir "${artifact_dir}/warmup" \
+              --artifact-name "warmup-report-${p}-${d}-${stem}.json" \
+              --corpus "$corpus" \
+              --eval-time "$eval_time" \
+              --shim-modes "$SHIM_MODES" \
+              --routing-policies "$WARMUP_ROUTING_POLICIES" \
+              --include-prom false \
+              --ch-url "$BENCH_CH_URL" \
+              --memory off \
+              --run-label "run=${RUN_NAME}" \
+              --run-label "profile=${p}" \
+              --run-label "density=${d}" \
+              --run-label "transport=${TRANSPORT}" \
+              --run-label "warmup=true" \
+              --repeats 1 \
+              --warmup 0 \
+              --no-baseline; then
+              bench_status="failed"
+            fi
+          fi
           log "Running benchmark profile=${p} density=${d} corpus=${corpus}."
           if ! "${REPO_ROOT}/scripts/run-bench.sh" \
             --prom-url "$BENCH_PROM_URL" \

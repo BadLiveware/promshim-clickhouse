@@ -71,7 +71,20 @@ func TestHandleQuerySetsPromshimHeaders(t *testing.T) {
 			StatusCode:     http.StatusOK,
 			Strategy:       "native_sql",
 			FallbackReason: "",
-			Body:           map[string]any{"status": "success"},
+			Routing: &RoutingInfo{
+				Policy:           "cost_shadow",
+				Decision:         "shadow_only",
+				Reason:           "cost_shadow_strict_default",
+				StrictStrategy:   "native_sql",
+				SelectedStrategy: "native_sql",
+				CandidateDecision: &CandidateDecision{
+					StrictCandidate:   "native_sql",
+					SelectedCandidate: "native_sql",
+					ServedCandidate:   "native_sql",
+				},
+				Class: QueryCostClass{Family: "selector"},
+			},
+			Body: map[string]any{"status": "success"},
 		},
 		transport: "native",
 		observeOnCall: func(ctx context.Context) {
@@ -89,6 +102,15 @@ func TestHandleQuerySetsPromshimHeaders(t *testing.T) {
 	}
 	if got := rec.Header().Get("X-Promshim-Fallback-Reason"); got != "" {
 		t.Fatalf("X-Promshim-Fallback-Reason = %q, want empty", got)
+	}
+	if got := rec.Header().Get("X-Promshim-Strict-Candidate"); got != "native_sql" {
+		t.Fatalf("X-Promshim-Strict-Candidate = %q, want native_sql", got)
+	}
+	if got := rec.Header().Get("X-Promshim-Selected-Candidate"); got != "native_sql" {
+		t.Fatalf("X-Promshim-Selected-Candidate = %q, want native_sql", got)
+	}
+	if got := rec.Header().Get("X-Promshim-Served-Candidate"); got != "native_sql" {
+		t.Fatalf("X-Promshim-Served-Candidate = %q, want native_sql", got)
 	}
 	if got := rec.Header().Get("X-Promshim-CH-Roundtrips"); got != "2" {
 		t.Fatalf("X-Promshim-CH-Roundtrips = %q, want 2", got)

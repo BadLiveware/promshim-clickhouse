@@ -80,6 +80,9 @@ type BenchShimModeResult struct {
 	RoutingReason      string `json:"routingReason,omitempty"`
 	StrictStrategy     string `json:"strictStrategy,omitempty"`
 	SelectedStrategy   string `json:"selectedStrategy,omitempty"`
+	StrictCandidate    string `json:"strictCandidate,omitempty"`
+	SelectedCandidate  string `json:"selectedCandidate,omitempty"`
+	ServedCandidate    string `json:"servedCandidate,omitempty"`
 	CostFamily         string `json:"costFamily,omitempty"`
 	Strategy           string `json:"strategy,omitempty"`
 	FallbackReason     string `json:"fallbackReason,omitempty"`
@@ -276,6 +279,9 @@ func benchOneQueryV2(client *http.Client, cfg BenchConfig, spec QuerySpec) Bench
 					result.RoutingReason = sample.routingReason
 					result.StrictStrategy = sample.strictStrategy
 					result.SelectedStrategy = sample.selectedStrategy
+					result.StrictCandidate = sample.strictCandidate
+					result.SelectedCandidate = sample.selectedCandidate
+					result.ServedCandidate = sample.servedCandidate
 					result.CostFamily = sample.costFamily
 				}
 				result.StrategyFlap = detectStrategyFlap(samples)
@@ -379,16 +385,19 @@ func benchOneQuery(client *http.Client, cfg BenchConfig, spec QuerySpec) BenchRo
 }
 
 type headerSample struct {
-	strategy         string
-	fallbackReason   string
-	roundtrips       int
-	millis           int
-	routingPolicy    string
-	routingDecision  string
-	routingReason    string
-	strictStrategy   string
-	selectedStrategy string
-	costFamily       string
+	strategy          string
+	fallbackReason    string
+	roundtrips        int
+	millis            int
+	routingPolicy     string
+	routingDecision   string
+	routingReason     string
+	strictStrategy    string
+	selectedStrategy  string
+	strictCandidate   string
+	selectedCandidate string
+	servedCandidate   string
+	costFamily        string
 }
 
 func repeatWithHeaders(client *http.Client, cfg BenchConfig, baseURL string, spec QuerySpec, warmup, repeats int) ([]float64, []headerSample, error) {
@@ -478,6 +487,9 @@ func parseHeaders(h http.Header) headerSample {
 	s.routingReason = h.Get("X-Promshim-Routing-Reason")
 	s.strictStrategy = h.Get("X-Promshim-Strict-Strategy")
 	s.selectedStrategy = h.Get("X-Promshim-Selected-Strategy")
+	s.strictCandidate = h.Get("X-Promshim-Strict-Candidate")
+	s.selectedCandidate = h.Get("X-Promshim-Selected-Candidate")
+	s.servedCandidate = h.Get("X-Promshim-Served-Candidate")
 	s.costFamily = h.Get("X-Promshim-Cost-Family")
 	if v := h.Get("X-Promshim-CH-Roundtrips"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {

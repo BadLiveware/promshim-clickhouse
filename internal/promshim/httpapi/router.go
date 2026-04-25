@@ -28,29 +28,40 @@ type Response struct {
 	Routing        *RoutingInfo
 }
 
+type EstimateState struct {
+	Source        string `json:"source"`
+	Fresh         bool   `json:"fresh"`
+	GeneratedAt   string `json:"generatedAt,omitempty"`
+	TTLSeconds    int64  `json:"ttlSeconds,omitempty"`
+	SelectorCount int    `json:"selectorCount,omitempty"`
+	Missing       int    `json:"missing,omitempty"`
+	Stale         int    `json:"stale,omitempty"`
+}
+
 type QueryCostClass struct {
-	Endpoint              string  `json:"endpoint"`
-	Family                string  `json:"family"`
-	RootStrategyStrict    string  `json:"rootStrategyStrict"`
-	OutputKind            string  `json:"outputKind"`
-	HasAggregation        bool    `json:"hasAggregation"`
-	HasRangeFunction      bool    `json:"hasRangeFunction"`
-	HasVectorJoin         bool    `json:"hasVectorJoin"`
-	HasHistogram          bool    `json:"hasHistogram"`
-	HasSubquery           bool    `json:"hasSubquery"`
-	HasLabelMutation      bool    `json:"hasLabelMutation"`
-	HasSelectionAgg       bool    `json:"hasSelectionAgg"`
-	DropsAllLabels        bool    `json:"dropsAllLabels"`
-	SelectorCount         int     `json:"selectorCount"`
-	EstimatedSeries       int64   `json:"estimatedSeries"`
-	EstimatedInputSamples int64   `json:"estimatedInputSamples"`
-	EstimatedOutputPoints int64   `json:"estimatedOutputPoints"`
-	RangePointsPerSeries  int64   `json:"rangePointsPerSeries"`
-	LookbackMS            int64   `json:"lookbackMs"`
-	StepMS                int64   `json:"stepMs"`
-	OverlapSlots          float64 `json:"overlapSlots"`
-	NativeRoundTrips      int     `json:"nativeRoundTrips"`
-	LocalRoundTrips       int     `json:"localRoundTrips"`
+	Endpoint              string        `json:"endpoint"`
+	Family                string        `json:"family"`
+	RootStrategyStrict    string        `json:"rootStrategyStrict"`
+	OutputKind            string        `json:"outputKind"`
+	EstimateState         EstimateState `json:"estimateState"`
+	HasAggregation        bool          `json:"hasAggregation"`
+	HasRangeFunction      bool          `json:"hasRangeFunction"`
+	HasVectorJoin         bool          `json:"hasVectorJoin"`
+	HasHistogram          bool          `json:"hasHistogram"`
+	HasSubquery           bool          `json:"hasSubquery"`
+	HasLabelMutation      bool          `json:"hasLabelMutation"`
+	HasSelectionAgg       bool          `json:"hasSelectionAgg"`
+	DropsAllLabels        bool          `json:"dropsAllLabels"`
+	SelectorCount         int           `json:"selectorCount"`
+	EstimatedSeries       int64         `json:"estimatedSeries"`
+	EstimatedInputSamples int64         `json:"estimatedInputSamples"`
+	EstimatedOutputPoints int64         `json:"estimatedOutputPoints"`
+	RangePointsPerSeries  int64         `json:"rangePointsPerSeries"`
+	LookbackMS            int64         `json:"lookbackMs"`
+	StepMS                int64         `json:"stepMs"`
+	OverlapSlots          float64       `json:"overlapSlots"`
+	NativeRoundTrips      int           `json:"nativeRoundTrips"`
+	LocalRoundTrips       int           `json:"localRoundTrips"`
 }
 
 type RoutingCost struct {
@@ -59,20 +70,49 @@ type RoutingCost struct {
 	Unit   string  `json:"unit"`
 }
 
+type CandidateCost struct {
+	Value float64 `json:"value"`
+	Unit  string  `json:"unit"`
+}
+
+type ExecutionCandidate struct {
+	ID                 string         `json:"id"`
+	Tier               string         `json:"tier"`
+	Strategy           string         `json:"strategy"`
+	Family             string         `json:"family"`
+	Strict             bool           `json:"strict"`
+	Selected           bool           `json:"selected"`
+	Served             bool           `json:"served"`
+	Supported          bool           `json:"supported"`
+	KnownCorrect       bool           `json:"knownCorrect"`
+	Eligible           bool           `json:"eligible"`
+	RejectReasons      []string       `json:"rejectReasons,omitempty"`
+	EstimatesAvailable bool           `json:"estimatesAvailable"`
+	EstimatedCost      *CandidateCost `json:"estimatedCost,omitempty"`
+}
+
+type CandidateDecision struct {
+	StrictCandidate   string `json:"strictCandidate"`
+	SelectedCandidate string `json:"selectedCandidate"`
+	ServedCandidate   string `json:"servedCandidate"`
+}
+
 type RoutingInfo struct {
-	Policy             string           `json:"policy"`
-	StrictStrategy     string           `json:"strictStrategy"`
-	SelectedStrategy   string           `json:"selectedStrategy"`
-	WouldSelect        string           `json:"wouldSelect"`
-	Decision           string           `json:"decision"`
-	Reason             string           `json:"reason"`
-	EstimatesAvailable bool             `json:"estimatesAvailable"`
-	MissingEstimates   []string         `json:"missingEstimates,omitempty"`
-	Cost               *RoutingCost     `json:"cost,omitempty"`
-	Caps               map[string]int64 `json:"caps,omitempty"`
-	CapHits            []string         `json:"capHits,omitempty"`
-	EnabledFamilies    []string         `json:"enabledFamilies,omitempty"`
-	Class              QueryCostClass   `json:"class"`
+	Policy             string               `json:"policy"`
+	StrictStrategy     string               `json:"strictStrategy"`
+	SelectedStrategy   string               `json:"selectedStrategy"`
+	WouldSelect        string               `json:"wouldSelect"`
+	Decision           string               `json:"decision"`
+	Reason             string               `json:"reason"`
+	EstimatesAvailable bool                 `json:"estimatesAvailable"`
+	MissingEstimates   []string             `json:"missingEstimates,omitempty"`
+	Cost               *RoutingCost         `json:"cost,omitempty"`
+	Caps               map[string]int64     `json:"caps,omitempty"`
+	CapHits            []string             `json:"capHits,omitempty"`
+	EnabledFamilies    []string             `json:"enabledFamilies,omitempty"`
+	CandidateDecision  *CandidateDecision   `json:"candidateDecision,omitempty"`
+	Candidates         []ExecutionCandidate `json:"candidates,omitempty"`
+	Class              QueryCostClass       `json:"class"`
 }
 
 type InstantQueryRequest struct {
@@ -282,6 +322,11 @@ func setPromshimHeaders(w http.ResponseWriter, resp *Response, metrics *obs.CHMe
 		w.Header().Set("X-Promshim-Strict-Strategy", resp.Routing.StrictStrategy)
 		w.Header().Set("X-Promshim-Selected-Strategy", resp.Routing.SelectedStrategy)
 		w.Header().Set("X-Promshim-Routing-Reason", resp.Routing.Reason)
+		if resp.Routing.CandidateDecision != nil {
+			w.Header().Set("X-Promshim-Strict-Candidate", resp.Routing.CandidateDecision.StrictCandidate)
+			w.Header().Set("X-Promshim-Selected-Candidate", resp.Routing.CandidateDecision.SelectedCandidate)
+			w.Header().Set("X-Promshim-Served-Candidate", resp.Routing.CandidateDecision.ServedCandidate)
+		}
 		if resp.Routing.Class.Family != "" {
 			w.Header().Set("X-Promshim-Cost-Family", resp.Routing.Class.Family)
 		}

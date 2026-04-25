@@ -1348,13 +1348,29 @@ func TestQueryExplainIncludesRoutingCostClass(t *testing.T) {
 		Status string `json:"status"`
 		Data   struct {
 			Routing struct {
-				Policy   string `json:"policy"`
-				Decision string `json:"decision"`
-				Class    struct {
+				Policy            string `json:"policy"`
+				Decision          string `json:"decision"`
+				CandidateDecision struct {
+					StrictCandidate   string `json:"strictCandidate"`
+					SelectedCandidate string `json:"selectedCandidate"`
+					ServedCandidate   string `json:"servedCandidate"`
+				} `json:"candidateDecision"`
+				Candidates []struct {
+					ID            string   `json:"id"`
+					Tier          string   `json:"tier"`
+					RejectReasons []string `json:"rejectReasons"`
+				} `json:"candidates"`
+				Class struct {
 					Family           string `json:"family"`
 					SelectorCount    int    `json:"selectorCount"`
 					HasRangeFunction bool   `json:"hasRangeFunction"`
 					LookbackMS       int64  `json:"lookbackMs"`
+					EstimateState    struct {
+						Source        string `json:"source"`
+						Fresh         bool   `json:"fresh"`
+						SelectorCount int    `json:"selectorCount"`
+						Missing       int    `json:"missing"`
+					} `json:"estimateState"`
 				} `json:"class"`
 			} `json:"routing"`
 		} `json:"data"`
@@ -1365,11 +1381,29 @@ func TestQueryExplainIncludesRoutingCostClass(t *testing.T) {
 	if body.Data.Routing.Policy != "cost_prefer" || body.Data.Routing.Decision != "strict_missing_estimate" {
 		t.Fatalf("unexpected routing: %#v", body.Data.Routing)
 	}
+	if body.Data.Routing.CandidateDecision.StrictCandidate != "native_sql" || body.Data.Routing.CandidateDecision.SelectedCandidate != "native_sql" {
+		t.Fatalf("unexpected candidate decision: %#v", body.Data.Routing.CandidateDecision)
+	}
+	if len(body.Data.Routing.Candidates) == 0 {
+		t.Fatalf("expected candidate metadata in routing explain")
+	}
+	foundFullLocal := false
+	for _, candidate := range body.Data.Routing.Candidates {
+		if candidate.ID == "full_local" {
+			foundFullLocal = true
+		}
+	}
+	if !foundFullLocal {
+		t.Fatalf("expected full_local candidate in %+v", body.Data.Routing.Candidates)
+	}
 	if body.Data.Routing.Class.Family != "rate" || !body.Data.Routing.Class.HasRangeFunction || body.Data.Routing.Class.SelectorCount != 1 {
 		t.Fatalf("unexpected cost class: %#v", body.Data.Routing.Class)
 	}
 	if body.Data.Routing.Class.LookbackMS != int64((5 * time.Minute).Milliseconds()) {
 		t.Fatalf("lookback = %d", body.Data.Routing.Class.LookbackMS)
+	}
+	if body.Data.Routing.Class.EstimateState.Source != "none" || body.Data.Routing.Class.EstimateState.Fresh || body.Data.Routing.Class.EstimateState.SelectorCount != 1 || body.Data.Routing.Class.EstimateState.Missing != 1 {
+		t.Fatalf("unexpected estimate state: %#v", body.Data.Routing.Class.EstimateState)
 	}
 }
 

@@ -82,16 +82,23 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 	selectedPlan, selectedAnalysis := plan, analysis
 	selectedExplain := explain
 	if routing.Decision == "local_override" {
-		localReq := req
-		localReq.NativeLoweringMode = string(local.NativeLoweringModeOff)
-		_, _, localPlan, localAnalysis, localErr := h.buildInstantPlan(localReq)
-		if localErr != nil {
+		selectedMode, ok := selectedCandidateMode(routing)
+		if !ok {
 			routing.Decision = "strict_low_confidence"
-			routing.Reason = "local_plan_error"
+			routing.Reason = "selected_candidate_not_executable"
 			routing.SelectedStrategy = routing.StrictStrategy
 		} else {
-			selectedPlan, selectedAnalysis = localPlan, localAnalysis
-			selectedExplain = local.ExplainPlanWithLowering(selectedPlan, selectedAnalysis.Root)
+			candidateReq := req
+			candidateReq.NativeLoweringMode = selectedMode
+			_, _, candidatePlan, candidateAnalysis, candidateErr := h.buildInstantPlan(candidateReq)
+			if candidateErr != nil {
+				routing.Decision = "strict_low_confidence"
+				routing.Reason = "local_plan_error"
+				routing.SelectedStrategy = routing.StrictStrategy
+			} else {
+				selectedPlan, selectedAnalysis = candidatePlan, candidateAnalysis
+				selectedExplain = local.ExplainPlanWithLowering(selectedPlan, selectedAnalysis.Root)
+			}
 		}
 	}
 	evalStart := time.Now()
@@ -103,7 +110,7 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, local.ApiErrorToHTTP(err)
 	}
-	if policy == RoutingPolicyCostShadow && routing.WouldSelect == "local" && routing.StrictStrategy != "local" {
+	if policy == RoutingPolicyCostShadow {
 		h.runCostShadowInstant(ctx, req, value, routing, strictEvalDuration)
 	}
 	if req.Explain || mode.ForcesExplainResponse() {
@@ -147,16 +154,23 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 	selectedPlan, selectedAnalysis := plan, analysis
 	selectedExplain := explain
 	if routing.Decision == "local_override" {
-		localReq := req
-		localReq.NativeLoweringMode = string(local.NativeLoweringModeOff)
-		_, _, _, _, localPlan, localAnalysis, localErr := h.buildRangePlan(localReq)
-		if localErr != nil {
+		selectedMode, ok := selectedCandidateMode(routing)
+		if !ok {
 			routing.Decision = "strict_low_confidence"
-			routing.Reason = "local_plan_error"
+			routing.Reason = "selected_candidate_not_executable"
 			routing.SelectedStrategy = routing.StrictStrategy
 		} else {
-			selectedPlan, selectedAnalysis = localPlan, localAnalysis
-			selectedExplain = local.ExplainPlanWithLowering(selectedPlan, selectedAnalysis.Root)
+			candidateReq := req
+			candidateReq.NativeLoweringMode = selectedMode
+			_, _, _, _, candidatePlan, candidateAnalysis, candidateErr := h.buildRangePlan(candidateReq)
+			if candidateErr != nil {
+				routing.Decision = "strict_low_confidence"
+				routing.Reason = "local_plan_error"
+				routing.SelectedStrategy = routing.StrictStrategy
+			} else {
+				selectedPlan, selectedAnalysis = candidatePlan, candidateAnalysis
+				selectedExplain = local.ExplainPlanWithLowering(selectedPlan, selectedAnalysis.Root)
+			}
 		}
 	}
 	evalStart := time.Now()
@@ -168,7 +182,7 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, local.ApiErrorToHTTP(err)
 	}
-	if policy == RoutingPolicyCostShadow && routing.WouldSelect == "local" && routing.StrictStrategy != "local" {
+	if policy == RoutingPolicyCostShadow {
 		h.runCostShadowRange(ctx, req, value, routing, strictEvalDuration)
 	}
 	if req.Explain || mode.ForcesExplainResponse() {
@@ -465,6 +479,20 @@ func (h *queryService) routingPolicyForRequest(requestPolicy string) (RoutingPol
 		policy = parsed
 	}
 	return NormalizeRoutingPolicy(policy), nil
+}
+
+func selectedCandidateMode(routing httpapi.RoutingInfo) (string, bool) {
+	if routing.CandidateDecision == nil {
+		return "", false
+	}
+	switch routing.CandidateDecision.SelectedCandidate {
+	case string(cbeCandidateNativeSQL):
+		return string(local.NativeLoweringModeForceSupported), true
+	case string(cbeCandidateLocalPushdown), string(cbeCandidateFullLocal):
+		return string(local.NativeLoweringModeOff), true
+	default:
+		return "", false
+	}
 }
 
 func (h *queryService) routingInfoForInstant(query string, evaluationTime time.Time, mode local.NativeLoweringMode, policy RoutingPolicy, strictStrategy string) httpapi.RoutingInfo {

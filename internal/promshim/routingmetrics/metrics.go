@@ -20,6 +20,10 @@ var (
 		Name: "promshim_routing_shadow_divergences_total",
 		Help: "Total cost-routing alternate shadow divergences.",
 	}, []string{"family", "category"})
+	ShadowCandidateOutcomes = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "promshim_routing_shadow_candidate_outcomes_total",
+		Help: "Total cost-shadow outcomes by strict/selected/served and executed alternate candidate.",
+	}, []string{"family", "strict_candidate", "selected_candidate", "served_candidate", "alternate_candidate", "status"})
 	EstimateMissing = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "promshim_routing_estimate_missing_total",
 		Help: "Total missing cost-routing estimates by query family and field.",
@@ -37,13 +41,21 @@ var (
 		Name: "promshim_routing_stats_probes_total",
 		Help: "Total selector stats probes by query family and status.",
 	}, []string{"family", "status"})
+	EstimateCache = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "promshim_routing_estimate_cache_total",
+		Help: "Total cost-routing estimate cache observations by query family, source, and state.",
+	}, []string{"family", "source", "state"})
+	Candidates = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "promshim_routing_candidates_total",
+		Help: "Total CBE candidates by policy, family, candidate, selected status, served status, and eligibility state.",
+	}, []string{"policy", "family", "candidate", "selected", "served", "state"})
 )
 
 func RegisterMetrics(registry *prometheus.Registry) {
 	if registry == nil {
 		return
 	}
-	registry.MustRegister(Decisions, ShadowRuns, ShadowDuration, ShadowDivergences, EstimateMissing, OverCap, PredictionError, StatsProbes)
+	registry.MustRegister(Decisions, ShadowRuns, ShadowDuration, ShadowDivergences, ShadowCandidateOutcomes, EstimateMissing, OverCap, PredictionError, StatsProbes, EstimateCache, Candidates)
 }
 
 func ObserveDecision(policy, decision, strictStrategy, selectedStrategy, family, reason string) {
@@ -62,6 +74,17 @@ func ObserveShadowDivergence(family, category string) {
 	ShadowDivergences.WithLabelValues(label(family, "unknown"), label(category, "unknown")).Inc()
 }
 
+func ObserveShadowCandidateOutcome(family, strictCandidate, selectedCandidate, servedCandidate, alternateCandidate, status string) {
+	ShadowCandidateOutcomes.WithLabelValues(
+		label(family, "unknown"),
+		label(strictCandidate, "unknown"),
+		label(selectedCandidate, "unknown"),
+		label(servedCandidate, "unknown"),
+		label(alternateCandidate, "unknown"),
+		label(status, "unknown"),
+	).Inc()
+}
+
 func ObserveOverCap(family, cap string) {
 	OverCap.WithLabelValues(label(family, "unknown"), label(cap, "unknown")).Inc()
 }
@@ -76,6 +99,14 @@ func ObserveMissingEstimate(family, field string) {
 
 func ObserveStatsProbe(family, status string) {
 	StatsProbes.WithLabelValues(label(family, "unknown"), label(status, "unknown")).Inc()
+}
+
+func ObserveEstimateCache(family, source, state string) {
+	EstimateCache.WithLabelValues(label(family, "unknown"), label(source, "unknown"), label(state, "unknown")).Inc()
+}
+
+func ObserveCandidate(policy, family, candidate, selected, served, state string) {
+	Candidates.WithLabelValues(label(policy, "unknown"), label(family, "unknown"), label(candidate, "unknown"), label(selected, "false"), label(served, "false"), label(state, "unknown")).Inc()
 }
 
 func label(value, fallback string) string {

@@ -74,8 +74,12 @@ type benchShimResult struct {
 	NativeLoweringMode string  `json:"nativeLoweringMode"`
 	RoutingPolicy      string  `json:"routingPolicy"`
 	RoutingDecision    string  `json:"routingDecision"`
+	RoutingReason      string  `json:"routingReason"`
 	StrictStrategy     string  `json:"strictStrategy"`
 	SelectedStrategy   string  `json:"selectedStrategy"`
+	StrictCandidate    string  `json:"strictCandidate"`
+	SelectedCandidate  string  `json:"selectedCandidate"`
+	ServedCandidate    string  `json:"servedCandidate"`
 	CostFamily         string  `json:"costFamily"`
 	Strategy           string  `json:"strategy"`
 	CHRoundtrips       int     `json:"chRoundtrips"`
@@ -129,9 +133,16 @@ type calibrationClass struct {
 	Rows                   int             `json:"rows"`
 	NativeP50MedianMS      float64         `json:"nativeP50MedianMs,omitempty"`
 	LocalP50MedianMS       float64         `json:"localP50MedianMs,omitempty"`
+	CostPreferP50MedianMS  float64         `json:"costPreferP50MedianMs,omitempty"`
 	PromP50MedianMS        float64         `json:"promP50MedianMs,omitempty"`
 	LocalNativeRatioMedian float64         `json:"localNativeRatioMedian,omitempty"`
+	StrictCandidate        string          `json:"strictCandidate,omitempty"`
+	SelectedCandidate      string          `json:"selectedCandidate,omitempty"`
+	ServedCandidate        string          `json:"servedCandidate,omitempty"`
+	CandidateFlipRows      int             `json:"candidateFlipRows,omitempty"`
 	Recommendation         string          `json:"recommendation"`
+	Confidence             string          `json:"confidence"`
+	CoverageNotes          []string        `json:"coverageNotes,omitempty"`
 	Reasons                []string        `json:"reasons"`
 	Memory                 *memoryCounters `json:"memory,omitempty"`
 	StrategyFlips          int             `json:"strategyFlips,omitempty"`
@@ -146,11 +157,12 @@ type memoryCounters struct {
 }
 
 type sample struct {
-	name, family, profile, density, transport, corpusPath string
-	promP50, nativeP50, localP50                          float64
-	strategyFlap                                          bool
-	memory                                                *memoryQueryLogEntry
-	missingMemory                                         bool
+	name, family, profile, density, transport, corpusPath        string
+	strictCandidate, selectedCandidate, servedCandidate          string
+	promP50, nativeP50, localP50, costPreferP50                 float64
+	strategyFlap, candidateFlip                                   bool
+	memory                                                        *memoryQueryLogEntry
+	missingMemory                                                 bool
 }
 
 type groupKey struct{ family, profile, density, transport, corpusPath string }
@@ -192,7 +204,7 @@ func buildCalibration(sweeps, legacyBench []string) (calibrationOutput, error) {
 		return calibrationOutput{}, errors.New("provide at least one --sweep manifest or --bench report")
 	}
 	var all []sample
-	out := calibrationOutput{SchemaVersion: 1, GeneratedAt: time.Now().UTC().Format(time.RFC3339)}
+	out := calibrationOutput{SchemaVersion: 2, GeneratedAt: time.Now().UTC().Format(time.RFC3339)}
 	var warnings []string
 	for _, path := range sweeps {
 		samples, source, sourceWarnings, err := readSweep(path)
@@ -317,6 +329,21 @@ func readBenchReport(path string, _ calibrationSource) ([]sample, error) {
 						s.nativeP50 = result.P50MS
 					}
 				}
+				if result.Strategy == "local" && s.localP50 == 0 {
+					s.localP50 = result.P50MS
+				}
+			case "prefer@cost_prefer":
+				s.costPreferP50 = result.P50MS
+				s.strictCandidate = result.StrictCandidate
+				s.selectedCandidate = result.SelectedCandidate
+				s.servedCandidate = result.ServedCandidate
+				s.candidateFlip = s.strictCandidate != "" && s.selectedCandidate != "" && s.strictCandidate != s.selectedCandidate
+				if result.Strategy == "local" && s.localP50 == 0 {
+					s.localP50 = result.P50MS
+				}
+				if result.Strategy == "native_sql" && s.nativeP50 == 0 {
+					s.nativeP50 = result.P50MS
+				}
 			}
 		}
 		samples = append(samples, s)
@@ -338,8 +365,12 @@ func summarizeSamples(samples []sample) []calibrationClass {
 	classes := make([]calibrationClass, 0, len(keys))
 	for _, key := range keys {
 		vals := groups[key]
-		var native, local, prom, ratios []float64
-		var flips, missingMemory int
+		var native, local, prom, costPrefer, ratios []float64
+		strictCandidates := map[string]int{}
+		selectedCandidates := map[string]int{}
+		servedCandidates := map[string]int{}
+		var flips, missingMemory, candidateFlipRows int
+		var coverageNotes []string
 		var selectedRows, readCompressed, functionExec, memoryP95 []float64
 		for _, s := range vals {
 			if s.nativeP50 > 0 {
@@ -351,11 +382,26 @@ func summarizeSamples(samples []sample) []calibrationClass {
 			if s.promP50 > 0 {
 				prom = append(prom, s.promP50)
 			}
+			if s.costPreferP50 > 0 {
+				costPrefer = append(costPrefer, s.costPreferP50)
+			}
 			if s.nativeP50 > 0 && s.localP50 > 0 {
 				ratios = append(ratios, s.localP50/s.nativeP50)
 			}
 			if s.strategyFlap {
 				flips++
+			}
+			if s.candidateFlip {
+				candidateFlipRows++
+			}
+			if s.strictCandidate != "" {
+				strictCandidates[s.strictCandidate]++
+			}
+			if s.selectedCandidate != "" {
+				selectedCandidates[s.selectedCandidate]++
+			}
+			if s.servedCandidate != "" {
+				servedCandidates[s.servedCandidate]++
 			}
 			if s.missingMemory {
 				missingMemory++
@@ -367,8 +413,34 @@ func summarizeSamples(samples []sample) []calibrationClass {
 				memoryP95 = append(memoryP95, s.memory.MemoryP95Bytes)
 			}
 		}
-		class := calibrationClass{Family: key.family, Profile: key.profile, Density: key.density, Transport: key.transport, CorpusPath: key.corpusPath, Rows: len(vals), NativeP50MedianMS: median(native), LocalP50MedianMS: median(local), PromP50MedianMS: median(prom), LocalNativeRatioMedian: median(ratios), StrategyFlips: flips, MissingMemoryComments: missingMemory}
+		if len(costPrefer) == 0 {
+			coverageNotes = append(coverageNotes, "no cost_prefer rows in class")
+		}
+		if len(strictCandidates) == 0 {
+			coverageNotes = append(coverageNotes, "candidate headers missing in class rows")
+		}
+		class := calibrationClass{
+			Family:                 key.family,
+			Profile:                key.profile,
+			Density:                key.density,
+			Transport:              key.transport,
+			CorpusPath:             key.corpusPath,
+			Rows:                   len(vals),
+			NativeP50MedianMS:      median(native),
+			LocalP50MedianMS:       median(local),
+			CostPreferP50MedianMS:  median(costPrefer),
+			PromP50MedianMS:        median(prom),
+			LocalNativeRatioMedian: median(ratios),
+			StrictCandidate:        mostFrequent(strictCandidates),
+			SelectedCandidate:      mostFrequent(selectedCandidates),
+			ServedCandidate:        mostFrequent(servedCandidates),
+			CandidateFlipRows:      candidateFlipRows,
+			CoverageNotes:          coverageNotes,
+			StrategyFlips:          flips,
+			MissingMemoryComments:  missingMemory,
+		}
 		class.Recommendation, class.Reasons = recommend(class)
+		class.Confidence = classConfidence(class)
 		if len(selectedRows) > 0 || len(readCompressed) > 0 || len(functionExec) > 0 || len(memoryP95) > 0 {
 			class.Memory = &memoryCounters{SelectedRowsMedian: median(selectedRows), ReadCompressedBytesMedian: median(readCompressed), FunctionExecuteMedian: median(functionExec), MemoryP95BytesMedian: median(memoryP95)}
 		}
@@ -382,7 +454,11 @@ func recommend(class calibrationClass) (string, []string) {
 		return "do_not_route_due_to_strategy_flip", []string{"strategy changed across repeats"}
 	}
 	if class.NativeP50MedianMS == 0 || class.LocalP50MedianMS == 0 || class.LocalNativeRatioMedian == 0 {
-		return "insufficient_data", []string{"native/local pair missing from sweep"}
+		reason := "native/local pair missing from sweep"
+		if class.CostPreferP50MedianMS == 0 {
+			reason = "insufficient candidate data: native/local pair missing and no cost_prefer rows"
+		}
+		return "insufficient_data", []string{reason}
 	}
 	family := strings.ToLower(class.Family)
 	if class.LocalNativeRatioMedian <= 0.70 && (strings.Contains(family, "selector") || strings.Contains(family, "rate") || strings.Contains(family, "histogram")) {
@@ -392,6 +468,16 @@ func recommend(class calibrationClass) (string, []string) {
 		return "native_required", []string{fmt.Sprintf("native remains preferred for family; local/native median %.2f", class.LocalNativeRatioMedian)}
 	}
 	return "insufficient_data", []string{fmt.Sprintf("no initial rule for local/native median %.2f", class.LocalNativeRatioMedian)}
+}
+
+func classConfidence(class calibrationClass) string {
+	if class.Rows >= 3 && class.LocalNativeRatioMedian > 0 && class.CostPreferP50MedianMS > 0 {
+		return "high"
+	}
+	if class.Rows >= 2 && class.LocalNativeRatioMedian > 0 {
+		return "medium"
+	}
+	return "low"
 }
 
 func renderMarkdown(out calibrationOutput) string {
@@ -414,12 +500,25 @@ func renderMarkdown(out calibrationOutput) string {
 		}
 	}
 	fmt.Fprintf(&b, "\n## Class recommendations\n\n")
-	fmt.Fprintf(&b, "| Family | Profile | Density | Rows | Native p50 ms | Local p50 ms | L/N | Recommendation | Reasons |\n")
-	fmt.Fprintf(&b, "|---|---|---|---:|---:|---:|---:|---|---|\n")
+	fmt.Fprintf(&b, "| Family | Profile | Density | Rows | Native p50 ms | Local p50 ms | CostPrefer p50 ms | L/N | Strict cand. | Selected cand. | Served cand. | Cand. flips | Confidence | Recommendation | Reasons |\n")
+	fmt.Fprintf(&b, "|---|---|---|---:|---:|---:|---:|---:|---|---|---|---:|---|---|---|\n")
 	for _, class := range out.Classes {
-		fmt.Fprintf(&b, "| %s | %s | %s | %d | %s | %s | %s | %s | %s |\n", class.Family, class.Profile, class.Density, class.Rows, fmtFloat(class.NativeP50MedianMS), fmtFloat(class.LocalP50MedianMS), fmtFloat(class.LocalNativeRatioMedian), class.Recommendation, strings.Join(class.Reasons, "; "))
+		fmt.Fprintf(&b, "| %s | %s | %s | %d | %s | %s | %s | %s | %s | %s | %s | %d | %s | %s | %s |\n", class.Family, class.Profile, class.Density, class.Rows, fmtFloat(class.NativeP50MedianMS), fmtFloat(class.LocalP50MedianMS), fmtFloat(class.CostPreferP50MedianMS), fmtFloat(class.LocalNativeRatioMedian), firstNonEmpty(class.StrictCandidate, "—"), firstNonEmpty(class.SelectedCandidate, "—"), firstNonEmpty(class.ServedCandidate, "—"), class.CandidateFlipRows, class.Confidence, class.Recommendation, strings.Join(class.Reasons, "; "))
+		if len(class.CoverageNotes) > 0 {
+			fmt.Fprintf(&b, "  - coverage: %s\n", strings.Join(class.CoverageNotes, "; "))
+		}
 	}
 	return b.String()
+}
+
+func mostFrequent(items map[string]int) string {
+	best, count := "", 0
+	for item, n := range items {
+		if n > count || (n == count && item < best) {
+			best, count = item, n
+		}
+	}
+	return best
 }
 
 func benchLogComment(s sample, mode string) string {

@@ -48,9 +48,12 @@ func TestParseHeaders(t *testing.T) {
 	h.Set("X-Promshim-Routing-Reason", "strict_policy")
 	h.Set("X-Promshim-Strict-Strategy", "native_sql")
 	h.Set("X-Promshim-Selected-Strategy", "native_sql")
+	h.Set("X-Promshim-Strict-Candidate", "native_sql")
+	h.Set("X-Promshim-Selected-Candidate", "native_sql")
+	h.Set("X-Promshim-Served-Candidate", "native_sql")
 	h.Set("X-Promshim-Cost-Family", "selector")
 	got := parseHeaders(h)
-	want := headerSample{strategy: "native_sql", fallbackReason: "", roundtrips: 7, millis: 42, routingPolicy: "strict", routingDecision: "strict", routingReason: "strict_policy", strictStrategy: "native_sql", selectedStrategy: "native_sql", costFamily: "selector"}
+	want := headerSample{strategy: "native_sql", fallbackReason: "", roundtrips: 7, millis: 42, routingPolicy: "strict", routingDecision: "strict", routingReason: "strict_policy", strictStrategy: "native_sql", selectedStrategy: "native_sql", strictCandidate: "native_sql", selectedCandidate: "native_sql", servedCandidate: "native_sql", costFamily: "selector"}
 	if got != want {
 		t.Fatalf("parseHeaders = %+v, want %+v", got, want)
 	}
@@ -187,6 +190,9 @@ func TestRunBenchV2ModesAndLabels(t *testing.T) {
 			w.Header().Set("X-Promshim-Routing-Reason", "strict_policy")
 			w.Header().Set("X-Promshim-Strict-Strategy", "delegated_promql")
 			w.Header().Set("X-Promshim-Selected-Strategy", "delegated_promql")
+			w.Header().Set("X-Promshim-Strict-Candidate", "whole_query_delegation")
+			w.Header().Set("X-Promshim-Selected-Candidate", "whole_query_delegation")
+			w.Header().Set("X-Promshim-Served-Candidate", "whole_query_delegation")
 			w.Header().Set("X-Promshim-Cost-Family", "selector")
 		case "force_supported":
 			w.Header().Set("X-Promshim-Strategy", "native_sql")
@@ -249,6 +255,15 @@ func TestRunBenchV2ModesAndLabels(t *testing.T) {
 	}
 	if got := row.Shim["prefer"].CostFamily; got != "selector" {
 		t.Fatalf("prefer cost family = %q", got)
+	}
+	if got := row.Shim["prefer"].StrictCandidate; got != "whole_query_delegation" {
+		t.Fatalf("prefer strict candidate = %q", got)
+	}
+	if got := row.Shim["prefer"].SelectedCandidate; got != "whole_query_delegation" {
+		t.Fatalf("prefer selected candidate = %q", got)
+	}
+	if got := row.Shim["prefer"].ServedCandidate; got != "whole_query_delegation" {
+		t.Fatalf("prefer served candidate = %q", got)
 	}
 	if got := row.Shim["force_supported"].CHRoundtrips; got != 2 {
 		t.Fatalf("force_supported roundtrips = %d", got)

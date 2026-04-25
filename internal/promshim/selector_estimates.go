@@ -8,6 +8,7 @@ import (
 	"time"
 
 	httpapi "github.com/BadLiveware/promshim-clickhouse/internal/promshim/httpapi"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/routingmetrics"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -40,16 +41,24 @@ func newSelectorStatsCache(ttl time.Duration) *selectorStatsCache {
 }
 
 func (c *selectorStatsCache) get(sig selectorSignature, now time.Time) (selectorStats, bool) {
+	stats, state := c.getWithState(sig, now)
+	return stats, state == "hit"
+}
+
+func (c *selectorStatsCache) getWithState(sig selectorSignature, now time.Time) (selectorStats, string) {
 	if c == nil {
-		return selectorStats{}, false
+		return selectorStats{}, "missing"
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	stats, ok := c.entries[sig.key()]
-	if !ok || stats.ObservedAt.IsZero() || now.Sub(stats.ObservedAt) > c.ttl {
-		return selectorStats{}, false
+	if !ok || stats.ObservedAt.IsZero() {
+		return selectorStats{}, "missing"
 	}
-	return stats, true
+	if now.Sub(stats.ObservedAt) > c.ttl {
+		return stats, "stale"
+	}
+	return stats, "hit"
 }
 
 func (c *selectorStatsCache) put(sig selectorSignature, stats selectorStats) {
@@ -73,15 +82,36 @@ func (sig selectorSignature) key() string {
 func int64Key(v int64) string { return strconv.FormatInt(v, 10) }
 
 func applyCachedSelectorEstimates(class httpapi.QueryCostClass, signatures []selectorSignature, cache *selectorStatsCache, now time.Time) httpapi.QueryCostClass {
-	if len(signatures) == 0 || cache == nil {
+	class.EstimateState = httpapi.EstimateState{Source: "none", Fresh: len(signatures) == 0, SelectorCount: len(signatures)}
+	if len(signatures) == 0 {
+		return class
+	}
+	if cache == nil {
+		class.EstimateState.Missing = len(signatures)
 		return class
 	}
 	var matchedSeries, inputSamples int64
-	all := true
+	var latest time.Time
+	missing, stale, hits := 0, 0, 0
+	allFresh := true
 	for _, sig := range signatures {
-		stats, ok := cache.get(sig, now)
-		if !ok {
-			all = false
+		stats, state := cache.getWithState(sig, now)
+		switch state {
+		case "hit":
+			routingmetrics.ObserveEstimateCache(class.Family, "cache", "hit")
+			hits++
+			if stats.ObservedAt.After(latest) {
+				latest = stats.ObservedAt
+			}
+		case "stale":
+			routingmetrics.ObserveEstimateCache(class.Family, "cache", "stale")
+			stale++
+			allFresh = false
+			continue
+		default:
+			routingmetrics.ObserveEstimateCache(class.Family, "none", "miss")
+			missing++
+			allFresh = false
 			continue
 		}
 		matchedSeries += stats.MatchedSeries
@@ -91,9 +121,23 @@ func applyCachedSelectorEstimates(class httpapi.QueryCostClass, signatures []sel
 		}
 		inputSamples += stats.MatchedSeries * samplesPerSeries
 	}
-	if !all {
+	if cache.ttl > 0 {
+		class.EstimateState.TTLSeconds = int64(cache.ttl.Seconds())
+	}
+	class.EstimateState.Missing = missing
+	class.EstimateState.Stale = stale
+	if !allFresh {
+		if stale > 0 || hits > 0 {
+			class.EstimateState.Source = "cache"
+		}
+		if !latest.IsZero() {
+			class.EstimateState.GeneratedAt = latest.UTC().Format(time.RFC3339Nano)
+		}
 		return class
 	}
+	class.EstimateState.Source = "cache"
+	class.EstimateState.Fresh = true
+	class.EstimateState.GeneratedAt = latest.UTC().Format(time.RFC3339Nano)
 	class.EstimatedSeries = matchedSeries
 	class.EstimatedInputSamples = inputSamples
 	if class.EstimatedOutputPoints == 0 {

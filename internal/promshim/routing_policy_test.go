@@ -193,11 +193,35 @@ func TestCostPreferSelectsLocalForPlainAggregationWhenFamilyGateEnabled(t *testi
 	}
 }
 
-func TestCostPreferKeepsPlainAggregationRangeQueriesStrict(t *testing.T) {
-	class := httpapi.QueryCostClass{Endpoint: "query_range", Family: "aggregation", SelectorCount: 1, EstimatedSeries: 10, EstimatedInputSamples: 100, EstimatedOutputPoints: 10, LocalRoundTrips: 1, NativeRoundTrips: 1, HasAggregation: true}
+func TestCostPreferKeepsPlainAggregationRangeQueriesStrictWithoutRangeGate(t *testing.T) {
+	class := httpapi.QueryCostClass{Endpoint: "query_range", Family: "aggregation", SelectorCount: 1, EstimatedSeries: 30, EstimatedInputSamples: 1_210_230, EstimatedOutputPoints: 169, LocalRoundTrips: 1, NativeRoundTrips: 1, HasAggregation: true}
 	info := routingDecisionForStrict(RoutingPolicyCostPrefer, local.NativeLoweringModePrefer, class, "native_sql", []string{"aggregation_instant"})
-	if info.Decision != "strict_low_confidence" || info.Reason != "family_not_local_candidate" {
-		t.Fatalf("decision = %+v, want plain aggregation range strict", info)
+	if info.Decision != "strict_low_confidence" || info.Reason != "family_gate_disabled" {
+		t.Fatalf("decision = %+v, want plain aggregation range strict (gate disabled)", info)
+	}
+}
+
+func TestCostPreferSelectsLocalForPlainAggregationRangeWhenFamilyGateEnabled(t *testing.T) {
+	class := httpapi.QueryCostClass{Endpoint: "query_range", Family: "aggregation", SelectorCount: 1, EstimatedSeries: 30, EstimatedInputSamples: 1_210_230, EstimatedOutputPoints: 169, LocalRoundTrips: 1, NativeRoundTrips: 1, HasAggregation: true}
+	info := routingDecisionForStrict(RoutingPolicyCostPrefer, local.NativeLoweringModePrefer, class, "native_sql", []string{"aggregation_range"})
+	if info.Decision != "local_override" || info.SelectedStrategy != "local" || info.WouldSelect != "local" {
+		t.Fatalf("decision = %+v, want plain aggregation range local override", info)
+	}
+	capEval, ok := capEvaluationByName(info.CapEvaluations, "maxLocalInputSamples")
+	if !ok || capEval.Limit != 1_500_000 || capEval.Exceeded {
+		t.Fatalf("cap evaluation = %+v ok=%v, want range aggregation cap limit 1500000 under limit", capEval, ok)
+	}
+}
+
+func TestCostPreferKeepsPlainAggregationRangeStrictWhenOverRangeCap(t *testing.T) {
+	class := httpapi.QueryCostClass{Endpoint: "query_range", Family: "aggregation", SelectorCount: 1, EstimatedSeries: 30, EstimatedInputSamples: 1_600_000, EstimatedOutputPoints: 169, LocalRoundTrips: 1, NativeRoundTrips: 1, HasAggregation: true}
+	info := routingDecisionForStrict(RoutingPolicyCostPrefer, local.NativeLoweringModePrefer, class, "native_sql", []string{"aggregation_range"})
+	if info.Decision != "strict_over_cap" || len(info.CapHits) == 0 || info.CapHits[0] != "maxLocalInputSamples" {
+		t.Fatalf("decision = %+v, want maxLocalInputSamples cap for range aggregation", info)
+	}
+	capEval, ok := capEvaluationByName(info.CapEvaluations, "maxLocalInputSamples")
+	if !ok || capEval.Limit != 1_500_000 || !capEval.Exceeded || capEval.OverBy != 100_000 {
+		t.Fatalf("cap evaluation = %+v ok=%v, want range cap limit 1500000 over by 100000", capEval, ok)
 	}
 }
 

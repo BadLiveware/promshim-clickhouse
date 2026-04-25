@@ -38,16 +38,25 @@ func NormalizeRoutingPolicy(policy RoutingPolicy) RoutingPolicy {
 }
 
 type costModel struct {
-	MaxLocalInputSamples  int64
-	MaxLocalOutputPoints  int64
-	MaxLocalOutputSeries  int64
-	MaxLocalRoundTrips    int
-	MinRelativeLocalRatio float64
-	MinAbsoluteWinMS      float64
+	MaxLocalInputSamples                 int64
+	MaxLocalInputSamplesRangeAggregation int64
+	MaxLocalOutputPoints                 int64
+	MaxLocalOutputSeries                 int64
+	MaxLocalRoundTrips                   int
+	MinRelativeLocalRatio                float64
+	MinAbsoluteWinMS                     float64
 }
 
 func defaultCostModel() costModel {
-	return costModel{MaxLocalInputSamples: 50_000, MaxLocalOutputPoints: 10_000, MaxLocalOutputSeries: 5_000, MaxLocalRoundTrips: 2, MinRelativeLocalRatio: 0.70, MinAbsoluteWinMS: 3}
+	return costModel{
+		MaxLocalInputSamples:                 50_000,
+		MaxLocalInputSamplesRangeAggregation: 1_500_000,
+		MaxLocalOutputPoints:                 10_000,
+		MaxLocalOutputSeries:                 5_000,
+		MaxLocalRoundTrips:                   2,
+		MinRelativeLocalRatio:                0.70,
+		MinAbsoluteWinMS:                     3,
+	}
 }
 
 func routingDecisionForStrict(policy RoutingPolicy, mode local.NativeLoweringMode, class httpapi.QueryCostClass, strictStrategy string, enabledFamilies []string) httpapi.RoutingInfo {
@@ -77,8 +86,9 @@ func routingDecisionForStrict(policy RoutingPolicy, mode local.NativeLoweringMod
 func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, policy RoutingPolicy, enabledFamilies []string) httpapi.RoutingInfo {
 	info := baseRoutingInfo(policy, "shadow_only", "cost_shadow_strict_default", class, strictStrategy)
 	info.EnabledFamilies = append([]string(nil), enabledFamilies...)
+	maxLocalInputSamples := m.maxLocalInputSamplesLimit(class)
 	info.Caps = map[string]int64{
-		"maxLocalInputSamples": int64(m.MaxLocalInputSamples),
+		"maxLocalInputSamples": maxLocalInputSamples,
 		"maxLocalOutputPoints": int64(m.MaxLocalOutputPoints),
 		"maxLocalOutputSeries": int64(m.MaxLocalOutputSeries),
 		"maxLocalRoundTrips":   int64(m.MaxLocalRoundTrips),
@@ -94,7 +104,7 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 		info.Reason = "missing_estimate"
 		return info
 	}
-	info.CapEvaluations = m.capEvaluations(class)
+	info.CapEvaluations = m.capEvaluations(class, maxLocalInputSamples)
 	for _, capEval := range info.CapEvaluations {
 		if !capEval.Exceeded {
 			continue
@@ -162,20 +172,26 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 
 func costPreferServingCandidateAllowed(class httpapi.QueryCostClass) bool {
 	// Served local overrides are enabled one measured family at a time. Keep
-	// range queries, joins, subqueries, and multi-selector shapes strict until
-	// they have separate caps and evidence.
-	if class.Endpoint != "query" || class.SelectorCount == 0 || class.HasVectorJoin || class.HasSubquery {
+	// joins, subqueries, and unsupported shapes strict until they have separate
+	// caps and evidence.
+	if class.SelectorCount == 0 || class.HasVectorJoin || class.HasSubquery {
 		return false
 	}
 	switch class.Family {
 	case "rate", "increase":
-		return !class.HasHistogram
+		return class.Endpoint == "query" && !class.HasHistogram
 	case "binary":
-		return class.HasRepeatedRangeFunc && class.HasRangeFunction && !class.HasHistogram && !class.HasAggregation && !class.HasSelectionAgg && !class.HasLabelMutation
+		return class.Endpoint == "query" && class.HasRepeatedRangeFunc && class.HasRangeFunction && !class.HasHistogram && !class.HasAggregation && !class.HasSelectionAgg && !class.HasLabelMutation
 	case "histogram_quantile":
-		return class.HasHistogram && class.HasAggregation && class.HasRangeFunction
+		return class.Endpoint == "query" && class.HasHistogram && class.HasAggregation && class.HasRangeFunction
 	case "aggregation":
-		return class.HasAggregation && !class.HasHistogram && !class.HasSelectionAgg
+		if class.Endpoint == "query" {
+			return class.HasAggregation && !class.HasHistogram && !class.HasSelectionAgg
+		}
+		if class.Endpoint == "query_range" {
+			return class.HasAggregation && !class.HasRangeFunction && !class.HasHistogram && !class.HasSelectionAgg && !class.HasLabelMutation && class.SelectorCount == 1
+		}
+		return false
 	default:
 		return false
 	}
@@ -211,9 +227,9 @@ func missingEstimateFields(class httpapi.QueryCostClass) []string {
 	return []string{"selector_stats"}
 }
 
-func (m costModel) capEvaluations(class httpapi.QueryCostClass) []httpapi.RoutingCapEvaluation {
+func (m costModel) capEvaluations(class httpapi.QueryCostClass, maxLocalInputSamples int64) []httpapi.RoutingCapEvaluation {
 	evaluations := []httpapi.RoutingCapEvaluation{
-		capEvaluation("maxLocalInputSamples", class.EstimatedInputSamples, m.MaxLocalInputSamples, "samples"),
+		capEvaluation("maxLocalInputSamples", class.EstimatedInputSamples, maxLocalInputSamples, "samples"),
 		capEvaluation("maxLocalOutputPoints", class.EstimatedOutputPoints, m.MaxLocalOutputPoints, "points"),
 		capEvaluation("maxLocalOutputSeries", class.EstimatedSeries, m.MaxLocalOutputSeries, "series"),
 		capEvaluation("maxLocalRoundTrips", int64(class.LocalRoundTrips), int64(m.MaxLocalRoundTrips), "round_trips"),
@@ -228,6 +244,13 @@ func (m costModel) capEvaluations(class httpapi.QueryCostClass) []httpapi.Routin
 		evaluations = append(evaluations, capEvaluation("rangePointsPerSeries", class.RangePointsPerSeries, 240, "points_per_series"))
 	}
 	return evaluations
+}
+
+func (m costModel) maxLocalInputSamplesLimit(class httpapi.QueryCostClass) int64 {
+	if class.Endpoint == "query_range" && class.Family == "aggregation" && class.HasAggregation && !class.HasRangeFunction && !class.HasHistogram && !class.HasSelectionAgg && !class.HasVectorJoin && !class.HasSubquery && class.SelectorCount == 1 {
+		return m.MaxLocalInputSamplesRangeAggregation
+	}
+	return m.MaxLocalInputSamples
 }
 
 func capEvaluation(name string, estimate, limit int64, unit string) httpapi.RoutingCapEvaluation {
@@ -298,6 +321,9 @@ func familyGate(class httpapi.QueryCostClass) string {
 	case "histogram_quantile":
 		return "histogram_instant"
 	case "aggregation":
+		if class.Endpoint == "query_range" {
+			return "aggregation_range"
+		}
 		if class.HasRangeFunction {
 			return "range_aggregation_instant"
 		}
@@ -320,7 +346,13 @@ func localCandidateFamily(class httpapi.QueryCostClass) bool {
 	case "histogram_quantile":
 		return class.Endpoint == "query" && !class.HasVectorJoin
 	case "aggregation":
-		return class.Endpoint == "query" && !class.HasHistogram && !class.HasSelectionAgg && !class.HasVectorJoin
+		if class.Endpoint == "query" {
+			return !class.HasHistogram && !class.HasSelectionAgg && !class.HasVectorJoin
+		}
+		if class.Endpoint == "query_range" {
+			return class.HasAggregation && !class.HasRangeFunction && !class.HasHistogram && !class.HasSelectionAgg && !class.HasVectorJoin && !class.HasSubquery && class.SelectorCount == 1
+		}
+		return false
 	case "range_selector":
 		return class.RangePointsPerSeries > 0 && class.RangePointsPerSeries <= 60
 	default:

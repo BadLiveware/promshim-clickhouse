@@ -1,0 +1,40 @@
+[
+  {
+    "name": "a012_sum_by_job_range_7d_step_1h",
+    "endpoint": "query_range",
+    "query": "sum by (job) (demo_cpu_usage_seconds_total)",
+    "category": "range_plain_aggregation_step_sweep",
+    "startOffsetSeconds": -604800,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 3600,
+    "compareMode": "structural"
+  },
+  {
+    "name": "a012_sum_by_job_range_7d_step_6h",
+    "endpoint": "query_range",
+    "query": "sum by (job) (demo_cpu_usage_seconds_total)",
+    "category": "range_plain_aggregation_step_sweep",
+    "startOffsetSeconds": -604800,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 21600,
+    "compareMode": "structural"
+  },
+  {
+    "name": "a012_sum_by_job_range_7d_step_24h",
+    "endpoint": "query_range",
+    "query": "sum by (job) (demo_cpu_usage_seconds_total)",
+    "category": "range_plain_aggregation_step_sweep",
+    "startOffsetSeconds": -604800,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 86400,
+    "compareMode": "structural"
+  },
+  {
+    "name": "a012_sum_by_job_instant_control",
+    "endpoint": "query",
+    "query": "sum by (job) (demo_cpu_usage_seconds_total)",
+    "category": "instant_plain_aggregation_control",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  }
+]

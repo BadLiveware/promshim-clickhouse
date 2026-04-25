@@ -24,6 +24,7 @@ profile provenance before it is allowed to change served routing.
 | CBE local family serving | No local override unless family is explicitly listed. | `PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES=<bounded families>` and calibration evidence. | Remove the family or unset `PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES`. |
 | Logical IR rewrites | Enabled, but explain-traced and conservative. | New risky passes need pass/family gate before serving. | `PROM_SHIM_DISABLE_OPTIMIZED_IR=true`. |
 | Native aggregation label projection | Enabled for safe instant-vector `by(...)` aggregation children. | Excludes `without`, selection aggregations, `count_values`, and range-function/subquery children unless separately proven. | `PROM_SHIM_DISABLE_NATIVE_AGGREGATION_LABEL_PROJECTION=true`. |
+| Native repeated subexpression reuse | Enabled for safe identical instant vector subexpressions in native SQL. | Limited to same-expression default one-to-one vector addition; excludes set ops, matching modifiers, bool comparisons, range output, and algebraic simplification. | `PROM_SHIM_DISABLE_NATIVE_REPEATED_SUBEXPRESSION_REUSE=true`. |
 | ClickHouse settings profiles | `default_safe`: safety/provenance only. | Performance profile names require measured evidence and version checks before applying aggressive settings. | `PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE=none` or `default_safe`; unset optional caps. |
 | Reference ClickHouse profile | Documentation context only. | A benchmark claim must name whether it used `promshim-ch-timeseries-reference-v1` or another environment. | No server/operator tuning is required for promshim correctness. |
 
@@ -156,6 +157,7 @@ need full label identity or synthesize/exclude labels differently.
 | Which ClickHouse settings were used? | `X-Promshim-Settings-Profile`, explain `clickHouseSettingsProfile`, and `system.query_log.Settings`. |
 | How do I disable optimized IR? | Set `PROM_SHIM_DISABLE_OPTIMIZED_IR=true`. |
 | How do I disable aggregation label projection? | Set `PROM_SHIM_DISABLE_NATIVE_AGGREGATION_LABEL_PROJECTION=true`. |
+| How do I disable repeated subexpression reuse? | Set `PROM_SHIM_DISABLE_NATIVE_REPEATED_SUBEXPRESSION_REUSE=true`. |
 | How do I disable performance settings? | Use `PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE=none` or `default_safe`; performance profiles remain evidence-gated. |
 | How do I compare local/reference behavior? | Request `native_lowering_mode=off` and compare against `prefer`/`force_supported` with tolerance-aware harnesses. |
 | How do I prove a SQL-shape claim? | Capture `EXPLAIN SYNTAX`, `PLAN`, `PIPELINE`, and query-log ProfileEvents under a bounded log comment. |

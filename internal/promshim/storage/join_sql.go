@@ -21,6 +21,48 @@ func BuildInstantBinaryVectorJoinSQL(lhsSQL string, lhsParams map[string]string,
 	return buildBinaryVectorJoinSQL(lhsSQL, lhsParams, rhsSQL, rhsParams, cfg, false)
 }
 
+func BuildInstantBinaryVectorSelfJoinSQL(sourceSQL string, params map[string]string, cfg BinaryJoinConfig) (string, map[string]string, error) {
+	if isStorageSetOperator(cfg.Op) {
+		return "", nil, fmt.Errorf("native vector self-join SQL for set operator %q is not supported", cfg.Op.String())
+	}
+	if cfg.JoinShape != "one_to_one" || !isDefaultOneToOneMatching(cfg.VectorMatching) {
+		return "", nil, fmt.Errorf("native vector self-join SQL requires default one-to-one matching")
+	}
+	valueExpr, valueFilter, err := buildBinaryValueExpr(cfg.Op, cfg.ReturnBool, sqlb.Ident("lhs.value"), sqlb.Ident("lhs.value"))
+	if err != nil {
+		return "", nil, err
+	}
+	prepared, err := buildPreparedJoinSideSelect("lhs", buildJoinSource(sourceSQL, false), buildJoinGroupExpr(sqlb.Ident("tags"), cfg.VectorMatching), false, true)
+	if err != nil {
+		return "", nil, err
+	}
+	selfRows := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: buildBinarySelfResultTagsExpr(cfg), Alias: "result_tags"},
+			{Expr: sqlb.Ident("lhs.timestamp"), Alias: "timestamp"},
+			{Expr: valueExpr, Alias: "value"},
+		},
+		From:  sqlb.SubSelect{S: prepared, Alias: "lhs"},
+		Where: valueFilter,
+	}
+	outer := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("result_tags"), Alias: "tags"},
+			{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("timestamp")}}, Alias: "timestamp"},
+			{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("value")}}, Alias: "value"},
+		},
+		From:    sqlb.SubSelect{S: selfRows},
+		GroupBy: []sqlb.Expr{sqlb.Ident("result_tags")},
+		Having:  sqlb.RawLit{V: "throwIf(count() > 1, 'multiple matches for labels: grouping labels must ensure unique matches') = 0"},
+		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("result_tags")}},
+	}
+	sql, _, err := outer.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql + schema.QuerySuffix, params, nil
+}
+
 func BuildRangeBinaryVectorJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL string, rhsParams map[string]string, cfg BinaryJoinConfig) (string, map[string]string, error) {
 	return buildBinaryVectorJoinSQL(lhsSQL, lhsParams, rhsSQL, rhsParams, cfg, true)
 }
@@ -253,6 +295,19 @@ func buildJoinGroupExpr(tagsExpr sqlb.Expr, vectorMatching *parser.VectorMatchin
 		sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},
 		sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> NOT has(" + sqlStringArrayLiteral(ignored) + ", tag.1)"}, tagsExpr}},
 	}}
+}
+
+func buildBinarySelfResultTagsExpr(cfg BinaryJoinConfig) sqlb.Expr {
+	result := sqlb.Expr(sqlb.Ident("lhs.original_group"))
+	if !isComparisonJoinOperator(cfg.Op) || cfg.ReturnBool {
+		result = sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> tag.1 != '__name__'"}, result}}
+	}
+	return result
+}
+
+func isDefaultOneToOneMatching(vectorMatching *parser.VectorMatching) bool {
+	matching := normalizeStorageVectorMatching(vectorMatching)
+	return matching.Card == parser.CardOneToOne && !matching.On && len(matching.MatchingLabels) == 0 && len(matching.Include) == 0
 }
 
 func buildBinaryResultTagsExpr(cfg BinaryJoinConfig) sqlb.Expr {

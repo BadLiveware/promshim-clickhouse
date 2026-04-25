@@ -35,29 +35,42 @@ Promshim routes every query through the first strategy that can answer it:
 > **3.** Local Go executor with subtree pushdown (native-SQL or Prometheus-query subtree)
 > **4.** Full local execution
 
-Higher tiers always beat lower tiers. Tier 4 is the unconditional fallback —
-it must stay correct, but nothing should *prefer* to land there. As
-ClickHouse's native PromQL catches up, tier 1 grows and lower tiers shrink.
-Everything targets the `TimeSeries` schema directly so retiring tiers is a
-routing change, not a data migration.
+Higher tiers define capability priority, but cost-based execution (CBE) may
+route among tiers 2, 3, and 4 as real execution candidates when more than one
+candidate is known-correct for the query. Native SQL is not automatically
+preferred for small data sets when measured costs show local execution or
+subtree-pushdown is faster. Tier 1 whole-query delegation remains the preferred
+ClickHouse-native endpoint when it can serve the query correctly, but below that
+CBE may choose the cheapest safe candidate across native SQL lowering, local Go
+execution with subtree pushdown, and full local execution. Everything targets
+the `TimeSeries` schema directly so retiring tiers is a routing change, not a
+data migration.
 
-### Hard rule: new work lives in tiers 1 and 2 only
+### CBE rule: tiers 3 and 4 are routing candidates again
 
-> New features, coverage, and refactors are allowed only in tier 1
-> (whole-query delegation) and tier 2 (native SQL lowering). Tiers 3 and
-> 4 are frozen unless the user explicitly asks.
+> CBE work may improve, instrument, and iterate on tiers 2, 3, and 4 as routing
+> candidates. The goal is to choose the cheapest safe strategy for the current
+> query shape and data size, not to prefer native SQL unconditionally.
 
-Correctness bug fixes to tier 3/4 regressions are allowed (they keep the
-fallback honest). New coverage, new pushdown shapes, perf work, and
-refactors there are not. "Explicitly asks" means a direct instruction in
-the current conversation naming the tier, file, or feature — not a failing
-compliance test, a "why is X slow", a tempting optimization, or a "while
-I'm here" cleanup. If a fix can live in tier 1 or 2, put it there. If a
-tier 3/4 change seems unavoidable, stop and ask.
+Correctness remains mandatory: any tier considered by CBE must be known-correct
+for the query, must preserve Prometheus semantics, and must stay visible in
+compliance/differential validation. Tier 3/4 work is allowed when it supports CBE
+routing quality, safety caps, observability, or performance for already-supported
+semantics. Do not add unrelated lower-tier feature coverage opportunistically;
+new semantic coverage should still be justified by the CBE plan, a correctness
+bug, or an explicit user request.
+
+CBE decisions must be explainable and reversible. Missing estimates, uncertain
+costs, over-cap inputs, known divergences, or absent validation must choose the
+safe/reference route. Use named `run-sweep` artifacts and ProfileEvents evidence
+when claiming that a lower tier is faster, especially for small-data cases where
+local execution often beats native SQL.
 
 **Where new work is welcome:** tier 1 in `internal/promshim/native/`
 delegation classifier; tier 2 in `internal/promshim/native/renderer/` and
-`plan*`; harness/validation in `harness/`, `scripts/`, `cmd/promshim-*`,
+`plan*`; tier 3/4 candidate planning, local execution, subtree pushdown,
+cost-model plumbing, hard caps, and observability when tied to CBE;
+harness/validation in `harness/`, `scripts/`, `cmd/promshim-*`,
 `cmd/promharness-*`.
 
 ## Promshim service

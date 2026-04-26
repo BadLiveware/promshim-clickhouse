@@ -82,6 +82,32 @@ func TestLowerRangeFunctionGolden(t *testing.T) {
 	}
 }
 
+func TestLowerLongStepRateRangeUsesGuardedDirectAggregate(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[5m])`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params: RenderParams{
+			Mode:    native.RenderModeRange,
+			StartMS: 1_700_000_000_000,
+			EndMS:   1_700_086_400_000,
+			StepMS:  300_000,
+		},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	for _, expected := range []string{"deltaSumTimestamp(", "count() AS sample_count", "max(d.timestamp) - min(d.timestamp) AS window_duration_ms"} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected guarded direct rate aggregate SQL to contain %q, got %s", expected, rq.SQL)
+		}
+	}
+	if strings.Contains(rq.SQL, "arraySort(groupArray((d.timestamp, d.value))) AS window_series") {
+		t.Fatalf("expected guarded direct rate aggregate to avoid window_series materialization, got %s", rq.SQL)
+	}
+}
+
 func TestLowerShortRateRangeUsesSortedWindowSeries(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[15s])`)
 	rq, err := Lower(LoweringCtx{

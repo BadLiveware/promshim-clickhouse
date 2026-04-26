@@ -187,10 +187,12 @@ func canUseRangeFunctionRowsFastPath(fn string) bool {
 	}
 }
 
-func supportsDirectSelectorWindowAggregate(fn string) bool {
+func supportsDirectSelectorWindowAggregate(fn string, lookbackMS int64) bool {
 	switch fn {
 	case "avg_over_time":
 		return true
+	case "rate":
+		return lookbackMS >= 60_000
 	default:
 		return false
 	}

@@ -279,7 +279,7 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 	evalStart := time.Now()
 	var value model.RuntimeValue
 	var err error
-	if h.shouldServeDenseRateRollup(query, step) {
+	if h.shouldServeDenseRateRollup(ctx, query, start, end, step) {
 		rollupValue, rollupErr := h.executeDenseRateRollupRange(ctx, start, end)
 		value, err = rollupValue, rollupErr
 		selectedExplain = denseRateRollupExplainNode()

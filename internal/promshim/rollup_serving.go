@@ -11,8 +11,15 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 )
 
-func (h *queryService) shouldServeDenseRateRollup(query string, step time.Duration) bool {
-	return h.opts.DenseRateRollups == "prefer" && h.denseRateRollup.Available && matchesDenseRateRollupQuery(query, step)
+func (h *queryService) shouldServeDenseRateRollup(ctx context.Context, query string, start, end time.Time, step time.Duration) bool {
+	if h.opts.DenseRateRollups != "prefer" || !h.denseRateRollup.Available || !matchesDenseRateRollupQuery(query, step) {
+		return false
+	}
+	coverage, err := storage.DiscoverDenseRateRollupCoverage(ctx, h.client, h.queryConfig())
+	if err != nil {
+		return false
+	}
+	return coverage.Covers(start.UnixMilli(), end.UnixMilli())
 }
 
 func (h *queryService) executeDenseRateRollupRange(ctx context.Context, start, end time.Time) (model.MatrixValue, error) {
@@ -45,7 +52,7 @@ func denseRateRollupExplainNode() local.ExplainNode {
 		RenderedSQL:      "SELECT [tuple('job', job)] AS tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series FROM rollup_cpu_rate_5m_1m_by_job WHERE metric_name = 'demo_cpu_usage_seconds_total' AND timestamp BETWEEN start AND end GROUP BY job ORDER BY tags",
 		RequiredColumns:  []string{"metric_name", "job", "timestamp", "value"},
 		RulesApplied:     []string{"optional_dense_rate_rollup"},
-		SemanticBarriers: []string{"exact_metric", "exact_grouping", "exact_rate_window", "exact_step", "explicit_gate", "raw_timeseries_fallback"},
+		SemanticBarriers: []string{"exact_metric", "exact_grouping", "exact_rate_window", "exact_step", "coverage_probe", "explicit_gate", "raw_timeseries_fallback"},
 	}
 }
 

@@ -82,15 +82,18 @@ func TestAttachDenseRateRollupCandidateReportsGateDisabled(t *testing.T) {
 	}
 }
 
-func TestAttachDenseRateRollupCandidateServesWhenGateEnabled(t *testing.T) {
+func TestAttachDenseRateRollupCandidateWaitsForCoverageWhenGateEnabled(t *testing.T) {
 	service := &queryService{denseRateRollup: denseRateRollupDiscoveryForTest(true), opts: Options{DenseRateRollups: "prefer"}}
 	info := httpapi.RoutingInfo{Class: httpapi.QueryCostClass{Family: "aggregation"}}
 	service.attachDenseRateRollupCandidate(&info, `sum by (job) (rate(demo_cpu_usage_seconds_total[5m]))`, time.Minute)
 	candidate := info.Candidates[0]
-	if !candidate.Supported || !candidate.KnownCorrect || !candidate.Eligible || !candidate.Selected || !candidate.Served {
-		t.Fatalf("expected served rollup candidate when gate is enabled: %#v", candidate)
+	if !candidate.Supported || !candidate.KnownCorrect {
+		t.Fatalf("expected supported known-correct rollup candidate when gate is enabled: %#v", candidate)
 	}
-	if len(candidate.RejectReasons) != 0 {
+	if candidate.Eligible || candidate.Selected || candidate.Served {
+		t.Fatalf("candidate must not be served before coverage check: %#v", candidate)
+	}
+	if len(candidate.RejectReasons) != 1 || candidate.RejectReasons[0] != "coverage_unverified" {
 		t.Fatalf("unexpected reject reasons: %#v", candidate.RejectReasons)
 	}
 }

@@ -171,9 +171,11 @@ reports a non-serving `optional_rollup_cpu_rate_5m_1m_by_job` candidate for the
 exact 1-minute `sum by (job) (rate(demo_cpu_usage_seconds_total[5m]))` shape.
 By default this remains observability only and query routing uses the raw
 TimeSeries path. Setting `PROM_SHIM_DENSE_RATE_ROLLUPS=prefer` allows promshim to
-serve that exact detected shape from the rollup table; all other shapes, missing
-rollups, and malformed rollups fall back to raw TimeSeries. Use rollups only
-when all of these are true:
+serve that exact detected shape from the rollup table after a coverage probe
+confirms the requested start/end are inside the rollup's timestamp bounds; all
+other shapes, missing rollups, malformed rollups, partial coverage, and coverage
+probe failures fall back to raw TimeSeries. Use rollups only when all of these
+are true:
 
 - the dashboard query shape is stable and high-volume enough to justify storage;
 - the rollup interval and lookback exactly match the served query family;

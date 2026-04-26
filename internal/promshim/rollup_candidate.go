@@ -34,9 +34,7 @@ func (h *queryService) attachDenseRateRollupCandidate(info *httpapi.RoutingInfo,
 		candidate.Supported = true
 		candidate.KnownCorrect = true
 		if h.opts.DenseRateRollups == "prefer" {
-			candidate.Eligible = true
-			candidate.Selected = true
-			candidate.Served = true
+			candidate.RejectReasons = append(candidate.RejectReasons, "coverage_unverified")
 		} else {
 			candidate.RejectReasons = append(candidate.RejectReasons, "gate_disabled")
 		}

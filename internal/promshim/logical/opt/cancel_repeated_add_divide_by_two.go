@@ -19,7 +19,8 @@ func (cancelRepeatedAverage) Metadata() PassMetadata {
 		Families: []string{"binary", "range_function"},
 		Preconditions: []string{
 			"root or subtree matches (x + x + ... + x) / n",
-			"divisor is the exact repeated term count",
+			"root or subtree matches (x + x + ... + x) * (1/n) for exact power-of-two n",
+			"divisor or reciprocal multiplier is the exact repeated term count",
 			"all additions use implicit one-to-one matching",
 			"all operands are structurally identical",
 			"all operands are analysis-proven to drop metric name",
@@ -41,19 +42,11 @@ func (cancelRepeatedAverage) Apply(root logical.Node, analysis *logical.Analysis
 // simplifier without separate PromQL semantic proof for labels, vector matching,
 // staleness, NaN/Inf, and signed-zero behavior.
 func repeatedAverageReplacement(node logical.Node, analysis *logical.Analysis) (logical.Node, bool) {
-	div, ok := node.(*logical.BinaryPlan)
-	if !ok || div.Op != parser.DIV || div.ReturnBool || div.VectorMatching != nil {
-		return nil, false
-	}
-	literal, ok := div.RHS.(*logical.ScalarLiteralPlan)
+	repeated, termCount, ok := repeatedAverageCandidate(node)
 	if !ok {
 		return nil, false
 	}
-	termCount, ok := repeatedAverageDivisor(literal.Value)
-	if !ok {
-		return nil, false
-	}
-	terms, ok := collectImplicitRepeatedAddTerms(div.LHS)
+	terms, ok := collectImplicitRepeatedAddTerms(repeated)
 	if !ok || len(terms) != termCount {
 		return nil, false
 	}
@@ -76,6 +69,45 @@ func repeatedAverageReplacement(node logical.Node, analysis *logical.Analysis) (
 	return terms[0], true
 }
 
+func repeatedAverageCandidate(node logical.Node) (logical.Node, int, bool) {
+	binary, ok := node.(*logical.BinaryPlan)
+	if !ok || binary.ReturnBool || binary.VectorMatching != nil {
+		return nil, 0, false
+	}
+
+	if binary.Op == parser.DIV {
+		literal, ok := binary.RHS.(*logical.ScalarLiteralPlan)
+		if !ok {
+			return nil, 0, false
+		}
+		termCount, ok := repeatedAverageDivisor(literal.Value)
+		if !ok {
+			return nil, 0, false
+		}
+		return binary.LHS, termCount, true
+	}
+
+	if binary.Op != parser.MUL {
+		return nil, 0, false
+	}
+	if literal, ok := binary.RHS.(*logical.ScalarLiteralPlan); ok {
+		termCount, ok := repeatedAverageReciprocalMultiplier(literal.Value)
+		if !ok {
+			return nil, 0, false
+		}
+		return binary.LHS, termCount, true
+	}
+	literal, ok := binary.LHS.(*logical.ScalarLiteralPlan)
+	if !ok {
+		return nil, 0, false
+	}
+	termCount, ok := repeatedAverageReciprocalMultiplier(literal.Value)
+	if !ok {
+		return nil, 0, false
+	}
+	return binary.RHS, termCount, true
+}
+
 func repeatedAverageDivisor(value float64) (int, bool) {
 	if math.IsNaN(value) || math.IsInf(value, 0) || value != math.Trunc(value) {
 		return 0, false
@@ -84,6 +116,25 @@ func repeatedAverageDivisor(value float64) (int, bool) {
 		return 0, false
 	}
 	return int(value), true
+}
+
+func repeatedAverageReciprocalMultiplier(value float64) (int, bool) {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 {
+		return 0, false
+	}
+	inverse := 1 / value
+	termCount, ok := repeatedAverageDivisor(inverse)
+	if !ok || !isPowerOfTwo(termCount) {
+		return 0, false
+	}
+	if value != 1/float64(termCount) {
+		return 0, false
+	}
+	return termCount, true
+}
+
+func isPowerOfTwo(value int) bool {
+	return value > 0 && value&(value-1) == 0
 }
 
 func collectImplicitRepeatedAddTerms(node logical.Node) ([]logical.Node, bool) {

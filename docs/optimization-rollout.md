@@ -51,11 +51,13 @@ The rate-range optimization chain is the reference example:
 1. Rate materialization sorting made the duplicated `rate` branch a larger share
    of remaining work.
 2. Strict logical cancellation rewrote bounded repeated averages such as
-   `(rate(x[5m]) + rate(x[5m])) / 2` and
-   `(rate(x[5m]) + rate(x[5m]) + rate(x[5m])) / 3` to `rate(x[5m])` only when
-   the divisor exactly matched the repeated term count, each addition used
-   implicit one-to-one matching, every operand was structurally identical, and
-   every operand dropped the metric name.
+   `(rate(x[5m]) + rate(x[5m])) / 2`,
+   `(rate(x[5m]) + rate(x[5m]) + rate(x[5m])) / 3`, and exact power-of-two
+   reciprocal spellings like `(rate(x[5m]) + ... + rate(x[5m])) * 0.25` to
+   `rate(x[5m])` only when the divisor or reciprocal multiplier exactly matched
+   the repeated term count, each addition used implicit one-to-one matching,
+   every operand was structurally identical, and every operand dropped the
+   metric name.
 3. The simplified `rate(x[5m])` shape then became eligible for the direct
    selector-window aggregate path.
 

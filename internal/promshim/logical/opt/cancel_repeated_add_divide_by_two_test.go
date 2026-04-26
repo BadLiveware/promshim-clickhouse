@@ -49,6 +49,26 @@ func TestCancelRepeatedAverageAssociativity(t *testing.T) {
 	}
 }
 
+func TestCancelRepeatedAverageReciprocalMultiplier(t *testing.T) {
+	queries := []string{
+		`(rate(up[5m]) + rate(up[5m])) * 0.5`,
+		`(rate(up[5m]) + rate(up[5m]) + rate(up[5m]) + rate(up[5m])) * 0.25`,
+		`0.25 * (rate(up[5m]) + rate(up[5m]) + rate(up[5m]) + rate(up[5m]))`,
+	}
+	for _, query := range queries {
+		t.Run(query, func(t *testing.T) {
+			root := mustLogical(t, query)
+			out, _, err := opt.Optimize(root, opt.DefaultPasses)
+			if err != nil {
+				t.Fatalf("Optimize: %v", err)
+			}
+			if _, ok := out.(*logical.RatePlan); !ok {
+				t.Fatalf("expected reciprocal repeated average to collapse to RatePlan, got %T", out)
+			}
+		})
+	}
+}
+
 func TestCancelRepeatedAverageNestedInAggregation(t *testing.T) {
 	root := mustLogical(t, `sum by (job) ((rate(up[5m]) + rate(up[5m]) + rate(up[5m])) / 3)`)
 	out, _, err := opt.Optimize(root, opt.DefaultPasses)
@@ -152,7 +172,8 @@ func TestCancelRepeatedAverageRequiresMetricDroppingChild(t *testing.T) {
 func TestCancelRepeatedAverageDoesNotRewriteOtherAlgebra(t *testing.T) {
 	queries := []string{
 		`(rate(up[5m]) - rate(up[5m])) / 2`,
-		`(rate(up[5m]) + rate(up[5m])) * 0.5`,
+		`(rate(up[5m]) + rate(up[5m]) + rate(up[5m])) * 0.3333333333333333`,
+		`(rate(up[5m]) + rate(up[5m]) + rate(up[5m]) + rate(up[5m])) * 0.2`,
 		`(rate(up[5m]) * 2) / 2`,
 	}
 	for _, query := range queries {

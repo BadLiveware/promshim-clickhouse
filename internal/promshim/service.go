@@ -22,6 +22,7 @@ type queryService struct {
 	client             *storage.Client
 	evaluator          *local.Evaluator
 	promotedTagColumns map[string]struct{}
+	timeSeriesIDType   string
 	shadow             *shadow.Runner
 	selectorStats      *selectorStatsCache
 	selectorProbeSem   chan struct{}
@@ -124,11 +125,20 @@ func NewHandler(opts Options) (http.Handler, error) {
 			promotedTagColumns = mergePromotedTagColumns(promotedTagColumns, discovered)
 		}
 	}
+	discoveryCtx, cancel := context.WithTimeout(context.Background(), opts.RequestTimeout)
+	timeSeriesIDType, idTypeErr := storage.DiscoverTimeSeriesIDType(discoveryCtx, client, storage.QueryConfig{Database: opts.Database, Table: opts.Table})
+	cancel()
+	if idTypeErr != nil {
+		log.Printf("promshim: TimeSeries id type discovery failed: %v", idTypeErr)
+	} else if timeSeriesIDType != "" {
+		log.Printf("promshim: TimeSeries id column type: %s", timeSeriesIDType)
+	}
 	service := &queryService{
 		opts:               opts,
 		client:             client,
 		evaluator:          local.NewEvaluator(opts.Database, opts.Table, client).WithPromotedTagColumns(promotedTagColumns).WithNativeGridFunctions(opts.NativeGridFunctions == "prefer"),
 		promotedTagColumns: promotedTagColumns,
+		timeSeriesIDType:   timeSeriesIDType,
 		selectorStats:      newSelectorStatsCache(5 * time.Minute),
 		selectorProbeSem:   make(chan struct{}, 2),
 	}

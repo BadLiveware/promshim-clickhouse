@@ -90,7 +90,9 @@ tables.
 
 This is a schema/compatibility decision, not a promshim renderer requirement.
 Promshim uses the engine table functions and does not need query changes for
-normal reads.
+normal reads. At startup it best-effort describes `timeSeriesData(database.table)`
+and logs the observed `id` column type so operators can confirm whether a
+deployment is using the default `UUID` or a smaller configured id type.
 
 ## Recommended data-layout additions
 

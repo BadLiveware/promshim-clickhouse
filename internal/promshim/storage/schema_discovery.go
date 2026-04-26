@@ -20,12 +20,27 @@ func BuildPromotedTagColumnsDiscoverySQL(cfg QueryConfig) string {
 	return "SELECT name AS value FROM (DESCRIBE TABLE " + schema.TimeSeriesTagsRef(timeSeriesTableRef(cfg)) + ") WHERE name NOT IN ('id', 'metric_name', 'tags', 'min_time', 'max_time') ORDER BY name" + schema.QuerySuffix
 }
 
+func BuildTimeSeriesIDTypeDiscoverySQL(cfg QueryConfig) string {
+	return "SELECT type AS value FROM (DESCRIBE TABLE " + schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)) + ") WHERE name = 'id' LIMIT 1" + schema.QuerySuffix
+}
+
 func DiscoverPromotedTagColumns(ctx context.Context, client *Client, cfg QueryConfig) (map[string]struct{}, error) {
 	values, err := client.QueryStringRows(ctx, QueryRequest{SQL: BuildPromotedTagColumnsDiscoverySQL(cfg), Purpose: QueryPurposeSchemaDiscovery, Format: ResultFormatJSONEachRow})
 	if err != nil {
 		return nil, err
 	}
 	return promotedTagColumnSetFromNames(values), nil
+}
+
+func DiscoverTimeSeriesIDType(ctx context.Context, client *Client, cfg QueryConfig) (string, error) {
+	values, err := client.QueryStringRows(ctx, QueryRequest{SQL: BuildTimeSeriesIDTypeDiscoverySQL(cfg), Purpose: QueryPurposeSchemaDiscovery, Format: ResultFormatJSONEachRow})
+	if err != nil {
+		return "", err
+	}
+	if len(values) == 0 {
+		return "", nil
+	}
+	return strings.TrimSpace(values[0]), nil
 }
 
 func promotedTagColumnSetFromNames(names []string) map[string]struct{} {

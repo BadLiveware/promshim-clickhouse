@@ -19,6 +19,20 @@ func TestBuildPromotedTagColumnsDiscoverySQLDescribesTagsFunction(t *testing.T) 
 	}
 }
 
+func TestBuildTimeSeriesIDTypeDiscoverySQLDescribesDataFunction(t *testing.T) {
+	sql := BuildTimeSeriesIDTypeDiscoverySQL(QueryConfig{Database: "observability", Table: "prometheus"})
+	for _, expected := range []string{
+		"DESCRIBE TABLE timeSeriesData(`observability`.`prometheus`)",
+		"WHERE name = 'id'",
+		"LIMIT 1",
+		"SETTINGS allow_experimental_time_series_table = 1",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected id type discovery SQL to contain %q, got %q", expected, sql)
+		}
+	}
+}
+
 func TestPromotedTagColumnSetFromNamesFiltersSystemColumns(t *testing.T) {
 	got := promotedTagColumnSetFromNames([]string{"id", "instance", "", "tags", "pod", "metric_name"})
 	if len(got) != 2 {

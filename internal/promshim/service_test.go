@@ -12,6 +12,30 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 )
 
+func TestPromotedTagColumnHelpersMergeExplicitAndDiscovered(t *testing.T) {
+	explicit := promotedTagColumnSet([]string{"instance", "pod", "instance"})
+	discovered := map[string]struct{}{"node": {}, "pod": {}}
+	merged := mergePromotedTagColumns(explicit, discovered)
+	for _, label := range []string{"instance", "pod", "node"} {
+		if _, ok := merged[label]; !ok {
+			t.Fatalf("expected merged promoted tag columns to include %q, got %#v", label, merged)
+		}
+	}
+	if len(merged) != 3 {
+		t.Fatalf("unexpected merged promoted tag columns: %#v", merged)
+	}
+}
+
+func TestPromotedTagColumnHelpersIgnoreEmptyNames(t *testing.T) {
+	got := promotedTagColumnSet([]string{"", "instance", ""})
+	if len(got) != 1 {
+		t.Fatalf("unexpected promoted tag columns: %#v", got)
+	}
+	if _, ok := got["instance"]; !ok {
+		t.Fatalf("expected instance in promoted tag columns: %#v", got)
+	}
+}
+
 func TestQueryExplainReturnsDelegatedWholeQueryPlanWhenClassifierAllowsIt(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {

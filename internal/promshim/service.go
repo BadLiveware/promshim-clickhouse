@@ -3,6 +3,7 @@ package promshim
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -17,12 +18,13 @@ import (
 )
 
 type queryService struct {
-	opts             Options
-	client           *storage.Client
-	evaluator        *local.Evaluator
-	shadow           *shadow.Runner
-	selectorStats    *selectorStatsCache
-	selectorProbeSem chan struct{}
+	opts               Options
+	client             *storage.Client
+	evaluator          *local.Evaluator
+	promotedTagColumns map[string]struct{}
+	shadow             *shadow.Runner
+	selectorStats      *selectorStatsCache
+	selectorProbeSem   chan struct{}
 }
 
 func (h *queryService) ClickHouseTransport() string {
@@ -30,7 +32,20 @@ func (h *queryService) ClickHouseTransport() string {
 }
 
 func (h *queryService) queryConfig() storage.QueryConfig {
-	return storage.QueryConfig{Database: h.opts.Database, Table: h.opts.Table, PromotedTagColumns: promotedTagColumnSet(h.opts.PromotedTagColumns)}
+	return storage.QueryConfig{Database: h.opts.Database, Table: h.opts.Table, PromotedTagColumns: h.promotedTagColumns}
+}
+
+func mergePromotedTagColumns(base, extra map[string]struct{}) map[string]struct{} {
+	if len(extra) == 0 {
+		return base
+	}
+	if base == nil {
+		base = map[string]struct{}{}
+	}
+	for column := range extra {
+		base[column] = struct{}{}
+	}
+	return base
 }
 
 func promotedTagColumnSet(columns []string) map[string]struct{} {
@@ -99,12 +114,23 @@ func NewHandler(opts Options) (http.Handler, error) {
 		return nil, err
 	}
 	promotedTagColumns := promotedTagColumnSet(opts.PromotedTagColumns)
+	if opts.DiscoverPromotedTagColumns {
+		discoveryCtx, cancel := context.WithTimeout(context.Background(), opts.RequestTimeout)
+		discovered, discoveryErr := storage.DiscoverPromotedTagColumns(discoveryCtx, client, storage.QueryConfig{Database: opts.Database, Table: opts.Table})
+		cancel()
+		if discoveryErr != nil {
+			log.Printf("promshim: promoted tag column discovery failed: %v", discoveryErr)
+		} else {
+			promotedTagColumns = mergePromotedTagColumns(promotedTagColumns, discovered)
+		}
+	}
 	service := &queryService{
-		opts:             opts,
-		client:           client,
-		evaluator:        local.NewEvaluator(opts.Database, opts.Table, client).WithPromotedTagColumns(promotedTagColumns),
-		selectorStats:    newSelectorStatsCache(5 * time.Minute),
-		selectorProbeSem: make(chan struct{}, 2),
+		opts:               opts,
+		client:             client,
+		evaluator:          local.NewEvaluator(opts.Database, opts.Table, client).WithPromotedTagColumns(promotedTagColumns),
+		promotedTagColumns: promotedTagColumns,
+		selectorStats:      newSelectorStatsCache(5 * time.Minute),
+		selectorProbeSem:   make(chan struct{}, 2),
 	}
 	service.shadow = shadow.NewRunner(service)
 	mux := http.NewServeMux()

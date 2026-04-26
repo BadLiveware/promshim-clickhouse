@@ -43,6 +43,7 @@ type Options struct {
 	MaxResponseSeries             int64
 	MaxResponsePoints             int64
 	PromotedTagColumns            []string
+	DiscoverPromotedTagColumns    bool
 
 	DisableEntireQueryDelegation bool
 }
@@ -74,6 +75,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		MaxResponseSeries:             getenvInt64("PROM_SHIM_MAX_RESPONSE_SERIES", defaultMaxResponseSeries),
 		MaxResponsePoints:             getenvInt64("PROM_SHIM_MAX_RESPONSE_POINTS", defaultMaxResponsePoints),
 		PromotedTagColumns:            splitCSVEnv(getenv("PROM_SHIM_PROMOTED_TAG_COLUMNS", "")),
+		DiscoverPromotedTagColumns:    getenvBool("PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS", false),
 	}
 
 	if _, err := local.ParseNativeLoweringMode(string(opts.NativeLoweringMode)); err != nil {
@@ -119,6 +121,21 @@ func splitCSVEnv(raw string) []string {
 		}
 	}
 	return out
+}
+
+func getenvBool(key string, fallback bool) bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	if value == "" {
+		return fallback
+	}
+	switch value {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func getenvInt(key string, fallback int) int {

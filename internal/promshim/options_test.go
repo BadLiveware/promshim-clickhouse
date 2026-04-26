@@ -86,11 +86,15 @@ func TestLoadOptionsFromEnvCostRoutingLocalFamilies(t *testing.T) {
 
 func TestLoadOptionsFromEnvPromotedTagColumns(t *testing.T) {
 	t.Setenv("PROM_SHIM_PROMOTED_TAG_COLUMNS", "instance, pod ,node")
+	t.Setenv("PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS", "true")
 	opts, err := LoadOptionsFromEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(opts.PromotedTagColumns) != 3 || opts.PromotedTagColumns[0] != "instance" || opts.PromotedTagColumns[1] != "pod" || opts.PromotedTagColumns[2] != "node" {
 		t.Fatalf("PromotedTagColumns = %+v", opts.PromotedTagColumns)
+	}
+	if !opts.DiscoverPromotedTagColumns {
+		t.Fatalf("DiscoverPromotedTagColumns = false, want true")
 	}
 }

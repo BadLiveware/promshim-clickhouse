@@ -213,7 +213,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 					// Keep the selector-scoped grid→data join that benchmarks well on long-range
 					// windows, but skip per-step window_series/window_values materialization for
 					// direct avg_over_time selectors by aggregating inside that grouped join.
-					if isIdentity && fn == "avg_over_time" && preferDirectSelectorWindowJoin(lookbackMS, params.StepMS) {
+					if isIdentity && supportsDirectSelectorWindowAggregate(fn) && preferDirectSelectorWindowJoin(lookbackMS, params.StepMS) {
 						childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
 						source, err := renderAggregationSourceView(view, params)
 						if err != nil {

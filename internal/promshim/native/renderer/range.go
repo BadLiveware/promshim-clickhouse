@@ -187,6 +187,15 @@ func canUseRangeFunctionRowsFastPath(fn string) bool {
 	}
 }
 
+func supportsDirectSelectorWindowAggregate(fn string) bool {
+	switch fn {
+	case "avg_over_time", "rate":
+		return true
+	default:
+		return false
+	}
+}
+
 func buildInstantRangeFunctionOverRowsSQL(sourceRowsSQL, fn, finalTagsExpr string, evaluationTimeMS int64) (string, error) {
 	valueExpr, err := rangeFunctionRowsFastPathValueExpr(fn, "value")
 	if err != nil {

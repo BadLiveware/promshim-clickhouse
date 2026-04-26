@@ -100,6 +100,22 @@ func TestLoadOptionsFromEnvNativeGridFunctions(t *testing.T) {
 	}
 }
 
+func TestLoadOptionsFromEnvDenseRateRollups(t *testing.T) {
+	t.Setenv("PROM_SHIM_DENSE_RATE_ROLLUPS", "prefer")
+	opts, err := LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.DenseRateRollups != "prefer" {
+		t.Fatalf("DenseRateRollups = %q, want prefer", opts.DenseRateRollups)
+	}
+
+	t.Setenv("PROM_SHIM_DENSE_RATE_ROLLUPS", "surprise")
+	if _, err := LoadOptionsFromEnv(); err == nil || !strings.Contains(err.Error(), "PROM_SHIM_DENSE_RATE_ROLLUPS") {
+		t.Fatalf("LoadOptionsFromEnv invalid dense rate rollups error = %v", err)
+	}
+}
+
 func TestLoadOptionsFromEnvPromotedTagColumns(t *testing.T) {
 	t.Setenv("PROM_SHIM_PROMOTED_TAG_COLUMNS", "instance, pod ,node")
 	t.Setenv("PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS", "true")

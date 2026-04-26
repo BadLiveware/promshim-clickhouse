@@ -277,7 +277,17 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 	}
 	settingsProfile := h.applySettingsProfileProvenance(&routing, &selectedExplain)
 	evalStart := time.Now()
-	value, err := h.evaluator.Evaluate(ctx, selectedPlan, local.EvalParams{Mode: local.EvalModeRange, Start: start, End: end, Step: step})
+	var value model.RuntimeValue
+	var err error
+	if h.shouldServeDenseRateRollup(query, step) {
+		rollupValue, rollupErr := h.executeDenseRateRollupRange(ctx, start, end)
+		value, err = rollupValue, rollupErr
+		selectedExplain = denseRateRollupExplainNode()
+		selectedExplain.SettingsProfile = &settingsProfile
+		markDenseRateRollupServed(&routing)
+	} else {
+		value, err = h.evaluator.Evaluate(ctx, selectedPlan, local.EvalParams{Mode: local.EvalModeRange, Start: start, End: end, Step: step})
+	}
 	strictEvalDuration := time.Since(evalStart)
 	if err != nil {
 		return nil, local.ApiErrorToHTTP(err)

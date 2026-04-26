@@ -25,7 +25,6 @@ func (h *queryService) attachDenseRateRollupCandidate(info *httpapi.RoutingInfo,
 		Selected:           false,
 		Served:             false,
 		EstimatesAvailable: true,
-		RejectReasons:      []string{"diagnostic_only"},
 	}
 	if !h.denseRateRollup.Available {
 		candidate.RejectReasons = append(candidate.RejectReasons, "rollup_not_detected")
@@ -34,8 +33,14 @@ func (h *queryService) attachDenseRateRollupCandidate(info *httpapi.RoutingInfo,
 	} else {
 		candidate.Supported = true
 		candidate.KnownCorrect = true
+		if h.opts.DenseRateRollups == "prefer" {
+			candidate.Eligible = true
+			candidate.Selected = true
+			candidate.Served = true
+		} else {
+			candidate.RejectReasons = append(candidate.RejectReasons, "gate_disabled")
+		}
 	}
-	candidate.Eligible = false
 	info.Candidates = append(info.Candidates, candidate)
 }
 

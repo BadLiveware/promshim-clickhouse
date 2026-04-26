@@ -60,8 +60,8 @@ func TestMatchesDenseRateRollupQuery(t *testing.T) {
 	}
 }
 
-func TestAttachDenseRateRollupCandidateIsDiagnosticOnly(t *testing.T) {
-	service := &queryService{denseRateRollup: denseRateRollupDiscoveryForTest(true)}
+func TestAttachDenseRateRollupCandidateReportsGateDisabled(t *testing.T) {
+	service := &queryService{denseRateRollup: denseRateRollupDiscoveryForTest(true), opts: Options{DenseRateRollups: "off"}}
 	info := httpapi.RoutingInfo{Class: httpapi.QueryCostClass{Family: "aggregation"}}
 	service.attachDenseRateRollupCandidate(&info, `sum by (job) (rate(demo_cpu_usage_seconds_total[5m]))`, time.Minute)
 	if len(info.Candidates) != 1 {
@@ -77,7 +77,20 @@ func TestAttachDenseRateRollupCandidateIsDiagnosticOnly(t *testing.T) {
 	if candidate.Eligible || candidate.Selected || candidate.Served {
 		t.Fatalf("rollup candidate must remain non-serving: %#v", candidate)
 	}
-	if len(candidate.RejectReasons) != 1 || candidate.RejectReasons[0] != "diagnostic_only" {
+	if len(candidate.RejectReasons) != 1 || candidate.RejectReasons[0] != "gate_disabled" {
+		t.Fatalf("unexpected reject reasons: %#v", candidate.RejectReasons)
+	}
+}
+
+func TestAttachDenseRateRollupCandidateServesWhenGateEnabled(t *testing.T) {
+	service := &queryService{denseRateRollup: denseRateRollupDiscoveryForTest(true), opts: Options{DenseRateRollups: "prefer"}}
+	info := httpapi.RoutingInfo{Class: httpapi.QueryCostClass{Family: "aggregation"}}
+	service.attachDenseRateRollupCandidate(&info, `sum by (job) (rate(demo_cpu_usage_seconds_total[5m]))`, time.Minute)
+	candidate := info.Candidates[0]
+	if !candidate.Supported || !candidate.KnownCorrect || !candidate.Eligible || !candidate.Selected || !candidate.Served {
+		t.Fatalf("expected served rollup candidate when gate is enabled: %#v", candidate)
+	}
+	if len(candidate.RejectReasons) != 0 {
 		t.Fatalf("unexpected reject reasons: %#v", candidate.RejectReasons)
 	}
 }
@@ -90,7 +103,7 @@ func TestAttachDenseRateRollupCandidateReportsAbsentRollup(t *testing.T) {
 	if candidate.Supported || candidate.KnownCorrect || candidate.Eligible {
 		t.Fatalf("absent rollup must not be supported: %#v", candidate)
 	}
-	if len(candidate.RejectReasons) != 2 || candidate.RejectReasons[1] != "rollup_not_detected" {
+	if len(candidate.RejectReasons) != 1 || candidate.RejectReasons[0] != "rollup_not_detected" {
 		t.Fatalf("unexpected reject reasons: %#v", candidate.RejectReasons)
 	}
 }

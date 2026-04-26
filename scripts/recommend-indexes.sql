@@ -20,16 +20,48 @@
 -- ALTER TABLE <database>.<inner_time_series_data_table>
 --   MATERIALIZE INDEX min_max_ts;
 
--- 2. Tags table label-presence pruning.
--- Helps paths that test whether a label key exists in the Map tags column.
+-- 2. Tags table label-key pruning (only when label-key presence is in WHERE).
+-- This is transparent and droppable, but it only helps query shapes whose
+-- storage predicate can use mapKeys(tags), has(mapKeys(tags), ...), or an
+-- equivalent key-presence expression. It does not prune when mapKeys(tags) is
+-- used only to project labels after the metric primary key has already selected
+-- the tags granule.
+--
+-- Scout note: on the benchmark stack, `sum by (type)
+-- (avg_over_time(demo_memory_usage_bytes[1h]))` uses mapKeys(tags) only in a
+-- projection. Adding this index was not used by EXPLAIN and produced no pruning
+-- signal, so do not recommend it as a blanket promshim tuning without a
+-- predicate-shape proof.
 --
 -- ALTER TABLE <database>.<inner_time_series_tags_table>
 --   ADD INDEX tag_keys (mapKeys(tags)) TYPE bloom_filter GRANULARITY 4;
 --
 -- ALTER TABLE <database>.<inner_time_series_tags_table>
 --   MATERIALIZE INDEX tag_keys;
+--
+-- Rollback:
+-- ALTER TABLE <database>.<inner_time_series_tags_table>
+--   DROP INDEX IF EXISTS tag_keys;
 
--- 3. Prefer schema-level partitioning for long-retention data when creating a
+-- 3. Tags table label-value pruning (requires measured granule reduction).
+-- Helps only when equality predicates over tag map values have granules to skip.
+-- Scout note: on the benchmark stack, `src.tags['job'] = 'demo-api'` caused
+-- ClickHouse to list a mapValues(tags) bloom filter in EXPLAIN, but the metric
+-- primary key had already reduced the tags scan to one granule (`1/1`), so the
+-- index did not reduce selected granules. Do not recommend it without a broader
+-- or more selective fixture proving granule reduction.
+--
+-- ALTER TABLE <database>.<inner_time_series_tags_table>
+--   ADD INDEX tag_values (mapValues(tags)) TYPE bloom_filter(0.01) GRANULARITY 4;
+--
+-- ALTER TABLE <database>.<inner_time_series_tags_table>
+--   MATERIALIZE INDEX tag_values;
+--
+-- Rollback:
+-- ALTER TABLE <database>.<inner_time_series_tags_table>
+--   DROP INDEX IF EXISTS tag_values;
+
+-- 4. Prefer schema-level partitioning for long-retention data when creating a
 -- new TimeSeries deployment. Existing deployments should migrate via a planned
 -- backfill rather than altering hot production storage in place.
 --

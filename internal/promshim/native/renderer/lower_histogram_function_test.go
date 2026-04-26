@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -77,6 +78,24 @@ func TestLowerHistogramFunctionGolden(t *testing.T) {
 					t.Errorf("SQL differs from golden %s\nwant:\n%s\ngot:\n%s", goldenPath, want, rq.SQL)
 				}
 			})
+		}
+	}
+}
+
+func TestLowerHistogramQuantileKeepsNonBucketGroupingLabels(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `histogram_quantile(0.95, sum by (job, le) (rate(http_request_duration_seconds_bucket[5m])))`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	for _, expected := range []string{"has(['job', 'le'], tag.1)", "arrayFilter(tag -> tag.1 != 'le' AND tag.1 != '__name__'", "GROUP BY histogram_tags"} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected %q in grouped histogram quantile SQL, got:\n%s", expected, rq.SQL)
 		}
 	}
 }

@@ -189,7 +189,7 @@ func canUseRangeFunctionRowsFastPath(fn string) bool {
 
 func supportsDirectSelectorWindowAggregate(fn string) bool {
 	switch fn {
-	case "avg_over_time", "rate":
+	case "avg_over_time":
 		return true
 	default:
 		return false

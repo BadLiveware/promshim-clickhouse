@@ -4,7 +4,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 )
 
 // rangeFunctionCases covers all seven logical range-function plan kinds.
@@ -75,6 +78,32 @@ func TestLowerRangeFunctionGolden(t *testing.T) {
 					t.Errorf("SQL differs from golden %s\nwant:\n%s\ngot:\n%s", goldenPath, want, rq.SQL)
 				}
 			})
+		}
+	}
+}
+
+func TestLowerShortRateRangeUsesSortedWindowSeries(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[15s])`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params: RenderParams{
+			Mode:    native.RenderModeRange,
+			StartMS: 1_776_807_342_000,
+			EndMS:   1_776_807_942_000,
+			StepMS:  10_000,
+		},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if strings.Contains(rq.SQL, "deltaSumTimestamp(") {
+		t.Fatalf("short rate ranges must not use direct deltaSumTimestamp aggregate, got %s", rq.SQL)
+	}
+	for _, expected := range []string{"arraySort(groupArray((d.timestamp, d.value))) AS window_series", "arrayPopBack(window_values) AS window_values_prev", "arrayPopFront(window_values) AS window_values_cur"} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected %q in SQL, got %s", expected, rq.SQL)
 		}
 	}
 }

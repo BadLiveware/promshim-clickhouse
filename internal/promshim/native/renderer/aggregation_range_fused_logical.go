@@ -127,15 +127,6 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 		lookbackMS := sel.Lookback.Milliseconds()
 		offsetMS := sel.Offset.Milliseconds()
 		isIdentity := view.ValueExpr == "{value}" && view.TagsExpr == "{tags}" && !view.DropsMetric
-		if isIdentity && fn == "rate" && preferDirectSelectorWindowJoin(lookbackMS, ctx.Params.StepMS) {
-			childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
-			source, err := renderAggregationSourceView(view, ctx.Params)
-			if err != nil {
-				return "", nil, err
-			}
-			tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(ctx.Params))
-			return storage.BuildRangeWindowSelectorDirectAggregateRowsQuerySQLWithFinalTags(ctx.Config, *source.Selector, childRequiredStartMS, childRequiredEndMS, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, fn, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
-		}
 		if isIdentity && preferDirectSelectorWindowJoin(lookbackMS, ctx.Params.StepMS) {
 			childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
 			source, err := renderAggregationSourceView(view, ctx.Params)

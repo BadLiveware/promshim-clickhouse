@@ -426,16 +426,15 @@ func selectionAggregationRatioValue(paramNumber *float64) (float64, error) {
 	return ratio, nil
 }
 
-func selectionAggregationOrder(op parser.ItemType) string {
-	switch op {
-	case parser.TOPK:
-		return "DESC"
-	case parser.BOTTOMK:
-		return "ASC"
-	case parser.LIMITK:
-		return "ASC"
-	default:
-		panic("unexpected selection aggregation operator")
+func selectionAggregationOrder(op parser.ItemType) []sqlb.OrderExpr {
+	if op == parser.LIMITK {
+		return []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}}
+	}
+	desc := op == parser.TOPK
+	return []sqlb.OrderExpr{
+		{Expr: sqlb.RawLit{V: "isNaN(value)"}},
+		{Expr: sqlb.Ident("value"), Desc: desc},
+		{Expr: sqlb.Ident("tags")},
 	}
 }
 
@@ -593,19 +592,20 @@ func buildInstantSelectionAggregationOverSubquerySQL(source AggregationSource, s
 		if err != nil {
 			return "", nil, err
 		}
-		orderExpr := "tags ASC"
-		if op != parser.LIMITK {
-			orderExpr = "isNaN(value) ASC, value " + selectionAggregationOrder(op) + ", tags ASC"
-		}
-		ranked := &sqlb.Select{
-			Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}, {Expr: sqlb.RawLit{V: "row_number() OVER (PARTITION BY grouping_tags ORDER BY " + orderExpr + ")"}, Alias: "rank"}},
+		limited := &sqlb.Select{
+			Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}},
 			From:    sqlb.SubSelect{S: middle},
+			OrderBy: append([]sqlb.OrderExpr{{Expr: sqlb.Ident("grouping_tags")}}, selectionAggregationOrder(op)...),
+			Limit:   &sqlb.Limit{Count: k, By: []sqlb.Expr{sqlb.Ident("grouping_tags")}},
 		}
 		outer = &sqlb.Select{
 			Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}},
-			From:    sqlb.SubSelect{S: ranked},
-			Where:   sqlb.RawLit{V: "rank <= " + strconv.Itoa(k)},
+			From:    sqlb.SubSelect{S: limited},
 			OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}},
+		}
+		if k <= 0 {
+			limited.Where = sqlb.RawLit{V: "0 = 1"}
+			limited.Limit = nil
 		}
 	case parser.LIMIT_RATIO:
 		ratio, err := selectionAggregationRatioValue(paramNumber)
@@ -660,18 +660,15 @@ func buildRangeSelectionAggregationOverSubquerySQL(source AggregationSource, sou
 		if err != nil {
 			return "", nil, err
 		}
-		orderExpr := "tags ASC"
-		if op != parser.LIMITK {
-			orderExpr = "isNaN(value) ASC, value " + selectionAggregationOrder(op) + ", tags ASC"
-		}
-		ranked := &sqlb.Select{
-			Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}, {Expr: sqlb.RawLit{V: "row_number() OVER (PARTITION BY grouping_tags, timestamp ORDER BY " + orderExpr + ")"}, Alias: "rank"}},
-			From:    sqlb.SubSelect{S: points},
-		}
 		selected = &sqlb.Select{
 			Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}},
-			From:    sqlb.SubSelect{S: ranked},
-			Where:   sqlb.RawLit{V: "rank <= " + strconv.Itoa(k)},
+			From:    sqlb.SubSelect{S: points},
+			OrderBy: append([]sqlb.OrderExpr{{Expr: sqlb.Ident("grouping_tags")}, {Expr: sqlb.Ident("timestamp")}}, selectionAggregationOrder(op)...),
+			Limit:   &sqlb.Limit{Count: k, By: []sqlb.Expr{sqlb.Ident("grouping_tags"), sqlb.Ident("timestamp")}},
+		}
+		if k <= 0 {
+			selected.Where = sqlb.RawLit{V: "0 = 1"}
+			selected.Limit = nil
 		}
 	case parser.LIMIT_RATIO:
 		ratio, err := selectionAggregationRatioValue(paramNumber)

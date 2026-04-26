@@ -147,6 +147,39 @@ a silent peephole, because they replace promshim's current SQL-level rate
 kernel. See `docs/native-grid-function-lowering.md` for the candidate SQL shape,
 semantic checks, rollout gate, and measurement plan.
 
+## Optional dense-dashboard rollups
+
+Dense dashboard ranges can be dominated by repeatedly deriving the same
+per-label rate series from raw TimeSeries samples. For common dashboards, an
+operator-managed rollup table can precompute a fixed semantic shape such as:
+
+```promql
+sum by (job) (rate(<counter>[5m]))
+```
+
+on a fixed output grid, then serve dashboards by reading the rollup table instead
+of recomputing from raw samples. This is an accelerator, not a promshim
+requirement: promshim must continue to run against raw `timeSeriesData(...)` when
+rollups are absent, stale, or semantically ineligible.
+
+Template SQL lives in `scripts/recommend-rollups.sql`. The template is explicit
+about the metric, labels, grid, lookback, refresh window, and output table so an
+operator can review the semantic trade-off before enabling it. Use rollups only
+when all of these are true:
+
+- the dashboard query shape is stable and high-volume enough to justify storage;
+- the rollup interval and lookback exactly match the served query family;
+- the refresh job reads at least one lookback before the first output timestamp;
+- raw TimeSeries fallback remains available for ad hoc or semantically different
+  PromQL.
+
+A benchmark-stack scout for a 24h dense `sum by (job) (rate(...[5m]))` row found
+that reading a precomputed 1m rollup was about `4 ms` in ClickHouse versus the
+raw native path at about `11.5 s`; the one-window rollup refresh itself was about
+`97 ms` on the local fixture. This makes rollups promising for fixed dense
+dashboards, but they need explicit operator ownership and feature-detected
+fallback before promshim routes to them automatically.
+
 ## Things not to pursue on current ClickHouse sources
 
 - TimeSeries tag/group primitives as a portable replacement for promshim's tag

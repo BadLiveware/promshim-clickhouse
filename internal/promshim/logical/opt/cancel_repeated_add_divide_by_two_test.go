@@ -54,6 +54,8 @@ func TestCancelRepeatedAverageReciprocalMultiplier(t *testing.T) {
 		`(rate(up[5m]) + rate(up[5m])) * 0.5`,
 		`(rate(up[5m]) + rate(up[5m]) + rate(up[5m]) + rate(up[5m])) * 0.25`,
 		`0.25 * (rate(up[5m]) + rate(up[5m]) + rate(up[5m]) + rate(up[5m]))`,
+		`(rate(up[5m]) + rate(up[5m]) + rate(up[5m]) + rate(up[5m])) * (1 / 4)`,
+		`(1 / 4) * (rate(up[5m]) + rate(up[5m]) + rate(up[5m]) + rate(up[5m]))`,
 	}
 	for _, query := range queries {
 		t.Run(query, func(t *testing.T) {
@@ -174,6 +176,8 @@ func TestCancelRepeatedAverageDoesNotRewriteOtherAlgebra(t *testing.T) {
 		`(rate(up[5m]) - rate(up[5m])) / 2`,
 		`(rate(up[5m]) + rate(up[5m]) + rate(up[5m])) * 0.3333333333333333`,
 		`(rate(up[5m]) + rate(up[5m]) + rate(up[5m]) + rate(up[5m])) * 0.2`,
+		`(rate(up[5m]) + rate(up[5m]) + rate(up[5m]) + rate(up[5m])) * (2 / 8)`,
+		`(rate(up[5m]) + rate(up[5m]) + rate(up[5m]) + rate(up[5m])) * (1 / 5)`,
 		`(rate(up[5m]) * 2) / 2`,
 	}
 	for _, query := range queries {

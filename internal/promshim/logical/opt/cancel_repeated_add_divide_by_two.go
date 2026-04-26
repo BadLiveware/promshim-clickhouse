@@ -20,7 +20,7 @@ func (cancelRepeatedAverage) Metadata() PassMetadata {
 		Preconditions: []string{
 			"root or subtree matches (x + x + ... + x) / n",
 			"root or subtree matches (x + x + ... + x) * (1/n) for exact power-of-two n",
-			"divisor or reciprocal multiplier is the exact repeated term count",
+			"unit-fraction, divisor, or reciprocal multiplier is the exact repeated term count",
 			"all additions use implicit one-to-one matching",
 			"all operands are structurally identical",
 			"all operands are analysis-proven to drop metric name",
@@ -90,22 +90,13 @@ func repeatedAverageCandidate(node logical.Node) (logical.Node, int, bool) {
 	if binary.Op != parser.MUL {
 		return nil, 0, false
 	}
-	if literal, ok := binary.RHS.(*logical.ScalarLiteralPlan); ok {
-		termCount, ok := repeatedAverageReciprocalMultiplier(literal.Value)
-		if !ok {
-			return nil, 0, false
-		}
+	if termCount, ok := repeatedAverageMultiplierTermCount(binary.RHS); ok {
 		return binary.LHS, termCount, true
 	}
-	literal, ok := binary.LHS.(*logical.ScalarLiteralPlan)
-	if !ok {
-		return nil, 0, false
+	if termCount, ok := repeatedAverageMultiplierTermCount(binary.LHS); ok {
+		return binary.RHS, termCount, true
 	}
-	termCount, ok := repeatedAverageReciprocalMultiplier(literal.Value)
-	if !ok {
-		return nil, 0, false
-	}
-	return binary.RHS, termCount, true
+	return nil, 0, false
 }
 
 func repeatedAverageDivisor(value float64) (int, bool) {
@@ -116,6 +107,29 @@ func repeatedAverageDivisor(value float64) (int, bool) {
 		return 0, false
 	}
 	return int(value), true
+}
+
+func repeatedAverageMultiplierTermCount(node logical.Node) (int, bool) {
+	if literal, ok := node.(*logical.ScalarLiteralPlan); ok {
+		return repeatedAverageReciprocalMultiplier(literal.Value)
+	}
+	fraction, ok := node.(*logical.BinaryPlan)
+	if !ok || fraction.Op != parser.DIV || fraction.ReturnBool || fraction.VectorMatching != nil {
+		return 0, false
+	}
+	numerator, ok := fraction.LHS.(*logical.ScalarLiteralPlan)
+	if !ok || numerator.Value != 1 {
+		return 0, false
+	}
+	denominator, ok := fraction.RHS.(*logical.ScalarLiteralPlan)
+	if !ok {
+		return 0, false
+	}
+	termCount, ok := repeatedAverageDivisor(denominator.Value)
+	if !ok || !isPowerOfTwo(termCount) {
+		return 0, false
+	}
+	return termCount, true
 }
 
 func repeatedAverageReciprocalMultiplier(value float64) (int, bool) {

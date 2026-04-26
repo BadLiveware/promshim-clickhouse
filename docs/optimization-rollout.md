@@ -52,12 +52,13 @@ The rate-range optimization chain is the reference example:
    of remaining work.
 2. Strict logical cancellation rewrote bounded repeated averages such as
    `(rate(x[5m]) + rate(x[5m])) / 2`,
-   `(rate(x[5m]) + rate(x[5m]) + rate(x[5m])) / 3`, and exact power-of-two
-   reciprocal spellings like `(rate(x[5m]) + ... + rate(x[5m])) * 0.25` to
-   `rate(x[5m])` only when the divisor or reciprocal multiplier exactly matched
-   the repeated term count, each addition used implicit one-to-one matching,
-   every operand was structurally identical, and every operand dropped the
-   metric name.
+   `(rate(x[5m]) + rate(x[5m]) + rate(x[5m])) / 3`, exact power-of-two
+   reciprocal spellings like `(rate(x[5m]) + ... + rate(x[5m])) * 0.25`, and
+   exact unit-fraction spellings like `(rate(x[5m]) + ... + rate(x[5m])) * (1 / 4)`
+   to `rate(x[5m])` only when the divisor, reciprocal multiplier, or
+   unit-fraction denominator exactly matched the repeated term count, each
+   addition used implicit one-to-one matching, every operand was structurally
+   identical, and every operand dropped the metric name.
 3. The simplified `rate(x[5m])` shape then became eligible for the direct
    selector-window aggregate path.
 

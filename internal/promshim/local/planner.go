@@ -72,14 +72,24 @@ func (p *delegatedExprPlan) explain() ExplainNode {
 }
 
 type Evaluator struct {
-	database  string
-	table     string
-	client    *storage.Client
-	localMemo map[string]model.RuntimeValue
+	database           string
+	table              string
+	promotedTagColumns map[string]struct{}
+	client             *storage.Client
+	localMemo          map[string]model.RuntimeValue
 }
 
 func NewEvaluator(database, table string, client *storage.Client) *Evaluator {
 	return &Evaluator{database: database, table: table, client: client}
+}
+
+func (e *Evaluator) WithPromotedTagColumns(columns map[string]struct{}) *Evaluator {
+	e.promotedTagColumns = columns
+	return e
+}
+
+func (e *Evaluator) queryConfig() storage.QueryConfig {
+	return storage.QueryConfig{Database: e.database, Table: e.table, PromotedTagColumns: e.promotedTagColumns}
 }
 
 func (e *Evaluator) Evaluate(ctx context.Context, plan Plan, params EvalParams) (model.RuntimeValue, error) {
@@ -100,7 +110,7 @@ func (e *Evaluator) executeDelegated(ctx context.Context, expr parser.Expr, para
 
 	switch params.Mode {
 	case EvalModeInstant:
-		sql, queryParams := storage.BuildInstantQuerySQL(storage.QueryConfig{Database: e.database, Table: e.table}, promQL, params.EvaluationTime.UnixMilli())
+		sql, queryParams := storage.BuildInstantQuerySQL(e.queryConfig(), promQL, params.EvaluationTime.UnixMilli())
 		switch expr.Type() {
 		case parser.ValueTypeVector:
 			samples, err := e.executeDelegatedInstantSamples(ctx, sql, queryParams)
@@ -124,7 +134,7 @@ func (e *Evaluator) executeDelegated(ctx context.Context, expr parser.Expr, para
 			return nil, NewUnsupportedErrorf("delegated instant result type %q for %q is not implemented yet", expr.Type(), expr.String())
 		}
 	case EvalModeRange:
-		sql, queryParams := storage.BuildRangeQuerySQL(storage.QueryConfig{Database: e.database, Table: e.table}, promQL, params.Start.UnixMilli(), params.End.UnixMilli(), params.Step.Milliseconds())
+		sql, queryParams := storage.BuildRangeQuerySQL(e.queryConfig(), promQL, params.Start.UnixMilli(), params.End.UnixMilli(), params.Step.Milliseconds())
 		series, err := e.executeDelegatedRangeSeries(ctx, sql, queryParams)
 		if err != nil {
 			return nil, WithInternalContext(NormalizeInternalError(err), "executing/decoding delegated range matrix result for %q", expr.String())

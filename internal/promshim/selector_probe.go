@@ -25,7 +25,7 @@ func (h *queryService) probeSelectorStats(ctx context.Context, sig selectorSigna
 	if err != nil {
 		return selectorStats{}, err
 	}
-	sql, params, err := storage.BuildSelectorStatsQuery(storage.QueryConfig{Database: h.opts.Database, Table: h.opts.Table}, request)
+	sql, params, err := storage.BuildSelectorStatsQuery(h.queryConfig(), request)
 	if err != nil {
 		routingmetrics.ObserveStatsProbe("selector", "build_error")
 		return selectorStats{}, err

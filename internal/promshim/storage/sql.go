@@ -17,7 +17,16 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-type QueryConfig struct{ Database, Table string }
+type QueryConfig struct {
+	Database string
+	Table    string
+
+	// PromotedTagColumns lists Prometheus label names that are available as
+	// first-class columns on the TimeSeries tags table via ClickHouse's
+	// tags_to_columns setting. When present, selector matching can read the
+	// typed column directly instead of probing the tags Map value.
+	PromotedTagColumns map[string]struct{}
+}
 
 type AggregationSource struct {
 	PromQLLeaf string

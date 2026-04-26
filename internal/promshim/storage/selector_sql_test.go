@@ -102,7 +102,7 @@ func TestSelectorTagsExprSkipsSortForSingleRequiredLabel(t *testing.T) {
 	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, 0, SelectorKindInstantVector)
 	selector.RequireFullTags = false
 	selector.RequiredTagLabels = []string{"job"}
-	got := selectorTagsExpr(selector, "metric_name", "tags")
+	got := selectorTagsExpr(QueryConfig{}, selector, "metric_name", "tags")
 	if !strings.Contains(got, "if(mapContains(tags, 'job'), [tuple('job', concat('', tags['job']))], CAST([], 'Array(Tuple(String, String))'))") {
 		t.Fatalf("expected direct single-label selector tags expr, got %q", got)
 	}
@@ -110,6 +110,46 @@ func TestSelectorTagsExprSkipsSortForSingleRequiredLabel(t *testing.T) {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("expected single-label selector tags expr to avoid %q, got %q", unwanted, got)
 		}
+	}
+}
+
+func TestBuildInstantSelectorQuerySQLUsesPromotedTagColumns(t *testing.T) {
+	instanceEQ, err := labels.NewMatcher(labels.MatchEqual, "instance", "a:9090")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobRE, err := labels.NewMatcher(labels.MatchRegexp, "job", "api|worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := selectorSourceFromMatchers("up", []*labels.Matcher{instanceEQ, jobRE}, 5*time.Minute, 0, SelectorKindInstantVector)
+	selector.RequireFullTags = false
+	selector.RequiredTagLabels = []string{"instance"}
+	cfg := QueryConfig{Database: "observability", Table: "prometheus", PromotedTagColumns: map[string]struct{}{"instance": {}, "job": {}}}
+
+	sql, params, err := BuildInstantSelectorQuerySQL(cfg, selector, 1000, 2000)
+	if err != nil {
+		t.Fatalf("expected instant selector SQL, got error: %v", err)
+	}
+	for _, expected := range []string{
+		"src.`instance` = {instant_matcher_1_value:String}",
+		"match(src.`job`, {instant_matcher_2_value:String})",
+		"if(mapContains(src.tags, 'instance'), [tuple('instance', concat('', src.`instance`))], CAST([], 'Array(Tuple(String, String))')) AS tags",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected promoted tag column SQL to contain %q, got %q", expected, sql)
+		}
+	}
+	for _, unwanted := range []string{"src.tags[concat('', {instant_matcher_1_key:String})]", "src.tags[concat('', {instant_matcher_2_key:String})]", "concat('', src.tags['instance'])"} {
+		if strings.Contains(sql, unwanted) {
+			t.Fatalf("expected promoted tag column SQL to avoid %q, got %q", unwanted, sql)
+		}
+	}
+	if _, ok := params["param_instant_matcher_1_key"]; ok {
+		t.Fatalf("did not expect key param for promoted instance matcher: %#v", params)
+	}
+	if _, ok := params["param_instant_matcher_2_key"]; ok {
+		t.Fatalf("did not expect key param for promoted job matcher: %#v", params)
 	}
 }
 

@@ -29,6 +29,24 @@ func (h *queryService) ClickHouseTransport() string {
 	return string(h.opts.ClickHouseTransport)
 }
 
+func (h *queryService) queryConfig() storage.QueryConfig {
+	return storage.QueryConfig{Database: h.opts.Database, Table: h.opts.Table, PromotedTagColumns: promotedTagColumnSet(h.opts.PromotedTagColumns)}
+}
+
+func promotedTagColumnSet(columns []string) map[string]struct{} {
+	if len(columns) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(columns))
+	for _, column := range columns {
+		if column == "" {
+			continue
+		}
+		out[column] = struct{}{}
+	}
+	return out
+}
+
 func hSettingsProfileConfig(opts Options) storage.SettingsProfileConfig {
 	return storage.SettingsProfileConfig{
 		Name:                opts.ClickHouseSettingsProfile,
@@ -80,10 +98,11 @@ func NewHandler(opts Options) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	promotedTagColumns := promotedTagColumnSet(opts.PromotedTagColumns)
 	service := &queryService{
 		opts:             opts,
 		client:           client,
-		evaluator:        local.NewEvaluator(opts.Database, opts.Table, client),
+		evaluator:        local.NewEvaluator(opts.Database, opts.Table, client).WithPromotedTagColumns(promotedTagColumns),
 		selectorStats:    newSelectorStatsCache(5 * time.Minute),
 		selectorProbeSem: make(chan struct{}, 2),
 	}
@@ -403,7 +422,7 @@ func (h *queryService) Labels(ctx context.Context, req httpapi.MetadataRequest) 
 	if apiErr != nil {
 		return nil, apiErr
 	}
-	sql, params, err := storage.BuildLabelsQuery(storage.QueryConfig{Database: h.opts.Database, Table: h.opts.Table}, httpReq)
+	sql, params, err := storage.BuildLabelsQuery(h.queryConfig(), httpReq)
 	if err != nil {
 		return nil, local.BadRequestHTTPError(err.Error())
 	}
@@ -433,7 +452,7 @@ func (h *queryService) LabelValues(ctx context.Context, req httpapi.LabelValuesR
 	if apiErr != nil {
 		return nil, apiErr
 	}
-	sql, params, err := storage.BuildLabelValuesQuery(storage.QueryConfig{Database: h.opts.Database, Table: h.opts.Table}, httpReq, req.Name)
+	sql, params, err := storage.BuildLabelValuesQuery(h.queryConfig(), httpReq, req.Name)
 	if err != nil {
 		return nil, local.BadRequestHTTPError(err.Error())
 	}
@@ -463,7 +482,7 @@ func (h *queryService) Series(ctx context.Context, req httpapi.MetadataRequest) 
 	if apiErr != nil {
 		return nil, apiErr
 	}
-	sql, params, err := storage.BuildSeriesQuery(storage.QueryConfig{Database: h.opts.Database, Table: h.opts.Table}, httpReq)
+	sql, params, err := storage.BuildSeriesQuery(h.queryConfig(), httpReq)
 	if err != nil {
 		return nil, local.BadRequestHTTPError(err.Error())
 	}

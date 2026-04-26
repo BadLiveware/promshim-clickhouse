@@ -42,6 +42,7 @@ type Options struct {
 	RangeChunkPointsPerSeries     int64
 	MaxResponseSeries             int64
 	MaxResponsePoints             int64
+	PromotedTagColumns            []string
 
 	DisableEntireQueryDelegation bool
 }
@@ -72,6 +73,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		RangeChunkPointsPerSeries:     getenvInt64("PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES", local.DefaultRangeChunkPointsPerSeries),
 		MaxResponseSeries:             getenvInt64("PROM_SHIM_MAX_RESPONSE_SERIES", defaultMaxResponseSeries),
 		MaxResponsePoints:             getenvInt64("PROM_SHIM_MAX_RESPONSE_POINTS", defaultMaxResponsePoints),
+		PromotedTagColumns:            splitCSVEnv(getenv("PROM_SHIM_PROMOTED_TAG_COLUMNS", "")),
 	}
 
 	if _, err := local.ParseNativeLoweringMode(string(opts.NativeLoweringMode)); err != nil {

@@ -106,7 +106,7 @@ func buildInfoNameMatcherCondition(tagsExpr, prefix string, matchers []*labels.M
 		if matcher == nil || matcher.Name != labels.MetricName {
 			continue
 		}
-		clause, extraParams := compileMatcherClause(prefix, matcherIndex, metricColumn, tagsExpr, matcher)
+		clause, extraParams := compileMatcherClause(QueryConfig{}, prefix, matcherIndex, metricColumn, tagsExpr, matcher)
 		matcherIndex++
 		clauses = append(clauses, clause)
 		mergeParams(params, extraParams)

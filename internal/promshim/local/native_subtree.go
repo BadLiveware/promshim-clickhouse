@@ -87,7 +87,7 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 			}
 		}
 	}
-	cfg := storage.QueryConfig{Database: Evaluator.database, Table: Evaluator.table}
+	cfg := Evaluator.queryConfig()
 	renderParams := renderer.RenderParams{
 		Mode:             renderMode,
 		EvaluationTimeMS: params.EvaluationTime.UnixMilli(),

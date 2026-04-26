@@ -599,7 +599,7 @@ func buildRangeMatrixSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, r
 	return sql, params, nil
 }
 
-func selectorTagsExpr(selector SelectorSource, metricColumn, tagsColumn string) string {
+func selectorTagsExpr(cfg QueryConfig, selector SelectorSource, metricColumn, tagsColumn string) string {
 	base := sqlb.Call{Name: "arrayConcat", Args: []sqlb.Expr{
 		sqlb.RawLit{V: "[tuple('__name__', " + metricColumn + ")]"},
 		sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{
@@ -615,7 +615,11 @@ func selectorTagsExpr(selector SelectorSource, metricColumn, tagsColumn string) 
 				return "[tuple('__name__', " + metricColumn + ")]"
 			}
 			labelLit := sqlStringLiteral(label)
-			return "if(mapContains(" + tagsColumn + ", " + labelLit + "), [tuple(" + labelLit + ", concat('', " + tagsColumn + "[" + labelLit + "]))], CAST([], '" + schema.TagsArrayType + "'))"
+			valueExpr := tagsColumn + "[" + labelLit + "]"
+			if promoted := promotedTagColumn(cfg, label); promoted != "" {
+				valueExpr = promoted
+			}
+			return "if(mapContains(" + tagsColumn + ", " + labelLit + "), [tuple(" + labelLit + ", concat('', " + valueExpr + "))], CAST([], '" + schema.TagsArrayType + "'))"
 		}
 		filtered := sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{
 			sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(selector.RequiredTagLabels) + ", tag.1)"},
@@ -642,7 +646,7 @@ func buildMatchedSeriesSQL(cfg QueryConfig, selector SelectorSource, prefix stri
 		if err != nil {
 			return "", nil, err
 		}
-		clause, extraParams := compileMatcherClause(prefix, matcherIndex, metricColumn, tagsColumn, matcher)
+		clause, extraParams := compileMatcherClause(cfg, prefix, matcherIndex, metricColumn, tagsColumn, matcher)
 		matcherIndex++
 		whereClauses = append(whereClauses, clause)
 		mergeParams(params, extraParams)
@@ -654,7 +658,7 @@ func buildMatchedSeriesSQL(cfg QueryConfig, selector SelectorSource, prefix stri
 		if selector.MetricName != "" && matcher.Name == labels.MetricName && matcher.Type == labels.MatchEqual && matcher.Value == selector.MetricName {
 			continue
 		}
-		clause, extraParams := compileMatcherClause(prefix, matcherIndex, metricColumn, tagsColumn, matcher)
+		clause, extraParams := compileMatcherClause(cfg, prefix, matcherIndex, metricColumn, tagsColumn, matcher)
 		matcherIndex++
 		whereClauses = append(whereClauses, clause)
 		mergeParams(params, extraParams)
@@ -664,7 +668,7 @@ func buildMatchedSeriesSQL(cfg QueryConfig, selector SelectorSource, prefix stri
 	}
 	columns := []sqlb.ColExpr{{Expr: sqlb.Ident("src.id")}}
 	if selector.NeedTags {
-		columns = append(columns, sqlb.ColExpr{Expr: sqlb.RawLit{V: selectorTagsExpr(selector, metricColumn, tagsColumn)}, Alias: "tags"})
+		columns = append(columns, sqlb.ColExpr{Expr: sqlb.RawLit{V: selectorTagsExpr(cfg, selector, metricColumn, tagsColumn)}, Alias: "tags"})
 	}
 	query := &sqlb.Select{
 		Columns: columns,
@@ -680,12 +684,16 @@ func buildMatchedSeriesSQL(cfg QueryConfig, selector SelectorSource, prefix stri
 	return sql, params, nil
 }
 
-func compileMatcherClause(prefix string, matcherIndex int, metricColumn, tagsColumn string, matcher *labels.Matcher) (string, map[string]string) {
+func compileMatcherClause(cfg QueryConfig, prefix string, matcherIndex int, metricColumn, tagsColumn string, matcher *labels.Matcher) (string, map[string]string) {
 	columnExpr := sqlb.Expr(sqlb.RawLit{V: metricColumn})
 	params := map[string]string{}
 	if matcher.Name != labels.MetricName {
-		keyName := prefix + "_matcher_" + strconv.Itoa(matcherIndex) + "_key"
-		columnExpr = sqlb.Subscr{Array: sqlb.RawLit{V: tagsColumn}, Index: sqlb.Call{Name: "concat", Args: []sqlb.Expr{sqlb.RawLit{V: "''"}, sqlb.Param{Name: keyName, Type: "String", V: matcher.Name}}}}
+		if promoted := promotedTagColumn(cfg, matcher.Name); promoted != "" {
+			columnExpr = sqlb.RawLit{V: promoted}
+		} else {
+			keyName := prefix + "_matcher_" + strconv.Itoa(matcherIndex) + "_key"
+			columnExpr = sqlb.Subscr{Array: sqlb.RawLit{V: tagsColumn}, Index: sqlb.Call{Name: "concat", Args: []sqlb.Expr{sqlb.RawLit{V: "''"}, sqlb.Param{Name: keyName, Type: "String", V: matcher.Name}}}}
+		}
 	}
 	valueName := prefix + "_matcher_" + strconv.Itoa(matcherIndex) + "_value"
 	valueExpr := sqlb.Param{Name: valueName, Type: "String", V: matcherSQLPattern(matcher)}
@@ -723,6 +731,16 @@ func matcherSQLPattern(matcher *labels.Matcher) string {
 	default:
 		return matcher.Value
 	}
+}
+
+func promotedTagColumn(cfg QueryConfig, label string) string {
+	if cfg.PromotedTagColumns == nil {
+		return ""
+	}
+	if _, ok := cfg.PromotedTagColumns[label]; !ok {
+		return ""
+	}
+	return "src.`" + escapeIdentifier(label) + "`"
 }
 
 func renderStorageExprNoParams(expr sqlb.Expr) string {

@@ -88,6 +88,17 @@ func TestCancelRepeatedAverageNestedInAggregation(t *testing.T) {
 	}
 }
 
+func TestCancelRepeatedAverageOfAggregations(t *testing.T) {
+	root := mustLogical(t, `(sum by (job) (rate(up[5m])) + sum by (job) (rate(up[5m]))) / 2`)
+	out, _, err := opt.Optimize(root, opt.DefaultPasses)
+	if err != nil {
+		t.Fatalf("Optimize: %v", err)
+	}
+	if _, ok := out.(*logical.AggregationPlan); !ok {
+		t.Fatalf("expected repeated aggregation average to collapse to AggregationPlan, got %T", out)
+	}
+}
+
 func TestCancelRepeatedAverageTraceMetadata(t *testing.T) {
 	root := mustLogical(t, `(rate(up[5m]) + rate(up[5m])) / 2`)
 	_, _, trace, err := opt.OptimizeWithTrace(root, opt.DefaultPasses)

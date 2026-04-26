@@ -89,13 +89,23 @@ func TestCancelRepeatedAverageNestedInAggregation(t *testing.T) {
 }
 
 func TestCancelRepeatedAverageOfAggregations(t *testing.T) {
-	root := mustLogical(t, `(sum by (job) (rate(up[5m])) + sum by (job) (rate(up[5m]))) / 2`)
-	out, _, err := opt.Optimize(root, opt.DefaultPasses)
-	if err != nil {
-		t.Fatalf("Optimize: %v", err)
+	queries := []string{
+		`(sum by (job) (rate(up[5m])) + sum by (job) (rate(up[5m]))) / 2`,
+		`(sum by (job) (rate(up[5m])) + sum by (job) (rate(up[5m]))) * 0.5`,
+		`(sum by (job) (rate(up[5m])) + sum by (job) (rate(up[5m]))) * (1 / 2)`,
+		`(1 / 2) * (sum by (job) (rate(up[5m])) + sum by (job) (rate(up[5m])))`,
 	}
-	if _, ok := out.(*logical.AggregationPlan); !ok {
-		t.Fatalf("expected repeated aggregation average to collapse to AggregationPlan, got %T", out)
+	for _, query := range queries {
+		t.Run(query, func(t *testing.T) {
+			root := mustLogical(t, query)
+			out, _, err := opt.Optimize(root, opt.DefaultPasses)
+			if err != nil {
+				t.Fatalf("Optimize: %v", err)
+			}
+			if _, ok := out.(*logical.AggregationPlan); !ok {
+				t.Fatalf("expected repeated aggregation average to collapse to AggregationPlan, got %T", out)
+			}
+		})
 	}
 }
 

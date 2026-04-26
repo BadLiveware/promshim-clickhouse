@@ -171,6 +171,47 @@ func BuildRangeRateSelectorNativeGridQuerySQLWithFinalTags(cfg QueryConfig, sele
 	return sql + schema.QuerySuffix, params, nil
 }
 
+func BuildRangeRateSelectorNativeGridSumAggregationQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, finalTagsSQL string, grouping []string, without bool) (string, map[string]string, error) {
+	inner, params, finalTagsExpr, err := buildRangeRateSelectorNativeGridInner(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, finalTagsSQL)
+	if err != nil {
+		return "", nil, err
+	}
+	perSeries := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: finalTagsExpr, Alias: "final_tags"},
+			{Expr: sqlb.Ident("values"), Alias: "values"},
+		},
+		From: sqlb.SubSelect{S: inner},
+	}
+	timeGridExpr := "arrayMap(i -> fromUnixTimestamp64Milli({start_ms:Int64}) + toIntervalMillisecond((i - 1) * {step_ms:Int64}), arrayEnumerate(group_values))"
+	sumValuesExpr := "arrayReduce('sumForEach', groupArray(arrayMap(v -> if(isNull(v), 0., toFloat64(assumeNotNull(v))), values)))"
+	presentCountsExpr := "arrayReduce('sumForEach', groupArray(arrayMap(v -> if(isNull(v), 0, 1), values)))"
+	nanCountsExpr := "arrayReduce('sumForEach', groupArray(arrayMap(v -> if(isNotNull(v) AND isNaN(assumeNotNull(v)), 1, 0), values)))"
+	groupedValues := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: buildAggregationTagsExpr(sqlb.Ident("final_tags"), grouping, without), Alias: "tags"},
+			{Expr: sqlb.RawLit{V: sumValuesExpr}, Alias: "group_values"},
+			{Expr: sqlb.RawLit{V: presentCountsExpr}, Alias: "present_counts"},
+			{Expr: sqlb.RawLit{V: nanCountsExpr}, Alias: "nan_counts"},
+		},
+		From:    sqlb.SubSelect{S: perSeries},
+		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
+	}
+	series := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("tags"), Alias: "tags"},
+			{Expr: sqlb.RawLit{V: "arrayMap(point -> (point.1, if(point.4 > 0, nan, point.2)), arrayFilter(point -> point.3 > 0, arrayZip(" + timeGridExpr + ", group_values, present_counts, nan_counts)))"}, Alias: "time_series"},
+		},
+		From:    sqlb.SubSelect{S: groupedValues},
+		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}},
+	}
+	sql, _, err := series.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql + schema.QuerySuffix, params, nil
+}
+
 func BuildRangeRateSelectorNativeGridRowsQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, finalTagsSQL string) (string, map[string]string, error) {
 	inner, params, finalTagsExpr, err := buildRangeRateSelectorNativeGridInner(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, finalTagsSQL)
 	if err != nil {

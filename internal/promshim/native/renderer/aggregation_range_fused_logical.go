@@ -58,11 +58,56 @@ func tryRenderFusedRangeAggregationLogical(ctx LoweringCtx, n *logicalpkg.Aggreg
 // renderFusedRangeAggregationLogicalRowsSQL and wraps it with the
 // standard matrix-subquery shell.
 func renderFusedRangeAggregationLogicalSQL(ctx LoweringCtx, n *logicalpkg.AggregationPlan) (string, map[string]string, error) {
+	if sql, queryParams, ok, err := tryRenderNativeGridRangeSumAggregationSQL(ctx, n); err != nil {
+		return "", nil, err
+	} else if ok {
+		return sql, queryParams, nil
+	}
 	rowsSQL, rowParams, err := renderFusedRangeAggregationLogicalRowsSQL(ctx, n)
 	if err != nil {
 		return "", nil, err
 	}
 	return storage.BuildRangeRowsToMatrixSubquerySQL(rowsSQL, rowParams)
+}
+
+func tryRenderNativeGridRangeSumAggregationSQL(ctx LoweringCtx, n *logicalpkg.AggregationPlan) (string, map[string]string, bool, error) {
+	if n == nil || n.Op != parser.SUM || !ctx.Config.EnableNativeGridFunctions {
+		return "", nil, false, nil
+	}
+	childNode, fn, ok := rangeFunctionChildNode(n.Child)
+	if !ok || fn != "rate" || childNode == nil {
+		return "", nil, false, nil
+	}
+	child, ok := childNode.(*logicalpkg.LeafExprPlan)
+	if !ok {
+		return "", nil, false, nil
+	}
+	if _, isMatrix := child.Expr.(*parser.MatrixSelector); !isMatrix {
+		return "", nil, false, nil
+	}
+	leafInfo := ctx.NativeAnalysis.InfoFor(child)
+	if leafInfo == nil || leafInfo.LeafSelector == nil || leafInfo.SourceExpr == nil {
+		return "", nil, false, fmt.Errorf("native-grid range sum aggregation leaf selector metadata missing")
+	}
+	view := leafInfo.SourceExpr
+	sel := leafInfo.LeafSelector
+	lookbackMS := sel.Lookback.Milliseconds()
+	offsetMS := sel.Offset.Milliseconds()
+	isIdentity := view.ValueExpr == "{value}" && view.TagsExpr == "{tags}" && !view.DropsMetric
+	if !isIdentity || offsetMS != 0 || !supportsDirectSelectorWindowAggregate(fn, lookbackMS) || !preferDirectSelectorWindowJoin(lookbackMS, ctx.Params.StepMS) {
+		return "", nil, false, nil
+	}
+	childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
+	source, err := renderAggregationSourceView(view, ctx.Params)
+	if err != nil {
+		return "", nil, false, err
+	}
+	tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(ctx.Params))
+	sql, queryParams, err := storage.BuildRangeRateSelectorNativeGridSumAggregationQuerySQLWithFinalTags(ctx.Config, *source.Selector, childRequiredStartMS, childRequiredEndMS, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, tagsExpr, n.Grouping, n.Without)
+	if err != nil {
+		return "", nil, false, err
+	}
+	return sql, queryParams, true, nil
 }
 
 // renderFusedRangeAggregationLogicalRowsSQL renders the inner range

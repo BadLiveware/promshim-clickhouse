@@ -123,6 +123,36 @@ func TestAggregationByProjectionRollbackGate(t *testing.T) {
 	}
 }
 
+func TestAggregationByRateRangeUsesNativeGridArrayAggregationWhenEnabled(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (rate(demo_cpu_usage_seconds_total[5m]))`)
+	cfg := testRenderConfig()
+	cfg.EnableNativeGridFunctions = true
+	rq, err := Lower(LoweringCtx{
+		Config:         cfg,
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params: RenderParams{
+			Mode:    testRenderParamsRange().Mode,
+			StartMS: 1_700_000_000_000,
+			EndMS:   1_700_086_400_000,
+			StepMS:  300_000,
+		},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	for _, expected := range []string{"timeSeriesRateToGrid(", "arrayReduce('sumForEach'", "group_values", "present_counts", "nan_counts"} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected native-grid array aggregation SQL to contain %q, got:\n%s", expected, rq.SQL)
+		}
+	}
+	for _, unexpected := range []string{"ARRAY JOIN", "groupArray((timestamp, value))", "deltaSumTimestamp("} {
+		if strings.Contains(rq.SQL, unexpected) {
+			t.Fatalf("expected native-grid array aggregation SQL to avoid %q, got:\n%s", unexpected, rq.SQL)
+		}
+	}
+}
+
 func TestAggregationByKeepsFullLabelsForRangeFunctions(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (rate(http_requests_total[5m]))`)
 	rq, err := Lower(LoweringCtx{

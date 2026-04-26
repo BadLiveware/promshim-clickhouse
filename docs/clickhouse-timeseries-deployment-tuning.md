@@ -149,6 +149,10 @@ semantic checks, rollout gate, and measurement plan.
 
 ## Things not to pursue on current ClickHouse sources
 
+- TimeSeries tag/group primitives as a portable replacement for promshim's tag
+  arrays on the default UUID schema. `timeSeriesExtractTag` exists but expects a
+  UInt64 group argument, not `Array(Tuple(String,String))`; see
+  `docs/timeseries-tag-primitives-scout.md`.
 - `groupArrayResample`: not present in the audited ClickHouse source.
 - Engine-side `avg_over_time`, `min_over_time`, `max_over_time`, and similar
   generic `_over_time` grid functions: still TODO upstream.

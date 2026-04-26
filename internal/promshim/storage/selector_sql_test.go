@@ -137,7 +137,7 @@ func TestBuildRangeWindowSelectorQuerySQLUsesStepGridAndRangeWindow(t *testing.T
 	if err != nil {
 		t.Fatalf("expected range window selector SQL, got error: %v", err)
 	}
-	for _, expected := range []string{"arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts", "arraySort(item -> item.1, groupArray((d.timestamp, d.value))) AS window_series", "d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64})", "d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})", "GROUP BY grid.id, grid.tags, grid.eval_ts"} {
+	for _, expected := range []string{"arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts", "arraySort(groupArray((d.timestamp, d.value))) AS window_series", "d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64})", "d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})", "GROUP BY grid.id, grid.tags, grid.eval_ts"} {
 		if !strings.Contains(sql, expected) {
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)
 		}

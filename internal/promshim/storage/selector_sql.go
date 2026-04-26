@@ -189,7 +189,7 @@ func buildRangeWindowSelectorPerStepQuery(cfg QueryConfig, selector SelectorSour
 	windowColumns := []sqlb.ColExpr{
 		{Expr: windowTagsExpr, Alias: "tags"},
 		{Expr: sqlb.Ident("grid.eval_ts"), Alias: "eval_ts"},
-		{Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((d.timestamp, d.value)))"}, Alias: "window_series"},
+		{Expr: sqlb.RawLit{V: "arraySort(groupArray((d.timestamp, d.value)))"}, Alias: "window_series"},
 	}
 	if rangeWindowFunctionNeedsTimestamps(fn) {
 		windowColumns = append(windowColumns, sqlb.ColExpr{Expr: sqlb.RawLit{V: emit.WindowPointTimestamps("window_series")}, Alias: "window_timestamps"})

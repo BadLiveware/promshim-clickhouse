@@ -150,11 +150,12 @@ semantic checks, rollout gate, and measurement plan.
 ## Optional dense-dashboard rollups
 
 Dense dashboard ranges can be dominated by repeatedly deriving the same
-per-label rate series from raw TimeSeries samples. For common dashboards, an
+per-label series from raw TimeSeries samples. For common dashboards, an
 operator-managed rollup table can precompute a fixed semantic shape such as:
 
 ```promql
 sum by (job) (rate(<counter>[5m]))
+sum by (job, type) (avg_over_time(<gauge>[1h]))
 ```
 
 on a fixed output grid, then serve dashboards by reading the rollup table instead
@@ -183,12 +184,19 @@ back to raw TimeSeries. Use rollups only when all of these are true:
 - raw TimeSeries fallback remains available for ad hoc or semantically different
   PromQL.
 
-A benchmark-stack scout for a 24h dense `sum by (job) (rate(...[5m]))` row found
-that reading a precomputed 1m rollup was about `4 ms` in ClickHouse versus the
-raw native path at about `11.5 s`; the one-window rollup refresh itself was about
-`97 ms` on the local fixture. This makes rollups promising for fixed dense
-dashboards, but they need explicit operator ownership and feature-detected
-fallback before promshim routes to them automatically.
+Benchmark-stack scouts found:
+
+- a 24h dense `sum by (job) (rate(...[5m]))` row read a precomputed 1m rollup in
+  about `4 ms` in ClickHouse versus the raw native path at about `11.5 s`; the
+  one-window rollup refresh itself was about `97 ms` on the local fixture;
+- a 24h dense `sum by (job, type) (avg_over_time(...[1h]))` row read a
+  precomputed 1m rollup in about `5 ms` in ClickHouse versus the raw native path
+  at about `11.7–12.1 s`; the one-window refresh cost was about `11.7 s`, so
+  this is useful only when many dashboard reads reuse the refreshed slice.
+
+Promshim currently has an opt-in served route only for the rate rollup contract;
+the avg-over-time template is operator guidance/scout evidence, not an automatic
+runtime route.
 
 ## Things not to pursue on current ClickHouse sources
 

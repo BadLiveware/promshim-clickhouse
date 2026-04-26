@@ -105,3 +105,129 @@ SETTINGS allow_experimental_time_series_table = 1;
 --   AND timestamp <= fromUnixTimestamp64Milli({output_end_ms:Int64})
 -- GROUP BY job
 -- ORDER BY tags;
+
+-- Optional fixed-window avg_over_time rollup for dense dashboards.
+--
+-- Targets query family:
+--   sum by (job, type) (avg_over_time(<gauge>[1h]))
+-- evaluated every 1 minute.
+--
+-- This template intentionally materializes the exact windowed output grid. It is
+-- useful for repeatedly served dashboards, but refresh cost can be comparable to
+-- running the raw query once. Use it when many readers reuse the same refreshed
+-- slice, not as a generic ad hoc query accelerator.
+
+CREATE TABLE IF NOT EXISTS observability.rollup_memory_avg_1h_1m_by_job_type
+(
+    metric_name LowCardinality(String),
+    job LowCardinality(String),
+    type LowCardinality(String),
+    timestamp DateTime64(3),
+    value Float64
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (metric_name, job, type, timestamp);
+
+-- Parameters to substitute:
+--   {database}             e.g. observability
+--   {table}                e.g. prometheus
+--   {metric_name}          e.g. demo_memory_usage_bytes
+--   {output_start_ms}      first output timestamp in milliseconds
+--   {output_end_ms}        last output timestamp in milliseconds
+--   {required_start_ms}    output_start_ms - 3600000 for avg_over_time(...[1h])
+--   {step_ms}              60000 for a 1m output grid
+--   {lookback_ms}          3600000 for avg_over_time(...[1h])
+--
+-- Delete/replace overlapping rollup rows before inserting when re-running a
+-- refresh window.
+
+INSERT INTO observability.rollup_memory_avg_1h_1m_by_job_type
+SELECT
+    {metric_name:String} AS metric_name,
+    arrayFirst(tag -> tag.1 = 'job', tags).2 AS job,
+    arrayFirst(tag -> tag.1 = 'type', tags).2 AS type,
+    point.1 AS timestamp,
+    point.2 AS value
+FROM
+(
+    SELECT
+        tags,
+        arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series
+    FROM
+    (
+        SELECT
+            arraySort(tag -> tag.1, arrayFilter(tag -> has(['job', 'type'], tag.1), tags)) AS tags,
+            timestamp,
+            if(countIf(isNaN(value)) > 0, CAST(NULL, 'Nullable(Float64)'), sum(value)) AS value
+        FROM
+        (
+            SELECT
+                arrayFilter(tag -> tag.1 != '__name__', tags) AS tags,
+                eval_ts AS timestamp,
+                if(
+                    arrayExists(v -> isNaN(v), window_values)
+                    OR length(arrayFilter(v -> NOT isNaN(v), window_values)) = 0,
+                    nan,
+                    arrayAvg(arrayFilter(v -> NOT isNaN(v), window_values))
+                ) AS value
+            FROM
+            (
+                SELECT
+                    source.tags AS tags,
+                    grid.eval_ts AS eval_ts,
+                    arrayFilter(point -> tupleElement(point, 1) <= grid.eval_ts AND tupleElement(point, 1) >= grid.eval_ts - toIntervalMillisecond({lookback_ms:Int64}), source.time_series) AS window_series,
+                    arrayMap(point -> ifNull(toFloat64(tupleElement(point, 2)), nan), window_series) AS window_values
+                FROM
+                (
+                    SELECT arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({output_start_ms:Int64}, {output_end_ms:Int64} + 1, {step_ms:Int64}))) AS eval_ts
+                ) AS grid
+                CROSS JOIN
+                (
+                    SELECT
+                        tags,
+                        arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series
+                    FROM
+                    (
+                        SELECT
+                            series.tags AS tags,
+                            d.timestamp AS timestamp,
+                            d.value AS value
+                        FROM timeSeriesData({database:Identifier}.{table:Identifier}) AS d
+                        INNER JOIN
+                        (
+                            SELECT
+                                src.id,
+                                arrayConcat([tuple('__name__', src.metric_name)], arrayMap((k, v) -> tuple(k, v), mapKeys(src.tags), mapValues(src.tags))) AS tags
+                            FROM timeSeriesTags({database:Identifier}.{table:Identifier}) AS src
+                            WHERE src.metric_name = {metric_name:String}
+                              AND src.max_time >= fromUnixTimestamp64Milli({required_start_ms:Int64})
+                              AND src.min_time <= fromUnixTimestamp64Milli({output_end_ms:Int64})
+                        ) AS series ON d.id = series.id
+                        WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64})
+                          AND d.timestamp <= fromUnixTimestamp64Milli({output_end_ms:Int64})
+                          AND reinterpretAsUInt64(d.value) != 9218868437227405314
+                    )
+                    GROUP BY tags
+                ) AS source
+            ) AS step_windows
+            WHERE length(window_series) > 0
+        )
+        GROUP BY tags, timestamp
+    )
+    GROUP BY tags
+)
+ARRAY JOIN time_series AS point
+SETTINGS allow_experimental_time_series_table = 1;
+
+-- Query shape for dashboards after refresh:
+--
+-- SELECT
+--     [tuple('job', job), tuple('type', type)] AS tags,
+--     arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series
+-- FROM observability.rollup_memory_avg_1h_1m_by_job_type
+-- WHERE metric_name = 'demo_memory_usage_bytes'
+--   AND timestamp >= fromUnixTimestamp64Milli({output_start_ms:Int64})
+--   AND timestamp <= fromUnixTimestamp64Milli({output_end_ms:Int64})
+-- GROUP BY job, type
+-- ORDER BY tags;

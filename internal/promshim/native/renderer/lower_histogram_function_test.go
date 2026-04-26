@@ -100,6 +100,36 @@ func TestLowerHistogramQuantileKeepsNonBucketGroupingLabels(t *testing.T) {
 	}
 }
 
+func TestLowerHistogramQuantileCoalescesGroupedRateDirectly(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `histogram_quantile(0.95, sum by (job, le) (rate(http_request_duration_seconds_bucket[5m])))`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	for _, expected := range []string{
+		"histogram_function_child_direct_child_rows",
+		"GROUP BY histogram_tags, timestamp, upper_bound",
+		"GROUP BY histogram_tags, timestamp",
+	} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected direct grouped histogram coalescing SQL to contain %q, got:\n%s", expected, rq.SQL)
+		}
+	}
+	for _, unwanted := range []string{
+		"histogram_child_rows",
+		"GROUP BY tags) AS histogram_child_rows",
+	} {
+		if strings.Contains(rq.SQL, unwanted) {
+			t.Fatalf("expected grouped histogram quantile to avoid intermediate child aggregation %q, got:\n%s", unwanted, rq.SQL)
+		}
+	}
+}
+
 // TestLowerHistogramFunctionNilErrors exercises the defensive nil guard in
 // lowerHistogramFunction. A nil node must return a non-sentinel error.
 func TestLowerHistogramFunctionNilErrors(t *testing.T) {

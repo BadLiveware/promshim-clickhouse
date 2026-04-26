@@ -23,6 +23,7 @@ type queryService struct {
 	evaluator          *local.Evaluator
 	promotedTagColumns map[string]struct{}
 	timeSeriesIDType   string
+	denseRateRollup    storage.DenseRateRollupDiscovery
 	shadow             *shadow.Runner
 	selectorStats      *selectorStatsCache
 	selectorProbeSem   chan struct{}
@@ -133,12 +134,23 @@ func NewHandler(opts Options) (http.Handler, error) {
 	} else if timeSeriesIDType != "" {
 		log.Printf("promshim: TimeSeries id column type: %s", timeSeriesIDType)
 	}
+	discoveryCtx, cancel = context.WithTimeout(context.Background(), opts.RequestTimeout)
+	denseRateRollup, rollupErr := storage.DiscoverDenseRateRollup(discoveryCtx, client, storage.QueryConfig{Database: opts.Database, Table: opts.Table})
+	cancel()
+	if rollupErr != nil {
+		log.Printf("promshim: optional dense rate rollup discovery failed: %v", rollupErr)
+	} else if denseRateRollup.Available {
+		log.Printf("promshim: optional dense rate rollup detected: table=%s columns=%v", denseRateRollup.Table, denseRateRollup.ColumnsPresent)
+	} else {
+		log.Printf("promshim: optional dense rate rollup not detected: table=%s missing_columns=%v", denseRateRollup.Table, denseRateRollup.MissingColumns)
+	}
 	service := &queryService{
 		opts:               opts,
 		client:             client,
 		evaluator:          local.NewEvaluator(opts.Database, opts.Table, client).WithPromotedTagColumns(promotedTagColumns).WithNativeGridFunctions(opts.NativeGridFunctions == "prefer"),
 		promotedTagColumns: promotedTagColumns,
 		timeSeriesIDType:   timeSeriesIDType,
+		denseRateRollup:    denseRateRollup,
 		selectorStats:      newSelectorStatsCache(5 * time.Minute),
 		selectorProbeSem:   make(chan struct{}, 2),
 	}

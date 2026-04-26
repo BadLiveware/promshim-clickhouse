@@ -164,8 +164,12 @@ rollups are absent, stale, or semantically ineligible.
 
 Template SQL lives in `scripts/recommend-rollups.sql`. The template is explicit
 about the metric, labels, grid, lookback, refresh window, and output table so an
-operator can review the semantic trade-off before enabling it. Use rollups only
-when all of these are true:
+operator can review the semantic trade-off before enabling it. At startup,
+promshim diagnostically checks whether the recommended
+`rollup_cpu_rate_5m_1m_by_job` table shape is present, but this is observability
+only for now: query routing still uses the raw TimeSeries path unless future
+feature-detected routing explicitly opts in. Use rollups only when all of these
+are true:
 
 - the dashboard query shape is stable and high-volume enough to justify storage;
 - the rollup interval and lookback exactly match the served query family;

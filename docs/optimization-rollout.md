@@ -54,8 +54,8 @@ The rate-range optimization chain is the reference example:
    `(rate(x[5m]) + rate(x[5m])) / 2`,
    `(rate(x[5m]) + rate(x[5m]) + rate(x[5m])) / 3`, exact power-of-two
    reciprocal spellings like `(rate(x[5m]) + ... + rate(x[5m])) * 0.25`, and
-   exact unit-fraction spellings like `(rate(x[5m]) + ... + rate(x[5m])) * (1 / 4)`
-   to `rate(x[5m])` only when the divisor, reciprocal multiplier, or
+   exact unit-fraction spellings like `(rate(x[5m]) + ... + rate(x[5m])) * (1 / 3)`
+   or `* (1 / 4)` to `rate(x[5m])` only when the divisor, reciprocal multiplier, or
    unit-fraction denominator exactly matched the repeated term count, each
    addition used implicit one-to-one matching, every operand was structurally
    identical, and every operand dropped the metric name.

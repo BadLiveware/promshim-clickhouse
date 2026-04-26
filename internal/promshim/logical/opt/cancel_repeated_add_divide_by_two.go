@@ -19,7 +19,7 @@ func (cancelRepeatedAverage) Metadata() PassMetadata {
 		Families: []string{"binary", "range_function"},
 		Preconditions: []string{
 			"root or subtree matches (x + x + ... + x) / n",
-			"root or subtree matches (x + x + ... + x) * (1/n) for exact power-of-two n",
+			"root or subtree matches (x + x + ... + x) * (1/n)",
 			"unit-fraction, divisor, or reciprocal multiplier is the exact repeated term count",
 			"all additions use implicit one-to-one matching",
 			"all operands are structurally identical",
@@ -126,7 +126,7 @@ func repeatedAverageMultiplierTermCount(node logical.Node) (int, bool) {
 		return 0, false
 	}
 	termCount, ok := repeatedAverageDivisor(denominator.Value)
-	if !ok || !isPowerOfTwo(termCount) {
+	if !ok {
 		return 0, false
 	}
 	return termCount, true

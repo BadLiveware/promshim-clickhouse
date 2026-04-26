@@ -351,7 +351,11 @@ The harness configures ClickHouse's Prometheus remote-write endpoint at
 
 The `TimeSeries` engine is still experimental in ClickHouse, so the schema
 contract is centralized under `internal/promshim/storage/schema/` to make
-upstream ClickHouse changes easier to audit.
+upstream ClickHouse changes easier to audit. Deployment-level TimeSeries tuning
+recommendations live in `docs/clickhouse-timeseries-deployment-tuning.md`; the
+native grid-function lowering design lives in
+`docs/native-grid-function-lowering.md`; the rejected per-series pruning scout is
+recorded in `docs/per-series-time-bound-pruning.md`.
 
 ## Configuration
 

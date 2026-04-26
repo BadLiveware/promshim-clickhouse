@@ -1,0 +1,43 @@
+-- ClickHouse TimeSeries deployment tuning templates for promshim.
+--
+-- These statements are intentionally commented templates, not a script to run
+-- blindly. The TimeSeries engine owns inner data/tags tables and the exposed
+-- table names differ by ClickHouse version and operator configuration. Resolve
+-- the actual inner table names first (for example from SHOW CREATE TABLE,
+-- system.tables, or your operator's generated resources), then apply the
+-- equivalent DDL during a controlled maintenance rollout.
+--
+-- Validate with EXPLAIN indexes=1 and normalized system.query_log counters
+-- before/after. Do not apply to compliance/benchmark fixtures while comparing
+-- historical artifacts.
+
+-- 1. Data table timestamp pruning.
+-- Helps predicates of the form timestamp BETWEEN ... AND ... prune granules.
+--
+-- ALTER TABLE <database>.<inner_time_series_data_table>
+--   ADD INDEX min_max_ts (timestamp) TYPE minmax GRANULARITY 8;
+--
+-- ALTER TABLE <database>.<inner_time_series_data_table>
+--   MATERIALIZE INDEX min_max_ts;
+
+-- 2. Tags table label-presence pruning.
+-- Helps paths that test whether a label key exists in the Map tags column.
+--
+-- ALTER TABLE <database>.<inner_time_series_tags_table>
+--   ADD INDEX tag_keys (mapKeys(tags)) TYPE bloom_filter GRANULARITY 4;
+--
+-- ALTER TABLE <database>.<inner_time_series_tags_table>
+--   MATERIALIZE INDEX tag_keys;
+
+-- 3. Prefer schema-level partitioning for long-retention data when creating a
+-- new TimeSeries deployment. Existing deployments should migrate via a planned
+-- backfill rather than altering hot production storage in place.
+--
+-- Example shape only; use the TimeSeries/operator DDL supported by your
+-- ClickHouse version:
+--
+-- CREATE TABLE <database>.<time_series_table> (...) ENGINE = TimeSeries
+-- SETTINGS
+--   data_engine = 'MergeTree PARTITION BY toYYYYMM(timestamp) ORDER BY (id, timestamp)',
+--   tags_to_columns = {'instance': 'LowCardinality(String)', 'pod': 'LowCardinality(String)', 'node': 'LowCardinality(String)'},
+--   id_type = 'UInt64';

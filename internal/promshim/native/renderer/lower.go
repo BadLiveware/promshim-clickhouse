@@ -3,6 +3,9 @@ package renderer
 import (
 	"errors"
 	"fmt"
+	"regexp"
+	"sort"
+	"strings"
 
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
@@ -23,6 +26,8 @@ type LoweringCtx struct {
 	Analysis       *logicalpkg.Analysis
 	NativeAnalysis *native.Analysis
 	Params         RenderParams
+
+	cse *renderCSEState
 }
 
 // Lower translates a logical.Node into a RenderedQuery via a
@@ -30,6 +35,21 @@ type LoweringCtx struct {
 // errUnsupportedLowerNode so callers can fall back hierarchically to
 // the next execution tier.
 func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
+	root := false
+	if ctx.cse == nil {
+		ctx.cse = newRenderCSEState()
+		root = true
+	}
+	ctx.cse.depth++
+	rq, err := lowerInner(ctx, node)
+	ctx.cse.depth--
+	if err != nil || !root {
+		return rq, err
+	}
+	return ctx.cse.apply(rq)
+}
+
+func lowerInner(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 	if node == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: Lower called with nil node")
 	}
@@ -98,6 +118,78 @@ func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 	}
 }
 
+type renderCSEState struct {
+	depth int
+	ctes  map[string]renderCSEEntry
+	order []string
+}
+
+type renderCSEEntry struct {
+	SQL    string
+	Params map[string]string
+}
+
+func newRenderCSEState() *renderCSEState {
+	return &renderCSEState{ctes: map[string]renderCSEEntry{}}
+}
+
+var cseNameSanitizer = regexp.MustCompile(`[^A-Za-z0-9_]`)
+
+func selectorReuseCTEName(group string) string {
+	name := cseNameSanitizer.ReplaceAllString(group, "_")
+	name = strings.Trim(name, "_")
+	if name == "" {
+		name = "selector"
+	}
+	return "cse_" + name
+}
+
+func (s *renderCSEState) leafReference(ctx LoweringCtx, leaf *logicalpkg.LeafExprPlan, rf renderedFragment) (renderedFragment, bool, error) {
+	if s == nil || ctx.Analysis == nil || leaf == nil || rf.RawSQL == "" {
+		return rf, false, nil
+	}
+	info := ctx.Analysis.InfoFor(leaf)
+	if info == nil || info.SelectorReuseGroup == "" || info.SelectorReuseBlockedReason != "" {
+		return rf, false, nil
+	}
+	name := selectorReuseCTEName(info.SelectorReuseGroup)
+	if _, ok := s.ctes[name]; !ok {
+		sql, params, err := namespaceRenderedQuery(rf.RawSQL, rf.ExtraParams, name)
+		if err != nil {
+			return renderedFragment{}, false, err
+		}
+		s.ctes[name] = renderCSEEntry{SQL: sql, Params: params}
+		s.order = append(s.order, name)
+	}
+	columns := "tags AS tags, timestamp AS timestamp, value AS value"
+	if ctx.Params.Mode == native.RenderModeRange {
+		columns = "tags AS tags, time_series AS time_series"
+	}
+	return renderedFragment{RawSQL: "SELECT " + columns + " FROM " + name}, true, nil
+}
+
+func (s *renderCSEState) apply(rq RenderedQuery) (RenderedQuery, error) {
+	if s == nil || len(s.order) == 0 {
+		return rq, nil
+	}
+	params := map[string]string{}
+	for key, value := range rq.QueryParams {
+		params[key] = value
+	}
+	parts := make([]string, 0, len(s.order))
+	for _, name := range s.order {
+		entry := s.ctes[name]
+		parts = append(parts, name+" AS MATERIALIZED (\n"+entry.SQL+"\n)")
+		for key, value := range entry.Params {
+			params[key] = value
+		}
+	}
+	sort.Strings(parts)
+	sql := "WITH " + strings.Join(parts, ",\n") + "\n" + rq.SQL
+	sql = strings.Replace(sql, "SETTINGS allow_experimental_time_series_table = 1", "SETTINGS allow_experimental_time_series_table = 1, enable_global_with_statement = 1, enable_materialized_cte = 1", 1)
+	return RenderedQuery{SQL: sql, QueryParams: params}, nil
+}
+
 // IsUnsupportedByLower reports whether err is the Lower fallback
 // sentinel — i.e. the caller should fall back to the next execution
 // tier.
@@ -125,6 +217,11 @@ func lowerLeaf(ctx LoweringCtx, n *logicalpkg.LeafExprPlan) (RenderedQuery, erro
 	rf, err := renderLeafLogical(ctx.Config, n, ctx.Params, cachedSelector)
 	if err != nil {
 		return RenderedQuery{}, err
+	}
+	if cseRF, ok, err := ctx.cse.leafReference(ctx, n, rf); err != nil {
+		return RenderedQuery{}, err
+	} else if ok {
+		rf = cseRF
 	}
 	return finalizeRenderedFragment(rf)
 }

@@ -13,10 +13,10 @@ import (
 //   - ops with BY grouping (sum by, avg without)
 //   - selection aggregations (topk, bottomk, quantile)
 //   - count_values (synthesizes a new label dimension)
-//   - aggregation-range-fused paths (sum/avg without over rate/range functions)
+//   - aggregation-range-fused paths (direct reducers over rate/range functions)
 //
 // Golden files lock a representative subset of SQL outputs from Lower
-// (first 5 canonical + both fused cases).
+// (first 5 canonical + fused direct-reducer cases).
 var aggregationCases = []struct {
 	name  string
 	query string
@@ -36,16 +36,20 @@ var aggregationCases = []struct {
 	{name: "count_values_le_up", query: `count_values("le", up)`},
 	// — aggregation-range-fused: sum by + rate —
 	{name: "sum_by_job_rate_fused", query: `sum by (job) (rate(http_requests_total[5m]))`},
-	// — aggregation-range-fused: avg without + range function —
-	{name: "sum_without_instance_rate_fused", query: `sum without (instance) (rate(cpu[5m]))`},
+	// — aggregation-range-fused: avg without + rate —
+	{name: "avg_without_instance_rate_fused", query: `avg without (instance) (rate(cpu[5m]))`},
+	// — aggregation-range-fused: min/max/count + rate —
+	{name: "min_by_job_rate_fused", query: `min by (job) (rate(http_requests_total[5m]))`},
+	{name: "max_by_job_rate_fused", query: `max by (job) (rate(http_requests_total[5m]))`},
+	{name: "count_by_job_rate_fused", query: `count by (job) (rate(http_requests_total[5m]))`},
 }
 
 // goldenAggregationCases selects the subset of aggregationCases that receive
-// golden files: first 5 canonical shapes plus both fused cases.
-var goldenAggregationCases = []int{0, 1, 2, 3, 4, 7, 8}
+// golden files: first 5 canonical shapes plus fused direct-reducer cases.
+var goldenAggregationCases = []int{0, 1, 2, 3, 4, 7, 8, 9, 10, 11}
 
 // TestLowerAggregationGolden locks in the exact SQL for the first five
-// canonical shapes plus both fused cases in both render modes.
+// canonical shapes plus fused direct-reducer cases in both render modes.
 // Run with -update to regenerate golden files.
 func TestLowerAggregationGolden(t *testing.T) {
 	for _, idx := range goldenAggregationCases {
@@ -120,6 +124,40 @@ func TestAggregationByProjectionRollbackGate(t *testing.T) {
 	}
 	if strings.Contains(rq.SQL, "src.tags['job']") || !strings.Contains(rq.SQL, "mapKeys(src.tags)") {
 		t.Fatalf("expected rollback gate to preserve full selector labels, got:\n%s", rq.SQL)
+	}
+}
+
+func TestAggregationDirectReducersByRateRangeUseFusedRows(t *testing.T) {
+	cases := []struct {
+		query         string
+		expectedValue string
+	}{
+		{query: `avg by (job) (rate(http_requests_total[5m]))`, expectedValue: "avg(value)) AS value"},
+		{query: `min by (job) (rate(http_requests_total[5m]))`, expectedValue: "minIf(value, NOT isNaN(value))) AS value"},
+		{query: `max by (job) (rate(http_requests_total[5m]))`, expectedValue: "maxIf(value, NOT isNaN(value))) AS value"},
+		{query: `count by (job) (rate(http_requests_total[5m]))`, expectedValue: "count(value)) AS value"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.query, func(t *testing.T) {
+			root, analysis, nativeAnalysis := buildLowerInputs(t, tc.query)
+			rq, err := Lower(LoweringCtx{
+				Config:         testRenderConfig(),
+				Analysis:       analysis,
+				NativeAnalysis: nativeAnalysis,
+				Params:         testRenderParamsRange(),
+			}, root)
+			if err != nil {
+				t.Fatalf("Lower: %v", err)
+			}
+			for _, expected := range []string{tc.expectedValue, "counter_delta_sum", "GROUP BY tags, timestamp"} {
+				if !strings.Contains(rq.SQL, expected) {
+					t.Fatalf("expected fused rate aggregation SQL to contain %q, got:\n%s", expected, rq.SQL)
+				}
+			}
+			if strings.Contains(rq.SQL, "arrayJoin(time_series) AS point") {
+				t.Fatalf("expected fused rate aggregation to avoid exploding range-function matrix rows before aggregation, got:\n%s", rq.SQL)
+			}
+		})
 	}
 }
 

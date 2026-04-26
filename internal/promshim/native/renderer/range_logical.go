@@ -368,7 +368,7 @@ func rangeFunctionChildNode(n logicalpkg.Node) (logicalpkg.Node, string, bool) {
 // Consumed by the AggregationPlan lowerer. Capability shape:
 //
 //   - range-mode only (params.Mode == RenderModeRange),
-//   - the aggregation is a SUM (agg.Op == parser.SUM),
+//   - the aggregation is a supported direct reducer (SUM, AVG, MIN, MAX, or COUNT),
 //   - the aggregation's child is one of the seven range-function plan
 //     kinds,
 //   - that range-function's child is either a LeafExprPlan wrapping a
@@ -382,7 +382,7 @@ func canFuseRangeAggregationLogicalDirect(agg *logicalpkg.AggregationPlan, param
 	if params.Mode != native.RenderModeRange || agg == nil || agg.Child == nil {
 		return false
 	}
-	if agg.Op != parser.SUM {
+	if !canFuseRangeAggregationOp(agg.Op) {
 		return false
 	}
 	rangeChild, _, ok := rangeFunctionChildNode(agg.Child)
@@ -407,6 +407,15 @@ func canFuseRangeAggregationLogicalDirect(agg *logicalpkg.AggregationPlan, param
 // AggregationPlan directly: the capability check is pure-logical
 // (canFuseRangeAggregationLogicalDirect) and the SQL synthesis runs on
 // the logical plan through tryRenderFusedRangeAggregationLogical.
+func canFuseRangeAggregationOp(op parser.ItemType) bool {
+	switch op {
+	case parser.SUM, parser.AVG, parser.MIN, parser.MAX, parser.COUNT:
+		return true
+	default:
+		return false
+	}
+}
+
 func tryRenderFusedRangeAggregationLogicalDirect(cfg storage.QueryConfig, agg *logicalpkg.AggregationPlan, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams) (renderedFragment, bool, error) {
 	ctx := LoweringCtx{
 		Config:         cfg,

@@ -618,7 +618,9 @@ func (h *queryService) routingInfoForRange(query string, start, end time.Time, s
 	timing := queryCostTiming{Endpoint: "query_range", Start: start, End: end, Step: step}
 	class := h.queryCostClass(query, timing, strictStrategy)
 	h.maybeScheduleSelectorStatsProbes(query, timing, policy, class)
-	return routingDecisionForStrict(policy, mode, class, strictStrategy, h.opts.CostRoutingLocalFamilies)
+	info := routingDecisionForStrict(policy, mode, class, strictStrategy, h.opts.CostRoutingLocalFamilies)
+	h.attachDenseRateRollupCandidate(&info, query, step)
+	return info
 }
 
 func (h *queryService) queryCostClass(query string, timing queryCostTiming, strictStrategy string) httpapi.QueryCostClass {

@@ -32,7 +32,7 @@ func (h *queryService) ClickHouseTransport() string {
 }
 
 func (h *queryService) queryConfig() storage.QueryConfig {
-	return storage.QueryConfig{Database: h.opts.Database, Table: h.opts.Table, PromotedTagColumns: h.promotedTagColumns}
+	return storage.QueryConfig{Database: h.opts.Database, Table: h.opts.Table, PromotedTagColumns: h.promotedTagColumns, EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer"}
 }
 
 func mergePromotedTagColumns(base, extra map[string]struct{}) map[string]struct{} {
@@ -127,7 +127,7 @@ func NewHandler(opts Options) (http.Handler, error) {
 	service := &queryService{
 		opts:               opts,
 		client:             client,
-		evaluator:          local.NewEvaluator(opts.Database, opts.Table, client).WithPromotedTagColumns(promotedTagColumns),
+		evaluator:          local.NewEvaluator(opts.Database, opts.Table, client).WithPromotedTagColumns(promotedTagColumns).WithNativeGridFunctions(opts.NativeGridFunctions == "prefer"),
 		promotedTagColumns: promotedTagColumns,
 		selectorStats:      newSelectorStatsCache(5 * time.Minute),
 		selectorProbeSem:   make(chan struct{}, 2),

@@ -44,6 +44,7 @@ type Options struct {
 	MaxResponsePoints             int64
 	PromotedTagColumns            []string
 	DiscoverPromotedTagColumns    bool
+	NativeGridFunctions           string
 
 	DisableEntireQueryDelegation bool
 }
@@ -76,6 +77,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		MaxResponsePoints:             getenvInt64("PROM_SHIM_MAX_RESPONSE_POINTS", defaultMaxResponsePoints),
 		PromotedTagColumns:            splitCSVEnv(getenv("PROM_SHIM_PROMOTED_TAG_COLUMNS", "")),
 		DiscoverPromotedTagColumns:    getenvBool("PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS", false),
+		NativeGridFunctions:           getenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "off"),
 	}
 
 	if _, err := local.ParseNativeLoweringMode(string(opts.NativeLoweringMode)); err != nil {
@@ -92,6 +94,9 @@ func LoadOptionsFromEnv() (Options, error) {
 	}
 	if _, err := storage.ParseSettingsProfileName(opts.ClickHouseSettingsProfile); err != nil {
 		return Options{}, fmt.Errorf("invalid PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE: %w", err)
+	}
+	if normalized := normalizeNativeGridFunctionsMode(opts.NativeGridFunctions); normalized == "" {
+		return Options{}, fmt.Errorf("invalid PROM_SHIM_NATIVE_GRID_FUNCTIONS: %q", opts.NativeGridFunctions)
 	}
 
 	if _, err := url.Parse(opts.ClickHouseEndpoint); err != nil {
@@ -162,6 +167,17 @@ func getenvInt64(key string, fallback int64) int64 {
 	return parsed
 }
 
+func normalizeNativeGridFunctionsMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "off":
+		return "off"
+	case "prefer":
+		return "prefer"
+	default:
+		return ""
+	}
+}
+
 func normalizeOptions(opts Options) Options {
 	opts.ClickHouseVersion = local.NormalizeClickHouseVersion(opts.ClickHouseVersion)
 	if opts.ClickHouseNativeAddr == "" {
@@ -183,6 +199,7 @@ func normalizeOptions(opts Options) Options {
 		opts.ClickHouseConnMaxLifetime = time.Hour
 	}
 	opts.ClickHouseSettingsProfile = storage.NormalizeSettingsProfileName(opts.ClickHouseSettingsProfile)
+	opts.NativeGridFunctions = normalizeNativeGridFunctionsMode(opts.NativeGridFunctions)
 	opts.NativeLoweringMode = local.NormalizeNativeLoweringMode(opts.NativeLoweringMode)
 	opts.RoutingPolicy = NormalizeRoutingPolicy(opts.RoutingPolicy)
 	if opts.MaxRangePointsPerSeries <= 0 {

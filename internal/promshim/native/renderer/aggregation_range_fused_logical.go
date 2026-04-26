@@ -127,6 +127,15 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 		lookbackMS := sel.Lookback.Milliseconds()
 		offsetMS := sel.Offset.Milliseconds()
 		isIdentity := view.ValueExpr == "{value}" && view.TagsExpr == "{tags}" && !view.DropsMetric
+		if isIdentity && ctx.Config.EnableNativeGridFunctions && fn == "rate" && offsetMS == 0 && supportsDirectSelectorWindowAggregate(fn, lookbackMS) && preferDirectSelectorWindowJoin(lookbackMS, ctx.Params.StepMS) {
+			childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
+			source, err := renderAggregationSourceView(view, ctx.Params)
+			if err != nil {
+				return "", nil, err
+			}
+			tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(ctx.Params))
+			return storage.BuildRangeRateSelectorNativeGridRowsQuerySQLWithFinalTags(ctx.Config, *source.Selector, childRequiredStartMS, childRequiredEndMS, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, tagsExpr)
+		}
 		if isIdentity && supportsDirectSelectorWindowAggregate(fn, lookbackMS) && preferDirectSelectorWindowJoin(lookbackMS, ctx.Params.StepMS) {
 			childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
 			source, err := renderAggregationSourceView(view, ctx.Params)

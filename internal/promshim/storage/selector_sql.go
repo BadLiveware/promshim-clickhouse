@@ -150,6 +150,80 @@ func BuildRangeWindowSelectorDirectAggregateRowsQuerySQLWithFinalTags(cfg QueryC
 	return sql + schema.QuerySuffix, params, nil
 }
 
+func BuildRangeRateSelectorNativeGridQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, finalTagsSQL string) (string, map[string]string, error) {
+	rowsSQL, params, err := BuildRangeRateSelectorNativeGridRowsQuerySQLWithFinalTags(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, finalTagsSQL)
+	if err != nil {
+		return "", nil, err
+	}
+	rowsSQL = strings.TrimSuffix(rowsSQL, schema.QuerySuffix)
+	outer := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"}},
+		From:    sqlb.RawSource{SQL: rawSubquerySQL(rowsSQL)},
+		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
+		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}},
+	}
+	sql, _, err := outer.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql + schema.QuerySuffix, params, nil
+}
+
+func BuildRangeRateSelectorNativeGridRowsQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, finalTagsSQL string) (string, map[string]string, error) {
+	if selector.Kind != SelectorKindRangeVector {
+		return "", nil, fmt.Errorf("native-grid rate selector SQL requires a range-vector selector, got %q", selector.Kind)
+	}
+	if stepMS <= 0 {
+		return "", nil, fmt.Errorf("native-grid rate selector SQL requires a positive step")
+	}
+	matchedSeriesSQL, params, err := buildMatchedSeriesSQL(cfg, selector, "native_grid_rate", requiredStartMS, requiredEndMS, true)
+	if err != nil {
+		return "", nil, err
+	}
+	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
+	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
+	params["param_step_ms"] = strconv.FormatInt(stepMS, 10)
+	params["param_lookback_ms"] = strconv.FormatInt(selector.LookbackMS, 10)
+
+	resolvedFinalTagsExpr := sqlb.Expr(sqlb.RawLit{V: emit.StripMetricName("tags")})
+	if strings.TrimSpace(finalTagsSQL) != "" {
+		resolvedFinalTagsExpr = sqlb.RawLit{V: finalTagsSQL}
+	}
+	inner := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("series.id"), Alias: "id"},
+			{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("series.tags")}}, Alias: "tags"},
+			{Expr: sqlb.RawLit{V: "timeSeriesRateToGrid(fromUnixTimestamp64Milli({start_ms:Int64}), fromUnixTimestamp64Milli({end_ms:Int64}), toDecimal64({step_ms:Int64}, 3) / 1000, toDecimal64({lookback_ms:Int64}, 3) / 1000)(d.timestamp, d.value)"}, Alias: "values"},
+		},
+		From: sqlb.Join{
+			Left:  sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"},
+			Right: sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},
+			Kind:  "INNER",
+			On:    sqlb.RawLit{V: "d.id = series.id"},
+		},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value")},
+		GroupBy: []sqlb.Expr{sqlb.Ident("series.id")},
+	}
+	points := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: resolvedFinalTagsExpr, Alias: "tags"},
+			{Expr: sqlb.RawLit{V: "point.1"}, Alias: "timestamp"},
+			{Expr: sqlb.RawLit{V: "toFloat64(assumeNotNull(point.2))"}, Alias: "value"},
+		},
+		From: sqlb.ArrayJoin{
+			Base:  sqlb.SubSelect{S: inner},
+			Expr:  sqlb.RawLit{V: "arrayZip(arrayMap(i -> fromUnixTimestamp64Milli({start_ms:Int64}) + toIntervalMillisecond((i - 1) * {step_ms:Int64}), arrayEnumerate(values)), values)"},
+			Alias: "point",
+		},
+		Where: sqlb.RawLit{V: "isNotNull(point.2)"},
+	}
+	sql, _, err := points.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql + schema.QuerySuffix, params, nil
+}
+
 func buildRangeWindowSelectorPerStepQuery(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, windowValueExpr, finalTagsSQL string, minimumSeriesLength int) (*sqlb.Select, map[string]string, []sqlb.OrderExpr, error) {
 	if selector.Kind != SelectorKindRangeVector {
 		return nil, nil, nil, fmt.Errorf("range-window selector SQL requires a range-vector selector, got %q", selector.Kind)

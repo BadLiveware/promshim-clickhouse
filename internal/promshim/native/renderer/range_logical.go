@@ -210,6 +210,19 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						}
 						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: rowParams}, nil
 					}
+					if isIdentity && cfg.EnableNativeGridFunctions && fn == "rate" && offsetMS == 0 && supportsDirectSelectorWindowAggregate(fn, lookbackMS) && preferDirectSelectorWindowJoin(lookbackMS, params.StepMS) {
+						childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
+						source, err := renderAggregationSourceView(view, params)
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
+						sql, queryParams, err := storage.BuildRangeRateSelectorNativeGridQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, tagsExpr)
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
+					}
 					// Keep the selector-scoped grid→data join that benchmarks well on long-range
 					// windows, but skip per-step window_series/window_values materialization for
 					// direct range selectors that are safe to aggregate inside that grouped join.

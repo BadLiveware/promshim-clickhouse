@@ -84,6 +84,22 @@ func TestLoadOptionsFromEnvCostRoutingLocalFamilies(t *testing.T) {
 	}
 }
 
+func TestLoadOptionsFromEnvNativeGridFunctions(t *testing.T) {
+	t.Setenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "prefer")
+	opts, err := LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.NativeGridFunctions != "prefer" {
+		t.Fatalf("NativeGridFunctions = %q, want prefer", opts.NativeGridFunctions)
+	}
+
+	t.Setenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "surprise")
+	if _, err := LoadOptionsFromEnv(); err == nil || !strings.Contains(err.Error(), "PROM_SHIM_NATIVE_GRID_FUNCTIONS") {
+		t.Fatalf("LoadOptionsFromEnv invalid native grid functions error = %v", err)
+	}
+}
+
 func TestLoadOptionsFromEnvPromotedTagColumns(t *testing.T) {
 	t.Setenv("PROM_SHIM_PROMOTED_TAG_COLUMNS", "instance, pod ,node")
 	t.Setenv("PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS", "true")

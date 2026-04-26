@@ -72,11 +72,12 @@ func (p *delegatedExprPlan) explain() ExplainNode {
 }
 
 type Evaluator struct {
-	database           string
-	table              string
-	promotedTagColumns map[string]struct{}
-	client             *storage.Client
-	localMemo          map[string]model.RuntimeValue
+	database                  string
+	table                     string
+	promotedTagColumns        map[string]struct{}
+	enableNativeGridFunctions bool
+	client                    *storage.Client
+	localMemo                 map[string]model.RuntimeValue
 }
 
 func NewEvaluator(database, table string, client *storage.Client) *Evaluator {
@@ -88,8 +89,13 @@ func (e *Evaluator) WithPromotedTagColumns(columns map[string]struct{}) *Evaluat
 	return e
 }
 
+func (e *Evaluator) WithNativeGridFunctions(enabled bool) *Evaluator {
+	e.enableNativeGridFunctions = enabled
+	return e
+}
+
 func (e *Evaluator) queryConfig() storage.QueryConfig {
-	return storage.QueryConfig{Database: e.database, Table: e.table, PromotedTagColumns: e.promotedTagColumns}
+	return storage.QueryConfig{Database: e.database, Table: e.table, PromotedTagColumns: e.promotedTagColumns, EnableNativeGridFunctions: e.enableNativeGridFunctions}
 }
 
 func (e *Evaluator) Evaluate(ctx context.Context, plan Plan, params EvalParams) (model.RuntimeValue, error) {

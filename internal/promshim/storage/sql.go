@@ -26,6 +26,10 @@ type QueryConfig struct {
 	// tags_to_columns setting. When present, selector matching can read the
 	// typed column directly instead of probing the tags Map value.
 	PromotedTagColumns map[string]struct{}
+
+	// EnableNativeGridFunctions allows guarded tier-2 lowering to call
+	// ClickHouse TimeSeries grid functions for supported range operators.
+	EnableNativeGridFunctions bool
 }
 
 type AggregationSource struct {

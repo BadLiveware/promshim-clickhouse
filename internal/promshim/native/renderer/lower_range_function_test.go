@@ -127,6 +127,34 @@ func TestLowerLongStepRateRangeUsesGuardedDirectAggregate(t *testing.T) {
 	}
 }
 
+func TestLowerLongStepRateRangeUsesNativeGridWhenEnabled(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[5m])`)
+	cfg := testRenderConfig()
+	cfg.EnableNativeGridFunctions = true
+	rq, err := Lower(LoweringCtx{
+		Config:         cfg,
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params: RenderParams{
+			Mode:    native.RenderModeRange,
+			StartMS: 1_700_000_000_000,
+			EndMS:   1_700_086_400_000,
+			StepMS:  300_000,
+		},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	for _, expected := range []string{"timeSeriesRateToGrid(", "arrayZip(arrayMap", "isNotNull(point.2)"} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected native-grid rate SQL to contain %q, got %s", expected, rq.SQL)
+		}
+	}
+	if strings.Contains(rq.SQL, "deltaSumTimestamp(") {
+		t.Fatalf("expected native-grid rate SQL to avoid deltaSumTimestamp, got %s", rq.SQL)
+	}
+}
+
 func TestLowerShortRateRangeUsesSortedWindowSeries(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[15s])`)
 	rq, err := Lower(LoweringCtx{

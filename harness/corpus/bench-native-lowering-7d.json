@@ -79,6 +79,16 @@
     "compareMode": "structural"
   },
   {
+    "name": "repeated_rate_average_3x_5m_range_1d",
+    "endpoint": "query_range",
+    "query": "(rate(demo_cpu_usage_seconds_total[5m]) + rate(demo_cpu_usage_seconds_total[5m]) + rate(demo_cpu_usage_seconds_total[5m])) / 3",
+    "category": "range_repeated_subexpr",
+    "startOffsetSeconds": -86400,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 300,
+    "compareMode": "structural"
+  },
+  {
     "name": "histogram_quantile_1h_instant",
     "endpoint": "query",
     "query": "histogram_quantile(0.95, sum by (le) (rate(demo_api_request_duration_seconds_bucket[1h])))",

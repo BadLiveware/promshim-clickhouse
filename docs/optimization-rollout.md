@@ -29,6 +29,47 @@ profile provenance before it is allowed to change served routing.
 | ClickHouse settings profiles | `default_safe`: safety/provenance only. | Performance profile names require measured evidence and version checks before applying aggressive settings. | `PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE=none` or `default_safe`; unset optional caps. |
 | Reference ClickHouse profile | Documentation context only. | A benchmark claim must name whether it used `promshim-ch-timeseries-reference-v1` or another environment. | No server/operator tuning is required for promshim correctness. |
 
+## Optimization chains and parked near-misses
+
+Some optimizations are only valuable after another rewrite changes the query into
+the shape they accelerate. Treat a rejected near-miss as reusable evidence when it
+has all of these properties:
+
+- it preserved correctness, `native_sql` strategy, and ClickHouse roundtrips;
+- it moved the expected lower-variance signal in the right direction but missed
+  the standalone gate;
+- it had no unrelated-row guardrail regression; and
+- a later accepted change shifts the bottleneck or exposes a simpler logical
+  shape that the near-miss can now target.
+
+Do not lower the normal commit gate to keep these changes. Instead, keep the
+standalone gate strict and retest parked near-misses after the baseline changes.
+Use fresh named artifacts and compare against the new accepted baseline.
+
+The rate-range optimization chain is the reference example:
+
+1. Rate materialization sorting made the duplicated `rate` branch a larger share
+   of remaining work.
+2. Strict logical cancellation rewrote bounded repeated averages such as
+   `(rate(x[5m]) + rate(x[5m])) / 2` and
+   `(rate(x[5m]) + rate(x[5m]) + rate(x[5m])) / 3` to `rate(x[5m])` only when
+   the divisor exactly matched the repeated term count, each addition used
+   implicit one-to-one matching, every operand was structurally identical, and
+   every operand dropped the metric name.
+3. The simplified `rate(x[5m])` shape then became eligible for the direct
+   selector-window aggregate path.
+
+Those changes are nonlinear: the second change removes duplicate rate execution
+and binary join materialization, while the third change applies only after the
+query has become a direct `rate(...)` range shape. This is why the combined
+stack moved far more than either idea suggested on older baselines.
+
+When reviewing similar work, ask whether the candidate changes the query class or
+only prettifies SQL text. Prioritize chains that move from a compound expression
+to a simpler semantic shape and then route that shape to a specialized physical
+path. Avoid re-running wrapper, alias, or tuple-accessor cleanups unless explain
+and ProfileEvents show that they now remove real executor work.
+
 ## Shadow and differential validation
 
 Use serving modes deliberately:

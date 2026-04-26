@@ -157,7 +157,7 @@ func passMetadata(pass Pass) PassMetadata {
 // DefaultPasses is the canonical ordered pass list applied to every query.
 var DefaultPasses = []Pass{
 	constantFoldUnaryNegation{},
-	cancelRepeatedAddDivideByTwo{},
+	cancelRepeatedAverage{},
 }
 
 func inspectedNodeCount(analysis *logical.Analysis) int {

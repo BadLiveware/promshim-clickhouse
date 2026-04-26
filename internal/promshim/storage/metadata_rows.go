@@ -24,7 +24,7 @@ func (c *Client) QueryStringRows(ctx context.Context, req QueryRequest) (values 
 		if err != nil {
 			return nil, err
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		start := time.Now()
 		decoded := 0
@@ -48,7 +48,7 @@ func (c *Client) QueryStringRows(ctx context.Context, req QueryRequest) (values 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	start := time.Now()
 	decoded := 0
@@ -86,7 +86,7 @@ func (c *Client) QuerySeriesRows(ctx context.Context, req QueryRequest) (series 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	start := time.Now()
 	decoded := 0

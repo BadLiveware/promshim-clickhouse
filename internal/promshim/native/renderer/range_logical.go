@@ -376,13 +376,8 @@ func rangeFunctionChildNode(n logicalpkg.Node) (logicalpkg.Node, string, bool) {
 //
 // Non-matching nodes return false, falling through to the non-fused
 // aggregation rendering path.
-func canFuseRangeAggregationLogical(agg *logicalpkg.AggregationPlan, params RenderParams) bool {
-	return canFuseRangeAggregationLogicalDirect(agg, params)
-}
-
 // canFuseRangeAggregationLogicalDirect is a pure logical-plan shape
-// predicate; see canFuseRangeAggregationLogical above for the shape
-// requirements.
+// predicate; see the shape requirements above.
 func canFuseRangeAggregationLogicalDirect(agg *logicalpkg.AggregationPlan, params RenderParams) bool {
 	if params.Mode != native.RenderModeRange || agg == nil || agg.Child == nil {
 		return false

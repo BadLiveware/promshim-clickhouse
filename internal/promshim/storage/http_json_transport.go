@@ -92,7 +92,7 @@ func (t *HTTPJSONTransport) Query(ctx context.Context, req QueryRequest) (Rows, 
 	}
 	if response.StatusCode >= 400 {
 		observeQuery(TransportHTTP, req.Purpose, "error", duration)
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		var payload bytes.Buffer
 		_, _ = payload.ReadFrom(response.Body)
 		message := strings.TrimSpace(payload.String())

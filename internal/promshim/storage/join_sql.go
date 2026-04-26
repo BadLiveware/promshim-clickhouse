@@ -6,7 +6,6 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/emit"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage/schema"
-	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -227,11 +226,7 @@ func buildPreparedJoinSideSelect(side string, source sqlb.Source, joinGroupExpr 
 		}, nil
 	}
 
-	columns := []sqlb.ColExpr{
-		{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("tags")}}, Alias: "original_group"},
-		{Expr: joinGroup, Alias: "join_group"},
-		{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("value")}}, Alias: "value"},
-	}
+	var columns []sqlb.ColExpr
 	groupBy := []sqlb.Expr{joinGroup}
 	if withTimestamp {
 		columns = []sqlb.ColExpr{
@@ -290,7 +285,7 @@ func buildJoinGroupExpr(tagsExpr sqlb.Expr, vectorMatching *parser.VectorMatchin
 			sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> has(" + sqlStringArrayLiteral(matching.MatchingLabels) + ", tag.1)"}, tagsExpr}},
 		}}
 	}
-	ignored := append([]string{labels.MetricName}, matching.MatchingLabels...)
+	ignored := append([]string{"__name__"}, matching.MatchingLabels...)
 	return sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
 		sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},
 		sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{sqlb.RawLit{V: "tag -> NOT has(" + sqlStringArrayLiteral(ignored) + ", tag.1)"}, tagsExpr}},

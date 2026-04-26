@@ -452,7 +452,7 @@ func timedRequest(client *http.Client, baseURL string, manifest Manifest, spec Q
 	if err != nil {
 		return requestTiming{}, nil, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	// Drain and discard body so the TCP connection is reused. Separating
 	// header and drain time helps diagnose whether p50 is spent before the
 	// first response bytes or while consuming/materializing the body.

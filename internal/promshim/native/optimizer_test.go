@@ -214,9 +214,9 @@ func TestOptimizeFromInfoInternsEquivalentMatchersAcrossSelectorFields(t *testin
 	if selector == nil {
 		t.Fatalf("expected selector source, got info=%#v", info)
 	}
-	selectorMetric := findMatcher(selector.Matchers, labels.MatchEqual, labels.MetricName, "up")
-	inferredMetric := findMatcher(selector.InferredMatchers, labels.MatchEqual, labels.MetricName, "up")
-	pushedMetric := findMatcher(selector.PushedMatchers, labels.MatchEqual, labels.MetricName, "up")
+	selectorMetric := findMatcher(selector.Matchers, labels.MatchEqual, "__name__", "up")
+	inferredMetric := findMatcher(selector.InferredMatchers, labels.MatchEqual, "__name__", "up")
+	pushedMetric := findMatcher(selector.PushedMatchers, labels.MatchEqual, "__name__", "up")
 	if selectorMetric == nil || inferredMetric == nil || pushedMetric == nil {
 		t.Fatalf("expected selector/inferred/pushed metric matchers, got selector=%#v inferred=%#v pushed=%#v", selector.Matchers, selector.InferredMatchers, selector.PushedMatchers)
 	}

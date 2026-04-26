@@ -34,23 +34,6 @@ type Plan interface {
 	explain() ExplainNode
 }
 
-type annotatedQueryPlan struct {
-	Inner    Plan
-	Lowering *nativeplan.LoweringInfo
-}
-
-func (p *annotatedQueryPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
-	return p.Inner.execute(ctx, Evaluator, params)
-}
-
-func (p *annotatedQueryPlan) explain() ExplainNode {
-	explain := p.Inner.explain()
-	if p.Lowering != nil {
-		explain.Lowering = p.Lowering.ExplainInfo()
-	}
-	return explain
-}
-
 func annotateQueryPlan(plan Plan, _ *nativeplan.LoweringInfo) Plan {
 	return plan
 }
@@ -162,7 +145,7 @@ func (e *Evaluator) executeDelegatedInstantSamples(ctx context.Context, sql stri
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	return DecodeInstantSamples(response.Body)
 }
 
@@ -174,7 +157,7 @@ func (e *Evaluator) executeDelegatedRangeSeries(ctx context.Context, sql string,
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	return DecodeRangeSeries(response.Body)
 }
 
@@ -246,15 +229,6 @@ func buildExecPlan(plan logicalPlan) (Plan, error) {
 	}
 	analysis := nativeplan.Analyze(optimized)
 	return buildExecPlanWithAnalysis(optimized, DefaultPlanContext(EvalModeInstant), analysis)
-}
-
-func buildExecPlanWithContext(plan logicalPlan, ctx PlanContext) (Plan, error) {
-	optimized, _, err := logicalopt.Optimize(plan, logicalopt.DefaultPassesForEnv())
-	if err != nil {
-		return nil, err
-	}
-	analysis := nativeplan.Analyze(optimized)
-	return buildExecPlanWithAnalysis(optimized, ctx, analysis)
 }
 
 func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, error) {

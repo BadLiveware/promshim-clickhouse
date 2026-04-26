@@ -12,10 +12,6 @@ func testRenderConfig() storage.QueryConfig {
 	return storage.QueryConfig{Database: "observability", Table: "prometheus"}
 }
 
-func testRenderParams() RenderParams {
-	return RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 1_700_000_000_000}
-}
-
 func buildLowerInputs(t *testing.T, query string) (logicalpkg.Node, *logicalpkg.Analysis, *native.Analysis) {
 	t.Helper()
 	expr := mustParseExpr(t, query)

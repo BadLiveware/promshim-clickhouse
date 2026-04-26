@@ -30,7 +30,7 @@ func (c *Client) QuerySelectorStats(ctx context.Context, req QueryRequest) (stat
 		if err != nil {
 			return SelectorStats{}, err
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		if rows.Next() {
 			var count uint64
 			if err := rows.Scan(&count); err != nil {
@@ -47,7 +47,7 @@ func (c *Client) QuerySelectorStats(ctx context.Context, req QueryRequest) (stat
 	if err != nil {
 		return SelectorStats{}, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return decodeSelectorStats(rows)
 }
 

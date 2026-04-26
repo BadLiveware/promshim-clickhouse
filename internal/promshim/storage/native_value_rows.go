@@ -30,7 +30,7 @@ func (c *Client) QueryInstantSamples(ctx context.Context, req QueryRequest) (sam
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	start := time.Now()
 	decoded := 0
@@ -75,7 +75,7 @@ func (c *Client) QueryRangeSeries(ctx context.Context, req QueryRequest) (series
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	start := time.Now()
 	decoded := 0

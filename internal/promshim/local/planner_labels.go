@@ -160,7 +160,7 @@ type localSubqueryPlan struct {
 }
 
 func (p *localSubqueryPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
-	useDelegatedPath := p.DelegatedLeafCompatible && !(params.Mode == EvalModeInstant && p.Expr != nil && p.Expr.Type() == parser.ValueTypeMatrix)
+	useDelegatedPath := p.DelegatedLeafCompatible && (params.Mode != EvalModeInstant || p.Expr == nil || p.Expr.Type() != parser.ValueTypeMatrix)
 	if useDelegatedPath {
 		value, err := Evaluator.executeDelegated(ctx, p.Expr, params)
 		if err != nil {

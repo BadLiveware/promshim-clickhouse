@@ -332,11 +332,11 @@ func inferSourceMatchers(selector *SelectorSource) []*labels.Matcher {
 		return nil
 	}
 	for _, matcher := range selector.Matchers {
-		if matcher != nil && matcher.Type == labels.MatchEqual && matcher.Name == labels.MetricName && matcher.Value == selector.MetricName {
+		if matcher != nil && matcher.Type == labels.MatchEqual && matcher.Name == "__name__" && matcher.Value == selector.MetricName {
 			return []*labels.Matcher{matcher}
 		}
 	}
-	matcher, err := labels.NewMatcher(labels.MatchEqual, labels.MetricName, selector.MetricName)
+	matcher, err := labels.NewMatcher(labels.MatchEqual, "__name__", selector.MetricName)
 	if err != nil {
 		return nil
 	}
@@ -544,10 +544,6 @@ func mergeMatchers(interner *matcherInterner, groups ...[]*labels.Matcher) []*la
 		}
 	}
 	return merged
-}
-
-func uniqueSortedStrings(values []string) []string {
-	return mergeUniqueStrings(nil, values...)
 }
 
 func hasTagsColumn(columns []string) bool {

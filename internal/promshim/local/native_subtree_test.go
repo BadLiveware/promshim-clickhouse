@@ -18,7 +18,7 @@ import (
 func TestNativeSubtreePlanNormalizesInstantVectorTimestampToEvaluationTime(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, `{"tags":[["job","api"]],"timestamp":"2026-04-20 11:34:00.000","value":1}`)
+		_, _ = fmt.Fprintln(w, `{"tags":[["job","api"]],"timestamp":"2026-04-20 11:34:00.000","value":1}`)
 	}))
 	defer server.Close()
 
@@ -64,7 +64,7 @@ func TestNativeSubtreePlanNormalizesInstantVectorTimestampToEvaluationTime(t *te
 func TestNativeSubtreePlanAppliesRuntimeModuloCorrectionToInstantVectors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, `{"tags":[["job","demo"]],"timestamp":"2026-04-20 11:34:00.000","value":1264108626}`)
+		_, _ = fmt.Fprintln(w, `{"tags":[["job","demo"]],"timestamp":"2026-04-20 11:34:00.000","value":1264108626}`)
 	}))
 	defer server.Close()
 
@@ -115,7 +115,7 @@ func TestNativeSubtreePlanAppliesRuntimeModuloCorrectionToInstantVectors(t *test
 func TestNativeSubtreePlanAppliesRuntimeModuloCorrectionToRangeMatrices(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, `{"tags":[["job","demo"]],"time_series":[["2026-04-20 11:34:00.000",1264108626],["2026-04-20 11:34:10.000",1380797813]]}`)
+		_, _ = fmt.Fprintln(w, `{"tags":[["job","demo"]],"time_series":[["2026-04-20 11:34:00.000",1264108626],["2026-04-20 11:34:10.000",1380797813]]}`)
 	}))
 	defer server.Close()
 
@@ -189,7 +189,7 @@ func TestNativeSubtreePlanExecutesRangeRateOverSubquery(t *testing.T) {
 			t.Fatal("expected rendered native SQL query")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, `{"tags":[["job","api"]],"time_series":[["1970-01-01 00:00:00.000",1],["1970-01-01 00:01:00.000",2]]}`)
+		_, _ = fmt.Fprintln(w, `{"tags":[["job","api"]],"time_series":[["1970-01-01 00:00:00.000",1],["1970-01-01 00:01:00.000",2]]}`)
 	}))
 	defer server.Close()
 
@@ -248,7 +248,7 @@ func TestNativeSubtreePlanExecutesRangeQuantileOverTimeOverSubquery(t *testing.T
 			t.Fatal("expected rendered native SQL query")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, `{"tags":[["job","api"]],"time_series":[["1970-01-01 00:00:00.000",1], ["1970-01-01 00:01:00.000",2]]}`)
+		_, _ = fmt.Fprintln(w, `{"tags":[["job","api"]],"time_series":[["1970-01-01 00:00:00.000",1], ["1970-01-01 00:01:00.000",2]]}`)
 	}))
 	defer server.Close()
 
@@ -298,7 +298,7 @@ func TestNativeSubtreePlanExecutesInstantInfoRegexQuery(t *testing.T) {
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, `{"tags":[["__name__","up"],["instance","a"],["job","api"],["k8s_cluster_name","prod-eu"]],"timestamp":"1970-01-01 00:05:00.000","value":1}`)
+		_, _ = fmt.Fprintln(w, `{"tags":[["__name__","up"],["instance","a"],["job","api"],["k8s_cluster_name","prod-eu"]],"timestamp":"1970-01-01 00:05:00.000","value":1}`)
 	}))
 	defer server.Close()
 
@@ -354,7 +354,7 @@ func TestNativeSubtreePlanExecutesRangeRootSubquery(t *testing.T) {
 			t.Fatalf("expected root-subquery required end %q, got %q", want, got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, `{"tags":[["job","api"]],"time_series":[["1970-01-01 00:00:00.000",5],["1970-01-01 00:01:00.000",6]]}`)
+		_, _ = fmt.Fprintln(w, `{"tags":[["job","api"]],"time_series":[["1970-01-01 00:00:00.000",5],["1970-01-01 00:01:00.000",6]]}`)
 	}))
 	defer server.Close()
 
@@ -410,7 +410,7 @@ func TestNativeSubtreePlanExecutesAnchoredRangePointwiseQuery(t *testing.T) {
 			t.Fatalf("expected anchored child required end %q, got %q", want, got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, `{"tags":[["job","api"]],"time_series":[["1970-01-01 00:00:00.000",1],["1970-01-01 00:01:00.000",1],["1970-01-01 00:02:00.000",1],["1970-01-01 00:03:00.000",1]]}`)
+		_, _ = fmt.Fprintln(w, `{"tags":[["job","api"]],"time_series":[["1970-01-01 00:00:00.000",1],["1970-01-01 00:01:00.000",1],["1970-01-01 00:02:00.000",1],["1970-01-01 00:03:00.000",1]]}`)
 	}))
 	defer server.Close()
 

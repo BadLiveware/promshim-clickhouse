@@ -235,7 +235,7 @@ func fillBinary(info *NodeInfo, n *BinaryPlan, lhs, rhs *NodeInfo) {
 	if !n.ReturnBool && isArithmeticOp(n.Op) {
 		info.DropsMetric = true
 		info.LabelLineage.MetricName = LabelLineageDropped
-		info.LabelLineage.Known[promlabels.MetricName] = LineageStateString(LabelLineageDropped)
+		info.LabelLineage.Known["__name__"] = LineageStateString(LabelLineageDropped)
 	}
 }
 
@@ -301,14 +301,14 @@ func fillHistogramOutput(info *NodeInfo, child *NodeInfo) {
 	info.LabelLineage = syntheticLineage()
 	if child != nil {
 		for label, state := range child.LabelLineage.Known {
-			if label == promlabels.MetricName || label == "le" {
+			if label == "__name__" || label == "le" {
 				continue
 			}
 			info.LabelLineage.Known[label] = state
 		}
 		info.LabelLineage.Wildcard = child.LabelLineage.Wildcard
 		for label := range child.Schema.Possible {
-			if label == "le" || label == promlabels.MetricName {
+			if label == "le" || label == "__name__" {
 				continue
 			}
 			if _, guaranteed := child.Schema.Guaranteed[label]; guaranteed {
@@ -319,7 +319,7 @@ func fillHistogramOutput(info *NodeInfo, child *NodeInfo) {
 		}
 	}
 	info.LabelLineage.MetricName = LabelLineageDropped
-	info.LabelLineage.Known[promlabels.MetricName] = LineageStateString(LabelLineageDropped)
+	info.LabelLineage.Known["__name__"] = LineageStateString(LabelLineageDropped)
 }
 
 func fillRangeFunction(info *NodeInfo, child *NodeInfo, preservesName bool) {
@@ -332,7 +332,7 @@ func fillRangeFunction(info *NodeInfo, child *NodeInfo, preservesName bool) {
 	if !preservesName {
 		info.DropsMetric = true
 		info.LabelLineage.MetricName = LabelLineageDropped
-		info.LabelLineage.Known[promlabels.MetricName] = LineageStateString(LabelLineageDropped)
+		info.LabelLineage.Known["__name__"] = LineageStateString(LabelLineageDropped)
 	}
 }
 
@@ -360,7 +360,7 @@ func fillPassthroughDrop(info *NodeInfo, child *NodeInfo) {
 	fillPassthrough(info, child)
 	info.DropsMetric = true
 	info.LabelLineage.MetricName = LabelLineageDropped
-	info.LabelLineage.Known[promlabels.MetricName] = LineageStateString(LabelLineageDropped)
+	info.LabelLineage.Known["__name__"] = LineageStateString(LabelLineageDropped)
 }
 
 func fillScalarConvert(info *NodeInfo, child *NodeInfo) {
@@ -398,7 +398,7 @@ func fillPointwise(info *NodeInfo, n *PointwiseFunctionPlan, a *Analysis) {
 	}
 	info.DropsMetric = true
 	info.LabelLineage.MetricName = LabelLineageDropped
-	info.LabelLineage.Known[promlabels.MetricName] = LineageStateString(LabelLineageDropped)
+	info.LabelLineage.Known["__name__"] = LineageStateString(LabelLineageDropped)
 	for _, paramChild := range n.ParamChildren {
 		if paramChild == nil {
 			continue

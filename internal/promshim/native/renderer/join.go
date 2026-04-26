@@ -75,13 +75,13 @@ func assembleInfoJoinSQL(cfg storage.QueryConfig, childSQL string, childParams m
 func infoJoinNameMatchers(selectorMatchers []*labels.Matcher, infoMetricName string) []*labels.Matcher {
 	nameMatchers := make([]*labels.Matcher, 0)
 	for _, matcher := range selectorMatchers {
-		if matcher == nil || matcher.Name != labels.MetricName {
+		if matcher == nil || matcher.Name != "__name__" {
 			continue
 		}
 		nameMatchers = append(nameMatchers, labels.MustNewMatcher(matcher.Type, matcher.Name, matcher.Value))
 	}
 	if len(nameMatchers) == 0 && infoMetricName != "" {
-		nameMatchers = append(nameMatchers, labels.MustNewMatcher(labels.MatchEqual, labels.MetricName, infoMetricName))
+		nameMatchers = append(nameMatchers, labels.MustNewMatcher(labels.MatchEqual, "__name__", infoMetricName))
 	}
 	return nameMatchers
 }

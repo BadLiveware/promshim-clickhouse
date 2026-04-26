@@ -45,7 +45,7 @@ func WriteToRemoteWriteEndpoint(ctx context.Context, client *http.Client, endpoi
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode/100 != 2 {
 		body, _ := io.ReadAll(response.Body)
 		return fmt.Errorf("remote write to %s failed: %s: %s", endpoint, response.Status, string(body))
@@ -62,7 +62,7 @@ func WaitForHTTPOK(ctx context.Context, client *http.Client, endpoint string, de
 		}
 		response, err := client.Do(request)
 		if err == nil {
-			response.Body.Close()
+			_ = response.Body.Close()
 			if response.StatusCode/100 == 2 {
 				return nil
 			}

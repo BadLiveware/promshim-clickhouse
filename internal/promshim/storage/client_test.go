@@ -66,7 +66,7 @@ func TestHTTPJSONTransportExecutePreservesHTTPRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx := obs.WithLogComment(context.Background(), "bench-a")
 	ctx, metrics := obs.WithCHMetrics(ctx)
@@ -74,7 +74,7 @@ func TestHTTPJSONTransportExecutePreservesHTTPRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	payload, err := io.ReadAll(response.Body)
 	if err != nil {
 		t.Fatalf("read response body: %v", err)
@@ -107,7 +107,7 @@ func TestHTTPJSONTransportMapsHTTPStatusErrors(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewClient: %v", err)
 			}
-			defer client.Close()
+			defer func() { _ = client.Close() }()
 
 			_, err = client.Execute(context.Background(), "SELECT 1", nil)
 			queryErr, ok := err.(*QueryError)
@@ -136,7 +136,7 @@ func TestNativeTransportExecuteRequiresTypedDecoder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient native: %v", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	_, err = client.Execute(context.Background(), "SELECT 1", nil)
 	if err == nil || !strings.Contains(err.Error(), ErrNativeRowsNeedTypedDecoder.Error()) {

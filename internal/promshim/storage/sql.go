@@ -714,7 +714,7 @@ func buildRangeSelectionAggregationOverSubquerySQL(source AggregationSource, sou
 func buildAggregationTagsExpr(column sqlb.Expr, grouping []string, without bool) sqlb.Expr {
 	columnSQL := renderStorageExprNoParams(column)
 	if without {
-		labels := append([]string{labels.MetricName}, grouping...)
+		labels := append([]string{"__name__"}, grouping...)
 		return sqlb.Call{Name: "arraySort", Args: []sqlb.Expr{
 			sqlb.Lambda{Params: []sqlb.Ident{"tag"}, Body: sqlb.Ident("tag.1")},
 			sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{
@@ -843,7 +843,7 @@ func buildSeriesTagsSource(cfg QueryConfig, request *http.Request) (string, map[
 func compileMatcher(selectorIndex, matcherIndex int, matcher *labels.Matcher) (string, map[string]string) {
 	columnExpr := sqlb.Expr(sqlb.RawLit{V: "metric_name"})
 	params := map[string]string{}
-	if matcher.Name != labels.MetricName {
+	if matcher.Name != "__name__" {
 		keyName := "selector_" + strconv.Itoa(selectorIndex) + "_matcher_" + strconv.Itoa(matcherIndex) + "_key"
 		columnExpr = sqlb.Subscr{Array: sqlb.RawLit{V: "tags"}, Index: sqlb.Call{Name: "concat", Args: []sqlb.Expr{sqlb.RawLit{V: "''"}, sqlb.Param{Name: keyName, Type: "String", V: matcher.Name}}}}
 	}

@@ -5,7 +5,6 @@ import (
 
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 
-	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -80,7 +79,7 @@ func nativeVectorJoinLabelLineage(lhs, rhs LabelLineage, matching *parser.Vector
 		if normalized.On {
 			kept := map[string]LabelLineageState{}
 			for _, label := range normalized.MatchingLabels {
-				if label == labels.MetricName {
+				if label == "__name__" {
 					continue
 				}
 				if state, ok := result.Known[label]; ok {
@@ -96,7 +95,7 @@ func nativeVectorJoinLabelLineage(lhs, rhs LabelLineage, matching *parser.Vector
 		}
 	}
 	for _, label := range normalized.Include {
-		if label == labels.MetricName {
+		if label == "__name__" {
 			continue
 		}
 		if state, ok := rhs.Known[label]; ok {
@@ -107,7 +106,7 @@ func nativeVectorJoinLabelLineage(lhs, rhs LabelLineage, matching *parser.Vector
 	}
 	if nativeVectorJoinDropsMetricName(op, returnBool) {
 		result.MetricName = LabelLineageDropped
-		result.Known[labels.MetricName] = LabelLineageDropped
+		result.Known["__name__"] = LabelLineageDropped
 	}
 	return result
 }

@@ -103,7 +103,7 @@ func buildInfoNameMatcherCondition(tagsExpr, prefix string, matchers []*labels.M
 	params := map[string]string{}
 	matcherIndex := 0
 	for _, matcher := range matchers {
-		if matcher == nil || matcher.Name != labels.MetricName {
+		if matcher == nil || matcher.Name != "__name__" {
 			continue
 		}
 		clause, extraParams := compileMatcherClause(QueryConfig{}, prefix, matcherIndex, metricColumn, tagsExpr, matcher)

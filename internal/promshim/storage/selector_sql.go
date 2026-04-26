@@ -771,7 +771,7 @@ func buildMatchedSeriesSQL(cfg QueryConfig, selector SelectorSource, prefix stri
 	whereClauses := make([]string, 0, len(selector.Matchers)+3)
 	matcherIndex := 0
 	if selector.MetricName != "" {
-		matcher, err := labels.NewMatcher(labels.MatchEqual, labels.MetricName, selector.MetricName)
+		matcher, err := labels.NewMatcher(labels.MatchEqual, "__name__", selector.MetricName)
 		if err != nil {
 			return "", nil, err
 		}
@@ -784,7 +784,7 @@ func buildMatchedSeriesSQL(cfg QueryConfig, selector SelectorSource, prefix stri
 		if matcher == nil {
 			continue
 		}
-		if selector.MetricName != "" && matcher.Name == labels.MetricName && matcher.Type == labels.MatchEqual && matcher.Value == selector.MetricName {
+		if selector.MetricName != "" && matcher.Name == "__name__" && matcher.Type == labels.MatchEqual && matcher.Value == selector.MetricName {
 			continue
 		}
 		clause, extraParams := compileMatcherClause(cfg, prefix, matcherIndex, metricColumn, tagsColumn, matcher)
@@ -816,7 +816,7 @@ func buildMatchedSeriesSQL(cfg QueryConfig, selector SelectorSource, prefix stri
 func compileMatcherClause(cfg QueryConfig, prefix string, matcherIndex int, metricColumn, tagsColumn string, matcher *labels.Matcher) (string, map[string]string) {
 	columnExpr := sqlb.Expr(sqlb.RawLit{V: metricColumn})
 	params := map[string]string{}
-	if matcher.Name != labels.MetricName {
+	if matcher.Name != "__name__" {
 		if promoted := promotedTagColumn(cfg, matcher.Name); promoted != "" {
 			columnExpr = sqlb.RawLit{V: promoted}
 		} else {

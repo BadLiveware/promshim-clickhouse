@@ -13,12 +13,6 @@ func unwrapTransparentExpr(expr parser.Expr) parser.Expr {
 	return logical.UnwrapTransparentExpr(expr)
 }
 
-// expressionContainsSubquery forwards to logical.ExpressionContainsSubquery.
-// Kept here for any local/ callers; prefer the exported version in new code.
-func expressionContainsSubquery(expr parser.Expr) bool {
-	return logical.ExpressionContainsSubquery(expr)
-}
-
 // clonePromMatchers is retained for use by planner.go which builds local plan
 // nodes that embed copied matcher slices. The canonical implementation lives
 // in logical/build_helpers.go.

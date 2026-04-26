@@ -524,14 +524,10 @@ func rangeFunctionValueExpr(fn, seriesExpr, valuesSourceExpr string, paramNumber
 	counterDeltaExpr := sqlb.Expr(sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "(p, c) -> if(c < p, c, c - p)"}, prevValues, curValues}}}})
 	changesExpr := sqlb.Expr(sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "(p, c) -> if(c != p, 1, 0)"}, prevValues, curValues}}}}}})
 	if valuesSourceExpr == "window_values" {
-		prevValues = sqlb.Ident("window_values_prev")
-		curValues = sqlb.Ident("window_values_cur")
 		counterDeltaExpr = sqlb.Ident("counter_delta_sum")
 		changesExpr = sqlb.Ident("changes_count")
 	}
 	if valuesSourceExpr == "range_values" {
-		prevValues = sqlb.Ident("range_values_prev")
-		curValues = sqlb.Ident("range_values_cur")
 		counterDeltaExpr = sqlb.Ident("range_counter_delta_sum")
 		changesExpr = sqlb.Ident("range_changes_count")
 	}

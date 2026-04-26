@@ -55,7 +55,7 @@ func TestNativeTransportDelegatedPromQLIntegration(t *testing.T) {
 			if err != nil {
 				t.Skipf("native transport fixture unavailable: %v", err)
 			}
-			defer response.Body.Close()
+			defer func() { _ = response.Body.Close() }()
 			var body map[string]any
 			if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
 				t.Fatalf("decode response: %v", err)

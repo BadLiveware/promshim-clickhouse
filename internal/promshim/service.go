@@ -473,7 +473,7 @@ func (h *queryService) Labels(ctx context.Context, req httpapi.MetadataRequest) 
 		if err != nil {
 			return nil, local.ApiErrorToHTTP(local.NormalizeInternalError(err))
 		}
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		var decErr *local.APIError
 		labels, decErr = local.DecodeStringRows[local.LabelRow](response.Body, func(row local.LabelRow) string { return row.Label })
 		if decErr != nil {
@@ -503,7 +503,7 @@ func (h *queryService) LabelValues(ctx context.Context, req httpapi.LabelValuesR
 		if err != nil {
 			return nil, local.ApiErrorToHTTP(local.NormalizeInternalError(err))
 		}
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		var decErr *local.APIError
 		values, decErr = local.DecodeStringRows[local.ValueRow](response.Body, func(row local.ValueRow) string { return row.Value })
 		if decErr != nil {
@@ -533,7 +533,7 @@ func (h *queryService) Series(ctx context.Context, req httpapi.MetadataRequest) 
 		if err != nil {
 			return nil, local.ApiErrorToHTTP(local.NormalizeInternalError(err))
 		}
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		var decErr *local.APIError
 		rows, decErr = local.DecodeSeriesRows(response.Body)
 		if decErr != nil {

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	promlabels "github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -68,7 +67,7 @@ func populateSelectorMetadata(node Node, info *NodeInfo) {
 	info.NormalizedMatchers = matchers
 	parts := []string{"selector"}
 	if selector.Name != "" {
-		parts = append(parts, promlabels.MetricName+"="+selector.Name)
+		parts = append(parts, "__name__"+"="+selector.Name)
 	}
 	if matrixRange > 0 {
 		parts = append(parts, fmt.Sprintf("range_ms=%d", matrixRange.Milliseconds()))
@@ -84,7 +83,7 @@ func populateSelectorMetadata(node Node, info *NodeInfo) {
 		required[label] = struct{}{}
 	}
 	if selector.Name != "" {
-		required[promlabels.MetricName] = struct{}{}
+		required["__name__"] = struct{}{}
 	}
 	for _, matcher := range selector.LabelMatchers {
 		if matcher == nil || matcher.Name == "" {

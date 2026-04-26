@@ -76,7 +76,7 @@ func TestSQLBuilderAudit_MigratedFilesAvoidFmtSprintfEntirely(t *testing.T) {
 		if err != nil {
 			t.Fatalf("opening %s: %v", rel, err)
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		scanner := bufio.NewScanner(file)
 		lineNo := 0

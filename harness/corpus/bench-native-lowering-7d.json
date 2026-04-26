@@ -127,6 +127,14 @@
     "compareMode": "structural"
   },
   {
+    "name": "histogram_quantile_by_job_1h_instant",
+    "endpoint": "query",
+    "query": "histogram_quantile(0.95, sum by (job, le) (rate(demo_api_request_duration_seconds_bucket[1h])))",
+    "category": "instant_histogram_quantile",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  },
+  {
     "name": "rate_5m_range_1d",
     "endpoint": "query_range",
     "query": "rate(demo_cpu_usage_seconds_total[5m])",

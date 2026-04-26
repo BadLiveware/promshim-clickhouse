@@ -24,15 +24,15 @@ type PassMetadata struct {
 }
 
 type PassResult struct {
-	Name              string       `json:"name"`
-	Iteration         int          `json:"iteration"`
-	Applied           bool         `json:"applied"`
-	SkipReasons       []string     `json:"skipReasons,omitempty"`
-	InspectedNodes    int          `json:"inspectedNodes,omitempty"`
-	OptimizerTimeMicros int64      `json:"optimizerTimeMicros,omitempty"`
-	BeforeFingerprint string       `json:"beforeFingerprint,omitempty"`
-	AfterFingerprint  string       `json:"afterFingerprint,omitempty"`
-	Metadata          PassMetadata `json:"metadata"`
+	Name                string       `json:"name"`
+	Iteration           int          `json:"iteration"`
+	Applied             bool         `json:"applied"`
+	SkipReasons         []string     `json:"skipReasons,omitempty"`
+	InspectedNodes      int          `json:"inspectedNodes,omitempty"`
+	OptimizerTimeMicros int64        `json:"optimizerTimeMicros,omitempty"`
+	BeforeFingerprint   string       `json:"beforeFingerprint,omitempty"`
+	AfterFingerprint    string       `json:"afterFingerprint,omitempty"`
+	Metadata            PassMetadata `json:"metadata"`
 }
 
 type Trace struct {
@@ -114,14 +114,14 @@ func OptimizeWithTrace(root logical.Node, passes []Pass) (logical.Node, *logical
 				return nil, nil, trace, fmt.Errorf("opt: pass %q: %w", p.Name(), err)
 			}
 			result := PassResult{
-				Name:               p.Name(),
-				Iteration:          iter + 1,
-				Applied:            didChange,
-				InspectedNodes:     beforeNodes,
+				Name:                p.Name(),
+				Iteration:           iter + 1,
+				Applied:             didChange,
+				InspectedNodes:      beforeNodes,
 				OptimizerTimeMicros: elapsedMicros,
-				BeforeFingerprint:  beforeFingerprint,
-				AfterFingerprint:   beforeFingerprint,
-				Metadata:           metadata,
+				BeforeFingerprint:   beforeFingerprint,
+				AfterFingerprint:    beforeFingerprint,
+				Metadata:            metadata,
 			}
 			if !didChange {
 				result.SkipReasons = []string{"no_matching_subtree"}
@@ -157,6 +157,7 @@ func passMetadata(pass Pass) PassMetadata {
 // DefaultPasses is the canonical ordered pass list applied to every query.
 var DefaultPasses = []Pass{
 	constantFoldUnaryNegation{},
+	cancelRepeatedAddDivideByTwo{},
 }
 
 func inspectedNodeCount(analysis *logical.Analysis) int {

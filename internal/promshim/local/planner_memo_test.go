@@ -55,7 +55,7 @@ func TestLocalMemoizedPlanReusesDeepCopiedRuntimeValue(t *testing.T) {
 
 func TestBuildPlanMemoizesRepeatedLocalRateOperands(t *testing.T) {
 	t.Setenv(DisableLocalRepeatedExpressionCacheEnv, "")
-	expr, err := logical.ParseExpression("(rate(up[5m]) + rate(up[5m])) / 2")
+	expr, err := logical.ParseExpression("rate(up[5m]) + rate(up[5m])")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,13 +64,9 @@ func TestBuildPlanMemoizesRepeatedLocalRateOperands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build plan: %v", err)
 	}
-	root, ok := built.(*localBinaryPlan)
+	repeated, ok := built.(*localBinaryPlan)
 	if !ok {
-		t.Fatalf("expected root binary plan, got %T", built)
-	}
-	repeated, ok := root.LHS.(*localBinaryPlan)
-	if !ok {
-		t.Fatalf("expected repeated operand binary plan, got %T", root.LHS)
+		t.Fatalf("expected repeated operand binary plan, got %T", built)
 	}
 	if _, ok := repeated.LHS.(*localMemoizedPlan); !ok {
 		t.Fatalf("expected memoized left rate operand, got %T", repeated.LHS)

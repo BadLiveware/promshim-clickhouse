@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS observability.prometheus (
     value Float64 CODEC(Gorilla, ZSTD(1))
 ) ENGINE = TimeSeries
 DATA ENGINE = MergeTree
+PARTITION BY toYYYYMM(timestamp)
 ORDER BY (id, timestamp);
 
 CREATE DATABASE IF NOT EXISTS metrics;

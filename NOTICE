@@ -1,0 +1,19 @@
+promshim-clickhouse
+Copyright 2026 Fredrik Larsson
+
+This product includes software developed by The Prometheus Authors
+(https://prometheus.io/) — Copyright 2012-2015 The Prometheus Authors —
+originally developed at SoundCloud Ltd. (https://soundcloud.com/). The
+following Go modules from that project are linked into this product:
+
+  - github.com/prometheus/prometheus
+  - github.com/prometheus/client_golang
+  - github.com/prometheus/client_model
+  - github.com/prometheus/common
+  - github.com/prometheus/procfs
+
+Each is licensed under the Apache License, Version 2.0.
+
+This product links the ClickHouse Go drivers (github.com/ClickHouse/clickhouse-go
+and github.com/ClickHouse/ch-go), Copyright ClickHouse, Inc., licensed under
+the Apache License, Version 2.0.

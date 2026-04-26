@@ -147,57 +147,6 @@ a silent peephole, because they replace promshim's current SQL-level rate
 kernel. See `docs/native-grid-function-lowering.md` for the candidate SQL shape,
 semantic checks, rollout gate, and measurement plan.
 
-## Optional dense-dashboard rollups
-
-Dense dashboard ranges can be dominated by repeatedly deriving the same
-per-label series from raw TimeSeries samples. For common dashboards, an
-operator-managed rollup table can precompute a fixed semantic shape such as:
-
-```promql
-sum by (job) (rate(<counter>[5m]))
-sum by (job, type) (avg_over_time(<gauge>[1h]))
-```
-
-on a fixed output grid, then serve dashboards by reading the rollup table instead
-of recomputing from raw samples. This is an accelerator, not a promshim
-requirement: promshim must continue to run against raw `timeSeriesData(...)` when
-rollups are absent, stale, or semantically ineligible.
-
-Template SQL lives in `scripts/recommend-rollups.sql`. The template is explicit
-about the metric, labels, grid, lookback, refresh window, and output table so an
-operator can review the semantic trade-off before enabling it. At startup,
-promshim diagnostically checks whether the recommended
-`rollup_cpu_rate_5m_1m_by_job` table shape is present. Query-range routing also
-reports a non-serving `optional_rollup_cpu_rate_5m_1m_by_job` candidate for the
-exact 1-minute `sum by (job) (rate(<metric>[5m]))` shape when the selector has no
-extra matchers. By default this remains observability only and query routing uses
-the raw TimeSeries path. Setting `PROM_SHIM_DENSE_RATE_ROLLUPS=prefer` allows
-promshim to serve that exact detected shape from the rollup table after a
-coverage probe confirms the requested start/end are inside the rollup's
-timestamp bounds for the requested `metric_name`; all other shapes, missing
-rollups, malformed rollups, partial coverage, and coverage probe failures fall
-back to raw TimeSeries. Use rollups only when all of these are true:
-
-- the dashboard query shape is stable and high-volume enough to justify storage;
-- the rollup interval and lookback exactly match the served query family;
-- the refresh job reads at least one lookback before the first output timestamp;
-- raw TimeSeries fallback remains available for ad hoc or semantically different
-  PromQL.
-
-Benchmark-stack scouts found:
-
-- a 24h dense `sum by (job) (rate(...[5m]))` row read a precomputed 1m rollup in
-  about `4 ms` in ClickHouse versus the raw native path at about `11.5 s`; the
-  one-window rollup refresh itself was about `97 ms` on the local fixture;
-- a 24h dense `sum by (job, type) (avg_over_time(...[1h]))` row read a
-  precomputed 1m rollup in about `5 ms` in ClickHouse versus the raw native path
-  at about `11.7–12.1 s`; the one-window refresh cost was about `11.7 s`, so
-  this is useful only when many dashboard reads reuse the refreshed slice.
-
-Promshim currently has an opt-in served route only for the rate rollup contract;
-the avg-over-time template is operator guidance/scout evidence, not an automatic
-runtime route.
-
 ## Things not to pursue on current ClickHouse sources
 
 - TimeSeries tag/group primitives as a portable replacement for promshim's tag

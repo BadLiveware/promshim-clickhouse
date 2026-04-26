@@ -23,7 +23,6 @@ type queryService struct {
 	evaluator          *local.Evaluator
 	promotedTagColumns map[string]struct{}
 	timeSeriesIDType   string
-	denseRateRollup    storage.DenseRateRollupDiscovery
 	shadow             *shadow.Runner
 	selectorStats      *selectorStatsCache
 	selectorProbeSem   chan struct{}
@@ -134,23 +133,12 @@ func NewHandler(opts Options) (http.Handler, error) {
 	} else if timeSeriesIDType != "" {
 		log.Printf("promshim: TimeSeries id column type: %s", timeSeriesIDType)
 	}
-	discoveryCtx, cancel = context.WithTimeout(context.Background(), opts.RequestTimeout)
-	denseRateRollup, rollupErr := storage.DiscoverDenseRateRollup(discoveryCtx, client, storage.QueryConfig{Database: opts.Database, Table: opts.Table})
-	cancel()
-	if rollupErr != nil {
-		log.Printf("promshim: optional dense rate rollup discovery failed: %v", rollupErr)
-	} else if denseRateRollup.Available {
-		log.Printf("promshim: optional dense rate rollup detected: table=%s columns=%v", denseRateRollup.Table, denseRateRollup.ColumnsPresent)
-	} else {
-		log.Printf("promshim: optional dense rate rollup not detected: table=%s missing_columns=%v", denseRateRollup.Table, denseRateRollup.MissingColumns)
-	}
 	service := &queryService{
 		opts:               opts,
 		client:             client,
 		evaluator:          local.NewEvaluator(opts.Database, opts.Table, client).WithPromotedTagColumns(promotedTagColumns).WithNativeGridFunctions(opts.NativeGridFunctions == "prefer"),
 		promotedTagColumns: promotedTagColumns,
 		timeSeriesIDType:   timeSeriesIDType,
-		denseRateRollup:    denseRateRollup,
 		selectorStats:      newSelectorStatsCache(5 * time.Minute),
 		selectorProbeSem:   make(chan struct{}, 2),
 	}
@@ -277,17 +265,7 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 	}
 	settingsProfile := h.applySettingsProfileProvenance(&routing, &selectedExplain)
 	evalStart := time.Now()
-	var value model.RuntimeValue
-	var err error
-	if metricName, ok := h.shouldServeDenseRateRollup(ctx, query, start, end, step); ok {
-		rollupValue, rollupErr := h.executeDenseRateRollupRange(ctx, metricName, start, end)
-		value, err = rollupValue, rollupErr
-		selectedExplain = denseRateRollupExplainNode(metricName)
-		selectedExplain.SettingsProfile = &settingsProfile
-		markDenseRateRollupServed(&routing)
-	} else {
-		value, err = h.evaluator.Evaluate(ctx, selectedPlan, local.EvalParams{Mode: local.EvalModeRange, Start: start, End: end, Step: step})
-	}
+	value, err := h.evaluator.Evaluate(ctx, selectedPlan, local.EvalParams{Mode: local.EvalModeRange, Start: start, End: end, Step: step})
 	strictEvalDuration := time.Since(evalStart)
 	if err != nil {
 		return nil, local.ApiErrorToHTTP(err)
@@ -628,9 +606,7 @@ func (h *queryService) routingInfoForRange(query string, start, end time.Time, s
 	timing := queryCostTiming{Endpoint: "query_range", Start: start, End: end, Step: step}
 	class := h.queryCostClass(query, timing, strictStrategy)
 	h.maybeScheduleSelectorStatsProbes(query, timing, policy, class)
-	info := routingDecisionForStrict(policy, mode, class, strictStrategy, h.opts.CostRoutingLocalFamilies)
-	h.attachDenseRateRollupCandidate(&info, query, step)
-	return info
+	return routingDecisionForStrict(policy, mode, class, strictStrategy, h.opts.CostRoutingLocalFamilies)
 }
 
 func (h *queryService) queryCostClass(query string, timing queryCostTiming, strictStrategy string) httpapi.QueryCostClass {

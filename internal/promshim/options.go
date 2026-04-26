@@ -45,7 +45,6 @@ type Options struct {
 	PromotedTagColumns            []string
 	DiscoverPromotedTagColumns    bool
 	NativeGridFunctions           string
-	DenseRateRollups              string
 
 	DisableEntireQueryDelegation bool
 }
@@ -79,7 +78,6 @@ func LoadOptionsFromEnv() (Options, error) {
 		PromotedTagColumns:            splitCSVEnv(getenv("PROM_SHIM_PROMOTED_TAG_COLUMNS", "")),
 		DiscoverPromotedTagColumns:    getenvBool("PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS", false),
 		NativeGridFunctions:           getenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "off"),
-		DenseRateRollups:              getenv("PROM_SHIM_DENSE_RATE_ROLLUPS", "off"),
 	}
 
 	if _, err := local.ParseNativeLoweringMode(string(opts.NativeLoweringMode)); err != nil {
@@ -99,9 +97,6 @@ func LoadOptionsFromEnv() (Options, error) {
 	}
 	if normalized := normalizeNativeGridFunctionsMode(opts.NativeGridFunctions); normalized == "" {
 		return Options{}, fmt.Errorf("invalid PROM_SHIM_NATIVE_GRID_FUNCTIONS: %q", opts.NativeGridFunctions)
-	}
-	if normalized := normalizeDenseRateRollupsMode(opts.DenseRateRollups); normalized == "" {
-		return Options{}, fmt.Errorf("invalid PROM_SHIM_DENSE_RATE_ROLLUPS: %q", opts.DenseRateRollups)
 	}
 
 	if _, err := url.Parse(opts.ClickHouseEndpoint); err != nil {
@@ -183,17 +178,6 @@ func normalizeNativeGridFunctionsMode(value string) string {
 	}
 }
 
-func normalizeDenseRateRollupsMode(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "off":
-		return "off"
-	case "prefer":
-		return "prefer"
-	default:
-		return ""
-	}
-}
-
 func normalizeOptions(opts Options) Options {
 	opts.ClickHouseVersion = local.NormalizeClickHouseVersion(opts.ClickHouseVersion)
 	if opts.ClickHouseNativeAddr == "" {
@@ -216,7 +200,6 @@ func normalizeOptions(opts Options) Options {
 	}
 	opts.ClickHouseSettingsProfile = storage.NormalizeSettingsProfileName(opts.ClickHouseSettingsProfile)
 	opts.NativeGridFunctions = normalizeNativeGridFunctionsMode(opts.NativeGridFunctions)
-	opts.DenseRateRollups = normalizeDenseRateRollupsMode(opts.DenseRateRollups)
 	opts.NativeLoweringMode = local.NormalizeNativeLoweringMode(opts.NativeLoweringMode)
 	opts.RoutingPolicy = NormalizeRoutingPolicy(opts.RoutingPolicy)
 	if opts.MaxRangePointsPerSeries <= 0 {

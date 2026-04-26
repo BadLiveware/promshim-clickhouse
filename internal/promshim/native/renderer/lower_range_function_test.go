@@ -145,13 +145,15 @@ func TestLowerLongStepRateRangeUsesNativeGridWhenEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
 	}
-	for _, expected := range []string{"timeSeriesRateToGrid(", "arrayZip(arrayMap", "isNotNull(point.2)"} {
+	for _, expected := range []string{"timeSeriesRateToGrid(", "arrayZip(arrayMap", "arrayFilter(point -> isNotNull(point.2)", "arrayMap(point -> (point.1, toFloat64(assumeNotNull(point.2)))"} {
 		if !strings.Contains(rq.SQL, expected) {
 			t.Fatalf("expected native-grid rate SQL to contain %q, got %s", expected, rq.SQL)
 		}
 	}
-	if strings.Contains(rq.SQL, "deltaSumTimestamp(") {
-		t.Fatalf("expected native-grid rate SQL to avoid deltaSumTimestamp, got %s", rq.SQL)
+	for _, unexpected := range []string{"deltaSumTimestamp(", "ARRAY JOIN", "groupArray((timestamp, value))"} {
+		if strings.Contains(rq.SQL, unexpected) {
+			t.Fatalf("expected native-grid direct matrix SQL to avoid %q, got %s", unexpected, rq.SQL)
+		}
 	}
 }
 

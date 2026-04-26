@@ -151,18 +151,20 @@ func BuildRangeWindowSelectorDirectAggregateRowsQuerySQLWithFinalTags(cfg QueryC
 }
 
 func BuildRangeRateSelectorNativeGridQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, finalTagsSQL string) (string, map[string]string, error) {
-	rowsSQL, params, err := BuildRangeRateSelectorNativeGridRowsQuerySQLWithFinalTags(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, finalTagsSQL)
+	inner, params, finalTagsExpr, err := buildRangeRateSelectorNativeGridInner(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, finalTagsSQL)
 	if err != nil {
 		return "", nil, err
 	}
-	rowsSQL = strings.TrimSuffix(rowsSQL, schema.QuerySuffix)
-	outer := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"}},
-		From:    sqlb.RawSource{SQL: rawSubquerySQL(rowsSQL)},
-		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
+	timeGridExpr := nativeGridRateTimestampValueZipExpr()
+	series := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: finalTagsExpr, Alias: "tags"},
+			{Expr: sqlb.RawLit{V: "arrayMap(point -> (point.1, toFloat64(assumeNotNull(point.2))), arrayFilter(point -> isNotNull(point.2), " + timeGridExpr + "))"}, Alias: "time_series"},
+		},
+		From:    sqlb.SubSelect{S: inner},
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}},
 	}
-	sql, _, err := outer.Build()
+	sql, _, err := series.Build()
 	if err != nil {
 		return "", nil, err
 	}
@@ -170,15 +172,40 @@ func BuildRangeRateSelectorNativeGridQuerySQLWithFinalTags(cfg QueryConfig, sele
 }
 
 func BuildRangeRateSelectorNativeGridRowsQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, finalTagsSQL string) (string, map[string]string, error) {
+	inner, params, finalTagsExpr, err := buildRangeRateSelectorNativeGridInner(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, finalTagsSQL)
+	if err != nil {
+		return "", nil, err
+	}
+	points := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: finalTagsExpr, Alias: "tags"},
+			{Expr: sqlb.RawLit{V: "point.1"}, Alias: "timestamp"},
+			{Expr: sqlb.RawLit{V: "toFloat64(assumeNotNull(point.2))"}, Alias: "value"},
+		},
+		From: sqlb.ArrayJoin{
+			Base:  sqlb.SubSelect{S: inner},
+			Expr:  sqlb.RawLit{V: nativeGridRateTimestampValueZipExpr()},
+			Alias: "point",
+		},
+		Where: sqlb.RawLit{V: "isNotNull(point.2)"},
+	}
+	sql, _, err := points.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql + schema.QuerySuffix, params, nil
+}
+
+func buildRangeRateSelectorNativeGridInner(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, finalTagsSQL string) (*sqlb.Select, map[string]string, sqlb.Expr, error) {
 	if selector.Kind != SelectorKindRangeVector {
-		return "", nil, fmt.Errorf("native-grid rate selector SQL requires a range-vector selector, got %q", selector.Kind)
+		return nil, nil, nil, fmt.Errorf("native-grid rate selector SQL requires a range-vector selector, got %q", selector.Kind)
 	}
 	if stepMS <= 0 {
-		return "", nil, fmt.Errorf("native-grid rate selector SQL requires a positive step")
+		return nil, nil, nil, fmt.Errorf("native-grid rate selector SQL requires a positive step")
 	}
 	matchedSeriesSQL, params, err := buildMatchedSeriesSQL(cfg, selector, "native_grid_rate", requiredStartMS, requiredEndMS, true)
 	if err != nil {
-		return "", nil, err
+		return nil, nil, nil, err
 	}
 	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
 	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
@@ -204,24 +231,11 @@ func BuildRangeRateSelectorNativeGridRowsQuerySQLWithFinalTags(cfg QueryConfig, 
 		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value")},
 		GroupBy: []sqlb.Expr{sqlb.Ident("series.id")},
 	}
-	points := &sqlb.Select{
-		Columns: []sqlb.ColExpr{
-			{Expr: resolvedFinalTagsExpr, Alias: "tags"},
-			{Expr: sqlb.RawLit{V: "point.1"}, Alias: "timestamp"},
-			{Expr: sqlb.RawLit{V: "toFloat64(assumeNotNull(point.2))"}, Alias: "value"},
-		},
-		From: sqlb.ArrayJoin{
-			Base:  sqlb.SubSelect{S: inner},
-			Expr:  sqlb.RawLit{V: "arrayZip(arrayMap(i -> fromUnixTimestamp64Milli({start_ms:Int64}) + toIntervalMillisecond((i - 1) * {step_ms:Int64}), arrayEnumerate(values)), values)"},
-			Alias: "point",
-		},
-		Where: sqlb.RawLit{V: "isNotNull(point.2)"},
-	}
-	sql, _, err := points.Build()
-	if err != nil {
-		return "", nil, err
-	}
-	return sql + schema.QuerySuffix, params, nil
+	return inner, params, resolvedFinalTagsExpr, nil
+}
+
+func nativeGridRateTimestampValueZipExpr() string {
+	return "arrayZip(arrayMap(i -> fromUnixTimestamp64Milli({start_ms:Int64}) + toIntervalMillisecond((i - 1) * {step_ms:Int64}), arrayEnumerate(values)), values)"
 }
 
 func buildRangeWindowSelectorPerStepQuery(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, windowValueExpr, finalTagsSQL string, minimumSeriesLength int) (*sqlb.Select, map[string]string, []sqlb.OrderExpr, error) {

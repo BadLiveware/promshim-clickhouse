@@ -505,14 +505,12 @@ func buildRangeInstantSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, 
 
 	gridTagsExpr := sqlb.Expr(sqlb.Ident("series.tags"))
 	innerTagsExpr := sqlb.Expr(sqlb.Ident("grid.tags"))
-	groupByInner := []sqlb.Expr{sqlb.Ident("grid.id"), sqlb.Ident("grid.tags"), sqlb.Ident("grid.eval_ts")}
 	if !selector.NeedTags {
 		gridTagsExpr = emit.EmptyTagsArray()
 		innerTagsExpr = emit.EmptyTagsArray()
-		groupByInner = []sqlb.Expr{sqlb.Ident("grid.id"), sqlb.Ident("grid.eval_ts")}
 	}
 
-	grid := &sqlb.Select{
+	gridBase := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
 			{Expr: sqlb.Ident("series.id"), Alias: "id"},
 			{Expr: gridTagsExpr, Alias: "tags"},
@@ -520,21 +518,29 @@ func buildRangeInstantSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, 
 		},
 		From: sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},
 	}
+	grid := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("grid_base.id"), Alias: "id"},
+			{Expr: sqlb.Ident("grid_base.tags"), Alias: "tags"},
+			{Expr: sqlb.Ident("grid_base.eval_ts"), Alias: "eval_ts"},
+			{Expr: sqlb.RawLit{V: "grid_base.eval_ts - toIntervalMillisecond({offset_ms:Int64})"}, Alias: "eval_bound"},
+		},
+		From: sqlb.SubSelect{S: gridBase, Alias: "grid_base"},
+	}
+	rightRowsSQL := "SELECT id, timestamp, value FROM " + schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)) + " WHERE timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND id IN (SELECT id FROM (" + matchedSeriesSQL + ") AS matched_series_ids)"
 	inner := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
 			{Expr: innerTagsExpr, Alias: "tags"},
 			{Expr: sqlb.Ident("grid.eval_ts"), Alias: "timestamp"},
-			{Expr: sqlb.Call{Name: "argMax", Args: []sqlb.Expr{sqlb.Ident("d.value"), sqlb.Ident("d.timestamp")}}, Alias: "value"},
+			{Expr: sqlb.Ident("d.value"), Alias: "value"},
 		},
 		From: sqlb.Join{
 			Left:  sqlb.SubSelect{S: grid, Alias: "grid"},
-			Right: sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"},
-			Kind:  "INNER",
-			On:    sqlb.RawLit{V: "d.id = grid.id"},
+			Right: sqlb.RawSource{SQL: rawSubquerySQL(rightRowsSQL), Alias: "d"},
+			Kind:  "ASOF INNER",
+			On:    sqlb.RawLit{V: "grid.id = d.id AND grid.eval_bound >= d.timestamp"},
 		},
-		Where:   sqlb.RawLit{V: emit.RangeWindowTimeFilter("")},
-		GroupBy: groupByInner,
-		Having:  sqlb.RawLit{V: "NOT isNaN(value)"},
+		Where: sqlb.RawLit{V: "d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64}) AND NOT isNaN(value)"},
 	}
 	sql, _, err := inner.Build()
 	if err != nil {

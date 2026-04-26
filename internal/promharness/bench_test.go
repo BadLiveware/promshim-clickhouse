@@ -280,6 +280,22 @@ func TestRunBenchV2ModesAndLabels(t *testing.T) {
 	}
 }
 
+func TestSummarizeTimingsIncludesResponsePhases(t *testing.T) {
+	timing := summarizeTimings([]requestTiming{
+		{TotalMS: 10, HeaderMS: 3, BodyDrainMS: 7},
+		{TotalMS: 20, HeaderMS: 4, BodyDrainMS: 16},
+	})
+	if timing.P50MS != 10 || timing.P95MS != 20 {
+		t.Fatalf("total timing = %+v", timing)
+	}
+	if timing.HeaderP50MS != 3 || timing.HeaderP95MS != 4 {
+		t.Fatalf("header timing = %+v", timing)
+	}
+	if timing.BodyDrainP50MS != 7 || timing.BodyDrainP95MS != 16 {
+		t.Fatalf("body drain timing = %+v", timing)
+	}
+}
+
 func TestBenchLogCommentIncludesQueryModeAndPolicy(t *testing.T) {
 	comment := benchLogComment(QuerySpec{Name: "sum rate/by job", NativeLoweringMode: "force_supported", RoutingPolicy: "cost_shadow"})
 	if comment != "promshim-bench query=sum_rate_by_job mode=force_supported policy=cost_shadow" {

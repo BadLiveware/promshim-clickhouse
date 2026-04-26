@@ -69,8 +69,12 @@ type BenchSummary struct {
 }
 
 type BenchTiming struct {
-	P50MS float64 `json:"p50Ms"`
-	P95MS float64 `json:"p95Ms"`
+	P50MS          float64 `json:"p50Ms"`
+	P95MS          float64 `json:"p95Ms"`
+	HeaderP50MS    float64 `json:"headerP50Ms,omitempty"`
+	HeaderP95MS    float64 `json:"headerP95Ms,omitempty"`
+	BodyDrainP50MS float64 `json:"bodyDrainP50Ms,omitempty"`
+	BodyDrainP95MS float64 `json:"bodyDrainP95Ms,omitempty"`
 }
 
 type BenchShimModeResult struct {
@@ -247,7 +251,8 @@ func benchOneQueryV2(client *http.Client, cfg BenchConfig, spec QuerySpec) Bench
 		if err != nil {
 			row.Error = fmt.Sprintf("prom: %v", err)
 		} else {
-			row.Prom = &BenchTiming{P50MS: p50(promLatencies), P95MS: p95(promLatencies)}
+			timing := summarizeTimings(promLatencies)
+			row.Prom = &timing
 			promP50 = row.Prom.P50MS
 			row.PromBand = classifyPromBand(promP50, spec.TargetPromP50MS)
 		}
@@ -266,8 +271,7 @@ func benchOneQueryV2(client *http.Client, cfg BenchConfig, spec QuerySpec) Bench
 					result.Unsupported = true
 				}
 			} else {
-				result.P50MS = p50(latencies)
-				result.P95MS = p95(latencies)
+				result.BenchTiming = summarizeTimings(latencies)
 				if len(samples) > 0 {
 					sample := samples[0]
 					result.Strategy = sample.strategy
@@ -346,8 +350,8 @@ func benchOneQuery(client *http.Client, cfg BenchConfig, spec QuerySpec) BenchRo
 		row.Error = fmt.Sprintf("prom: %v", err)
 		return row
 	}
-	row.PromP50MS = p50(promLatencies)
-	row.PromP95MS = p95(promLatencies)
+	row.PromP50MS = p50(timingTotals(promLatencies))
+	row.PromP95MS = p95(timingTotals(promLatencies))
 
 	// Shim native: force_supported. Errors are recorded as "unsupported"
 	// rather than propagated — a query that cannot lower is a legitimate
@@ -359,8 +363,8 @@ func benchOneQuery(client *http.Client, cfg BenchConfig, spec QuerySpec) BenchRo
 		row.NativeUnsupported = true
 		row.Error = fmt.Sprintf("native(force_supported): %v", nativeErr)
 	} else {
-		row.NativeP50MS = p50(nativeLatencies)
-		row.NativeP95MS = p95(nativeLatencies)
+		row.NativeP50MS = p50(timingTotals(nativeLatencies))
+		row.NativeP95MS = p95(timingTotals(nativeLatencies))
 		sample := nativeSamples[0]
 		row.Strategy = sample.strategy
 		row.FallbackReason = sample.fallbackReason
@@ -379,8 +383,8 @@ func benchOneQuery(client *http.Client, cfg BenchConfig, spec QuerySpec) BenchRo
 			row.Error = fmt.Sprintf("fallback(off): %v", fallbackErr)
 		}
 	} else {
-		row.FallbackP50MS = p50(fallbackLatencies)
-		row.FallbackP95MS = p95(fallbackLatencies)
+		row.FallbackP50MS = p50(timingTotals(fallbackLatencies))
+		row.FallbackP95MS = p95(timingTotals(fallbackLatencies))
 	}
 
 	row.NativePromRatio = safeRatio(row.NativeP50MS, row.PromP50MS)
@@ -405,51 +409,65 @@ type headerSample struct {
 	costFamily        string
 }
 
-func repeatWithHeaders(client *http.Client, cfg BenchConfig, baseURL string, spec QuerySpec, warmup, repeats int) ([]float64, []headerSample, error) {
+type requestTiming struct {
+	TotalMS     float64
+	HeaderMS    float64
+	BodyDrainMS float64
+}
+
+func repeatWithHeaders(client *http.Client, cfg BenchConfig, baseURL string, spec QuerySpec, warmup, repeats int) ([]requestTiming, []headerSample, error) {
 	for i := 0; i < warmup; i++ {
 		if _, _, err := timedRequest(client, baseURL, cfg.Manifest, spec); err != nil {
 			return nil, nil, fmt.Errorf("warmup %d: %w", i+1, err)
 		}
 	}
-	latencies := make([]float64, 0, repeats)
+	timings := make([]requestTiming, 0, repeats)
 	samples := make([]headerSample, 0, repeats)
 	for i := 0; i < repeats; i++ {
-		ms, hdr, err := timedRequest(client, baseURL, cfg.Manifest, spec)
+		timing, hdr, err := timedRequest(client, baseURL, cfg.Manifest, spec)
 		if err != nil {
 			return nil, nil, fmt.Errorf("repeat %d: %w", i+1, err)
 		}
-		latencies = append(latencies, ms)
+		timings = append(timings, timing)
 		samples = append(samples, parseHeaders(hdr))
 	}
-	return latencies, samples, nil
+	return timings, samples, nil
 }
 
-func timedRequest(client *http.Client, baseURL string, manifest Manifest, spec QuerySpec) (float64, http.Header, error) {
+func timedRequest(client *http.Client, baseURL string, manifest Manifest, spec QuerySpec) (requestTiming, http.Header, error) {
 	endpoint, err := buildQueryURL(baseURL, manifest, spec)
 	if err != nil {
-		return 0, nil, err
+		return requestTiming{}, nil, err
 	}
 	request, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
-		return 0, nil, err
+		return requestTiming{}, nil, err
 	}
 	if spec.Name != "" {
 		request.Header.Set("X-Promshim-Log-Comment", benchLogComment(spec))
 	}
 	start := time.Now()
 	response, err := client.Do(request)
+	headerElapsed := time.Since(start)
 	if err != nil {
-		return 0, nil, err
+		return requestTiming{}, nil, err
 	}
 	defer response.Body.Close()
-	// Drain and discard body — we only care about headers and wall-clock.
-	// Draining is required so the TCP connection is reused.
+	// Drain and discard body so the TCP connection is reused. Separating
+	// header and drain time helps diagnose whether p50 is spent before the
+	// first response bytes or while consuming/materializing the body.
+	drainStart := time.Now()
 	_, _ = io.Copy(io.Discard, response.Body)
+	drainElapsed := time.Since(drainStart)
 	elapsed := time.Since(start)
 	if response.StatusCode >= 400 {
-		return 0, nil, fmt.Errorf("HTTP %d", response.StatusCode)
+		return requestTiming{}, nil, fmt.Errorf("HTTP %d", response.StatusCode)
 	}
-	return float64(elapsed.Microseconds()) / 1000.0, response.Header, nil
+	return requestTiming{
+		TotalMS:     float64(elapsed.Microseconds()) / 1000.0,
+		HeaderMS:    float64(headerElapsed.Microseconds()) / 1000.0,
+		BodyDrainMS: float64(drainElapsed.Microseconds()) / 1000.0,
+	}, response.Header, nil
 }
 
 func benchLogComment(spec QuerySpec) string {
@@ -521,6 +539,41 @@ func detectStrategyFlap(samples []headerSample) bool {
 		}
 	}
 	return false
+}
+
+func summarizeTimings(samples []requestTiming) BenchTiming {
+	return BenchTiming{
+		P50MS:          p50(timingTotals(samples)),
+		P95MS:          p95(timingTotals(samples)),
+		HeaderP50MS:    p50(timingHeaders(samples)),
+		HeaderP95MS:    p95(timingHeaders(samples)),
+		BodyDrainP50MS: p50(timingBodyDrains(samples)),
+		BodyDrainP95MS: p95(timingBodyDrains(samples)),
+	}
+}
+
+func timingTotals(samples []requestTiming) []float64 {
+	values := make([]float64, 0, len(samples))
+	for _, sample := range samples {
+		values = append(values, sample.TotalMS)
+	}
+	return values
+}
+
+func timingHeaders(samples []requestTiming) []float64 {
+	values := make([]float64, 0, len(samples))
+	for _, sample := range samples {
+		values = append(values, sample.HeaderMS)
+	}
+	return values
+}
+
+func timingBodyDrains(samples []requestTiming) []float64 {
+	values := make([]float64, 0, len(samples))
+	for _, sample := range samples {
+		values = append(values, sample.BodyDrainMS)
+	}
+	return values
 }
 
 func p50(samples []float64) float64 {

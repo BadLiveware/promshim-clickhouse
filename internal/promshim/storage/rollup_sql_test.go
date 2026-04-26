@@ -6,7 +6,7 @@ import (
 )
 
 func TestBuildDenseRateRollupCoverageSQL(t *testing.T) {
-	sql, params := BuildDenseRateRollupCoverageSQL(QueryConfig{Database: "observability"})
+	sql, params := BuildDenseRateRollupCoverageSQL(QueryConfig{Database: "observability"}, "other_counter_total")
 	for _, expected := range []string{
 		"FROM `observability`.`rollup_cpu_rate_5m_1m_by_job`",
 		"count() = 0",
@@ -19,7 +19,7 @@ func TestBuildDenseRateRollupCoverageSQL(t *testing.T) {
 			t.Fatalf("expected coverage SQL to contain %q, got %q", expected, sql)
 		}
 	}
-	if params["param_metric_name"] != "demo_cpu_usage_seconds_total" {
+	if params["param_metric_name"] != "other_counter_total" {
 		t.Fatalf("unexpected params: %#v", params)
 	}
 }
@@ -38,7 +38,7 @@ func TestDenseRateRollupCoverageCovers(t *testing.T) {
 }
 
 func TestBuildDenseRateRollupRangeQuerySQL(t *testing.T) {
-	sql, params := BuildDenseRateRollupRangeQuerySQL(QueryConfig{Database: "observability"}, 1000, 2000)
+	sql, params := BuildDenseRateRollupRangeQuerySQL(QueryConfig{Database: "observability"}, "other_counter_total", 1000, 2000)
 	for _, expected := range []string{
 		"FROM `observability`.`rollup_cpu_rate_5m_1m_by_job`",
 		"metric_name = {metric_name:String}",
@@ -52,7 +52,7 @@ func TestBuildDenseRateRollupRangeQuerySQL(t *testing.T) {
 			t.Fatalf("expected rollup SQL to contain %q, got %q", expected, sql)
 		}
 	}
-	if params["param_metric_name"] != "demo_cpu_usage_seconds_total" || params["param_start_ms"] != "1000" || params["param_end_ms"] != "2000" {
+	if params["param_metric_name"] != "other_counter_total" || params["param_start_ms"] != "1000" || params["param_end_ms"] != "2000" {
 		t.Fatalf("unexpected params: %#v", params)
 	}
 }

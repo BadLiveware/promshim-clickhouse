@@ -19,7 +19,7 @@ type DenseRateRollupCoverage struct {
 	MaxMS      int64
 }
 
-func BuildDenseRateRollupCoverageSQL(cfg QueryConfig) (string, map[string]string) {
+func BuildDenseRateRollupCoverageSQL(cfg QueryConfig, metricName string) (string, map[string]string) {
 	query := strings.TrimSpace(`
 SELECT if(
     count() = 0,
@@ -28,16 +28,16 @@ SELECT if(
 ) AS value
 FROM ` + denseRateRollupTableRef(cfg) + `
 WHERE metric_name = {metric_name:String}`)
-	return query + schema.FormatSuffix, map[string]string{"param_metric_name": "demo_cpu_usage_seconds_total"}
+	return query + schema.FormatSuffix, map[string]string{"param_metric_name": metricName}
 }
 
-func DiscoverDenseRateRollupCoverage(ctx context.Context, client *Client, cfg QueryConfig) (DenseRateRollupCoverage, error) {
-	sql, params := BuildDenseRateRollupCoverageSQL(cfg)
+func DiscoverDenseRateRollupCoverage(ctx context.Context, client *Client, cfg QueryConfig, metricName string) (DenseRateRollupCoverage, error) {
+	sql, params := BuildDenseRateRollupCoverageSQL(cfg, metricName)
 	values, err := client.QueryStringRows(ctx, QueryRequest{SQL: sql, Params: params, Purpose: QueryPurposeSchemaDiscovery, Format: ResultFormatJSONEachRow})
 	if err != nil {
 		return DenseRateRollupCoverage{}, err
 	}
-	coverage := DenseRateRollupCoverage{MetricName: "demo_cpu_usage_seconds_total"}
+	coverage := DenseRateRollupCoverage{MetricName: metricName}
 	if len(values) == 0 || strings.TrimSpace(values[0]) == "" {
 		return coverage, nil
 	}
@@ -60,7 +60,7 @@ func (c DenseRateRollupCoverage) Covers(startMS, endMS int64) bool {
 	return c.HasRows && c.MinMS <= startMS && c.MaxMS >= endMS
 }
 
-func BuildDenseRateRollupRangeQuerySQL(cfg QueryConfig, startMS, endMS int64) (string, map[string]string) {
+func BuildDenseRateRollupRangeQuerySQL(cfg QueryConfig, metricName string, startMS, endMS int64) (string, map[string]string) {
 	query := strings.TrimSpace(`
 SELECT
     [tuple('job', job)] AS tags,
@@ -72,7 +72,7 @@ WHERE metric_name = {metric_name:String}
 GROUP BY job
 ORDER BY tags`)
 	return query + schema.FormatSuffix, map[string]string{
-		"param_metric_name": "demo_cpu_usage_seconds_total",
+		"param_metric_name": metricName,
 		"param_start_ms":    strconv.FormatInt(startMS, 10),
 		"param_end_ms":      strconv.FormatInt(endMS, 10),
 	}

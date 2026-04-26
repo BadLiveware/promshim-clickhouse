@@ -28,7 +28,7 @@ func (h *queryService) attachDenseRateRollupCandidate(info *httpapi.RoutingInfo,
 	}
 	if !h.denseRateRollup.Available {
 		candidate.RejectReasons = append(candidate.RejectReasons, "rollup_not_detected")
-	} else if !matchesDenseRateRollupQuery(query, step) {
+	} else if _, ok := denseRateRollupMetricName(query, step); !ok {
 		candidate.RejectReasons = append(candidate.RejectReasons, "shape_mismatch")
 	} else {
 		candidate.Supported = true
@@ -43,38 +43,43 @@ func (h *queryService) attachDenseRateRollupCandidate(info *httpapi.RoutingInfo,
 }
 
 func matchesDenseRateRollupQuery(query string, step time.Duration) bool {
+	_, ok := denseRateRollupMetricName(query, step)
+	return ok
+}
+
+func denseRateRollupMetricName(query string, step time.Duration) (string, bool) {
 	if step != time.Minute {
-		return false
+		return "", false
 	}
 	expr, err := logical.ParseExpression(query)
 	if err != nil {
-		return false
+		return "", false
 	}
 	agg, ok := expr.(*parser.AggregateExpr)
 	if !ok || agg.Op != parser.SUM || agg.Without || len(agg.Grouping) != 1 || agg.Grouping[0] != "job" {
-		return false
+		return "", false
 	}
 	call, ok := agg.Expr.(*parser.Call)
 	if !ok || call.Func == nil || call.Func.Name != "rate" || len(call.Args) != 1 {
-		return false
+		return "", false
 	}
 	matrix, ok := call.Args[0].(*parser.MatrixSelector)
 	if !ok || matrix.Range != 5*time.Minute {
-		return false
+		return "", false
 	}
 	vector, ok := matrix.VectorSelector.(*parser.VectorSelector)
-	if !ok || vector.Name != "demo_cpu_usage_seconds_total" {
-		return false
+	if !ok || vector.Name == "" {
+		return "", false
 	}
 	for _, matcher := range vector.LabelMatchers {
 		if matcher == nil {
 			continue
 		}
 		if matcher.Name != labels.MetricName {
-			return false
+			return "", false
 		}
 	}
-	return true
+	return vector.Name, true
 }
 
 func denseRateRollupDiscoveryForTest(available bool) storage.DenseRateRollupDiscovery {

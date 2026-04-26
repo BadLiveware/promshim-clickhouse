@@ -279,10 +279,10 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 	evalStart := time.Now()
 	var value model.RuntimeValue
 	var err error
-	if h.shouldServeDenseRateRollup(ctx, query, start, end, step) {
-		rollupValue, rollupErr := h.executeDenseRateRollupRange(ctx, start, end)
+	if metricName, ok := h.shouldServeDenseRateRollup(ctx, query, start, end, step); ok {
+		rollupValue, rollupErr := h.executeDenseRateRollupRange(ctx, metricName, start, end)
 		value, err = rollupValue, rollupErr
-		selectedExplain = denseRateRollupExplainNode()
+		selectedExplain = denseRateRollupExplainNode(metricName)
 		selectedExplain.SettingsProfile = &settingsProfile
 		markDenseRateRollupServed(&routing)
 	} else {

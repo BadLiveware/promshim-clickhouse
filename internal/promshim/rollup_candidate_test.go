@@ -39,10 +39,10 @@ func TestMatchesDenseRateRollupQuery(t *testing.T) {
 			want:  false,
 		},
 		{
-			name:  "wrong metric",
+			name:  "different bare metric represented by contract",
 			query: `sum by (job) (rate(other_counter_total[5m]))`,
 			step:  time.Minute,
-			want:  false,
+			want:  true,
 		},
 		{
 			name:  "extra matcher not represented by rollup",
@@ -57,6 +57,16 @@ func TestMatchesDenseRateRollupQuery(t *testing.T) {
 				t.Fatalf("matchesDenseRateRollupQuery() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDenseRateRollupMetricName(t *testing.T) {
+	metricName, ok := denseRateRollupMetricName(`sum by (job) (rate(other_counter_total[5m]))`, time.Minute)
+	if !ok || metricName != "other_counter_total" {
+		t.Fatalf("denseRateRollupMetricName() = %q, %v", metricName, ok)
+	}
+	if metricName, ok := denseRateRollupMetricName(`sum by (job) (rate(other_counter_total{instance="a"}[5m]))`, time.Minute); ok || metricName != "" {
+		t.Fatalf("extra matcher should reject, got %q, %v", metricName, ok)
 	}
 }
 

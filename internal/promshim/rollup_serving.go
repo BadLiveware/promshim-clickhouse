@@ -11,19 +11,20 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 )
 
-func (h *queryService) shouldServeDenseRateRollup(ctx context.Context, query string, start, end time.Time, step time.Duration) bool {
-	if h.opts.DenseRateRollups != "prefer" || !h.denseRateRollup.Available || !matchesDenseRateRollupQuery(query, step) {
-		return false
+func (h *queryService) shouldServeDenseRateRollup(ctx context.Context, query string, start, end time.Time, step time.Duration) (string, bool) {
+	metricName, ok := denseRateRollupMetricName(query, step)
+	if h.opts.DenseRateRollups != "prefer" || !h.denseRateRollup.Available || !ok {
+		return "", false
 	}
-	coverage, err := storage.DiscoverDenseRateRollupCoverage(ctx, h.client, h.queryConfig())
+	coverage, err := storage.DiscoverDenseRateRollupCoverage(ctx, h.client, h.queryConfig(), metricName)
 	if err != nil {
-		return false
+		return "", false
 	}
-	return coverage.Covers(start.UnixMilli(), end.UnixMilli())
+	return metricName, coverage.Covers(start.UnixMilli(), end.UnixMilli())
 }
 
-func (h *queryService) executeDenseRateRollupRange(ctx context.Context, start, end time.Time) (model.MatrixValue, error) {
-	sql, params := storage.BuildDenseRateRollupRangeQuerySQL(h.queryConfig(), start.UnixMilli(), end.UnixMilli())
+func (h *queryService) executeDenseRateRollupRange(ctx context.Context, metricName string, start, end time.Time) (model.MatrixValue, error) {
+	sql, params := storage.BuildDenseRateRollupRangeQuerySQL(h.queryConfig(), metricName, start.UnixMilli(), end.UnixMilli())
 	var series []model.RangeSeries
 	var err error
 	if h.client.TransportKind() == storage.TransportNative {
@@ -42,12 +43,12 @@ func (h *queryService) executeDenseRateRollupRange(ctx context.Context, start, e
 	return model.MatrixValue{Series: series}, nil
 }
 
-func denseRateRollupExplainNode() local.ExplainNode {
+func denseRateRollupExplainNode(metricName string) local.ExplainNode {
 	return local.ExplainNode{
 		Kind:             "operator_rollup",
 		Strategy:         "native_sql",
 		NativeScope:      "optional_rollup",
-		Expr:             "sum by (job) (rate(demo_cpu_usage_seconds_total[5m]))",
+		Expr:             "sum by (job) (rate(" + metricName + "[5m]))",
 		Reason:           "explicit_dense_rate_rollup_gate",
 		RenderedSQL:      "SELECT [tuple('job', job)] AS tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series FROM rollup_cpu_rate_5m_1m_by_job WHERE metric_name = 'demo_cpu_usage_seconds_total' AND timestamp BETWEEN start AND end GROUP BY job ORDER BY tags",
 		RequiredColumns:  []string{"metric_name", "job", "timestamp", "value"},

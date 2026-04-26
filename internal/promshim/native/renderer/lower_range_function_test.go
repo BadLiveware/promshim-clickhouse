@@ -82,6 +82,25 @@ func TestLowerRangeFunctionGolden(t *testing.T) {
 	}
 }
 
+func TestLowerLongInstantRateUsesGuardedDirectAggregate(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[5m])`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if !strings.Contains(rq.SQL, "deltaSumTimestamp(") {
+		t.Fatalf("expected guarded instant rate aggregate SQL to contain deltaSumTimestamp, got %s", rq.SQL)
+	}
+	if strings.Contains(rq.SQL, "lagInFrame(") {
+		t.Fatalf("expected guarded instant rate aggregate to avoid lagInFrame, got %s", rq.SQL)
+	}
+}
+
 func TestLowerLongStepRateRangeUsesGuardedDirectAggregate(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[5m])`)
 	rq, err := Lower(LoweringCtx{

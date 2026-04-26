@@ -108,7 +108,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 							return renderedFragment{}, err
 						}
 						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
-						sql, err := buildInstantRateOverRowsSQL(trimRenderedQuerySQL(rowsSQL), tagsExpr, params.EvaluationTimeMS)
+						sql, err := buildInstantRateOverRowsSQL(trimRenderedQuerySQL(rowsSQL), tagsExpr, params.EvaluationTimeMS, leafInfo.LeafSelector.Lookback.Milliseconds())
 						if err != nil {
 							return renderedFragment{}, err
 						}

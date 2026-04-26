@@ -109,8 +109,8 @@ func TestLowerBinaryVectorJoinReusesIdenticalInstantAddSubexpression(t *testing.
 	if got := strings.Count(rq.SQL, "timeSeriesData("); got != 1 {
 		t.Fatalf("timeSeriesData count = %d, want 1 in SQL:\n%s", got, rq.SQL)
 	}
-	if got := strings.Count(rq.SQL, "lagInFrame"); got != 1 {
-		t.Fatalf("lagInFrame count = %d, want 1 in SQL:\n%s", got, rq.SQL)
+	if got := strings.Count(rq.SQL, "deltaSumTimestamp"); got != 1 {
+		t.Fatalf("deltaSumTimestamp count = %d, want 1 in SQL:\n%s", got, rq.SQL)
 	}
 	if !strings.Contains(rq.SQL, "lhs.value + lhs.value") {
 		t.Fatalf("expected self-reuse value expression, got SQL:\n%s", rq.SQL)

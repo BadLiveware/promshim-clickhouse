@@ -96,6 +96,47 @@ deployment is using the default `UUID` or a smaller configured id type.
 
 ## Recommended data-layout additions
 
+### Use time-series codecs on the data table
+
+Prometheus samples are a good fit for ClickHouse's time-series codecs:
+
+- `timestamp DateTime64(3) CODEC(DoubleDelta, ZSTD(1))`
+- `value Float64 CODEC(Gorilla, ZSTD(1))`
+
+`DoubleDelta` compresses regular scrape intervals well, while `Gorilla`
+compresses floating-point sample streams without changing values. These codecs
+are semantic no-ops: they affect on-disk representation and decode cost only,
+not PromQL results. They are also reversible by modifying the inner data-table
+columns back to the deployment's default codecs and rewriting/merging parts.
+
+For new deployments, put the codecs on the TimeSeries table's data columns and
+keep the data inner table ordered by `(id, timestamp)`, for example:
+
+```sql
+CREATE TABLE observability.prometheus
+(
+    id UUID,
+    timestamp DateTime64(3) CODEC(DoubleDelta, ZSTD(1)),
+    value Float64 CODEC(Gorilla, ZSTD(1))
+)
+ENGINE = TimeSeries
+DATA ENGINE = MergeTree
+ORDER BY (id, timestamp);
+```
+
+For existing deployments, resolve the actual inner data-table name first, then
+apply the equivalent `ALTER TABLE ... MODIFY COLUMN ... CODEC(...)` during a
+controlled rollout. New parts use the new codecs immediately; existing parts
+need normal merge activity or an explicit rewrite to realize the compression
+change on disk.
+
+Validate this as a storage optimization rather than a query-planner change:
+`system.columns` should show the codecs, `system.parts` compressed/uncompressed
+byte ratios should improve after rewrites, and query-log `ReadCompressedBytes`
+may drop for scan-heavy queries while the selected strategy and logical results
+remain unchanged. Treat latency attribution cautiously if physical read counters
+such as `SelectedRows` or `ReadRows` also move.
+
 ### Partition long-retention data by month
 
 Default TimeSeries data has no `PARTITION BY`. For multi-week or multi-month

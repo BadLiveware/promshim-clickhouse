@@ -1,5 +1,11 @@
 CREATE DATABASE IF NOT EXISTS observability;
-CREATE TABLE IF NOT EXISTS observability.prometheus ENGINE = TimeSeries;
+CREATE TABLE IF NOT EXISTS observability.prometheus (
+    id UUID,
+    timestamp DateTime64(3) CODEC(DoubleDelta, ZSTD(1)),
+    value Float64 CODEC(Gorilla, ZSTD(1))
+) ENGINE = TimeSeries
+DATA ENGINE = MergeTree
+ORDER BY (id, timestamp);
 
 CREATE DATABASE IF NOT EXISTS metrics;
 

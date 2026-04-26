@@ -61,15 +61,55 @@
 -- ALTER TABLE <database>.<inner_time_series_tags_table>
 --   DROP INDEX IF EXISTS tag_values;
 
--- 4. Prefer schema-level partitioning for long-retention data when creating a
+-- 4. Data table sample codecs.
+-- Prometheus samples are usually regular timestamp/value streams. DoubleDelta
+-- on the timestamp and Gorilla on the Float64 value are transparent codecs and
+-- are reversible by MODIFY COLUMN back to the deployment default and rewriting
+-- parts. Expect storage-level signal; treat runtime attribution cautiously if
+-- physical read counters such as SelectedRows or ReadRows also move.
+--
+-- New TimeSeries table template:
+--
+-- CREATE TABLE <database>.<time_series_table>
+-- (
+--     id UUID,
+--     timestamp DateTime64(3) CODEC(DoubleDelta, ZSTD(1)),
+--     value Float64 CODEC(Gorilla, ZSTD(1))
+-- )
+-- ENGINE = TimeSeries
+-- DATA ENGINE = MergeTree
+-- ORDER BY (id, timestamp);
+--
+-- Existing inner data table template, after resolving the actual inner table
+-- name from SHOW CREATE TABLE or system.tables:
+--
+-- ALTER TABLE <database>.<inner_time_series_data_table>
+--   MODIFY COLUMN timestamp DateTime64(3) CODEC(DoubleDelta, ZSTD(1));
+--
+-- ALTER TABLE <database>.<inner_time_series_data_table>
+--   MODIFY COLUMN value Float64 CODEC(Gorilla, ZSTD(1));
+--
+-- Existing parts need merge/rewrite activity before on-disk compression changes
+-- are fully reflected. Validate with system.columns compression_codec,
+-- system.parts compressed/uncompressed bytes, and query_log ReadCompressedBytes.
+-- Rollback by MODIFY COLUMN to the prior codec/default and rewriting parts.
+
+-- 5. Prefer schema-level partitioning for long-retention data when creating a
 -- new TimeSeries deployment. Existing deployments should migrate via a planned
 -- backfill rather than altering hot production storage in place.
 --
 -- Example shape only; use the TimeSeries/operator DDL supported by your
 -- ClickHouse version:
 --
--- CREATE TABLE <database>.<time_series_table> (...) ENGINE = TimeSeries
+-- CREATE TABLE <database>.<time_series_table>
+-- (
+--     id UUID,
+--     timestamp DateTime64(3) CODEC(DoubleDelta, ZSTD(1)),
+--     value Float64 CODEC(Gorilla, ZSTD(1))
+-- )
+-- ENGINE = TimeSeries
+-- DATA ENGINE = MergeTree
+-- PARTITION BY toYYYYMM(timestamp)
+-- ORDER BY (id, timestamp)
 -- SETTINGS
---   data_engine = 'MergeTree PARTITION BY toYYYYMM(timestamp) ORDER BY (id, timestamp)',
---   tags_to_columns = {'instance': 'LowCardinality(String)', 'pod': 'LowCardinality(String)', 'node': 'LowCardinality(String)'},
---   id_type = 'UInt64';
+--   tags_to_columns = {'instance': 'LowCardinality(String)', 'pod': 'LowCardinality(String)', 'node': 'LowCardinality(String)'};

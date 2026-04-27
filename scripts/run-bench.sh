@@ -404,6 +404,8 @@ capture_clickhouse_profile() {
     --profiles-dir "$profiles_dir"
 }
 
+capture_pprof_snapshot before
+
 log "Running promshim-bench ${ARGS[*]}"
 set +e
 "$BIN" "${ARGS[@]}"

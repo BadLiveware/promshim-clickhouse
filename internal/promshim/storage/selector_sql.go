@@ -150,6 +150,40 @@ func BuildRangeWindowSelectorDirectAggregateRowsQuerySQLWithFinalTags(cfg QueryC
 	return sql + schema.QuerySuffix, params, nil
 }
 
+func BuildRangeWindowSelectorCumulativeAvgQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, finalTagsSQL string, minimumSeriesLength int) (string, map[string]string, error) {
+	perStepSQL, params, orderBy, err := buildRangeWindowSelectorCumulativeAvgPerStepSQL(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, finalTagsSQL, minimumSeriesLength)
+	if err != nil {
+		return "", nil, err
+	}
+	outer := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"}},
+		From:    sqlb.RawSource{SQL: rawSubquerySQL(perStepSQL)},
+		GroupBy: []sqlb.Expr{sqlb.Ident("final_tags")},
+		OrderBy: orderBy,
+	}
+	sql, _, err := outer.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql + schema.QuerySuffix, params, nil
+}
+
+func BuildRangeWindowSelectorCumulativeAvgRowsQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, finalTagsSQL string, minimumSeriesLength int) (string, map[string]string, error) {
+	perStepSQL, params, _, err := buildRangeWindowSelectorCumulativeAvgPerStepSQL(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, finalTagsSQL, minimumSeriesLength)
+	if err != nil {
+		return "", nil, err
+	}
+	rows := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.Ident("value"), Alias: "value"}},
+		From:    sqlb.RawSource{SQL: rawSubquerySQL(perStepSQL)},
+	}
+	sql, _, err := rows.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql + schema.QuerySuffix, params, nil
+}
+
 func BuildRangeNativeGridSelectorQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, finalTagsSQL string) (string, map[string]string, error) {
 	inner, params, finalTagsExpr, err := buildRangeNativeGridSelectorInner(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, fn, finalTagsSQL)
 	if err != nil {
@@ -463,6 +497,66 @@ func buildRangeWindowSelectorDirectAggregatePerStepQuery(cfg QueryConfig, select
 		Where:   sqlb.RawLit{V: "sample_count > " + strconv.Itoa(minimumSeriesLength)},
 	}
 	return perStep, params, orderBy, nil
+}
+
+func buildRangeWindowSelectorCumulativeAvgPerStepSQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, finalTagsSQL string, minimumSeriesLength int) (string, map[string]string, []sqlb.OrderExpr, error) {
+	if selector.Kind != SelectorKindRangeVector {
+		return "", nil, nil, fmt.Errorf("cumulative avg range-window selector SQL requires a range-vector selector, got %q", selector.Kind)
+	}
+	if stepMS <= 0 {
+		return "", nil, nil, fmt.Errorf("cumulative avg range-window selector SQL requires a positive step")
+	}
+	matchedSeriesSQL, params, err := buildMatchedSeriesSQL(cfg, selector, "range_window_cumulative_avg", requiredStartMS, requiredEndMS, true)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
+	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
+	params["param_step_ms"] = strconv.FormatInt(stepMS, 10)
+	params["param_lookback_ms"] = strconv.FormatInt(selector.LookbackMS, 10)
+	params["param_offset_ms"] = strconv.FormatInt(selector.OffsetMS, 10)
+
+	resolvedFinalTagsExpr := emit.StripMetricName("tags")
+	orderBy := []sqlb.OrderExpr{{Expr: sqlb.Ident("final_tags")}}
+	if !selector.NeedTags {
+		resolvedFinalTagsExpr = "CAST([], '" + schema.TagsArrayType + "')"
+		orderBy = nil
+	} else if strings.TrimSpace(finalTagsSQL) != "" {
+		resolvedFinalTagsExpr = finalTagsSQL
+	}
+
+	matchedSeries := rawSubquerySQL(matchedSeriesSQL)
+	dataRef := schema.TimeSeriesDataRef(timeSeriesTableRef(cfg))
+	statesSQL := "SELECT d.id AS id, d.timestamp AS timestamp, " +
+		"sum(if(NOT isNaN(ifNull(toFloat64(d.value), nan)), ifNull(toFloat64(d.value), nan), 0.)) OVER (PARTITION BY d.id ORDER BY d.timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS finite_sum, " +
+		"countIf(NOT isNaN(ifNull(toFloat64(d.value), nan))) OVER (PARTITION BY d.id ORDER BY d.timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS finite_count, " +
+		"countIf(isNaN(ifNull(toFloat64(d.value), nan))) OVER (PARTITION BY d.id ORDER BY d.timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS nan_count " +
+		"FROM " + dataRef + " AS d INNER JOIN " + matchedSeries + " AS series ON d.id = series.id " +
+		"WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " " +
+		"ORDER BY id, timestamp"
+	gridSQL := "SELECT series.id AS id, arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts, " +
+		"eval_ts - toIntervalMillisecond({offset_ms:Int64}) AS upper_bound, " +
+		"eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64} + 1) AS lower_prev_bound " +
+		"FROM " + matchedSeries + " AS series ORDER BY id, upper_bound"
+	upperSQL := "SELECT grid.id AS id, grid.eval_ts AS eval_ts, ifNull(u.finite_sum, 0.) AS finite_sum, ifNull(u.finite_count, 0) AS finite_count, ifNull(u.nan_count, 0) AS nan_count " +
+		"FROM " + rawSubquerySQL(gridSQL) + " AS grid ASOF LEFT JOIN " + rawSubquerySQL(statesSQL) + " AS u ON grid.id = u.id AND grid.upper_bound >= u.timestamp"
+	lowerGridSQL := "SELECT series.id AS id, arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts, " +
+		"eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64} + 1) AS lower_prev_bound " +
+		"FROM " + matchedSeries + " AS series ORDER BY id, lower_prev_bound"
+	lowerSQL := "SELECT grid.id AS id, grid.eval_ts AS eval_ts, ifNull(l.finite_sum, 0.) AS finite_sum, ifNull(l.finite_count, 0) AS finite_count, ifNull(l.nan_count, 0) AS nan_count " +
+		"FROM " + rawSubquerySQL(lowerGridSQL) + " AS grid ASOF LEFT JOIN " + rawSubquerySQL(statesSQL) + " AS l ON grid.id = l.id AND grid.lower_prev_bound >= l.timestamp"
+	windowedSQL := "SELECT upper.id AS id, upper.eval_ts AS eval_ts, " +
+		"upper.finite_sum - lower.finite_sum AS finite_sum, " +
+		"upper.finite_count - lower.finite_count AS finite_count, " +
+		"upper.nan_count - lower.nan_count AS nan_count " +
+		"FROM " + rawSubquerySQL(upperSQL) + " AS upper INNER JOIN " + rawSubquerySQL(lowerSQL) + " AS lower ON upper.id = lower.id AND upper.eval_ts = lower.eval_ts"
+	if selector.NeedTags {
+		windowedSQL = "SELECT series.tags AS tags, windowed.eval_ts AS eval_ts, windowed.finite_sum AS finite_sum, windowed.finite_count AS finite_count, windowed.nan_count AS nan_count FROM " + rawSubquerySQL(windowedSQL) + " AS windowed INNER JOIN " + matchedSeries + " AS series ON windowed.id = series.id"
+	} else {
+		windowedSQL = "SELECT CAST([], '" + schema.TagsArrayType + "') AS tags, eval_ts, finite_sum, finite_count, nan_count FROM " + rawSubquerySQL(windowedSQL)
+	}
+	perStepSQL := "SELECT " + resolvedFinalTagsExpr + " AS final_tags, eval_ts AS timestamp, if(nan_count > 0 OR finite_count = 0, nan, finite_sum / finite_count) AS value FROM " + rawSubquerySQL(windowedSQL) + " WHERE finite_count + nan_count > " + strconv.Itoa(minimumSeriesLength)
+	return perStepSQL, params, orderBy, nil
 }
 
 func directRangeWindowAggregateSpec(fn string) ([]sqlb.ColExpr, string, error) {

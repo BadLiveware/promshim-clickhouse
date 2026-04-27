@@ -223,6 +223,22 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						}
 						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 					}
+					// avg_over_time can be computed from cumulative per-series sums/counts and
+					// ASOF boundary lookups. This avoids the id-only grid→data join fanout that
+					// is expensive for dense, high-overlap windows.
+					if isIdentity && fn == "avg_over_time" && !preferDirectSelectorWindowJoin(lookbackMS, params.StepMS) {
+						childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
+						source, err := renderAggregationSourceView(view, params)
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
+						sql, queryParams, err := storage.BuildRangeWindowSelectorCumulativeAvgQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
+					}
 					// Keep the selector-scoped grid→data join that benchmarks well on long-range
 					// windows, but skip per-step window_series/window_values materialization for
 					// direct range selectors that are safe to aggregate inside that grouped join.

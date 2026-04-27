@@ -181,6 +181,15 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 			tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(ctx.Params))
 			return storage.BuildRangeNativeGridSelectorRowsQuerySQLWithFinalTags(ctx.Config, *source.Selector, childRequiredStartMS, childRequiredEndMS, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, fn, tagsExpr)
 		}
+		if isIdentity && fn == "avg_over_time" && !preferDirectSelectorWindowJoin(lookbackMS, ctx.Params.StepMS) {
+			childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
+			source, err := renderAggregationSourceView(view, ctx.Params)
+			if err != nil {
+				return "", nil, err
+			}
+			tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(ctx.Params))
+			return storage.BuildRangeWindowSelectorCumulativeAvgRowsQuerySQLWithFinalTags(ctx.Config, *source.Selector, childRequiredStartMS, childRequiredEndMS, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
+		}
 		if isIdentity && supportsDirectSelectorWindowAggregate(fn, lookbackMS) && preferDirectSelectorWindowAggregate(fn, lookbackMS, ctx.Params.StepMS) {
 			childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
 			source, err := renderAggregationSourceView(view, ctx.Params)

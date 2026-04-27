@@ -220,14 +220,14 @@ func TestLowerHighOverlapAvgOverTimeRangeUsesDirectAggregate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
 	}
-	for _, expected := range []string{"avgIf(ifNull(toFloat64(d.value), nan), NOT isNaN(ifNull(toFloat64(d.value), nan))) AS avg_value", "GROUP BY grid.id, grid.eval_ts", "windowed.id = series.id"} {
+	for _, expected := range []string{"sum(if(NOT isNaN(ifNull(toFloat64(d.value), nan))", "AS finite_sum", "ASOF LEFT JOIN", "upper.finite_sum - lower.finite_sum AS finite_sum", "finite_sum / finite_count"} {
 		if !strings.Contains(rq.SQL, expected) {
-			t.Fatalf("expected high-overlap avg_over_time direct aggregate SQL to contain %q, got %s", expected, rq.SQL)
+			t.Fatalf("expected high-overlap avg_over_time cumulative aggregate SQL to contain %q, got %s", expected, rq.SQL)
 		}
 	}
-	for _, unexpected := range []string{"arraySort(groupArray((d.timestamp, d.value))) AS window_series", "window_values", "CROSS JOIN"} {
+	for _, unexpected := range []string{"arraySort(groupArray((d.timestamp, d.value))) AS window_series", "window_values", "CROSS JOIN", "avgIf("} {
 		if strings.Contains(rq.SQL, unexpected) {
-			t.Fatalf("expected high-overlap avg_over_time direct aggregate to avoid %q, got %s", unexpected, rq.SQL)
+			t.Fatalf("expected high-overlap avg_over_time cumulative aggregate to avoid %q, got %s", unexpected, rq.SQL)
 		}
 	}
 }

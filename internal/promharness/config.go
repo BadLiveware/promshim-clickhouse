@@ -22,6 +22,9 @@ func LoadSeedConfigFromEnv() (SeedConfig, error) {
 		ArtifactDir:              getenv("PROM_HARNESS_ARTIFACT_DIR", "/artifacts"),
 		DatasetVariants:          parseCSV(getenv("PROM_HARNESS_DATASET_VARIANTS", "")),
 	}
+	if cfg.Points < 2 {
+		return SeedConfig{}, fmt.Errorf("PROM_HARNESS_POINTS must be >= 2")
+	}
 	if base := os.Getenv("PROM_HARNESS_BASE_UNIX_SECONDS"); base != "" {
 		seconds, err := strconv.ParseInt(base, 10, 64)
 		if err != nil {
@@ -29,10 +32,12 @@ func LoadSeedConfigFromEnv() (SeedConfig, error) {
 		}
 		cfg.BaseTime = time.Unix(seconds, 0).UTC()
 	} else {
-		cfg.BaseTime = time.Now().UTC().Truncate(cfg.Step).Add(-time.Duration(cfg.Points-1) * cfg.Step)
-	}
-	if cfg.Points < 2 {
-		return SeedConfig{}, fmt.Errorf("PROM_HARNESS_POINTS must be >= 2")
+		latestEnd := time.Now().UTC().Truncate(cfg.Step)
+		firstVariantOffset := time.Duration(0)
+		if len(cfg.DatasetVariants) > 1 {
+			firstVariantOffset = time.Duration(len(cfg.DatasetVariants)-1) * datasetVariantSeparation(cfg)
+		}
+		cfg.BaseTime = latestEnd.Add(-firstVariantOffset).Add(-time.Duration(cfg.Points-1) * cfg.Step)
 	}
 	return cfg, nil
 }

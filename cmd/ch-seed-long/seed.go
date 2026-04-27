@@ -94,6 +94,12 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 		pointsPerBatch = 1
 	}
 
+	// Total expected samples: every series emits one sample per step over the
+	// full window. Used by the progress log for % done and ETA. Computed once
+	// up front and passed through atomic load (cheap).
+	totalSteps := int64(cfg.EndTime.Sub(cfg.StartTime) / cfg.Step)
+	expectedSamples := totalSteps * int64(len(cfg.Series))
+
 	// Buffered to 2× MaxConcurrency so the generator can stay one batch ahead
 	// of the slowest worker without racing arbitrarily ahead and pre-encoding
 	// dozens of batches that the regulator would prefer to suppress.
@@ -272,9 +278,26 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 				}
 				rate := float64(delta) / dur
 				p50, p99, errPct := rtt.summary()
-				log.Printf("[seed-long] progress: batches=%d acked=%d emitted=%d (+%dk acked last %.0fs = %.0fk/s) errors=%d rtt p50=%dms p99=%dms err%%=%.1f targetN=%d",
-					batchCount.Load(), cur, emitted, delta/1000, dur, rate/1000, errCount.Load(),
-					p50.Milliseconds(), p99.Milliseconds(), errPct, target.Load())
+
+				// % done + ETA. Use acked (not emitted) so the percentage
+				// reflects samples that are actually persisted, not just
+				// pre-encoded by the generator. ETA falls back to "—" when
+				// rate is zero (e.g. probe just throttled to 0 momentarily)
+				// to avoid spurious "ETA=∞" display.
+				var pctDone float64
+				if expectedSamples > 0 {
+					pctDone = 100.0 * float64(cur) / float64(expectedSamples)
+				}
+				eta := "—"
+				if rate > 0 && cur < expectedSamples {
+					remaining := expectedSamples - cur
+					etaSec := float64(remaining) / rate
+					eta = (time.Duration(etaSec) * time.Second).Truncate(time.Second).String()
+				}
+
+				log.Printf("[seed-long] progress: %.1f%%, batches=%d acked=%d/%d emitted=%d (+%dk acked last %.0fs = %.0fk/s) errors=%d rtt p50=%dms p99=%dms err%%=%.1f targetN=%d ETA=%s",
+					pctDone, batchCount.Load(), cur, expectedSamples, emitted, delta/1000, dur, rate/1000, errCount.Load(),
+					p50.Milliseconds(), p99.Milliseconds(), errPct, target.Load(), eta)
 				lastSamples = cur
 				lastTime = t
 				if n := target.Load(); n > maxN.Load() {

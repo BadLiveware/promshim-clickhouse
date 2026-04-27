@@ -13,7 +13,7 @@ func TestBuildCalibrationFromSweepManifest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module test\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	artifactDir := filepath.Join(root, "harness", "artifacts", "sweeps", "unit")
+	artifactDir := filepath.Join(root, "harness", "artifacts", "bench", "sweeps", "unit")
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -290,11 +290,11 @@ func writeSimpleSweep(t *testing.T, root, runName, family, mode string, preferP5
 
 func writeSimpleSweepWithSettingsProfile(t *testing.T, root, runName, family, mode string, preferP50, offP50 float64, settingsProfile string) string {
 	t.Helper()
-	artifactDir := filepath.Join(root, "harness", "artifacts", "sweeps", runName)
+	artifactDir := filepath.Join(root, "harness", "artifacts", "bench", "sweeps", runName)
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	reportRel := filepath.Join("harness", "artifacts", "sweeps", runName, "bench-report.json")
+	reportRel := filepath.Join("harness", "artifacts", "bench", "sweeps", runName, "bench-report.json")
 	shim := map[string]any{}
 	shim[mode] = map[string]any{"p50Ms": preferP50, "strategy": "native_sql", "routingPolicy": "cost_prefer", "costFamily": family, "strictCandidate": "native_sql", "selectedCandidate": "full_local", "servedCandidate": "full_local", "settingsProfile": settingsProfile}
 	if offP50 > 0 {
@@ -310,13 +310,13 @@ func writeSimpleSweepWithSettingsProfile(t *testing.T, root, runName, family, mo
 		},
 		"rows": []any{map[string]any{"name": "q_" + family, "endpoint": "query", "category": family, "prom": map[string]any{"p50Ms": 1.0}, "shim": shim}},
 	})
-	memoryRel := filepath.Join("harness", "artifacts", "sweeps", runName, "memory-summary-bench-report.json")
+	memoryRel := filepath.Join("harness", "artifacts", "bench", "sweeps", runName, "memory-summary-bench-report.json")
 	writeFixtureJSON(t, filepath.Join(root, memoryRel), map[string]any{"schemaVersion": 1, "sourceReport": reportRel, "clickHouseQueryLog": []any{map[string]any{"logComment": "promshim-bench query=q_" + family + " mode=prefer policy=strict", "selectedRows": 1}}})
 	manifestPath := filepath.Join(artifactDir, "manifest.json")
 	writeFixtureJSON(t, manifestPath, map[string]any{
 		"schemaVersion": 1,
 		"runName":       runName,
-		"artifactDir":   filepath.Join("harness", "artifacts", "sweeps", runName),
+		"artifactDir":   filepath.Join("harness", "artifacts", "bench", "sweeps", runName),
 		"axes":          map[string]any{"profile": "7d", "density": "sparse", "transport": "native", "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1", "promshimSettingsProfile": settingsProfile},
 		"compliance":    map[string]any{"status": "skipped"},
 		"bench":         map[string]any{"reports": []any{map[string]any{"path": reportRel, "profile": "7d", "density": "sparse", "transport": "native"}}, "memoryReports": []string{memoryRel}},

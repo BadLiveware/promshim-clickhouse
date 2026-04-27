@@ -21,12 +21,22 @@ type corpusMetadata struct {
 func TestLoadQueryCorpusFixtures(t *testing.T) {
 	t.Parallel()
 
-	for _, fixture := range []string{"queries.json", "native-lowering-starter.json", "path2-measurement-prereqs.json", "phase7-rollout.json", "phase12-harness-variants.json", "phase12-dataset-variants.json", "draft-grafana-top-panel-shortlist.json", "draft-grafana-top-panel-shortlist.dataset-variants.json", "common-dashboard-subset.json"} {
-		fixture := fixture
+	paths, err := filepath.Glob(corpusFixturePath("*.json"))
+	if err != nil {
+		t.Fatalf("glob corpus fixtures: %v", err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("expected at least one top-level corpus fixture")
+	}
+	for _, path := range paths {
+		fixture := filepath.Base(path)
+		if strings.HasSuffix(fixture, ".metadata.json") {
+			continue
+		}
 		t.Run(fixture, func(t *testing.T) {
 			t.Parallel()
 
-			queries, err := LoadQueryCorpus(corpusFixturePath(fixture))
+			queries, err := LoadQueryCorpus(path)
 			if err != nil {
 				t.Fatalf("load corpus %s: %v", fixture, err)
 			}

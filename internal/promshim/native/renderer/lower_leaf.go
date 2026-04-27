@@ -120,6 +120,7 @@ func nativeSelectorToStorage(sel *native.SelectorSource) storage.SelectorSource 
 // count_values aggregations) force RequireFullTags=true. RenderParams
 // is the single source of truth for narrowing on the Logical path.
 func applyRenderParamsNarrowing(sel *storage.SelectorSource, params RenderParams) {
+	sel.RangeInstantStrategy = params.Physical.RangeInstantSelector.Strategy
 	if params.RequireFullTags {
 		sel.RequireFullTags = true
 		sel.RequiredTagLabels = nil

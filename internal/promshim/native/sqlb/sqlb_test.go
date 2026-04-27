@@ -130,6 +130,41 @@ func TestAdvancedExprSurfaceBuildsComposableArrayAndConditionalForms(t *testing.
 	}
 }
 
+func TestClickHouseTypedPredicatesBuildWithoutBindingPlaceholders(t *testing.T) {
+	phase := PositiveModulo(
+		Sub(
+			Add(ToUnixTimestamp64Milli(Ident("timestamp")), Int64Placeholder("offset_ms")),
+			Int64Placeholder("start_ms"),
+		),
+		Int64Placeholder("step_ms"),
+	)
+	query := &Select{
+		Columns: []ColExpr{{Expr: Ident("id")}},
+		From:    RawSource{SQL: "timeSeriesData(`observability`.`prometheus`)"},
+		Where: And(
+			GTE(Ident("timestamp"), FromUnixTimestamp64Milli(Int64Placeholder("required_start_ms"))),
+			LTE(Ident("timestamp"), FromUnixTimestamp64Milli(Int64Placeholder("required_end_ms"))),
+			Or(
+				Eq(phase, Num(0)),
+				GTE(phase, GroupedSub(Int64Placeholder("step_ms"), Int64Placeholder("lookback_ms"))),
+			),
+			Not(IsNaN(Ident("value"))),
+		),
+	}
+
+	sql, params, err := query.Build()
+	if err != nil {
+		t.Fatalf("expected built SQL, got error: %v", err)
+	}
+	expected := "SELECT id FROM timeSeriesData(`observability`.`prometheus`) WHERE timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND (positiveModulo(toUnixTimestamp64Milli(timestamp) + {offset_ms:Int64} - {start_ms:Int64}, {step_ms:Int64}) = 0 OR positiveModulo(toUnixTimestamp64Milli(timestamp) + {offset_ms:Int64} - {start_ms:Int64}, {step_ms:Int64}) >= ({step_ms:Int64} - {lookback_ms:Int64})) AND NOT isNaN(value)"
+	if NormalizeSQL(sql) != expected {
+		t.Fatalf("unexpected SQL:\nwant: %s\n got: %s", expected, NormalizeSQL(sql))
+	}
+	if len(params) != 0 {
+		t.Fatalf("expected placeholder refs not to bind params, got %#v", params)
+	}
+}
+
 func TestNormalizeSQL(t *testing.T) {
 	input := "SELECT\n  value\nFROM  table\nWHERE   a = 1"
 	if got := NormalizeSQL(input); got != "SELECT value FROM table WHERE a = 1" {

@@ -284,6 +284,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						ResolveSourcePromQL: params.ResolveSourcePromQL,
 						RequireFullTags:     params.RequireFullTags,
 						RequiredTagLabels:   params.RequiredTagLabels,
+						Physical:            physicalPreferencesForRangeInstantSelectorStrategy(storage.RangeInstantSelectorStrategyBucketedArgMax),
 					}
 					childRendered, err := Lower(childCtx, child)
 					if err != nil {
@@ -332,6 +333,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 					ResolveSourcePromQL: params.ResolveSourcePromQL,
 					RequireFullTags:     params.RequireFullTags,
 					RequiredTagLabels:   params.RequiredTagLabels,
+					Physical:            physicalPreferencesForRangeInstantSelectorStrategy(storage.RangeInstantSelectorStrategyBucketedArgMax),
 				}
 				childRendered, err := Lower(childCtx, child)
 				if err != nil {
@@ -470,6 +472,7 @@ func tryRenderSubqueryRowsSourceLogical(ctx LoweringCtx, n *logicalpkg.SubqueryP
 		RequiredStartMS:     childRequiredStartMS,
 		RequiredEndMS:       childRequiredEndMS,
 		ResolveSourcePromQL: ctx.Params.ResolveSourcePromQL,
+		Physical:            physicalPreferencesForRangeInstantSelectorStrategy(storage.RangeInstantSelectorStrategyBucketedArgMax),
 	})
 	childCtx := LoweringCtx{
 		Config:         ctx.Config,

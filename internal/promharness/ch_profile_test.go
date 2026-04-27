@@ -61,6 +61,28 @@ func TestCHProfileUsesP50MetricsForMarkdown(t *testing.T) {
 	}
 }
 
+func TestRenderCHProfileTerminalHighlightsUsesHumanFormattingAndProcessors(t *testing.T) {
+	rows := []CHProfileRow{
+		{
+			QueryName:                    "dense_avg",
+			Mode:                         "prefer",
+			QueryDurationP50MS:           750,
+			MemoryP95Bytes:               1536 * 1024 * 1024,
+			ReadRowsP50:                  300_000,
+			JoinResultRowCountP50:        4_000,
+			FilterTransformPassedRowsP50: 2_000,
+			TopProcessors:                []CHProcessorRow{{Name: "ExpressionTransform", ElapsedSeconds: 1.25}},
+		},
+	}
+	out := RenderCHProfileTerminalHighlights(rows)
+	if !strings.Contains(out, "mem_p95=1.5GiB read_p50=300.0K join_p50=4.0K filter_p50=2.0K") {
+		t.Fatalf("highlight did not use human formatting:\n%s", out)
+	}
+	if !strings.Contains(out, "top=ExpressionTransform 1.25s") {
+		t.Fatalf("highlight missing processor annotation:\n%s", out)
+	}
+}
+
 func TestCHProfileNeedsProcessors(t *testing.T) {
 	ratio := 3.0
 	cases := []struct {

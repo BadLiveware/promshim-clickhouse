@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"sort"
 	"time"
 
 	"github.com/BadLiveware/promshim-clickhouse/internal/promharness"
@@ -89,20 +88,7 @@ func printProfileHighlights(path string) {
 	if err := json.Unmarshal(content, &summary); err != nil || len(summary.Rows) == 0 {
 		return
 	}
-	rows := append([]promharness.CHProfileRow(nil), summary.Rows...)
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].QueryDurationP50MS == rows[j].QueryDurationP50MS {
-			return rows[i].MemoryP95Bytes > rows[j].MemoryP95Bytes
-		}
-		return rows[i].QueryDurationP50MS > rows[j].QueryDurationP50MS
-	})
-	if len(rows) > 5 {
-		rows = rows[:5]
-	}
-	fmt.Println("ClickHouse profile highlights:")
-	for _, row := range rows {
-		fmt.Printf("  %s mode=%s ch_p50=%gms mem_p95=%.0fB read_p50=%.0f join_p50=%.0f filter_p50=%.0f\n", row.QueryName, row.Mode, row.QueryDurationP50MS, row.MemoryP95Bytes, row.ReadRowsP50, row.JoinResultRowCountP50, row.FilterTransformPassedRowsP50)
-	}
+	fmt.Print(promharness.RenderCHProfileTerminalHighlights(summary.Rows))
 }
 
 func require(name, value string) {

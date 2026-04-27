@@ -698,6 +698,9 @@ func (h *queryService) buildRangePlan(req httpapi.RangeQueryRequest) (string, ti
 	if err != nil {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, local.BadRequestHTTPError(err.Error())
 	}
+	if step <= 0 {
+		return "", time.Time{}, time.Time{}, 0, nil, nil, local.BadRequestHTTPError("step must be greater than zero")
+	}
 	mode, apiErr := h.nativeLoweringModeForRequest(req.NativeLoweringMode)
 	if apiErr != nil {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, apiErr

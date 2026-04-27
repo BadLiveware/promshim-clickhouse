@@ -778,22 +778,89 @@ func buildRangeInstantSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, 
 	params["param_lookback_ms"] = strconv.FormatInt(selector.LookbackMS, 10)
 	params["param_offset_ms"] = strconv.FormatInt(selector.OffsetMS, 10)
 
-	gridTagsExpr := sqlb.Expr(sqlb.Ident("series.tags"))
-	innerTagsExpr := sqlb.Expr(sqlb.Ident("grid.tags"))
-	if !selector.NeedTags {
-		gridTagsExpr = emit.EmptyTagsArray()
-		innerTagsExpr = emit.EmptyTagsArray()
+	plan := newRangeInstantSelectorRowsPlan(cfg, selector, matchedSeriesSQL, stepMS)
+	sql, err := plan.RenderRowsSQL()
+	if err != nil {
+		return "", nil, err
 	}
+	return sql, params, nil
+}
 
+type selectorStaleFilterPlacement string
+
+const selectorStaleFilterPostASOF selectorStaleFilterPlacement = "post_asof"
+
+type sqlPredicate string
+
+func (p sqlPredicate) SQL() string { return string(p) }
+
+type matchedSeriesSourcePlan struct {
+	SQL      string
+	Distinct bool
+}
+
+type rangeSelectorTimingPlan struct {
+	StepMS     int64
+	LookbackMS int64
+	OffsetMS   int64
+}
+
+type rangeInstantSelectorRowsPlan struct {
+	Config                    QueryConfig
+	Selector                  SelectorSource
+	MatchedSeries             matchedSeriesSourcePlan
+	Timing                    rangeSelectorTimingPlan
+	UseSparseStepPhaseFilter  bool
+	StaleMarkerFilterLocation selectorStaleFilterPlacement
+}
+
+func newRangeInstantSelectorRowsPlan(cfg QueryConfig, selector SelectorSource, matchedSeriesSQL string, stepMS int64) rangeInstantSelectorRowsPlan {
+	return rangeInstantSelectorRowsPlan{
+		Config:   cfg,
+		Selector: selector,
+		MatchedSeries: matchedSeriesSourcePlan{
+			SQL:      matchedSeriesSQL,
+			Distinct: true,
+		},
+		Timing: rangeSelectorTimingPlan{
+			StepMS:     stepMS,
+			LookbackMS: selector.LookbackMS,
+			OffsetMS:   selector.OffsetMS,
+		},
+		UseSparseStepPhaseFilter:  shouldFilterSparseRangeInstantSelectorSamples(selector.LookbackMS, stepMS),
+		StaleMarkerFilterLocation: selectorStaleFilterPostASOF,
+	}
+}
+
+func (p rangeInstantSelectorRowsPlan) RenderRowsSQL() (string, error) {
+	inner := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: p.innerTagsExpr(), Alias: "tags"},
+			{Expr: sqlb.Ident("grid.eval_ts"), Alias: "timestamp"},
+			{Expr: sqlb.Ident("d.value"), Alias: "value"},
+		},
+		From: sqlb.Join{
+			Left:  sqlb.SubSelect{S: p.gridSelect(), Alias: "grid"},
+			Right: sqlb.RawSource{SQL: rawSubquerySQL(p.dataRowsSQL()), Alias: "d"},
+			Kind:  "ASOF INNER",
+			On:    sqlb.RawLit{V: "grid.id = d.id AND grid.eval_bound >= d.timestamp"},
+		},
+		Where: sqlb.RawLit{V: p.postASOFFilterSQL()},
+	}
+	sql, _, err := inner.Build()
+	return sql, err
+}
+
+func (p rangeInstantSelectorRowsPlan) gridSelect() *sqlb.Select {
 	gridBase := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
 			{Expr: sqlb.Ident("series.id"), Alias: "id"},
-			{Expr: gridTagsExpr, Alias: "tags"},
+			{Expr: p.gridTagsExpr(), Alias: "tags"},
 			{Expr: sqlb.RawLit{V: emit.GridEvalTSParams()}, Alias: "eval_ts"},
 		},
-		From: sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},
+		From: sqlb.RawSource{SQL: rawSubquerySQL(p.MatchedSeries.SQL), Alias: "series"},
 	}
-	grid := &sqlb.Select{
+	return &sqlb.Select{
 		Columns: []sqlb.ColExpr{
 			{Expr: sqlb.Ident("grid_base.id"), Alias: "id"},
 			{Expr: sqlb.Ident("grid_base.tags"), Alias: "tags"},
@@ -802,42 +869,79 @@ func buildRangeInstantSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, 
 		},
 		From: sqlb.SubSelect{S: gridBase, Alias: "grid_base"},
 	}
-	rightWhereClauses := []string{
-		"timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64})",
-		"timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})",
-	}
-	if phaseFilter := rangeInstantSelectorPhaseFilterSQL(selector.LookbackMS, stepMS); phaseFilter != "" {
-		rightWhereClauses = append(rightWhereClauses, phaseFilter)
-	}
-	rightWhereClauses = append(rightWhereClauses, "id IN (SELECT id FROM ("+matchedSeriesSQL+") AS matched_series_ids)")
-	rightRowsSQL := "SELECT id, timestamp, value FROM " + schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)) + " WHERE " + strings.Join(rightWhereClauses, " AND ")
-	inner := &sqlb.Select{
-		Columns: []sqlb.ColExpr{
-			{Expr: innerTagsExpr, Alias: "tags"},
-			{Expr: sqlb.Ident("grid.eval_ts"), Alias: "timestamp"},
-			{Expr: sqlb.Ident("d.value"), Alias: "value"},
-		},
-		From: sqlb.Join{
-			Left:  sqlb.SubSelect{S: grid, Alias: "grid"},
-			Right: sqlb.RawSource{SQL: rawSubquerySQL(rightRowsSQL), Alias: "d"},
-			Kind:  "ASOF INNER",
-			On:    sqlb.RawLit{V: "grid.id = d.id AND grid.eval_bound >= d.timestamp"},
-		},
-		Where: sqlb.RawLit{V: "d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64}) AND NOT isNaN(value)"},
-	}
-	sql, _, err := inner.Build()
-	if err != nil {
-		return "", nil, err
-	}
-	return sql, params, nil
 }
 
-func rangeInstantSelectorPhaseFilterSQL(lookbackMS, stepMS int64) string {
-	if lookbackMS <= 0 || stepMS <= lookbackMS {
-		return ""
+func (p rangeInstantSelectorRowsPlan) gridTagsExpr() sqlb.Expr {
+	if !p.Selector.NeedTags {
+		return emit.EmptyTagsArray()
 	}
-	phase := "positiveModulo(toUnixTimestamp64Milli(timestamp) + {offset_ms:Int64} - {start_ms:Int64}, {step_ms:Int64})"
-	return "(" + phase + " = 0 OR " + phase + " >= ({step_ms:Int64} - {lookback_ms:Int64}))"
+	return sqlb.Ident("series.tags")
+}
+
+func (p rangeInstantSelectorRowsPlan) innerTagsExpr() sqlb.Expr {
+	if !p.Selector.NeedTags {
+		return emit.EmptyTagsArray()
+	}
+	return sqlb.Ident("grid.tags")
+}
+
+func (p rangeInstantSelectorRowsPlan) dataRowsSQL() string {
+	predicates := []sqlPredicate{
+		timestampLowerBoundPredicate("timestamp", "required_start_ms"),
+		timestampUpperBoundPredicate("timestamp", "required_end_ms"),
+	}
+	if p.UseSparseStepPhaseFilter {
+		predicates = append(predicates, sparseStepPhasePredicate("timestamp"))
+	}
+	predicates = append(predicates, idInMatchedSeriesPredicate(p.MatchedSeries))
+	return "SELECT id, timestamp, value FROM " + schema.TimeSeriesDataRef(timeSeriesTableRef(p.Config)) + " WHERE " + andPredicates(predicates...)
+}
+
+func (p rangeInstantSelectorRowsPlan) postASOFFilterSQL() string {
+	predicates := []sqlPredicate{asofLookbackPredicate()}
+	if p.StaleMarkerFilterLocation == selectorStaleFilterPostASOF {
+		predicates = append(predicates, nonStaleValuePredicate("value"))
+	}
+	return andPredicates(predicates...)
+}
+
+func timestampLowerBoundPredicate(column, param string) sqlPredicate {
+	return sqlPredicate(column + " >= fromUnixTimestamp64Milli({" + param + ":Int64})")
+}
+
+func timestampUpperBoundPredicate(column, param string) sqlPredicate {
+	return sqlPredicate(column + " <= fromUnixTimestamp64Milli({" + param + ":Int64})")
+}
+
+func sparseStepPhasePredicate(column string) sqlPredicate {
+	phase := "positiveModulo(toUnixTimestamp64Milli(" + column + ") + {offset_ms:Int64} - {start_ms:Int64}, {step_ms:Int64})"
+	return sqlPredicate("(" + phase + " = 0 OR " + phase + " >= ({step_ms:Int64} - {lookback_ms:Int64}))")
+}
+
+func idInMatchedSeriesPredicate(matched matchedSeriesSourcePlan) sqlPredicate {
+	return sqlPredicate("id IN (SELECT id FROM (" + matched.SQL + ") AS matched_series_ids)")
+}
+
+func asofLookbackPredicate() sqlPredicate {
+	return sqlPredicate("d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})")
+}
+
+func nonStaleValuePredicate(valueExpr string) sqlPredicate {
+	return sqlPredicate("NOT isNaN(" + valueExpr + ")")
+}
+
+func andPredicates(predicates ...sqlPredicate) string {
+	parts := make([]string, 0, len(predicates))
+	for _, predicate := range predicates {
+		if predicate.SQL() != "" {
+			parts = append(parts, predicate.SQL())
+		}
+	}
+	return strings.Join(parts, " AND ")
+}
+
+func shouldFilterSparseRangeInstantSelectorSamples(lookbackMS, stepMS int64) bool {
+	return lookbackMS > 0 && stepMS > lookbackMS
 }
 
 func buildRangeMatrixSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {

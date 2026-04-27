@@ -340,6 +340,29 @@ func TestBuildRangeSelectorQuerySQLFiltersASOFRightSideForSparseEvalGrid(t *test
 	}
 }
 
+func TestRangeInstantSelectorRowsPlanCapturesOptimizationChoices(t *testing.T) {
+	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, time.Minute, SelectorKindInstantVector)
+
+	plan := newRangeInstantSelectorRowsPlan(QueryConfig{Database: "observability", Table: "prometheus"}, selector, "SELECT DISTINCT src.id FROM tags AS src", int64(time.Hour/time.Millisecond))
+	if !plan.MatchedSeries.Distinct {
+		t.Fatalf("expected matched-series source to record distinctness")
+	}
+	if !plan.UseSparseStepPhaseFilter {
+		t.Fatalf("expected sparse step plan to enable phase filtering")
+	}
+	if plan.StaleMarkerFilterLocation != selectorStaleFilterPostASOF {
+		t.Fatalf("expected stale markers to be filtered after ASOF, got %q", plan.StaleMarkerFilterLocation)
+	}
+	if got := plan.postASOFFilterSQL(); got != "d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64}) AND NOT isNaN(value)" {
+		t.Fatalf("unexpected post-ASOF filter: %s", got)
+	}
+
+	overlapping := newRangeInstantSelectorRowsPlan(QueryConfig{}, selector, "SELECT DISTINCT src.id FROM tags AS src", int64(time.Minute/time.Millisecond))
+	if overlapping.UseSparseStepPhaseFilter {
+		t.Fatalf("expected overlapping step/lookback plan to skip phase filtering")
+	}
+}
+
 func TestBuildRangeSelectorQuerySQLPreservesNegativeOffset(t *testing.T) {
 	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, -1*time.Minute, SelectorKindInstantVector)
 

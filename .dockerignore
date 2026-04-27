@@ -20,7 +20,3 @@ dist
 harness/artifacts
 harness/compliance/artifacts
 harness/compliance/prom-compliance
-path2-compliance-matrix.json
-path2-compliance-matrix.md
-path2-promql-compliance-alignment.json
-path2-promql-compliance-alignment.md

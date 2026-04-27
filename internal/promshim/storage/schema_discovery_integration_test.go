@@ -11,6 +11,33 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 )
 
+func TestSchemaDiscoveryIntegrationNonDefaultIDType(t *testing.T) {
+	client := requireHTTPIntegrationClient(t)
+	defer func() { _ = client.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	const database = "observability"
+	table := "schema_discovery_id_type_it"
+	tableRef := "`" + escapeIdentifier(database) + "`.`" + escapeIdentifier(table) + "`"
+	execIntegrationSQL(t, ctx, client, "DROP TABLE IF EXISTS "+tableRef+" SYNC")
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		execIntegrationSQL(t, cleanupCtx, client, "DROP TABLE IF EXISTS "+tableRef+" SYNC")
+	})
+	execIntegrationSQL(t, ctx, client, "CREATE TABLE "+tableRef+" (id UInt64, timestamp DateTime64(3), value Float64) ENGINE = TimeSeries")
+
+	idType, err := DiscoverTimeSeriesIDType(ctx, client, QueryConfig{Database: database, Table: table})
+	if err != nil {
+		t.Fatalf("DiscoverTimeSeriesIDType: %v", err)
+	}
+	if idType != "UInt64" {
+		t.Fatalf("id type = %q, want UInt64", idType)
+	}
+}
+
 func TestSchemaDiscoveryIntegrationPromotedTagsAndIDType(t *testing.T) {
 	client := requireHTTPIntegrationClient(t)
 	defer func() { _ = client.Close() }()

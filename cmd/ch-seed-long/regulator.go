@@ -139,26 +139,13 @@ func runRegulator(ctx context.Context, target *atomic.Int32, ring *rttRing, comp
 		}
 
 		p50, p99, errPct := ring.summary()
-		// Skip until ring has accumulated enough observations to be meaningful.
-		// The ring summary returns (0, 0, 0) for an empty ring.
-		if p50 == 0 {
-			continue
-		}
 
-		// Baseline tracks the smallest p50 we've ever seen on a no-error tick.
-		// Refining downward as latency improves keeps the regulator honest about
-		// true minimum cost and prevents it from "settling" into a degraded state.
-		// Only update on no-error ticks: error-tainted p50s can be misleading.
-		if errPct == 0 {
-			baseline.observe(p50)
-		}
-		base := baseline.get()
-
-		// Stall detection: track batch-completion delta. If no batches have
-		// completed for StallTicks consecutive ticks while target > MinN,
-		// the workers are all stuck on slow POSTs and the RTT ring is
-		// uninformative. This is the catch-all signal for the "tail latency
-		// is huge but no observation has landed yet" failure mode.
+		// Stall detection runs UNCONDITIONALLY — including when the RTT ring
+		// is empty (p50 == 0). The whole point of this branch is to catch
+		// the case where no batches have completed, which is exactly when
+		// the ring HAS no observations. Putting the empty-ring skip ahead of
+		// stall detection blinds the regulator to its most important signal
+		// for backends that can't handle the initial concurrency at all.
 		var stallActive bool
 		if completedBatches != nil && cfg.StallTicks > 0 {
 			cur := completedBatches.Load()
@@ -170,6 +157,14 @@ func runRegulator(ctx context.Context, target *atomic.Int32, ring *rttRing, comp
 			lastCompleted = cur
 			stallActive = stallStreak >= cfg.StallTicks
 		}
+
+		// Baseline tracks the smallest p50 we've ever seen on a no-error tick.
+		// Only update when we have a real observation — error-tainted or
+		// empty-ring p50s aren't meaningful.
+		if p50 > 0 && errPct == 0 {
+			baseline.observe(p50)
+		}
+		base := baseline.get()
 
 		oldN := target.Load()
 		newN := oldN

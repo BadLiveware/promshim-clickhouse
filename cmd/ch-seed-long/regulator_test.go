@@ -242,6 +242,47 @@ func TestRegulatorThrottlesOnStall(t *testing.T) {
 	cancel()
 }
 
+// stallDetectionWithEmptyRing verifies the stall branch fires even when
+// the RTT ring is empty (no batches have completed). This is the exact
+// failure mode observed against Prometheus stress-50k: the first batches
+// never complete, so the ring stays empty, and a top-of-loop "skip if
+// p50 == 0" prevented stall detection from running. Regression guard.
+func TestRegulatorThrottlesOnStallWithEmptyRing(t *testing.T) {
+	ring := newRTTRing(64) // intentionally empty — no completed batches yet
+
+	var target atomic.Int32
+	target.Store(8)
+
+	var completed atomic.Int64
+	completed.Store(0)
+
+	cfg := regulatorConfig{
+		Tick:       5 * time.Millisecond,
+		MaxN:       16,
+		MinN:       1,
+		StallTicks: 3,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	go runRegulator(ctx, &target, ring, &completed, cfg, nil)
+
+	// Stall halves target each fire. With Tick=5ms and StallTicks=3 the
+	// first throttle should land within ~20ms; sustained stall drives
+	// 8 → 4 → 2 → 1 within a few hundred ms.
+	deadline := time.Now().Add(400 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if target.Load() <= 2 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := target.Load(); got > 4 {
+		t.Errorf("expected stall (with empty RTT ring) to drive target ≤ 4, got %d", got)
+	}
+	cancel()
+}
+
 // stallDetectionResetsOnProgress verifies the stall counter resets when
 // batches start completing again (i.e., a transient stall doesn't keep
 // throttling forever after the system recovers).

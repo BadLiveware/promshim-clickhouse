@@ -27,7 +27,7 @@ type suiteTestCase struct {
 type reportRow struct {
 	Query                string   `json:"query"`
 	ShouldFail           bool     `json:"shouldFail,omitempty"`
-	Path2Status          string   `json:"path2Status"`
+	NativeStatus         string   `json:"nativeStatus"`
 	ImplementationBucket string   `json:"implementationBucket,omitempty"`
 	PlanSupported        bool     `json:"planSupported"`
 	PlanDifficulty       string   `json:"planDifficulty,omitempty"`
@@ -41,8 +41,8 @@ type reportRow struct {
 }
 
 type statusSummary struct {
-	Path2Status string `json:"path2Status"`
-	Count       int    `json:"count"`
+	NativeStatus string `json:"nativeStatus"`
+	Count        int    `json:"count"`
 }
 
 type bucketSummary struct {
@@ -54,7 +54,7 @@ type complianceReport struct {
 	SourcePath               string          `json:"sourcePath"`
 	ExpandedQueries          int             `json:"expandedQueries"`
 	ShouldFailQueries        int             `json:"shouldFailQueries"`
-	Path2StatusSummary       []statusSummary `json:"path2StatusSummary"`
+	NativeStatusSummary      []statusSummary `json:"nativeStatusSummary"`
 	UnsupportedBucketSummary []bucketSummary `json:"unsupportedBucketSummary,omitempty"`
 	PartialBucketSummary     []bucketSummary `json:"partialBucketSummary,omitempty"`
 	UnsupportedExamples      []reportRow     `json:"unsupportedExamples,omitempty"`
@@ -82,8 +82,8 @@ var variantArgs = map[string][]string{
 
 func main() {
 	source := flag.String("source", filepath.FromSlash("harness/compliance/prom-compliance/promql/promql-test-queries.yml"), "Prometheus compliance query YAML")
-	jsonOut := flag.String("json-out", filepath.FromSlash("path2-promql-compliance-alignment.json"), "JSON output path")
-	mdOut := flag.String("md-out", filepath.FromSlash("path2-promql-compliance-alignment.md"), "Markdown output path")
+	jsonOut := flag.String("json-out", filepath.FromSlash("native-promql-compliance-alignment.json"), "JSON output path")
+	mdOut := flag.String("md-out", filepath.FromSlash("native-promql-compliance-alignment.md"), "Markdown output path")
 	maxExamples := flag.Int("max-examples", 40, "Max partial/unsupported example rows per section")
 	flag.Parse()
 
@@ -126,8 +126,8 @@ func buildReport(source string, maxExamples int) (complianceReport, error) {
 		}
 		snapshot, err := compliance.MeasureNativeSupport(tc.Query)
 		if err != nil {
-			row := reportRow{Query: tc.Query, ShouldFail: tc.ShouldFail, Path2Status: "no", ImplementationBucket: compliance.ClassifyImplementationBucket(tc.Query, compliance.NativeMeasurementSnapshot{}, true), Notes: []string{err.Error()}}
-			statusCounts[row.Path2Status]++
+			row := reportRow{Query: tc.Query, ShouldFail: tc.ShouldFail, NativeStatus: "no", ImplementationBucket: compliance.ClassifyImplementationBucket(tc.Query, compliance.NativeMeasurementSnapshot{}, true), Notes: []string{err.Error()}}
+			statusCounts[row.NativeStatus]++
 			unsupportedBucketCounts[row.ImplementationBucket]++
 			if len(unsupported) < maxExamples {
 				unsupported = append(unsupported, row)
@@ -146,10 +146,10 @@ func buildReport(source string, maxExamples int) (complianceReport, error) {
 			AggregationEligible: snapshot.AggregationEligible,
 			OutputKind:          snapshot.OutputKind,
 		}
-		row.Path2Status = compliance.ClassifyPath2Status(snapshot, tc.Query)
+		row.NativeStatus = compliance.ClassifyNativeStatus(snapshot, tc.Query)
 		row.ImplementationBucket = compliance.ClassifyImplementationBucket(tc.Query, snapshot, tc.ShouldFail)
-		statusCounts[row.Path2Status]++
-		switch row.Path2Status {
+		statusCounts[row.NativeStatus]++
+		switch row.NativeStatus {
 		case "no":
 			unsupportedBucketCounts[row.ImplementationBucket]++
 			if len(unsupported) < maxExamples {
@@ -169,7 +169,7 @@ func buildReport(source string, maxExamples int) (complianceReport, error) {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		report.Path2StatusSummary = append(report.Path2StatusSummary, statusSummary{Path2Status: k, Count: statusCounts[k]})
+		report.NativeStatusSummary = append(report.NativeStatusSummary, statusSummary{NativeStatus: k, Count: statusCounts[k]})
 	}
 	report.UnsupportedBucketSummary = summarizeBuckets(unsupportedBucketCounts)
 	report.PartialBucketSummary = summarizeBuckets(partialBucketCounts)
@@ -259,16 +259,16 @@ func writeMarkdown(path string, report complianceReport) error {
 		return err
 	}
 	var b strings.Builder
-	b.WriteString("# Path 2 PromQL compliance alignment\n\n")
+	b.WriteString("# Native PromQL compliance alignment\n\n")
 	b.WriteString("This file is generated from the read-only Prometheus compliance suite at `harness/compliance/prom-compliance/promql/promql-test-queries.yml`.\n\n")
 	_, _ = fmt.Fprintf(&b, "- Source: `%s`\n", report.SourcePath)
 	_, _ = fmt.Fprintf(&b, "- Expanded queries: `%d`\n", report.ExpandedQueries)
 	_, _ = fmt.Fprintf(&b, "- `should_fail` queries: `%d`\n\n", report.ShouldFailQueries)
 	b.WriteString("## Summary\n\n")
-	b.WriteString("| Path 2 status | Count |\n")
+	b.WriteString("| Native status | Count |\n")
 	b.WriteString("|---|---:|\n")
-	for _, item := range report.Path2StatusSummary {
-		_, _ = fmt.Fprintf(&b, "| `%s` | %d |\n", item.Path2Status, item.Count)
+	for _, item := range report.NativeStatusSummary {
+		_, _ = fmt.Fprintf(&b, "| `%s` | %d |\n", item.NativeStatus, item.Count)
 	}
 	b.WriteString("\n")
 	writeBucketSummary(&b, "Unsupported implementation buckets", report.UnsupportedBucketSummary)

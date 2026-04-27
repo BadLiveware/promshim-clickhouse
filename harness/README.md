@@ -287,8 +287,8 @@ go run ./cmd/promshim-promql-compliance
 
 That writes:
 
-- `path2-promql-compliance-alignment.json`
-- `path2-promql-compliance-alignment.md`
+- `native-promql-compliance-alignment.json`
+- `native-promql-compliance-alignment.md`
 
 and expands the upstream `promql-test-queries.yml` variant matrix so the current native measurement surface can be compared against the same query families the compliance suite expects.
 

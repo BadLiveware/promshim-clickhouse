@@ -136,9 +136,10 @@ func TestBenchmarkCorpusMetadataMatchesCorpora(t *testing.T) {
 				Name           string `json:"name"`
 				Purpose        string `json:"purpose"`
 				ProfileCorpora []struct {
-					Profile string `json:"profile"`
-					Path    string `json:"path"`
-					Rows    int    `json:"rows"`
+					Profile  string `json:"profile"`
+					Path     string `json:"path"`
+					Rows     int    `json:"rows"`
+					EvalTime string `json:"evalTime"`
 				} `json:"profileCorpora"`
 			}
 			if err := json.Unmarshal(payload, &metadata); err != nil {
@@ -165,6 +166,24 @@ func TestBenchmarkCorpusMetadataMatchesCorpora(t *testing.T) {
 				seenProfiles[corpus.Profile] = struct{}{}
 				if !strings.HasPrefix(corpus.Path, "harness/corpus/") {
 					t.Fatalf("profile corpus path %q must live under harness/corpus", corpus.Path)
+				}
+				if strings.TrimSpace(corpus.EvalTime) == "" {
+					t.Fatalf("profile corpus %q evalTime must not be empty", corpus.Path)
+				}
+				switch corpus.Profile {
+				case "7d", "30d", "1y":
+					wantEvalTime, err := ProfileEndTime(corpus.Profile, "sparse")
+					if err != nil {
+						t.Fatalf("compute profile eval time: %v", err)
+					}
+					if corpus.EvalTime != wantEvalTime {
+						t.Fatalf("profile corpus %q evalTime mismatch: metadata=%s sweep=%s", corpus.Path, corpus.EvalTime, wantEvalTime)
+					}
+				case "compliance-fixture":
+					// Compliance-fixture benchmark corpora use run-bench's small frozen fixture,
+					// not the isolated long-range sweep profile schedule.
+				default:
+					t.Fatalf("profile corpus %q has unsupported profile %q", corpus.Path, corpus.Profile)
 				}
 				queries, err := LoadQueryCorpus(filepath.Join("..", "..", corpus.Path))
 				if err != nil {

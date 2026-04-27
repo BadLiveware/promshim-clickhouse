@@ -236,6 +236,44 @@ func RenderCHProfileMarkdown(sourceReport string, rows []CHProfileRow, errors []
 	return strings.Join(lines, "\n") + "\n"
 }
 
+func RenderCHProfileTerminalHighlights(rows []CHProfileRow) string {
+	if len(rows) == 0 {
+		return ""
+	}
+	sortedRows := append([]CHProfileRow(nil), rows...)
+	sort.SliceStable(sortedRows, func(i, j int) bool {
+		if sortedRows[i].QueryDurationP50MS == sortedRows[j].QueryDurationP50MS {
+			return sortedRows[i].MemoryP95Bytes > sortedRows[j].MemoryP95Bytes
+		}
+		return sortedRows[i].QueryDurationP50MS > sortedRows[j].QueryDurationP50MS
+	})
+	if len(sortedRows) > 5 {
+		sortedRows = sortedRows[:5]
+	}
+	lines := []string{"ClickHouse profile highlights:"}
+	for _, row := range sortedRows {
+		top := ""
+		if len(row.TopProcessors) > 0 {
+			parts := make([]string, 0, min(len(row.TopProcessors), 3))
+			for _, processor := range row.TopProcessors[:min(len(row.TopProcessors), 3)] {
+				parts = append(parts, fmt.Sprintf("%s %gs", processor.Name, processor.ElapsedSeconds))
+			}
+			top = " top=" + strings.Join(parts, ", ")
+		}
+		lines = append(lines, fmt.Sprintf("  %s mode=%s ch_p50=%gms mem_p95=%s read_p50=%s join_p50=%s filter_p50=%s%s",
+			row.QueryName,
+			row.Mode,
+			row.QueryDurationP50MS,
+			humanCHBytes(row.MemoryP95Bytes),
+			humanCHNumber(row.ReadRowsP50),
+			humanCHNumber(row.JoinResultRowCountP50),
+			humanCHNumber(row.FilterTransformPassedRowsP50),
+			top,
+		))
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
 func safeCHProfilePart(value string) string {
 	value = strings.TrimSpace(value)
 	value = chProfileSafePartPattern.ReplaceAllString(value, "_")

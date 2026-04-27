@@ -2,8 +2,16 @@ package promharness
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
+)
+
+const (
+	DefaultActiveSeriesPreset = "fast"
+	seriesPerInstance         = 13
+	defaultJobs               = 2
 )
 
 type SweepPlanOptions struct {
@@ -11,6 +19,8 @@ type SweepPlanOptions struct {
 	ArtifactRoot               string
 	Profile                    string
 	Density                    string
+	ActiveSeries               string
+	ActiveSeriesPreset         string
 	Transport                  string
 	SeedPolicy                 string
 	SkipCompliance             bool
@@ -27,16 +37,25 @@ type SweepPlanOptions struct {
 	Estimate                   bool
 }
 
+type ActiveSeriesSelection struct {
+	Label  string
+	Target int
+	Preset string
+	Legacy string
+}
+
 type SweepDatasetPlan struct {
-	Profile  string
-	Density  string
-	EvalTime string
-	Estimate string
+	Profile            string
+	ActiveSeriesLabel  string
+	ActiveSeriesTarget int
+	ActiveSeriesActual int
+	EvalTime           string
+	Estimate           string
 }
 type SweepCorpusPlan struct {
-	Profile string
-	Density string
-	Path    string
+	Profile           string
+	ActiveSeriesLabel string
+	Path              string
 }
 
 type SweepPlan struct {
@@ -56,37 +75,133 @@ func ProfilesFor(profile string) ([]string, error) {
 		return nil, fmt.Errorf("--profile must be 7d|30d|1y|all (got: %s)", profile)
 	}
 }
-func DensitiesFor(density string) ([]string, error) {
-	switch density {
+
+func ActiveSeriesSelections(activeSeries, preset, legacyDensity string) ([]ActiveSeriesSelection, error) {
+	activeSeries = strings.TrimSpace(activeSeries)
+	preset = strings.TrimSpace(preset)
+	legacyDensity = strings.TrimSpace(legacyDensity)
+	if activeSeries != "" && (preset != "" || legacyDensity != "") {
+		return nil, fmt.Errorf("--active-series cannot be combined with --active-series-preset/--named-active-series or --density")
+	}
+	if preset != "" && legacyDensity != "" {
+		return nil, fmt.Errorf("--active-series-preset/--named-active-series cannot be combined with --density")
+	}
+	if activeSeries != "" {
+		target, err := parseActiveSeries(activeSeries)
+		if err != nil {
+			return nil, err
+		}
+		return []ActiveSeriesSelection{{Label: fmt.Sprintf("custom-%s", formatCompactNumber(target)), Target: target}}, nil
+	}
+	if preset != "" {
+		return activeSeriesSelectionsForPreset(preset)
+	}
+	if legacyDensity != "" {
+		return activeSeriesSelectionsForLegacyDensity(legacyDensity)
+	}
+	return activeSeriesSelectionsForPreset(DefaultActiveSeriesPreset)
+}
+
+func activeSeriesSelectionsForPreset(preset string) ([]ActiveSeriesSelection, error) {
+	switch strings.ToLower(strings.TrimSpace(preset)) {
 	case "all":
-		return []string{"sparse", "dense"}, nil
-	case "sparse", "dense", "stress-50k", "stress-500k":
-		return []string{density}, nil
+		return []ActiveSeriesSelection{
+			{Label: "fast-5k", Target: 5000, Preset: "fast"},
+			{Label: "profile-50k", Target: 50000, Preset: "profile-50k"},
+			{Label: "profile-500k", Target: 500000, Preset: "profile-500k"},
+		}, nil
+	case "fast", "5k", "fast-5k":
+		return []ActiveSeriesSelection{{Label: "fast-5k", Target: 5000, Preset: "fast"}}, nil
+	case "profile-50k", "50k", "low-realistic", "low-realistic-50k":
+		return []ActiveSeriesSelection{{Label: "profile-50k", Target: 50000, Preset: "profile-50k"}}, nil
+	case "profile-500k", "500k", "medium-realistic", "medium-realistic-500k":
+		return []ActiveSeriesSelection{{Label: "profile-500k", Target: 500000, Preset: "profile-500k"}}, nil
 	default:
-		return nil, fmt.Errorf("--density must be sparse|dense|stress-50k|stress-500k|all (got: %s)", density)
+		return nil, fmt.Errorf("--active-series-preset must be fast|profile-50k|profile-500k|all (got: %s)", preset)
 	}
 }
 
-func ProfileEndTime(profile, density string) (string, error) {
+func activeSeriesSelectionsForLegacyDensity(density string) ([]ActiveSeriesSelection, error) {
+	switch density {
+	case "all":
+		return []ActiveSeriesSelection{
+			{Label: "sparse", Target: 130, Legacy: "sparse"},
+			{Label: "dense", Target: 2600, Legacy: "dense"},
+		}, nil
+	case "sparse":
+		return []ActiveSeriesSelection{{Label: "sparse", Target: 130, Legacy: "sparse"}}, nil
+	case "dense":
+		return []ActiveSeriesSelection{{Label: "dense", Target: 2600, Legacy: "dense"}}, nil
+	case "stress-50k":
+		return []ActiveSeriesSelection{{Label: "profile-50k", Target: 50000, Preset: "profile-50k", Legacy: density}}, nil
+	case "stress-500k":
+		return []ActiveSeriesSelection{{Label: "profile-500k", Target: 500000, Preset: "profile-500k", Legacy: density}}, nil
+	default:
+		return nil, fmt.Errorf("--density is deprecated; use --active-series or --active-series-preset. Legacy values: sparse|dense|stress-50k|stress-500k|all (got: %s)", density)
+	}
+}
+
+func parseActiveSeries(raw string) (int, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	multiplier := 1.0
+	if strings.HasSuffix(value, "k") {
+		multiplier = 1000
+		value = strings.TrimSuffix(value, "k")
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil || parsed <= 0 {
+		return 0, fmt.Errorf("--active-series must be a positive integer or k-suffixed value (got: %s)", raw)
+	}
+	return int(math.Ceil(parsed * multiplier)), nil
+}
+
+func InstancesPerJobForActiveSeries(target int) int {
+	if target <= 0 {
+		return 1
+	}
+	return int(math.Ceil(float64(target) / float64(defaultJobs*seriesPerInstance)))
+}
+
+func ActualActiveSeries(target int) int {
+	return defaultJobs * InstancesPerJobForActiveSeries(target) * seriesPerInstance
+}
+
+func formatCompactNumber(n int) string {
+	if n%1000 == 0 {
+		return fmt.Sprintf("%dk", n/1000)
+	}
+	return fmt.Sprintf("%d", n)
+}
+
+func ProfileEndTime(profile, activeSeriesLabel string) (string, error) {
 	base := map[string]string{"7d": "2026-03-22T21:45:42Z", "30d": "2026-02-22T21:45:42Z", "1y": "2025-03-22T21:45:42Z"}
 	durations := map[string]time.Duration{"7d": 7 * 24 * time.Hour, "30d": 30 * 24 * time.Hour, "1y": 365 * 24 * time.Hour}
-	slots := map[string]int{"sparse": 0, "dense": 1, "stress-50k": 2, "stress-500k": 3}
 	b, ok := base[profile]
 	if !ok {
 		return "", fmt.Errorf("unknown profile %s", profile)
-	}
-	slot, ok := slots[density]
-	if !ok {
-		return "", fmt.Errorf("unknown density %s", density)
 	}
 	t, err := time.Parse(time.RFC3339, b)
 	if err != nil {
 		return "", err
 	}
+	slot := activeSeriesSlot(activeSeriesLabel)
 	if slot > 0 {
 		t = t.Add(-time.Duration(slot) * durations[profile]).Add(-time.Duration(slot) * 24 * time.Hour)
 	}
 	return t.UTC().Format(time.RFC3339), nil
+}
+
+func activeSeriesSlot(label string) int {
+	switch label {
+	case "sparse", "fast-5k":
+		return 0
+	case "dense", "profile-50k":
+		return 1
+	case "profile-500k":
+		return 2
+	default:
+		return 3
+	}
 }
 
 func CorpusPathsFor(profile, set string) ([]string, error) {
@@ -113,33 +228,16 @@ func CorpusPathsFor(profile, set string) ([]string, error) {
 	return out, nil
 }
 
-func EstimateSamples(profile, density string) (string, error) {
+func EstimateSamples(profile string, selection ActiveSeriesSelection) (string, error) {
 	prof := map[string][2]int{"7d": {7 * 24 * 3600, 15}, "30d": {30 * 24 * 3600, 60}, "1y": {365 * 24 * 3600, 300}}
 	p, ok := prof[profile]
 	if !ok {
 		return "", fmt.Errorf("unknown profile %s", profile)
 	}
 	points := p[0] / p[1]
-	instances := 0
-	switch density {
-	case "sparse":
-		instances = 5
-	case "dense":
-		if profile == "1y" {
-			instances = 50
-		} else {
-			instances = 100
-		}
-	case "stress-50k":
-		instances = 1924
-	case "stress-500k":
-		instances = 19231
-	default:
-		return "", fmt.Errorf("unknown density %s", density)
-	}
-	series := 2 * instances * 13
-	samples := series * points
-	return fmt.Sprintf("series≈%s points/series≈%s samples≈%s disk≈%.1fGiB-headroom", comma(series), comma(points), comma(samples), float64(samples)*60/1024/1024/1024), nil
+	actual := ActualActiveSeries(selection.Target)
+	samples := actual * points
+	return fmt.Sprintf("target_series≈%s actual_series≈%s instances/job=%s points/series≈%s samples≈%s disk≈%.1fGiB-headroom", comma(selection.Target), comma(actual), comma(InstancesPerJobForActiveSeries(selection.Target)), comma(points), comma(samples), float64(samples)*60/1024/1024/1024), nil
 }
 
 func BuildSweepPlan(opts SweepPlanOptions) (SweepPlan, error) {
@@ -147,7 +245,7 @@ func BuildSweepPlan(opts SweepPlanOptions) (SweepPlan, error) {
 	if err != nil {
 		return SweepPlan{}, err
 	}
-	densities, err := DensitiesFor(opts.Density)
+	selections, err := ActiveSeriesSelections(opts.ActiveSeries, opts.ActiveSeriesPreset, opts.Density)
 	if err != nil {
 		return SweepPlan{}, err
 	}
@@ -157,14 +255,14 @@ func BuildSweepPlan(opts SweepPlanOptions) (SweepPlan, error) {
 	}
 	plan := SweepPlan{Options: opts, ArtifactDir: artifactRoot + "/bench/sweeps/" + opts.RunName}
 	for _, p := range profiles {
-		for _, d := range densities {
-			eval, err := ProfileEndTime(p, d)
+		for _, selection := range selections {
+			eval, err := ProfileEndTime(p, selection.Label)
 			if err != nil {
 				return plan, err
 			}
-			ds := SweepDatasetPlan{Profile: p, Density: d, EvalTime: eval}
+			ds := SweepDatasetPlan{Profile: p, ActiveSeriesLabel: selection.Label, ActiveSeriesTarget: selection.Target, ActiveSeriesActual: ActualActiveSeries(selection.Target), EvalTime: eval}
 			if opts.Estimate {
-				est, err := EstimateSamples(p, d)
+				est, err := EstimateSamples(p, selection)
 				if err != nil {
 					return plan, err
 				}
@@ -177,7 +275,7 @@ func BuildSweepPlan(opts SweepPlanOptions) (SweepPlan, error) {
 					return plan, err
 				}
 				for _, path := range paths {
-					plan.Corpora = append(plan.Corpora, SweepCorpusPlan{Profile: p, Density: d, Path: path})
+					plan.Corpora = append(plan.Corpora, SweepCorpusPlan{Profile: p, ActiveSeriesLabel: selection.Label, Path: path})
 				}
 			}
 		}
@@ -204,7 +302,7 @@ func RenderSweepPlan(plan SweepPlan) string {
 	fmt.Fprintf(&b, "promshim settings profile: %s\n\n", o.SettingsProfile)
 	b.WriteString("Datasets:\n")
 	for _, d := range plan.Datasets {
-		fmt.Fprintf(&b, "  %-3s %-6s eval=%s", d.Profile, d.Density, d.EvalTime)
+		fmt.Fprintf(&b, "  %-3s %-24s eval=%s", d.Profile, d.ActiveSeriesLabel, d.EvalTime)
 		if d.Estimate != "" {
 			fmt.Fprintf(&b, " %s", d.Estimate)
 		}
@@ -214,7 +312,7 @@ func RenderSweepPlan(plan SweepPlan) string {
 	if !o.SkipBench {
 		b.WriteString("Benchmark corpora:\n")
 		for _, c := range plan.Corpora {
-			fmt.Fprintf(&b, "  %-3s %-6s %s\n", c.Profile, c.Density, c.Path)
+			fmt.Fprintf(&b, "  %-3s %-24s %s\n", c.Profile, c.ActiveSeriesLabel, c.Path)
 		}
 	}
 	return b.String()

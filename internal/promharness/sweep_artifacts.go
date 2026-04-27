@@ -18,7 +18,7 @@ type SweepArtifactOptions struct {
 	ArtifactDir                string
 	RunName                    string
 	Profile                    string
-	Density                    string
+	ActiveSeries               string
 	Transport                  string
 	SeedPolicy                 string
 	ShimModes                  string
@@ -93,7 +93,8 @@ type SweepManifest struct {
 
 type SweepAxes struct {
 	Profile                    string   `json:"profile"`
-	Density                    string   `json:"density"`
+	ActiveSeries               string   `json:"activeSeries"`
+	LegacyDensity              string   `json:"density,omitempty"`
 	Transport                  string   `json:"transport"`
 	SeedPolicy                 string   `json:"seedPolicy"`
 	ShimModes                  []string `json:"shimModes"`
@@ -131,7 +132,8 @@ type SweepBenchReport struct {
 	Path            string   `json:"path"`
 	CorpusPath      string   `json:"corpusPath,omitempty"`
 	Profile         string   `json:"profile,omitempty"`
-	Density         string   `json:"density,omitempty"`
+	ActiveSeries    string   `json:"activeSeries,omitempty"`
+	LegacyDensity   string   `json:"density,omitempty"`
 	Transport       string   `json:"transport,omitempty"`
 	RoutingPolicies []string `json:"routingPolicies"`
 	RowCount        int      `json:"rowCount"`
@@ -222,7 +224,7 @@ func BuildSweepArtifacts(opts SweepArtifactOptions) error {
 		ArtifactDir:   opts.ArtifactDir,
 		Axes: SweepAxes{
 			Profile:                    opts.Profile,
-			Density:                    opts.Density,
+			ActiveSeries:               opts.ActiveSeries,
 			Transport:                  opts.Transport,
 			SeedPolicy:                 opts.SeedPolicy,
 			ShimModes:                  splitNonEmpty(opts.ShimModes),
@@ -343,7 +345,7 @@ func (c *sweepCollector) collectReport(path string) error {
 		Path:            rel,
 		CorpusPath:      report.CorpusPath,
 		Profile:         report.RunLabels["profile"],
-		Density:         report.RunLabels["density"],
+		ActiveSeries:    firstNonEmpty(report.RunLabels["active-series"], report.RunLabels["density"]),
 		Transport:       report.RunLabels["transport"],
 		RoutingPolicies: sortedKeys(reportPolicies),
 		RowCount:        len(report.Rows),
@@ -495,7 +497,7 @@ func renderSweepSummaryMarkdown(opts SweepArtifactOptions, c *sweepCollector) st
 		fmt.Sprintf("- Reports: `%d`", len(c.reports)),
 		fmt.Sprintf("- Transport: `%s`", opts.Transport),
 		fmt.Sprintf("- Profiles: `%s`", opts.Profile),
-		fmt.Sprintf("- Density: `%s`", opts.Density),
+		fmt.Sprintf("- Active series: `%s`", opts.ActiveSeries),
 		fmt.Sprintf("- Modes: `%s`", opts.ShimModes),
 		fmt.Sprintf("- Routing policies: `%s`", routing),
 		fmt.Sprintf("- Warmup routing policies: `%s`", valueOr(opts.WarmupRoutingPolicies, "none")),

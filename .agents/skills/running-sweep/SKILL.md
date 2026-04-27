@@ -1,6 +1,6 @@
 ---
 name: running-sweep
-description: Use when running promshim's one-command benchmark/compliance sweep, setting up or resetting isolated benchmark data, comparing profiles/densities/transports/modes, or reviewing sweep artifacts from scripts/run-sweep.sh.
+description: Use when running promshim's one-command benchmark/compliance sweep, setting up or resetting isolated benchmark data, comparing profiles/active-series targets/transports/modes, or reviewing sweep artifacts from scripts/run-sweep.sh.
 ---
 
 # Running Benchmark/Compliance Sweeps
@@ -9,7 +9,7 @@ description: Use when running promshim's one-command benchmark/compliance sweep,
 
 `./scripts/run-sweep.sh` is the primary user-facing workflow for combined
 compliance and benchmark evaluation. It keeps benchmark data in an isolated
-benchmark stack under `harness/bench/` so long-range or dense datasets never
+benchmark stack under `harness/bench/` so long-range benchmark datasets never
 contaminate the frozen compliance fixture.
 
 Use this instead of hand-written seed/bench loops unless you are debugging a
@@ -48,16 +48,16 @@ Show benchmark stack and seed-marker state:
 ./scripts/run-sweep.sh --bench-status
 ```
 
-One-time sparse setup for all long-range profiles:
+One-time fast active-series setup for all long-range profiles:
 
 ```bash
-./scripts/run-sweep.sh --setup --profile all --density sparse --target both
+./scripts/run-sweep.sh --setup --profile all --active-series-preset fast --target both
 ```
 
-One-time dense setup for processing benchmarks:
+One-time profile-50k active-series setup for processing benchmarks:
 
 ```bash
-./scripts/run-sweep.sh --setup --profile 7d --density dense --target both
+./scripts/run-sweep.sh --setup --profile 7d --active-series-preset profile-50k --target both
 ```
 
 Run a named default sweep:
@@ -72,7 +72,7 @@ Run a focused benchmark-only smoke using existing data:
 ./scripts/run-sweep.sh \
   --name sweep-smoke \
   --profile 7d \
-  --density sparse \
+  --active-series-preset fast \
   --seed reuse \
   --skip-compliance \
   --shim-modes prefer \
@@ -86,7 +86,7 @@ Compare multiple execution modes:
 ./scripts/run-sweep.sh \
   --name mode-compare \
   --profile 7d \
-  --density sparse \
+  --active-series-preset fast \
   --skip-compliance \
   --shim-modes prefer,force_supported,off \
   --memory summary
@@ -109,14 +109,14 @@ Stop benchmark containers while keeping data for reuse:
 | Policy | Meaning |
 |---|---|
 | `reuse` | Normal default; require selected data to already exist. |
-| `missing` | Setup default; seed only missing selected profile/density/target data. |
+| `missing` | Setup default; seed only missing selected profile/active-series/target data. |
 | `always` | Deliberately write selected data again. Use sparingly. |
 | `never` | Skip seed checks/writes. Useful for unusual manual setups. |
 
 If a normal run reports missing data, run the printed `--setup` command rather
 than switching to compliance-stack seeding.
 
-## Profiles, densities, and corpora
+## Profiles, active-series targets, and corpora
 
 Profiles:
 
@@ -125,11 +125,13 @@ Profiles:
 - `1y`
 - `all`
 
-Densities:
+Active-series selection:
 
-- `sparse` — faster, broad benchmark signal.
-- `dense` — higher cardinality; use for real processing-workload latency.
-- `all`
+- `--active-series-preset fast` — default, targets about 5k active series.
+- `--active-series-preset profile-50k` — targets about 50k active series for profiling/processing signal.
+- `--active-series-preset profile-500k` — targets about 500k active series for stress profiling.
+- `--active-series N` — custom target, e.g. `12k` or `75000`.
+- `--density sparse|dense|stress-50k|stress-500k` remains as a deprecated compatibility alias.
 
 Corpus sets:
 
@@ -137,7 +139,7 @@ Corpus sets:
 - `processing` — heavy/bounded-output processing corpora with advisory Prom p50 target bands.
 - `both`
 
-Use `--estimate` before dense/all runs. Estimates are rough and host-dependent.
+Use `--estimate` before higher-cardinality or `all` runs. Estimates are rough and host-dependent.
 `--estimate` implies dry-run unless `--execute` is passed.
 
 ## Artifacts
@@ -145,7 +147,7 @@ Use `--estimate` before dense/all runs. Estimates are rough and host-dependent.
 Named sweep artifacts live under:
 
 ```text
-harness/artifacts/sweeps/<run-name>/
+harness/artifacts/bench/sweeps/<run-name>/
 ```
 
 Important files:
@@ -155,15 +157,15 @@ Important files:
 | `manifest.json` | Machine-readable sweep manifest with axes, endpoints, reports, memory artifacts. |
 | `summary.md` | Human-readable summary with strategy histogram, target bands, top slow rows. |
 | `summary.json` | Machine-readable summary. |
-| `bench-report-*.json` | v2 benchmark report, one per profile/density/corpus. |
+| `bench-report-*.json` | v2 benchmark report, one per profile/active-series/corpus. |
 | `memory-summary-*.json` | ClickHouse query_log/ProfileEvents + promshim metrics snapshot. |
 | `memory-detail-*/manifest.json` | Whole-run pprof snapshot manifest for `--memory detailed`. |
 
 Render matrices from a completed sweep:
 
 ```bash
-./scripts/bench-matrix.sh --sweep harness/artifacts/sweeps/<run-name>/manifest.json
-./scripts/bench-matrix.sh --sweep harness/artifacts/sweeps/<run-name>/manifest.json --per-query
+./scripts/bench-matrix.sh --sweep harness/artifacts/bench/sweeps/<run-name>/manifest.json
+./scripts/bench-matrix.sh --sweep harness/artifacts/bench/sweeps/<run-name>/manifest.json --per-query
 ```
 
 ## Memory modes
@@ -183,12 +185,12 @@ per-query/per-mode heap captures. Cgroup current/peak is not captured yet.
 
 ## Known gotchas
 
-- Do not benchmark long-range/dense data against the compliance ports.
+- Do not benchmark long-range active-series data against the compliance ports.
 - Do not run ad-hoc `curl`, `docker exec`, or ClickHouse queries during a sweep
   if you plan to interpret `system.query_log` memory/ProfileEvents artifacts.
 - `run-sweep.sh` serializes scripted runs with project locks, but cannot guard
   manual interactive access.
-- If `manifest.json` lacks run labels/profile/density, suspect a CLI parsing
+- If `manifest.json` lacks run labels/profile/active-series, suspect a CLI parsing
   regression around Go boolean flags; `run-bench.sh` must pass boolean flags as
   `--include-prom=true`, not `--include-prom true`.
 - `run-sweep.sh` rebuilds buildable benchmark services on stack start. Docker
@@ -213,7 +215,7 @@ For a live smoke that exercises isolated benchmark data and memory summaries:
 ./scripts/run-sweep.sh \
   --name sweep-smoke-live \
   --profile 7d \
-  --density sparse \
+  --active-series-preset fast \
   --seed missing \
   --skip-compliance \
   --shim-modes prefer \
@@ -224,8 +226,8 @@ For a live smoke that exercises isolated benchmark data and memory summaries:
 Then verify:
 
 ```bash
-jq '.bench' harness/artifacts/sweeps/sweep-smoke-live/manifest.json
+jq '.bench' harness/artifacts/bench/sweeps/sweep-smoke-live/manifest.json
 jq '{rows: (.clickHouseQueryLog|length), missing: (.missingLogComments|length), errors}' \
-  harness/artifacts/sweeps/sweep-smoke-live/memory-summary-*.json
-./scripts/bench-matrix.sh --sweep harness/artifacts/sweeps/sweep-smoke-live/manifest.json
+  harness/artifacts/bench/sweeps/sweep-smoke-live/memory-summary-*.json
+./scripts/bench-matrix.sh --sweep harness/artifacts/bench/sweeps/sweep-smoke-live/manifest.json
 ```

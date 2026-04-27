@@ -3,7 +3,7 @@
   "purpose": "Benchmark corpus family for native SQL lowering, routing, and CBE tripwire measurements.",
   "defaultStatus": {
     "standaloneBench": "harness/corpus/bench-native-lowering.json",
-    "sparseSweep": "harness/corpus/bench-native-lowering-7d.json via ./scripts/run-sweep.sh --corpus-set native"
+    "fastSweep": "harness/corpus/bench-native-lowering-7d.json via ./scripts/run-sweep.sh --active-series-preset fast --corpus-set native"
   },
   "stackAssumptions": {
     "standaloneBench": "frozen compliance stack fixture on Prometheus :29090 and promshim :29091",
@@ -22,21 +22,21 @@
       "path": "harness/corpus/bench-native-lowering-7d.json",
       "rows": 34,
       "evalTime": "2026-03-22T21:45:42Z",
-      "use": "Default sparse sweep corpus; includes the broadest routing/CBE benchmark shape coverage."
+      "use": "Default fast active-series sweep corpus; includes the broadest routing/CBE benchmark shape coverage."
     },
     {
       "profile": "30d",
       "path": "harness/corpus/bench-native-lowering-30d.json",
       "rows": 16,
       "evalTime": "2026-02-22T21:45:42Z",
-      "use": "Longer-window sparse scaling check."
+      "use": "Longer-window active-series scaling check."
     },
     {
       "profile": "1y",
       "path": "harness/corpus/bench-native-lowering-1y.json",
       "rows": 16,
       "evalTime": "2025-03-22T21:45:42Z",
-      "use": "Year-window sparse scaling check."
+      "use": "Year-window active-series scaling check."
     }
   ],
   "comparisonNotes": [
@@ -45,6 +45,6 @@
   ],
   "recommendedCommands": [
     "./scripts/run-bench.sh --corpus harness/corpus/bench-native-lowering.json",
-    "./scripts/run-sweep.sh --name native-sparse --profile 7d --density sparse --corpus-set native"
+    "./scripts/run-sweep.sh --name native-fast --profile 7d --active-series-preset fast --corpus-set native"
   ]
 }

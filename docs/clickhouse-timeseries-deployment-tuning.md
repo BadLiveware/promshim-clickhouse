@@ -60,15 +60,22 @@ lookup work and benefit from dictionary encoding.
 Promshim support:
 
 - Set `PROM_SHIM_PROMOTED_TAG_COLUMNS=instance,pod,node` when the promoted label
-  list is known from deployment configuration.
-- Or set `PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS=true` to let promshim describe
-  `timeSeriesTags(database.table)` at startup and add non-system columns to the
-  promoted set. If discovery fails, promshim logs the failure and continues with
-  the explicit list only; keep an explicit list for locked-down environments
-  where startup metadata queries are not allowed.
-- Promshim still uses `mapContains(tags, '<label>')` for narrowed label
-  projection presence semantics, but reads the promoted column value when it is
-  known to exist.
+  list is known from deployment configuration. The current setting is an
+  identity mapping: each listed Prometheus label must be exposed by the
+  TimeSeries tags table as a column with the same name.
+- Or set `PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS=true` to let promshim query
+  ClickHouse `system.columns` / `system.tables` at startup and add identity
+  `tags_to_columns` entries such as `'instance':'instance'` to the promoted set.
+  If discovery fails, promshim logs the failure and continues with the explicit
+  list only; keep an explicit list for locked-down environments where startup
+  metadata queries are not allowed.
+- Non-identity mappings such as `tags_to_columns = {'job':'job_col'}` remain on
+  the safe Map-probe path unless a future schema model records the label-to-column
+  mapping explicitly.
+- For discovered or configured identity columns, promshim emits direct column
+  reads for matchers and label projection. Full label projection appends
+  non-empty promoted-column values and filters those labels out of the residual
+  `tags` map entries to avoid duplicates.
 
 Rollout guidance:
 
@@ -77,8 +84,8 @@ Rollout guidance:
 2. Verify `DESCRIBE TABLE timeSeriesTags(database.table)` shows the label
    columns.
 3. Enable `PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS=true` or set the explicit
-   comma-separated list.
-4. Use `/api/v1/query_explain` to confirm native SQL reads `src.`label`` for
+   comma-separated list for identity label/column mappings.
+4. Use `/api/v1/query_explain` to confirm native SQL reads `src.\`label\`` for
    configured labels rather than `src.tags[...]`.
 
 ### Prefer smaller id types when safe
@@ -90,9 +97,10 @@ tables.
 
 This is a schema/compatibility decision, not a promshim renderer requirement.
 Promshim uses the engine table functions and does not need query changes for
-normal reads. At startup it best-effort describes `timeSeriesData(database.table)`
-and logs the observed `id` column type so operators can confirm whether a
-deployment is using the default `UUID` or a smaller configured id type.
+normal reads. At startup it best-effort queries `system.columns` for the
+TimeSeries table's `id` column type and logs the observed type so operators can
+confirm whether a deployment is using the default `UUID` or a smaller configured
+id type. Discovery failure is logged and ignored.
 
 ## Recommended data-layout additions
 

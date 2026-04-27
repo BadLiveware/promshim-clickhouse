@@ -8,20 +8,36 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage/schema"
 )
 
-var timeSeriesTagsSystemColumns = map[string]struct{}{
-	"id":          {},
-	"metric_name": {},
-	"tags":        {},
-	"min_time":    {},
-	"max_time":    {},
+var timeSeriesSystemColumns = map[string]struct{}{
+	"id":                 {},
+	"timestamp":          {},
+	"value":              {},
+	"metric_name":        {},
+	"tags":               {},
+	"all_tags":           {},
+	"min_time":           {},
+	"max_time":           {},
+	"metric_family_name": {},
+	"type":               {},
+	"unit":               {},
+	"help":               {},
 }
 
 func BuildPromotedTagColumnsDiscoverySQL(cfg QueryConfig) string {
-	return "SELECT name AS value FROM (DESCRIBE TABLE " + schema.TimeSeriesTagsRef(timeSeriesTableRef(cfg)) + ") WHERE name NOT IN ('id', 'metric_name', 'tags', 'min_time', 'max_time') ORDER BY name" + schema.QuerySuffix
+	return strings.Join([]string{
+		"SELECT c.name AS value",
+		"FROM system.columns AS c",
+		"INNER JOIN system.tables AS t ON t.database = c.database AND t.name = c.table",
+		"WHERE c.database = " + sqlStringLiteral(cfg.Database),
+		"AND c.table = " + sqlStringLiteral(cfg.Table),
+		"AND c.name NOT IN " + timeSeriesSystemColumnNameSetSQL(),
+		"AND match(t.engine_full, concat('''', regexpQuoteMeta(c.name), '''\\\\s*:\\\\s*''', regexpQuoteMeta(c.name), ''''))",
+		"ORDER BY c.name",
+	}, " ") + schema.FormatSuffix
 }
 
 func BuildTimeSeriesIDTypeDiscoverySQL(cfg QueryConfig) string {
-	return "SELECT type AS value FROM (DESCRIBE TABLE " + schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)) + ") WHERE name = 'id' LIMIT 1" + schema.QuerySuffix
+	return "SELECT type AS value FROM system.columns WHERE database = " + sqlStringLiteral(cfg.Database) + " AND table = " + sqlStringLiteral(cfg.Table) + " AND name = 'id' LIMIT 1" + schema.FormatSuffix
 }
 
 func DiscoverPromotedTagColumns(ctx context.Context, client *Client, cfg QueryConfig) (map[string]struct{}, error) {
@@ -50,7 +66,7 @@ func promotedTagColumnSetFromNames(names []string) map[string]struct{} {
 		if name == "" {
 			continue
 		}
-		if _, reserved := timeSeriesTagsSystemColumns[name]; reserved {
+		if _, reserved := timeSeriesSystemColumns[name]; reserved {
 			continue
 		}
 		out[name] = struct{}{}
@@ -59,6 +75,23 @@ func promotedTagColumnSetFromNames(names []string) map[string]struct{} {
 		return nil
 	}
 	return out
+}
+
+func timeSeriesSystemColumnNameSetSQL() string {
+	names := make([]string, 0, len(timeSeriesSystemColumns))
+	for name := range timeSeriesSystemColumns {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return "(" + strings.Join(quotedStringList(names), ", ") + ")"
+}
+
+func quotedStringList(values []string) []string {
+	quoted := make([]string, 0, len(values))
+	for _, value := range values {
+		quoted = append(quoted, sqlStringLiteral(value))
+	}
+	return quoted
 }
 
 func SortedPromotedTagColumnNames(columns map[string]struct{}) []string {

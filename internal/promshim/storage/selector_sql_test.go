@@ -113,6 +113,23 @@ func TestSelectorTagsExprSkipsSortForSingleRequiredLabel(t *testing.T) {
 	}
 }
 
+func TestSelectorTagsExprIncludesPromotedColumnsInFullTags(t *testing.T) {
+	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, 0, SelectorKindInstantVector)
+	got := selectorTagsExpr(QueryConfig{PromotedTagColumns: map[string]struct{}{"instance": {}, "job": {}}}, selector, "src.metric_name", "src.tags")
+	for _, expected := range []string{
+		"[tuple('__name__', src.metric_name)]",
+		"if(src.`instance` != '', [tuple('instance', concat('', src.`instance`))], CAST([], 'Array(Tuple(String, String))'))",
+		"if(src.`job` != '', [tuple('job', concat('', src.`job`))], CAST([], 'Array(Tuple(String, String))'))",
+		"tag -> NOT has(['instance', 'job'], tag.1)",
+		"mapKeys(src.tags)",
+		"mapValues(src.tags)",
+	} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("expected full tags expression to contain %q, got %q", expected, got)
+		}
+	}
+}
+
 func TestBuildInstantSelectorQuerySQLUsesPromotedTagColumns(t *testing.T) {
 	instanceEQ, err := labels.NewMatcher(labels.MatchEqual, "instance", "a:9090")
 	if err != nil {
@@ -134,7 +151,7 @@ func TestBuildInstantSelectorQuerySQLUsesPromotedTagColumns(t *testing.T) {
 	for _, expected := range []string{
 		"src.`instance` = {instant_matcher_1_value:String}",
 		"match(src.`job`, {instant_matcher_2_value:String})",
-		"if(mapContains(src.tags, 'instance'), [tuple('instance', concat('', src.`instance`))], CAST([], 'Array(Tuple(String, String))')) AS tags",
+		"if(src.`instance` != '', [tuple('instance', concat('', src.`instance`))], CAST([], 'Array(Tuple(String, String))')) AS tags",
 	} {
 		if !strings.Contains(sql, expected) {
 			t.Fatalf("expected promoted tag column SQL to contain %q, got %q", expected, sql)

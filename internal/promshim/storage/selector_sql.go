@@ -762,14 +762,31 @@ func buildRangeMatrixSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, r
 }
 
 func selectorTagsExpr(cfg QueryConfig, selector SelectorSource, metricColumn, tagsColumn string) string {
-	base := sqlb.Call{Name: "arrayConcat", Args: []sqlb.Expr{
-		sqlb.RawLit{V: "[tuple('__name__', " + metricColumn + ")]"},
-		sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{
-			sqlb.RawLit{V: "(k, v) -> tuple(k, v)"},
-			sqlb.Call{Name: "mapKeys", Args: []sqlb.Expr{sqlb.RawLit{V: tagsColumn}}},
-			sqlb.Call{Name: "mapValues", Args: []sqlb.Expr{sqlb.RawLit{V: tagsColumn}}},
-		}},
-	}}
+	baseArgs := []sqlb.Expr{sqlb.RawLit{V: "[tuple('__name__', " + metricColumn + ")]"}}
+	promotedLabels := make([]string, 0, len(cfg.PromotedTagColumns))
+	for _, label := range SortedPromotedTagColumnNames(cfg.PromotedTagColumns) {
+		if label == "__name__" {
+			continue
+		}
+		if promoted := promotedTagColumn(cfg, label); promoted != "" {
+			promotedLabels = append(promotedLabels, label)
+			labelLit := sqlStringLiteral(label)
+			baseArgs = append(baseArgs, sqlb.RawLit{V: "if(" + promoted + " != '', [tuple(" + labelLit + ", concat('', " + promoted + "))], CAST([], '" + schema.TagsArrayType + "'))"})
+		}
+	}
+	mapEntries := sqlb.Expr(sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{
+		sqlb.RawLit{V: "(k, v) -> tuple(k, v)"},
+		sqlb.Call{Name: "mapKeys", Args: []sqlb.Expr{sqlb.RawLit{V: tagsColumn}}},
+		sqlb.Call{Name: "mapValues", Args: []sqlb.Expr{sqlb.RawLit{V: tagsColumn}}},
+	}})
+	if len(promotedLabels) > 0 {
+		mapEntries = sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{
+			sqlb.RawLit{V: "tag -> NOT has(" + sqlStringArrayLiteral(promotedLabels) + ", tag.1)"},
+			mapEntries,
+		}}
+	}
+	baseArgs = append(baseArgs, mapEntries)
+	base := sqlb.Call{Name: "arrayConcat", Args: baseArgs}
 	if !selector.RequireFullTags && len(selector.RequiredTagLabels) > 0 {
 		if len(selector.RequiredTagLabels) == 1 {
 			label := selector.RequiredTagLabels[0]
@@ -777,10 +794,10 @@ func selectorTagsExpr(cfg QueryConfig, selector SelectorSource, metricColumn, ta
 				return "[tuple('__name__', " + metricColumn + ")]"
 			}
 			labelLit := sqlStringLiteral(label)
-			valueExpr := tagsColumn + "[" + labelLit + "]"
 			if promoted := promotedTagColumn(cfg, label); promoted != "" {
-				valueExpr = promoted
+				return "if(" + promoted + " != '', [tuple(" + labelLit + ", concat('', " + promoted + "))], CAST([], '" + schema.TagsArrayType + "'))"
 			}
+			valueExpr := tagsColumn + "[" + labelLit + "]"
 			return "if(mapContains(" + tagsColumn + ", " + labelLit + "), [tuple(" + labelLit + ", concat('', " + valueExpr + "))], CAST([], '" + schema.TagsArrayType + "'))"
 		}
 		filtered := sqlb.Call{Name: "arrayFilter", Args: []sqlb.Expr{

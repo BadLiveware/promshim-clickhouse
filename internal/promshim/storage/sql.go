@@ -159,6 +159,13 @@ func BuildRangeAggregationQuerySQL(cfg QueryConfig, source AggregationSource, st
 }
 
 func BuildRangeAggregationQuerySQLWithBounds(cfg QueryConfig, source AggregationSource, startMS, endMS, stepMS, requiredStartMS, requiredEndMS int64, op parser.ItemType, grouping []string, without bool, paramNumber *float64, paramString string) (string, map[string]string, error) {
+	if source.Selector != nil && source.Selector.Kind == SelectorKindInstantVector && aggregationSourceIsIdentity(source) && !IsSelectionAggregation(op) && op != parser.COUNT_VALUES {
+		rowsSQL, params, err := buildRangeInstantSelectorRowsSQL(cfg, *source.Selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, "range_agg_rows")
+		if err != nil {
+			return "", nil, err
+		}
+		return BuildRangeAggregationOverRowsSubquerySQL(rowsSQL, params, op, grouping, without, paramNumber, paramString)
+	}
 	sourceSQL, params, err := buildRangeSourceQuerySQL(cfg, source, requiredStartMS, requiredEndMS, startMS, endMS, stepMS)
 	if err != nil {
 		return "", nil, err

@@ -231,7 +231,7 @@ For the native SQL lowering roadmap there are also smaller focused corpora:
 
 - `harness/corpus/native-lowering-starter.json`
 - `harness/corpus/native-lowering-starter.metadata.json`
-- `harness/corpus/phase7-rollout.json`
+- `harness/corpus/native-rollout-modes.json`
 
 The native-lowering starter corpus is intended for frequent runs while the planner/type-extraction and native-lowering work is in flight. It keeps a small baseline across the first roadmap buckets:
 
@@ -247,18 +247,18 @@ Run it with:
 ./scripts/run-harness.sh --corpus native-lowering-starter.json
 ```
 
-The Phase 7 rollout corpus is a smaller shim-only parity check for rollout controls on the normal query endpoints. It exercises `native_lowering_mode=off|prefer|explain|shadow` and explicit `explain=1` requests on queries where the served result should still match Prometheus exactly:
+The native rollout modes corpus is a smaller shim-only parity check for rollout controls on the normal query endpoints. It exercises `native_lowering_mode=off|prefer|explain|shadow` and explicit `explain=1` requests on queries where the served result should still match Prometheus exactly:
 
 ```bash
-./scripts/run-harness.sh --corpus phase7-rollout.json --subjects shim
+./scripts/run-harness.sh --corpus native-rollout-modes.json --subjects shim
 ```
 
-### Path 2 measurement prerequisites corpus
+### Native measurement prerequisites corpus
 
 A dedicated native-only measurement corpus now lives at:
 
-- `harness/corpus/path2-measurement-prereqs.json`
-- `harness/corpus/path2-measurement-prereqs.metadata.json`
+- `harness/corpus/native-measurement-prereqs.json`
+- `harness/corpus/native-measurement-prereqs.metadata.json`
 
 It combines:
 
@@ -271,15 +271,15 @@ Run it with:
 
 ```bash
 ./scripts/run-harness.sh \
-  --corpus path2-measurement-prereqs.json \
+  --corpus native-measurement-prereqs.json \
   --subjects shim \
   --native-only \
   --dataset-variants baseline,resets_gaps,churn_stale,histogram_burst
 ```
 
-This is the shortest command that exercises the P0/P1/P2 measurement prerequisites in one harness pass without relying on silent local fallback.
+This is the shortest command that exercises native measurement prerequisites in one harness pass without relying on silent local fallback.
 
-To align the Path 2 inventory with the read-only Prometheus compliance query suite without changing `harness/compliance/prom-compliance/`, generate the compliance-alignment report with:
+To align the native measurement inventory with the read-only Prometheus compliance query suite without changing `harness/compliance/prom-compliance/`, generate the compliance-alignment report with:
 
 ```bash
 go run ./cmd/promshim-promql-compliance
@@ -290,7 +290,7 @@ That writes:
 - `path2-promql-compliance-alignment.json`
 - `path2-promql-compliance-alignment.md`
 
-and expands the upstream `promql-test-queries.yml` variant matrix so the current Path 2 measurement surface can be compared against the same query families the compliance suite expects.
+and expands the upstream `promql-test-queries.yml` variant matrix so the current native measurement surface can be compared against the same query families the compliance suite expects.
 
 Corpus rows can also set:
 - `"nativeLoweringMode": "off|explain|shadow|prefer|force_supported"`
@@ -307,24 +307,24 @@ These are sent as normal HTTP query parameters (`native_lowering_mode`, `explain
 - `step_gt_range_over_2`
 - `step_eq_range`
 
-When both `rangeOffsets` and `rangeStepMatrix` are set, the report variant name combines them (for example `boundary/step_eq_range`). This is most useful for promshim-specific rollout validation; in practice the Phase 7 corpus scopes rows to `"subjects": ["shim"]` so optional promclick behavior is not treated as a rollout gate.
+When both `rangeOffsets` and `rangeStepMatrix` are set, the report variant name combines them (for example `boundary/step_eq_range`). This is most useful for promshim-specific rollout validation; in practice the native rollout modes corpus scopes rows to `"subjects": ["shim"]` so optional promclick behavior is not treated as a rollout gate.
 
-A small focused example corpus for Layer 1/2 is available at:
-- `harness/corpus/phase12-harness-variants.json`
+A small focused harness-variant probe corpus is available at:
+- `harness/corpus/harness-variant-probes.json`
 
 Run it with:
 
 ```bash
-./scripts/run-harness.sh --corpus phase12-harness-variants.json --subjects shim
+./scripts/run-harness.sh --corpus harness-variant-probes.json --subjects shim
 ```
 
-A small focused example corpus for Layer 3 dataset variants is also available at:
-- `harness/corpus/phase12-dataset-variants.json`
+A small focused dataset-variant probe corpus is also available at:
+- `harness/corpus/dataset-variant-probes.json`
 
 Run it with:
 
 ```bash
-./scripts/run-harness.sh --corpus phase12-dataset-variants.json --subjects shim --dataset-variants baseline,resets_gaps,churn_stale,histogram_burst
+./scripts/run-harness.sh --corpus dataset-variant-probes.json --subjects shim --dataset-variants baseline,resets_gaps,churn_stale,histogram_burst
 ```
 
 A focused histogram-native validation corpus also lives at:

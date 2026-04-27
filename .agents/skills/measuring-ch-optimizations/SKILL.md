@@ -73,8 +73,25 @@ if latency dropped for an unrelated reason.
 | "Fused A+B", "eliminated ARRAY JOIN", "row-source fast path" | `EXPLAIN PIPELINE` shows fewer stages; specific operator (e.g. `ArrayJoin`) absent in `EXPLAIN SYNTAX` | `ch-explain.sh` |
 | "Skipped stale NaNs", "pruned series" | `SelectedRows` drops; `result_rows` unchanged | `ch-profile-diff.sh` |
 | "Reduced memory" | `MemoryTrackerUsage` drops | `ch-profile-diff.sh` |
+| "Bounded runaway CPU", "capped threads", "reduced noisy-neighbor risk" | `UserTimeMicroseconds` / `RealTimeMicroseconds` or thread-time drops without unacceptable p50/p95 regression | targeted max_threads comparison plus ProfileEvents |
 | "Fewer network roundtrips" | `X-Promshim-CH-Roundtrips` response header drops | matrix bench report |
 | Any claim + `strategy_used` changed | **Hard regression signal.** Verify the claimed path still ran. | matrix bench `strategy` column |
+
+## Thread caps are shape-specific evidence questions
+
+Do not set a global `max_threads=4` default just because one query wastes CPU.
+When profiling detailed native SQL shapes, explicitly compare the default,
+`max_threads=8`, and `max_threads=4` when CPU runaway or noisy-neighbor risk is
+part of the concern. Accept a cap only for shapes where ProfileEvents show a
+meaningful CPU/RealTime/thread-time reduction without an unacceptable p50/p95
+latency regression. Record both sides of the trade-off in the commit or PR.
+
+Known caution: on profile-50k data, capping current windowed range-function
+paths at 4 threads preserved several row timings but regressed the newly
+row-oriented `subquery_rate_over_aggregate_5m_range_1d` path from about
+3032 ms to about 3724 ms, moving it from parity to slower than Prometheus. Treat
+that as a counterexample to blanket 4-thread caps; use typed execution
+preferences only after shape-specific evidence.
 
 ## The signals, ranked
 

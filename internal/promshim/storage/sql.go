@@ -912,6 +912,9 @@ func readOptionalRange(request *http.Request) (start, end time.Time, hasRange bo
 	if err != nil {
 		return time.Time{}, time.Time{}, false, err
 	}
+	if end.Before(start) {
+		return time.Time{}, time.Time{}, false, fmt.Errorf("end must be greater than or equal to start")
+	}
 	return start, end, true, nil
 }
 

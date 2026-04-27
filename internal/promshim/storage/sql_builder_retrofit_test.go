@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
@@ -245,6 +246,34 @@ func TestBuildLabelValuesQueryUsesSQLBuilderContract(t *testing.T) {
 	}
 	if params["param_label_name"] != "job" || params["param_selector_0_matcher_0_value"] != "up" {
 		t.Fatalf("expected label name and selector params, got %#v", params)
+	}
+}
+
+func TestBuildMetadataQueriesRejectReversedRanges(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		build func(*http.Request) error
+	}{
+		{name: "labels", build: func(request *http.Request) error {
+			_, _, err := BuildLabelsQuery(QueryConfig{Database: "observability", Table: "prometheus"}, request)
+			return err
+		}},
+		{name: "label_values", build: func(request *http.Request) error {
+			_, _, err := BuildLabelValuesQuery(QueryConfig{Database: "observability", Table: "prometheus"}, request, "job")
+			return err
+		}},
+		{name: "series", build: func(request *http.Request) error {
+			_, _, err := BuildSeriesQuery(QueryConfig{Database: "observability", Table: "prometheus"}, request)
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := httptest.NewRequest("GET", "/api/v1/metadata?match[]=up&start=300&end=0", nil)
+			err := tc.build(request)
+			if err == nil || !strings.Contains(err.Error(), "end must be greater than or equal to start") {
+				t.Fatalf("expected reversed range error, got %v", err)
+			}
+		})
 	}
 }
 

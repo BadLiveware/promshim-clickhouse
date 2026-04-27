@@ -230,8 +230,13 @@ if (( SKIP_NATIVE == 0 )); then
   # are tracked openly in the gap report, not as allowlistable failures.
   PROM_SHIM_COMPLIANCE_ARTIFACT_DIR="$COMPLIANCE_ARTIFACT_DIR" ./scripts/run-compliance.sh --mode native --suffix native || true
 
-  log "Native-mode gap report:"
-  ./scripts/native-gap-report.sh "${COMPLIANCE_ARTIFACT_DIR}"/compliance-report-native-*.json || true
+  latest_native=$(ls -t "${COMPLIANCE_ARTIFACT_DIR}"/compliance-report-native-*.json 2>/dev/null | head -1 || true)
+  if [[ -n "$latest_native" ]]; then
+    log "Native-mode gap report:"
+    ./scripts/native-gap-report.sh "$latest_native" || true
+  else
+    log "No native-mode report found under ${COMPLIANCE_ARTIFACT_DIR}; skipping gap report."
+  fi
 else
   log "Skipping native-only pass (--skip-native)."
 fi

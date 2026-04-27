@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
-# classify-failures.sh - bucket compliance-report failures by shape.
 set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: classify-failures.sh [REPORT] [--bucket NAME] [--limit N]
+
+Bucket compliance-report failures by shape. If REPORT is omitted, the latest
+compliance report in artifacts/ is used.
+
+Options:
+  -b, --bucket NAME  Show only one bucket.
+  -n, --limit N      Limit rows printed by the report command.
+  -h, --help         Show this help.
+EOF
+}
+
 CALLER_PWD=$(pwd)
 
 cd "$(dirname "$0")/.."
@@ -12,7 +26,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -b|--bucket) bucket="$2"; shift 2 ;;
     -n|--limit)  limit="$2"; shift 2 ;;
-    -h|--help)   sed -n '2,8p' "$0"; exit 0 ;;
+    -h|--help)   usage; exit 0 ;;
     -*)          echo "unknown flag: $1" >&2; exit 2 ;;
     *)           report="$1"; shift ;;
   esac

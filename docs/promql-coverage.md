@@ -52,8 +52,8 @@ The compatibility claim is checked continuously against Prometheus, not inferred
 from a few examples:
 
 - `go run ./cmd/promshim-matrix` generates
-  `harness/artifacts/matrices/path2-compliance-matrix.md` and
-  `harness/artifacts/matrices/path2-compliance-matrix.json` from the
+  `harness/artifacts/matrices/native-compliance-matrix.md` and
+  `harness/artifacts/matrices/native-compliance-matrix.json` from the
   parser-visible feature surface.
 - `./scripts/run-compliance.sh` runs the full upstream
   `prometheus/compliance` PromQL suite against reference Prometheus and promshim

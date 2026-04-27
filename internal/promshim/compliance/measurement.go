@@ -19,7 +19,7 @@ type NativeMeasurementSnapshot struct {
 	AggregationEligible bool   `json:"aggregationEligible,omitempty"`
 }
 
-func ClassifyPath2Status(snapshot NativeMeasurementSnapshot, query string) string {
+func ClassifyNativeStatus(snapshot NativeMeasurementSnapshot, query string) string {
 	if snapshot.NativeLowerable {
 		return "yes"
 	}

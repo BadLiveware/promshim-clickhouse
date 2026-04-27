@@ -83,5 +83,35 @@
     "endOffsetSeconds": 0,
     "stepSeconds": 86400,
     "compareMode": "structural"
+  },
+  {
+    "name": "topk_histogram_quantile_by_instance_job_1d_range_1y",
+    "endpoint": "query_range",
+    "query": "topk(10, histogram_quantile(0.95, sum by (instance, job, le) (rate(demo_api_request_duration_seconds_bucket[1d]))))",
+    "category": "range_topk_histogram_quantile",
+    "startOffsetSeconds": -31536000,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 86400,
+    "compareMode": "structural"
+  },
+  {
+    "name": "max_over_time_gauge_by_3labels_1d_range_1y",
+    "endpoint": "query_range",
+    "query": "max by (instance, job, type) (max_over_time(demo_memory_usage_bytes[1d]))",
+    "category": "range_max_over_time_gauge",
+    "startOffsetSeconds": -31536000,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 86400,
+    "compareMode": "structural"
+  },
+  {
+    "name": "avg_over_time_gauge_by_3labels_1d_range_1y",
+    "endpoint": "query_range",
+    "query": "avg by (instance, job, type) (avg_over_time(demo_memory_usage_bytes[1d]))",
+    "category": "range_avg_over_time_gauge",
+    "startOffsetSeconds": -31536000,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 86400,
+    "compareMode": "structural"
   }
 ]

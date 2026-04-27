@@ -315,7 +315,7 @@ func TestBuildRangeSelectorQuerySQLUsesStepGridAndLookback(t *testing.T) {
 	}
 }
 
-func TestBuildRangeSelectorQuerySQLFiltersASOFRightSideForSparseEvalGrid(t *testing.T) {
+func TestBuildRangeSelectorQuerySQLDefaultsToASOFForSparseEvalGrid(t *testing.T) {
 	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, time.Minute, SelectorKindInstantVector)
 
 	sql, params, err := BuildRangeSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -360000, 300000, 0, 3600000, int64(time.Hour/time.Millisecond))
@@ -324,6 +324,7 @@ func TestBuildRangeSelectorQuerySQLFiltersASOFRightSideForSparseEvalGrid(t *test
 	}
 	for _, expected := range []string{
 		"SELECT DISTINCT src.id",
+		"ASOF INNER JOIN",
 		"positiveModulo(toUnixTimestamp64Milli(timestamp) + {offset_ms:Int64} - {start_ms:Int64}, {step_ms:Int64}) = 0",
 		"positiveModulo(toUnixTimestamp64Milli(timestamp) + {offset_ms:Int64} - {start_ms:Int64}, {step_ms:Int64}) >= ({step_ms:Int64} - {lookback_ms:Int64})",
 		"NOT isNaN(value)",
@@ -332,8 +333,39 @@ func TestBuildRangeSelectorQuerySQLFiltersASOFRightSideForSparseEvalGrid(t *test
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)
 		}
 	}
+	if strings.Contains(sql, "argMax(value, sample_ts)") {
+		t.Fatalf("expected default sparse eval grid to keep ASOF join, got %q", sql)
+	}
+	if params["param_lookback_ms"] != "300000" || params["param_offset_ms"] != "60000" || params["param_step_ms"] != "3600000" {
+		t.Fatalf("unexpected range selector params: %#v", params)
+	}
+}
+
+func TestBuildRangeSelectorQuerySQLUsesBucketedArgMaxWhenRequested(t *testing.T) {
+	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, time.Minute, SelectorKindInstantVector)
+	selector.RangeInstantStrategy = RangeInstantSelectorStrategyBucketedArgMax
+
+	sql, params, err := BuildRangeSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -360000, 300000, 0, 3600000, int64(time.Hour/time.Millisecond))
+	if err != nil {
+		t.Fatalf("expected range selector SQL, got error: %v", err)
+	}
+	for _, expected := range []string{
+		"SELECT DISTINCT src.id",
+		"argMax(value, sample_ts) AS value",
+		"fromUnixTimestamp64Milli(toUnixTimestamp64Milli(d.timestamp) + {offset_ms:Int64} + if(",
+		"positiveModulo(toUnixTimestamp64Milli(d.timestamp) + {offset_ms:Int64} - {start_ms:Int64}, {step_ms:Int64}) = 0",
+		"positiveModulo(toUnixTimestamp64Milli(d.timestamp) + {offset_ms:Int64} - {start_ms:Int64}, {step_ms:Int64}) >= ({step_ms:Int64} - {lookback_ms:Int64})",
+		"HAVING NOT isNaN(value)",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected %q in SQL, got %q", expected, sql)
+		}
+	}
+	if strings.Contains(sql, "ASOF INNER JOIN") {
+		t.Fatalf("expected requested sparse eval grid to use bucketed argMax instead of ASOF join, got %q", sql)
+	}
 	if strings.Contains(sql, "NOT isNaN(d.value)") {
-		t.Fatalf("expected stale-marker filter to remain after ASOF match, got %q", sql)
+		t.Fatalf("expected stale-marker filter to remain after latest-sample selection, got %q", sql)
 	}
 	if params["param_lookback_ms"] != "300000" || params["param_offset_ms"] != "60000" || params["param_step_ms"] != "3600000" {
 		t.Fatalf("unexpected range selector params: %#v", params)
@@ -350,16 +382,31 @@ func TestRangeInstantSelectorRowsPlanCapturesOptimizationChoices(t *testing.T) {
 	if !plan.UseSparseStepPhaseFilter {
 		t.Fatalf("expected sparse step plan to enable phase filtering")
 	}
+	if plan.Strategy != RangeInstantSelectorStrategyASOFJoin {
+		t.Fatalf("expected sparse step plan to default to ASOF join, got %q", plan.Strategy)
+	}
+	selector.RangeInstantStrategy = RangeInstantSelectorStrategyBucketedArgMax
+	bucketedPlan := newRangeInstantSelectorRowsPlan(QueryConfig{Database: "observability", Table: "prometheus"}, selector, "SELECT DISTINCT src.id FROM tags AS src", int64(time.Hour/time.Millisecond))
+	if bucketedPlan.Strategy != RangeInstantSelectorStrategyBucketedArgMax {
+		t.Fatalf("expected requested sparse step plan to use bucketed argMax, got %q", bucketedPlan.Strategy)
+	}
 	if plan.StaleMarkerFilterLocation != selectorStaleFilterPostASOF {
 		t.Fatalf("expected stale markers to be filtered after ASOF, got %q", plan.StaleMarkerFilterLocation)
 	}
-	if got := plan.postASOFFilterSQL(); got != "d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64}) AND NOT isNaN(value)" {
+	got, _, err := sqlb.BuildExpr(plan.postASOFFilterPredicate())
+	if err != nil {
+		t.Fatalf("expected post-ASOF filter SQL, got error: %v", err)
+	}
+	if got != "d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64}) AND NOT isNaN(value)" {
 		t.Fatalf("unexpected post-ASOF filter: %s", got)
 	}
 
 	overlapping := newRangeInstantSelectorRowsPlan(QueryConfig{}, selector, "SELECT DISTINCT src.id FROM tags AS src", int64(time.Minute/time.Millisecond))
 	if overlapping.UseSparseStepPhaseFilter {
 		t.Fatalf("expected overlapping step/lookback plan to skip phase filtering")
+	}
+	if overlapping.Strategy != RangeInstantSelectorStrategyASOFJoin {
+		t.Fatalf("expected overlapping step/lookback plan to keep ASOF join, got %q", overlapping.Strategy)
 	}
 }
 

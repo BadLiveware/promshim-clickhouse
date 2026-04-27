@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync/atomic"
 	"time"
@@ -18,6 +19,8 @@ type regulatorConfig struct {
 	IncreaseAtPct  float64       // p50 must be ≤ baseline × IncreaseAtPct to ramp up
 	TailDecreasePct float64      // p99 / p50 ratio above this value triggers additive decrease (tail-latency throttling)
 	MinSamples     int           // minimum ring observations before the regulator acts
+	StallTicks     int           // consecutive zero-completion ticks before stall throttling fires (default 3 = 6s at 2s tick)
+	HoldLogEvery   int           // log a "hold" decision every N ticks even when target unchanged (default 10 ≈ 20s); 0 disables
 	OnChange       func(oldN, newN int32, reason string) // optional log/metrics hook
 }
 
@@ -33,6 +36,8 @@ func defaultRegulatorConfig(maxN int32) regulatorConfig {
 		IncreaseAtPct:   1.2,
 		TailDecreasePct: 3.0,
 		MinSamples:      8,
+		StallTicks:      3,  // 3 × 2s = 6s of zero completions triggers throttle
+		HoldLogEvery:    10, // 10 × 2s = 20s between "still here, holding" logs
 	}
 }
 
@@ -65,12 +70,23 @@ func (rb *regulatorBaseline) get() time.Duration {
 // runRegulator drives the AIMD control loop. It blocks until ctx is
 // cancelled. Workers should already be running when this is invoked.
 //
-// AIMD logic per tick:
+// AIMD logic per tick (in priority order):
 //   - error_rate > 0%             → multiplicative decrease: N = max(MinN, N/2)
+//   - stall (no completions for StallTicks ticks while N > MinN)
+//                                 → additive decrease:        N = max(MinN, N-1)
 //   - p99/p50 > TailDecreasePct   → additive decrease:        N = max(MinN, N-1)
 //   - p50 ≤ baseline×IncreaseAtPct → additive increase:        N = min(MaxN, N+1)
 //   - else                         → hold
-func runRegulator(ctx context.Context, target *atomic.Int32, ring *rttRing, cfg regulatorConfig, _ *concurrencyLimiter) {
+//
+// The stall branch exists because the RTT ring only updates on completed
+// batches. When workers are all stuck mid-POST waiting on a slow backend,
+// no observations land in the ring and the tail-latency throttle can't
+// fire. Tracking the batch-count delta per tick catches this directly.
+//
+// The completedBatches counter is the same atomic.Int64 that the worker
+// pool updates on each successful POST. Passing it lets the regulator see
+// throughput trends without coupling to the worker code.
+func runRegulator(ctx context.Context, target *atomic.Int32, ring *rttRing, completedBatches *atomic.Int64, cfg regulatorConfig, _ *concurrencyLimiter) {
 	if cfg.Tick <= 0 {
 		cfg.Tick = 2 * time.Second
 	}
@@ -92,10 +108,28 @@ func runRegulator(ctx context.Context, target *atomic.Int32, ring *rttRing, cfg 
 	if cfg.MinSamples < 1 {
 		cfg.MinSamples = 8
 	}
+	if cfg.StallTicks < 0 {
+		cfg.StallTicks = 0 // 0 disables stall detection
+	}
 
 	baseline := &regulatorBaseline{}
 	ticker := time.NewTicker(cfg.Tick)
 	defer ticker.Stop()
+
+	// Stall detection state: track batch-completion count per tick so we
+	// can spot "all workers in flight, none completing" — invisible to the
+	// RTT ring (which only updates on completion).
+	//
+	// rampSuppressUntil prevents ramp-up immediately undoing a stall
+	// throttle. Without it, the regulator oscillates: stall halves target,
+	// ramp-up restores it, stall halves again — pointless churn that
+	// doesn't actually relieve backend pressure.
+	var (
+		lastCompleted     int64
+		stallStreak       int
+		holdStreak        int
+		rampSuppressUntil time.Time
+	)
 
 	for {
 		select {
@@ -120,13 +154,30 @@ func runRegulator(ctx context.Context, target *atomic.Int32, ring *rttRing, cfg 
 		}
 		base := baseline.get()
 
+		// Stall detection: track batch-completion delta. If no batches have
+		// completed for StallTicks consecutive ticks while target > MinN,
+		// the workers are all stuck on slow POSTs and the RTT ring is
+		// uninformative. This is the catch-all signal for the "tail latency
+		// is huge but no observation has landed yet" failure mode.
+		var stallActive bool
+		if completedBatches != nil && cfg.StallTicks > 0 {
+			cur := completedBatches.Load()
+			if cur == lastCompleted {
+				stallStreak++
+			} else {
+				stallStreak = 0
+			}
+			lastCompleted = cur
+			stallActive = stallStreak >= cfg.StallTicks
+		}
+
 		oldN := target.Load()
 		newN := oldN
 		reason := "hold"
 
-		// Decreases (errors, tail-latency) fire without needing a baseline —
-		// they react to absolute pressure signals. Ramp-up requires a baseline
-		// to decide whether current p50 is "near minimum" (headroom) or not.
+		// Decreases (errors, stall, tail-latency) fire without needing a
+		// baseline — they react to absolute pressure signals. Ramp-up
+		// requires a baseline to decide whether current p50 is near minimum.
 		switch {
 		case errPct > 0:
 			newN = oldN / 2
@@ -134,13 +185,25 @@ func runRegulator(ctx context.Context, target *atomic.Int32, ring *rttRing, cfg 
 				newN = cfg.MinN
 			}
 			reason = "errors"
+		case stallActive && oldN > cfg.MinN:
+			// Multiplicative — stall is a strong signal that backend has
+			// fully given up. Additive would let ramp-up oscillate it back.
+			newN = oldN / 2
+			if newN < cfg.MinN {
+				newN = cfg.MinN
+			}
+			reason = fmt.Sprintf("stall (%d ticks no completions)", stallStreak)
+			stallStreak = 0
+			// Suppress ramp-up for a few ticks so the throttle has time to
+			// actually relieve pressure before the regulator re-evaluates.
+			rampSuppressUntil = time.Now().Add(5 * cfg.Tick)
 		case p50 > 0 && p99 > 0 && float64(p99)/float64(p50) > cfg.TailDecreasePct:
 			newN = oldN - 1
 			if newN < cfg.MinN {
 				newN = cfg.MinN
 			}
 			reason = "tail-latency"
-		case base > 0 && float64(p50) <= float64(base)*cfg.IncreaseAtPct && oldN < cfg.MaxN:
+		case base > 0 && float64(p50) <= float64(base)*cfg.IncreaseAtPct && oldN < cfg.MaxN && time.Now().After(rampSuppressUntil):
 			newN = oldN + 1
 			reason = "ramp-up"
 		case base > 0 && float64(p50) > float64(base)*cfg.HoldBandPct:
@@ -149,12 +212,23 @@ func runRegulator(ctx context.Context, target *atomic.Int32, ring *rttRing, cfg 
 
 		if newN != oldN {
 			target.Store(newN)
+			holdStreak = 0
 			if cfg.OnChange != nil {
 				cfg.OnChange(oldN, newN, reason)
 			} else {
 				log.Printf("[seed-long] regulator: %d → %d (reason=%s p50=%dms p99=%dms err%%=%.1f base=%dms)",
 					oldN, newN, reason, p50.Milliseconds(), p99.Milliseconds(), errPct, base.Milliseconds())
 			}
+			continue
+		}
+
+		// Target unchanged. Surface long-running "hold" decisions periodically
+		// so the user can see the regulator is alive and what it's seeing —
+		// otherwise a 100-second stall window goes silent in the log.
+		holdStreak++
+		if cfg.HoldLogEvery > 0 && holdStreak%cfg.HoldLogEvery == 0 {
+			log.Printf("[seed-long] regulator: holding at %d (reason=%s p50=%dms p99=%dms err%%=%.1f base=%dms %d ticks)",
+				oldN, reason, p50.Milliseconds(), p99.Milliseconds(), errPct, base.Milliseconds(), holdStreak)
 		}
 	}
 }

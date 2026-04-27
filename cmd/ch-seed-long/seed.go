@@ -240,7 +240,7 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 	if !cfg.NoAdaptive {
 		regCtx, regCancel := context.WithCancel(ctx)
 		defer regCancel()
-		go runRegulator(regCtx, &target, rtt, defaultRegulatorConfig(int32(cfg.MaxConcurrency)), limiter)
+		go runRegulator(regCtx, &target, rtt, &batchCount, defaultRegulatorConfig(int32(cfg.MaxConcurrency)), limiter)
 
 		// Health probe: runs whenever ProbeInterval > 0. Always checks host
 		// CPU usage (which doesn't depend on backend URLs); also checks CH and

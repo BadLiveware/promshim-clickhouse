@@ -30,7 +30,7 @@ func TestRegulatorRampsUpUnderStableLatency(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	go runRegulator(ctx, &target, ring, cfg, nil)
+	go runRegulator(ctx, &target, ring, nil, cfg, nil)
 
 	// Continuously feed low-latency observations so baseline stays low.
 	feedDone := make(chan struct{})
@@ -83,7 +83,7 @@ func TestRegulatorHalvesOnErrors(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	go runRegulator(ctx, &target, ring, cfg, nil)
+	go runRegulator(ctx, &target, ring, nil, cfg, nil)
 
 	// Inject errors.
 	for i := 0; i < 16; i++ {
@@ -131,7 +131,7 @@ func TestRegulatorThrottlesOnTailLatency(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	go runRegulator(ctx, &target, ring, cfg, nil)
+	go runRegulator(ctx, &target, ring, nil, cfg, nil)
 
 	deadline := time.Now().Add(150 * time.Millisecond)
 	for time.Now().Before(deadline) {
@@ -182,7 +182,7 @@ func TestRegulatorRespectsMaxN(t *testing.T) {
 		}
 	}()
 
-	go runRegulator(ctx, &target, ring, cfg, nil)
+	go runRegulator(ctx, &target, ring, nil, cfg, nil)
 
 	time.Sleep(150 * time.Millisecond)
 	cancel()
@@ -190,6 +190,110 @@ func TestRegulatorRespectsMaxN(t *testing.T) {
 
 	if got := target.Load(); got > cfg.MaxN {
 		t.Errorf("expected target to respect MaxN=%d, got %d", cfg.MaxN, got)
+	}
+}
+
+// stallDetection verifies the regulator throttles when no batches complete
+// for StallTicks consecutive ticks, even while the RTT ring shows healthy
+// recent latency. This is the failure mode where workers are all stuck
+// mid-POST waiting on a slow backend — invisible to RTT-based throttling.
+func TestRegulatorThrottlesOnStall(t *testing.T) {
+	ring := newRTTRing(64)
+	// Seed healthy-looking observations: ring shows fine p50/p99 ratio,
+	// suggesting throttling is unnecessary.
+	for i := 0; i < 32; i++ {
+		ring.observe(50*time.Millisecond, false)
+	}
+
+	var target atomic.Int32
+	target.Store(8)
+
+	// completedBatches stays at 0 — simulating workers stuck in mid-POST.
+	var completed atomic.Int64
+	completed.Store(0)
+
+	cfg := regulatorConfig{
+		Tick:            5 * time.Millisecond,
+		MaxN:            16,
+		MinN:            1,
+		HoldBandPct:     1.5,
+		IncreaseAtPct:   1.2,
+		TailDecreasePct: 3.0,
+		StallTicks:      3, // 3 ticks of zero progress triggers throttle
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	go runRegulator(ctx, &target, ring, &completed, cfg, nil)
+
+	// Stall halves target per fire and suppresses ramp-up for 5 ticks.
+	// Repeated stall fires should drive target down to MinN within a
+	// few hundred ms (8 → 4 → 2 → 1).
+	deadline := time.Now().Add(400 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if target.Load() <= 2 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := target.Load(); got > 4 {
+		t.Errorf("expected sustained stall to drive target ≤ 4, got %d", got)
+	}
+	cancel()
+}
+
+// stallDetectionResetsOnProgress verifies the stall counter resets when
+// batches start completing again (i.e., a transient stall doesn't keep
+// throttling forever after the system recovers).
+func TestRegulatorStallResetsOnProgress(t *testing.T) {
+	ring := newRTTRing(64)
+	for i := 0; i < 32; i++ {
+		ring.observe(50*time.Millisecond, false)
+	}
+
+	var target atomic.Int32
+	target.Store(8)
+
+	var completed atomic.Int64
+	completed.Store(100) // start with some progress so stall counter doesn't trip immediately
+
+	cfg := regulatorConfig{
+		Tick:          5 * time.Millisecond,
+		MaxN:          16,
+		MinN:          1,
+		IncreaseAtPct: 2.0, // very generous so ramp-up could fire — we want to verify it doesn't get suppressed
+		StallTicks:    3,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	// Goroutine that simulates ongoing progress: increment completed every tick.
+	feedDone := make(chan struct{})
+	go func() {
+		defer close(feedDone)
+		ticker := time.NewTicker(2 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				completed.Add(1)
+			}
+		}
+	}()
+
+	go runRegulator(ctx, &target, ring, &completed, cfg, nil)
+
+	time.Sleep(150 * time.Millisecond)
+	cancel()
+	<-feedDone
+
+	// With ongoing progress, target should never have dropped from stall —
+	// it should have either held or ramped up (depending on baseline+ratios).
+	if got := target.Load(); got < 8 {
+		t.Errorf("expected target ≥ 8 with ongoing progress (no stall), got %d", got)
 	}
 }
 

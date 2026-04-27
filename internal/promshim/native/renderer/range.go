@@ -17,10 +17,21 @@ func preferDirectSelectorWindowJoin(lookbackMS, stepMS int64) bool {
 	// The direct window-join path duplicates raw points into every overlapping
 	// step bucket. That is a good trade when overlap is shallow (for example
 	// 1m windows on a 30s step), but once each point fan-outs across many step
-	// buckets the older materialize-then-window path is cheaper. Keep the fast
-	// path for low-overlap windows only.
+	// buckets the older materialize-then-window path is cheaper. Keep the generic
+	// fast path for low-overlap windows only; aggregate-specific helpers can opt
+	// into direct grouped aggregates when they avoid per-step array materialization.
 	overlapSlots := ((lookbackMS + stepMS - 1) / stepMS) + 1
 	return overlapSlots <= 4
+}
+
+func preferDirectSelectorWindowAggregate(fn string, lookbackMS, stepMS int64) bool {
+	if lookbackMS <= 0 || stepMS <= 0 {
+		return false
+	}
+	if fn == "avg_over_time" {
+		return true
+	}
+	return preferDirectSelectorWindowJoin(lookbackMS, stepMS)
 }
 
 func buildWindowedArraysSourceSQL(sourceSQL, fn string, startMS, endMS, stepMS, rangeMS, offsetMS int64) (string, error) {

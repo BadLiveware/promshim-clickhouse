@@ -226,7 +226,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 					// Keep the selector-scoped grid→data join that benchmarks well on long-range
 					// windows, but skip per-step window_series/window_values materialization for
 					// direct range selectors that are safe to aggregate inside that grouped join.
-					if isIdentity && supportsDirectSelectorWindowAggregate(fn, lookbackMS) && preferDirectSelectorWindowJoin(lookbackMS, params.StepMS) {
+					if isIdentity && supportsDirectSelectorWindowAggregate(fn, lookbackMS) && preferDirectSelectorWindowAggregate(fn, lookbackMS, params.StepMS) {
 						childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
 						source, err := renderAggregationSourceView(view, params)
 						if err != nil {

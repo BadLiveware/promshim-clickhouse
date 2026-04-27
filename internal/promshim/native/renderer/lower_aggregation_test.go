@@ -161,6 +161,34 @@ func TestAggregationDirectReducersByRateRangeUseFusedRows(t *testing.T) {
 	}
 }
 
+func TestAggregationByAvgOverTimeRangeUsesDirectAggregateRows(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job, type) (avg_over_time(demo_memory_usage_bytes[1h]))`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params: RenderParams{
+			Mode:    testRenderParamsRange().Mode,
+			StartMS: 1_700_000_000_000,
+			EndMS:   1_700_086_400_000,
+			StepMS:  60_000,
+		},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	for _, expected := range []string{"avgIf(ifNull(toFloat64(d.value), nan), NOT isNaN(ifNull(toFloat64(d.value), nan))) AS avg_value", "GROUP BY grid.id, grid.eval_ts", "windowed.id = series.id", "GROUP BY tags, timestamp"} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected avg_over_time aggregation direct rows SQL to contain %q, got:\n%s", expected, rq.SQL)
+		}
+	}
+	for _, unexpected := range []string{"arraySort(groupArray((d.timestamp, d.value))) AS window_series", "window_values", "CROSS JOIN"} {
+		if strings.Contains(rq.SQL, unexpected) {
+			t.Fatalf("expected avg_over_time aggregation direct rows SQL to avoid %q, got:\n%s", unexpected, rq.SQL)
+		}
+	}
+}
+
 func TestAggregationByRateRangeUsesNativeGridArrayAggregationWhenEnabled(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (rate(demo_cpu_usage_seconds_total[5m]))`)
 	cfg := testRenderConfig()

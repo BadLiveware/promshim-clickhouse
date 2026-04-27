@@ -204,6 +204,34 @@ func TestLowerRangeFunctionsUseNativeGridWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestLowerHighOverlapAvgOverTimeRangeUsesDirectAggregate(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `avg_over_time(demo_memory_usage_bytes[1h])`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params: RenderParams{
+			Mode:    native.RenderModeRange,
+			StartMS: 1_700_000_000_000,
+			EndMS:   1_700_086_400_000,
+			StepMS:  60_000,
+		},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	for _, expected := range []string{"avgIf(ifNull(toFloat64(d.value), nan), NOT isNaN(ifNull(toFloat64(d.value), nan))) AS avg_value", "GROUP BY grid.id, grid.eval_ts", "windowed.id = series.id"} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected high-overlap avg_over_time direct aggregate SQL to contain %q, got %s", expected, rq.SQL)
+		}
+	}
+	for _, unexpected := range []string{"arraySort(groupArray((d.timestamp, d.value))) AS window_series", "window_values", "CROSS JOIN"} {
+		if strings.Contains(rq.SQL, unexpected) {
+			t.Fatalf("expected high-overlap avg_over_time direct aggregate to avoid %q, got %s", unexpected, rq.SQL)
+		}
+	}
+}
+
 func TestLowerShortRateRangeUsesSortedWindowSeries(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[15s])`)
 	rq, err := Lower(LoweringCtx{

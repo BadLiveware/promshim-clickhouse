@@ -1,11 +1,11 @@
 {
   "name": "bench-processing",
-  "purpose": "Benchmark corpus family for dense or processing-heavy bounded-output workloads where local Prometheus timing bands are useful context.",
+  "purpose": "Benchmark corpus family for higher-active-series or processing-heavy bounded-output workloads where local Prometheus timing bands are useful context.",
   "defaultStatus": {
-    "denseSweep": "harness/corpus/bench-processing-7d.json via ./scripts/run-sweep.sh --density dense"
+    "profile50kSweep": "harness/corpus/bench-processing-7d.json via ./scripts/run-sweep.sh --active-series-preset profile-50k --corpus-set processing"
   },
   "stackAssumptions": {
-    "profiledSweep": "isolated benchmark stack seeded by scripts/seed-long-range.sh; dense data is preferred for processing latency signal"
+    "profiledSweep": "isolated benchmark stack seeded by scripts/seed-long-range.sh; the profile-50k active-series preset is preferred for processing latency signal"
   },
   "profileCorpora": [
     {
@@ -13,7 +13,7 @@
       "path": "harness/corpus/bench-processing-7d.json",
       "rows": 8,
       "evalTime": "2026-03-22T21:45:42Z",
-      "use": "Default dense sweep corpus for processing-heavy instant and range queries."
+      "use": "Default profile-50k active-series sweep corpus for processing-heavy instant and range queries."
     },
     {
       "profile": "30d",
@@ -43,7 +43,7 @@
     "targetPromP50Ms bands are advisory and host-dependent; they help interpret processing-workload size, not correctness."
   ],
   "recommendedCommands": [
-    "./scripts/run-sweep.sh --name processing-dense --profile 7d --density dense --corpus-set processing --estimate",
-    "./scripts/run-sweep.sh --name processing-dense-live --profile 7d --density dense --seed missing --skip-compliance --corpus-set processing --memory summary"
+    "./scripts/run-sweep.sh --name processing-profile-50k --profile 7d --active-series-preset profile-50k --corpus-set processing --estimate",
+    "./scripts/run-sweep.sh --name processing-profile-50k-live --profile 7d --active-series-preset profile-50k --seed missing --skip-compliance --corpus-set processing --memory summary"
   ]
 }

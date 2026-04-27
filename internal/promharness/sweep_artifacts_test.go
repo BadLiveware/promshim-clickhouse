@@ -160,7 +160,7 @@ func baseSweepOptions(root, artifactDir string) SweepArtifactOptions {
 		ArtifactDir:                artifactDir,
 		RunName:                    filepath.Base(artifactDir),
 		Profile:                    "7d",
-		Density:                    "sparse",
+		ActiveSeries:               "fast-5k",
 		Transport:                  "native",
 		SeedPolicy:                 "reuse",
 		ShimModes:                  "prefer,force_supported,off",

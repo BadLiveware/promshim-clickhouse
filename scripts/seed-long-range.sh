@@ -17,7 +17,9 @@
 #
 # Usage:
 #   ./scripts/seed-long-range.sh --profile 7d | 30d | 1y | all
-#   ./scripts/seed-long-range.sh --density sparse|dense|stress-50k|stress-500k  (default: sparse)
+#   ./scripts/seed-long-range.sh --active-series-preset fast|profile-50k|profile-500k
+#   ./scripts/seed-long-range.sh --active-series 50000
+#   ./scripts/seed-long-range.sh --density sparse|dense|stress-50k|stress-500k  (deprecated)
 #   ./scripts/seed-long-range.sh --target ch|prom|both  (default: both)
 #   ./scripts/seed-long-range.sh [--duration 168h] [--step 15s]
 #                                [--end-time 2026-03-22T21:45:42Z]
@@ -62,7 +64,9 @@ acquire_run_lock "stack"
 cd "$REPO_ROOT"
 
 PROFILE=""
-DENSITY="sparse"
+DENSITY=""
+ACTIVE_SERIES=""
+ACTIVE_SERIES_PRESET=""
 DURATION=""
 STEP=""
 END_TIME=""
@@ -84,6 +88,8 @@ MAX_HOST_LOAD_PCT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --profile)             PROFILE="$2"; shift 2 ;;
+    --active-series)       ACTIVE_SERIES="$2"; shift 2 ;;
+    --active-series-preset|--named-active-series) ACTIVE_SERIES_PRESET="$2"; shift 2 ;;
     --density)             DENSITY="$2"; shift 2 ;;
     --duration)            DURATION="$2"; shift 2 ;;
     --step)                STEP="$2"; shift 2 ;;
@@ -113,14 +119,16 @@ case "$TARGET" in
   ch|prom|both) ;;
   *) echo "error: --target must be ch|prom|both (got: $TARGET)" >&2; exit 64 ;;
 esac
-case "$DENSITY" in
-  sparse|dense|stress-50k|stress-500k) ;;
-  *) echo "error: --density must be sparse|dense|stress-50k|stress-500k (got: $DENSITY)" >&2; exit 64 ;;
-esac
+if [[ -z "$ACTIVE_SERIES" && -z "$ACTIVE_SERIES_PRESET" && -z "$DENSITY" ]]; then
+  ACTIVE_SERIES_PRESET="fast"
+fi
 
 if [[ "$PROFILE" == "all" ]]; then
   for P in 7d 30d 1y; do
-    args=(--profile "$P" --density "$DENSITY" --target "$TARGET" --jobs "$JOBS" --ch-url "$CH_URL" --prom-url "$PROM_URL" --ch-endpoint "$CH_ENDPOINT" --prom-endpoint "$PROM_ENDPOINT")
+    args=(--profile "$P" --target "$TARGET" --jobs "$JOBS" --ch-url "$CH_URL" --prom-url "$PROM_URL" --ch-endpoint "$CH_ENDPOINT" --prom-endpoint "$PROM_ENDPOINT")
+    [[ -n "$ACTIVE_SERIES" ]] && args+=(--active-series "$ACTIVE_SERIES")
+    [[ -n "$ACTIVE_SERIES_PRESET" ]] && args+=(--active-series-preset "$ACTIVE_SERIES_PRESET")
+    [[ -n "$DENSITY" ]] && args+=(--density "$DENSITY")
     [[ -n "$INSTANCES_PER_JOB" ]] && args+=(--instances-per-job "$INSTANCES_PER_JOB")
     [[ -n "$DURATION" ]] && args+=(--duration "$DURATION")
     [[ -n "$STEP" ]] && args+=(--step "$STEP")
@@ -165,7 +173,10 @@ go build -o "$BIN" ./cmd/ch-seed-long
 
 # Shared generator args; --profile overrides end-time/duration/step in the Go
 # binary, so pass it when set and skip the explicit flags to avoid masking it.
-COMMON_ARGS=(--jobs "$JOBS" --density "$DENSITY")
+COMMON_ARGS=(--jobs "$JOBS")
+if [[ -n "$ACTIVE_SERIES" ]]; then COMMON_ARGS+=(--active-series "$ACTIVE_SERIES"); fi
+if [[ -n "$ACTIVE_SERIES_PRESET" ]]; then COMMON_ARGS+=(--active-series-preset "$ACTIVE_SERIES_PRESET"); fi
+if [[ -n "$DENSITY" ]]; then COMMON_ARGS+=(--density "$DENSITY"); fi
 if [[ -n "$INSTANCES_PER_JOB" ]]; then COMMON_ARGS+=(--instances-per-job "$INSTANCES_PER_JOB"); fi
 if [[ -n "$PROFILE" ]];  then COMMON_ARGS+=(--profile "$PROFILE"); fi
 if [[ -n "$DURATION" ]]; then COMMON_ARGS+=(--duration "$DURATION"); fi
@@ -201,7 +212,7 @@ fi
 
 EFFECTIVE_PROFILE="${PROFILE:-custom}"
 cat <<EOF
-[seed-long] done (profile=${EFFECTIVE_PROFILE}, density=${DENSITY}).
+[seed-long] done (profile=${EFFECTIVE_PROFILE}).
 
 Next steps:
   - bench this window:

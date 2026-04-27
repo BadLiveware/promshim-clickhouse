@@ -6,14 +6,14 @@ usage() {
 Usage: ./scripts/run-sweep.sh [options]
 
 One-command compliance/benchmark sweep helper. By default, runs compliance plus
-a 7d sparse benchmark against the isolated benchmark stack and writes named
+a 7d fast-5k active-series benchmark against the isolated benchmark stack and writes named
 artifacts under harness/artifacts/bench/sweeps/<run-name>/.
 
 Common examples:
   ./scripts/run-sweep.sh --dry-run --estimate
-  ./scripts/run-sweep.sh --setup --profile all --density sparse --target both
+  ./scripts/run-sweep.sh --setup --profile all --active-series-preset fast --target both
   ./scripts/run-sweep.sh --name pr-42-default
-  ./scripts/run-sweep.sh --profile 7d --density dense --corpus-set processing --estimate
+  ./scripts/run-sweep.sh --profile 7d --active-series-preset profile-50k --corpus-set processing --estimate
   ./scripts/run-sweep.sh --profile 7d --corpus-set optimization --skip-compliance
   ./scripts/run-sweep.sh --bench-status
   ./scripts/run-sweep.sh --bench-reset --yes
@@ -48,12 +48,13 @@ Options:
                                   Reference profile label recorded in sweep artifacts (default default-benchmark-compose).
   --settings-profile NAME        promshim ClickHouse settings profile for benchmark containers (default default_safe).
   --corpus-set {native|processing|optimization|both}
-                                  Benchmark corpus family (default: native; dense defaults to processing).
+                                  Benchmark corpus family (default: native).
                                   optimization currently supports only --profile 7d.
   --profile {7d|30d|1y|all}      Profile to inspect/seed (default for setup: all).
-  --density {sparse|dense|stress-50k|stress-500k|all}
-                                  Dataset density (default for setup: sparse).
-                                  stress-50k targets ~50,000 active series; stress-500k ~500,000.
+  --active-series N              Target active series count, e.g. 5000, 50k, 500k.
+  --active-series-preset NAME    fast (~5k), profile-50k (~50k), profile-500k (~500k), or all.
+  --named-active-series NAME     Alias for --active-series-preset.
+  --density NAME                 Deprecated compatibility alias: sparse, dense, stress-50k, stress-500k, all.
   --target {both|ch|prom}        Seed/check target (default: both).
   --seed {reuse|missing|always|never}
                                   Seed policy (normal default: reuse; --setup default: missing).
@@ -94,6 +95,8 @@ BENCH_PROM_WRITE_ENDPOINT="http://localhost:29190/api/v1/write"
 MODE=""
 PROFILE=""
 DENSITY=""
+ACTIVE_SERIES=""
+ACTIVE_SERIES_PRESET=""
 TARGET="both"
 SEED_POLICY=""
 TRANSPORT="native"
@@ -138,6 +141,8 @@ while [[ $# -gt 0 ]]; do
     --settings-profile) SETTINGS_PROFILE="$2"; shift 2 ;;
     --corpus-set)   CORPUS_SET="$2"; shift 2 ;;
     --profile)      PROFILE="$2"; shift 2 ;;
+    --active-series) ACTIVE_SERIES="$2"; shift 2 ;;
+    --active-series-preset|--named-active-series) ACTIVE_SERIES_PRESET="$2"; shift 2 ;;
     --density)      DENSITY="$2"; shift 2 ;;
     --target)       TARGET="$2"; shift 2 ;;
     --seed)         SEED_POLICY="$2"; shift 2 ;;
@@ -178,14 +183,14 @@ fi
 if [[ -z "$PROFILE" ]]; then
   if [[ "$MODE" == "run" ]]; then PROFILE="7d"; else PROFILE="all"; fi
 fi
-if [[ -z "$DENSITY" ]]; then
-  if [[ "$MODE" == "status" ]]; then DENSITY="all"; else DENSITY="sparse"; fi
+if [[ -z "$ACTIVE_SERIES" && -z "$ACTIVE_SERIES_PRESET" && -z "$DENSITY" ]]; then
+  if [[ "$MODE" == "status" ]]; then ACTIVE_SERIES_PRESET="all"; else ACTIVE_SERIES_PRESET="fast"; fi
 fi
 if [[ -z "$SEED_POLICY" ]]; then
   if [[ "$MODE" == "setup" ]]; then SEED_POLICY="missing"; else SEED_POLICY="reuse"; fi
 fi
 if [[ -z "$CORPUS_SET" ]]; then
-  if [[ "$DENSITY" == "dense" ]]; then CORPUS_SET="processing"; else CORPUS_SET="native"; fi
+  CORPUS_SET="native"
 fi
 case "$SEED_POLICY" in
   reuse|missing|always|never) ;;
@@ -203,11 +208,84 @@ profiles_for() {
   esac
 }
 
-densities_for() {
-  case "$1" in
+active_series_labels_for() {
+  if [[ -n "$ACTIVE_SERIES" ]]; then
+    if [[ -n "$ACTIVE_SERIES_PRESET" || -n "$DENSITY" ]]; then fatal "--active-series cannot be combined with --active-series-preset/--named-active-series or --density"; fi
+    python3 - "$ACTIVE_SERIES" <<'PY'
+import math, sys
+raw = sys.argv[1].strip().lower()
+mult = 1000 if raw.endswith('k') else 1
+if raw.endswith('k'):
+    raw = raw[:-1]
+try:
+    n = int(math.ceil(float(raw) * mult))
+except Exception:
+    raise SystemExit('invalid --active-series')
+if n <= 0:
+    raise SystemExit('invalid --active-series')
+label = f"custom-{n//1000}k" if n % 1000 == 0 else f"custom-{n}"
+print(label)
+PY
+    return
+  fi
+  if [[ -n "$ACTIVE_SERIES_PRESET" && -n "$DENSITY" ]]; then fatal "--active-series-preset/--named-active-series cannot be combined with --density"; fi
+  if [[ -n "$ACTIVE_SERIES_PRESET" ]]; then
+    case "$ACTIVE_SERIES_PRESET" in
+      all) printf '%s\n' fast-5k profile-50k profile-500k ;;
+      fast|5k|fast-5k) printf '%s\n' fast-5k ;;
+      profile-50k|50k|low-realistic|low-realistic-50k) printf '%s\n' profile-50k ;;
+      profile-500k|500k|medium-realistic|medium-realistic-500k) printf '%s\n' profile-500k ;;
+      *) fatal "--active-series-preset must be fast|profile-50k|profile-500k|all (got: $ACTIVE_SERIES_PRESET)" ;;
+    esac
+    return
+  fi
+  case "$DENSITY" in
     all) printf '%s\n' sparse dense ;;
-    sparse|dense|stress-50k|stress-500k) printf '%s\n' "$1" ;;
-    *) fatal "--density must be sparse|dense|stress-50k|stress-500k|all (got: $1)" ;;
+    sparse|dense) printf '%s\n' "$DENSITY" ;;
+    stress-50k) printf '%s\n' profile-50k ;;
+    stress-500k) printf '%s\n' profile-500k ;;
+    *) fatal "--density is deprecated; use --active-series or --active-series-preset. Legacy values: sparse|dense|stress-50k|stress-500k|all (got: $DENSITY)" ;;
+  esac
+}
+
+active_series_target_for() {
+  case "$1" in
+    sparse) echo 130 ;;
+    dense) echo 2600 ;;
+    fast-5k) echo 5000 ;;
+    profile-50k) echo 50000 ;;
+    profile-500k) echo 500000 ;;
+    custom-*)
+      local raw="${1#custom-}"
+      if [[ "$raw" == *k ]]; then echo "${raw%k}000"; else echo "$raw"; fi
+      ;;
+    *) fatal "unknown active-series label: $1" ;;
+  esac
+}
+
+active_series_axis_label() {
+  active_series_labels_for | paste -sd, -
+}
+
+seed_size_args_text_for() {
+  case "$1" in
+    sparse|dense) printf -- '--density %s' "$1" ;;
+    fast-5k) printf -- '--active-series-preset fast' ;;
+    profile-50k) printf -- '--active-series-preset profile-50k' ;;
+    profile-500k) printf -- '--active-series-preset profile-500k' ;;
+    custom-*) printf -- '--active-series %s' "$(active_series_target_for "$1")" ;;
+    *) fatal "unknown active-series label: $1" ;;
+  esac
+}
+
+seed_size_args_for() {
+  case "$1" in
+    sparse|dense) printf '%s\n' --density "$1" ;;
+    fast-5k) printf '%s\n' --active-series-preset fast ;;
+    profile-50k) printf '%s\n' --active-series-preset profile-50k ;;
+    profile-500k) printf '%s\n' --active-series-preset profile-500k ;;
+    custom-*) printf '%s\n' --active-series "$(active_series_target_for "$1")" ;;
+    *) fatal "unknown active-series label: $1" ;;
   esac
 }
 
@@ -219,11 +297,11 @@ target_includes() {
 }
 
 profile_end_time() {
-  local profile="$1" density="$2"
-  python3 - "$profile" "$density" <<'PY'
+  local profile="$1" active_label="$2"
+  python3 - "$profile" "$active_label" <<'PY'
 from datetime import datetime, timezone, timedelta
 import sys
-profile, density = sys.argv[1:3]
+profile, active_label = sys.argv[1:3]
 profiles = {
     "7d":  ("2026-03-22T21:45:42Z", timedelta(days=7)),
     "30d": ("2026-02-22T21:45:42Z", timedelta(days=30)),
@@ -231,8 +309,8 @@ profiles = {
 }
 end, duration = profiles[profile]
 dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
-slots = {"sparse": 0, "dense": 1, "stress-50k": 2, "stress-500k": 3}
-slot = slots.get(density, 0)
+slots = {"sparse": 0, "fast-5k": 0, "dense": 1, "profile-50k": 1, "profile-500k": 2}
+slot = slots.get(active_label, 3)
 if slot > 0:
     dt = dt - slot * duration - slot * timedelta(days=1)
 print(dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
@@ -342,7 +420,7 @@ show_status() {
   echo
   echo "Seed markers:"
   for p in $(profiles_for "$PROFILE"); do
-    for d in $(densities_for "$DENSITY"); do
+    for d in $(active_series_labels_for); do
       local eval_time prom_state ch_state
       eval_time=$(profile_end_time "$p" "$d")
       if curl -sf -o /dev/null "${BENCH_PROM_URL}/-/ready"; then
@@ -362,10 +440,12 @@ show_status() {
 
 seed_dataset() {
   local profile="$1" density="$2" target="$3"
-  log "Seeding profile=${profile} density=${density} target=${target} into isolated benchmark stack."
+  local size_args=()
+  mapfile -t size_args < <(seed_size_args_for "$density")
+  log "Seeding profile=${profile} active-series=${density} target=${target} into isolated benchmark stack."
   "${REPO_ROOT}/scripts/seed-long-range.sh" \
     --profile "$profile" \
-    --density "$density" \
+    "${size_args[@]}" \
     --target "$target" \
     --ch-url "$BENCH_CH_URL" \
     --prom-url "$BENCH_PROM_URL" \
@@ -376,7 +456,7 @@ seed_dataset() {
 setup_selected() {
   start_bench_stack
   for p in $(profiles_for "$PROFILE"); do
-    for d in $(densities_for "$DENSITY"); do
+    for d in $(active_series_labels_for); do
       local prom_state="skipped" ch_state="skipped" seed_target=""
       if [[ "$TARGET" == "both" || "$TARGET" == "prom" ]]; then
         prom_state=$(marker_status "$p" "$d" prom || true)
@@ -387,19 +467,19 @@ setup_selected() {
 
       case "$SEED_POLICY" in
         never)
-          log "Skipping seed checks/writes for profile=${p} density=${d} (--seed never)."
+          log "Skipping seed checks/writes for profile=${p} active-series=${d} (--seed never)."
           continue
           ;;
         reuse)
           if { target_includes "$TARGET" prom && [[ "$prom_state" != "present" ]]; } || { target_includes "$TARGET" ch && [[ "$ch_state" != "present" ]]; }; then
             cat >&2 <<EOF
-Missing benchmark dataset: profile=${p} density=${d} target=${TARGET}
+Missing benchmark dataset: profile=${p} active-series=${d} target=${TARGET}
 Run:
-  ./scripts/run-sweep.sh --setup --profile ${p} --density ${d} --target ${TARGET}
+  ./scripts/run-sweep.sh --setup --profile ${p} $(seed_size_args_text_for "$d") --target ${TARGET}
 EOF
             exit 2
           fi
-          log "Dataset already present: profile=${p} density=${d} target=${TARGET}."
+          log "Dataset already present: profile=${p} active-series=${d} target=${TARGET}."
           ;;
         missing)
           if [[ "$TARGET" == "both" ]]; then
@@ -413,7 +493,7 @@ EOF
           if [[ -n "$seed_target" ]]; then
             seed_dataset "$p" "$d" "$seed_target"
           else
-            log "Dataset already present: profile=${p} density=${d} target=${TARGET}."
+            log "Dataset already present: profile=${p} active-series=${d} target=${TARGET}."
           fi
           ;;
         always)
@@ -444,36 +524,6 @@ corpus_paths_for() {
   fi
 }
 
-estimate_samples() {
-  local profile="$1" density="$2"
-  python3 - "$profile" "$density" <<'PY'
-import sys
-profile, density = sys.argv[1:3]
-profiles = {
-    "7d": (7 * 24 * 3600, 15),
-    "30d": (30 * 24 * 3600, 60),
-    "1y": (365 * 24 * 3600, 300),
-}
-duration_seconds, step_seconds = profiles[profile]
-points = duration_seconds // step_seconds
-if density == "sparse":
-    instances_per_job = 5
-elif density == "dense":
-    instances_per_job = 50 if profile == "1y" else 100
-elif density == "stress-50k":
-    instances_per_job = 1924
-elif density == "stress-500k":
-    instances_per_job = 19231
-else:
-    raise SystemExit(f"unknown density {density!r}")
-jobs = 2
-series_per_instance = 13
-series = jobs * instances_per_job * series_per_instance
-samples = series * points
-print(f"series≈{series:,} points/series≈{points:,} samples≈{samples:,} disk≈{samples*60/1024**3:.1f}GiB-headroom")
-PY
-}
-
 print_sweep_plan() {
   local bin
   bin="$(mktemp -d)/promshim-sweep-plan"
@@ -482,7 +532,6 @@ print_sweep_plan() {
     --run-name "$RUN_NAME"
     --artifact-root "$(artifact_root_rel)"
     --profile "$PROFILE"
-    --density "$DENSITY"
     --transport "$TRANSPORT"
     --seed-policy "$SEED_POLICY"
     --shim-modes "$SHIM_MODES"
@@ -495,6 +544,9 @@ print_sweep_plan() {
     --settings-profile "$SETTINGS_PROFILE"
     --corpus-set "$CORPUS_SET"
   )
+  [[ -n "$ACTIVE_SERIES" ]] && args+=(--active-series "$ACTIVE_SERIES")
+  [[ -n "$ACTIVE_SERIES_PRESET" ]] && args+=(--active-series-preset "$ACTIVE_SERIES_PRESET")
+  [[ -n "$DENSITY" ]] && args+=(--density "$DENSITY")
   (( SKIP_COMPLIANCE == 1 )) && args+=(--skip-compliance)
   (( SKIP_BENCH == 1 )) && args+=(--skip-bench)
   (( ESTIMATE == 1 )) && args+=(--estimate)
@@ -512,7 +564,7 @@ generate_sweep_artifacts() {
     --artifact-dir "$artifact_dir" \
     --run-name "$RUN_NAME" \
     --profile "$PROFILE" \
-    --density "$DENSITY" \
+    --active-series "$(active_series_axis_label)" \
     --transport "$TRANSPORT" \
     --seed-policy "$SEED_POLICY" \
     --shim-modes "$SHIM_MODES" \
@@ -558,7 +610,7 @@ run_sweep() {
     bench_status="passed"
     setup_selected
     for p in $(profiles_for "$PROFILE"); do
-      for d in $(densities_for "$DENSITY"); do
+      for d in $(active_series_labels_for); do
         local eval_time
         eval_time=$(profile_end_time "$p" "$d")
         while IFS= read -r corpus; do
@@ -567,7 +619,7 @@ run_sweep() {
           stem=$(basename "$corpus" .json)
           artifact_name="bench-report-${p}-${d}-${stem}.json"
           if [[ -n "$WARMUP_ROUTING_POLICIES" ]]; then
-            log "Running warmup benchmark profile=${p} density=${d} corpus=${corpus} routing=${WARMUP_ROUTING_POLICIES}."
+            log "Running warmup benchmark profile=${p} active-series=${d} corpus=${corpus} routing=${WARMUP_ROUTING_POLICIES}."
             if ! "${REPO_ROOT}/scripts/run-bench.sh" \
               --prom-url "$BENCH_PROM_URL" \
               --shim-url "$BENCH_SHIM_URL" \
@@ -582,7 +634,7 @@ run_sweep() {
               --memory off \
               --run-label "run=${RUN_NAME}" \
               --run-label "profile=${p}" \
-              --run-label "density=${d}" \
+              --run-label "active-series=${d}" \
               --run-label "transport=${TRANSPORT}" \
               --run-label "warmup=true" \
               --repeats 1 \
@@ -591,7 +643,7 @@ run_sweep() {
               bench_status="failed"
             fi
           fi
-          log "Running benchmark profile=${p} density=${d} corpus=${corpus}."
+          log "Running benchmark profile=${p} active-series=${d} corpus=${corpus}."
           if ! "${REPO_ROOT}/scripts/run-bench.sh" \
             --prom-url "$BENCH_PROM_URL" \
             --shim-url "$BENCH_SHIM_URL" \
@@ -607,7 +659,7 @@ run_sweep() {
             --clickhouse-profile "$CLICKHOUSE_PROFILE_MODE" \
             --run-label "run=${RUN_NAME}" \
             --run-label "profile=${p}" \
-            --run-label "density=${d}" \
+            --run-label "active-series=${d}" \
             --run-label "transport=${TRANSPORT}" \
             --no-baseline \
             --matrix; then

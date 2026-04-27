@@ -22,7 +22,7 @@
       "path": "harness/corpus/bench-optimization-tuning-7d.json",
       "rows": 15,
       "evalTime": "2026-03-22T21:45:42Z",
-      "use": "Focused 7d sparse optimization sweeps."
+      "use": "Focused 7d fast active-series optimization sweeps."
     }
   ],
   "unsupportedProfiles": [
@@ -37,6 +37,6 @@
   ],
   "recommendedCommands": [
     "./scripts/run-bench.sh --corpus harness/corpus/bench-optimization-tuning.json --no-baseline",
-    "./scripts/run-sweep.sh --name optimization-7d --profile 7d --density sparse --corpus-set optimization --skip-compliance --estimate"
+    "./scripts/run-sweep.sh --name optimization-7d --profile 7d --active-series-preset fast --corpus-set optimization --skip-compliance --estimate"
   ]
 }

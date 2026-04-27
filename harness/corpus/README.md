@@ -13,8 +13,8 @@ syntax overlaps.
 | `./scripts/run-harness.sh --suite dashboard` | `common-dashboard-subset.json` | main harness fixture | Stable dashboard-shaped parity gate promoted from the Grafana shortlist. | Failures are regressions; excluded shortlist rows stay documented in metadata. |
 | `./scripts/run-harness.sh --suite compliance` | upstream `promql-test-queries.yml`, patched for Prometheus 3.x at runtime | frozen compliance stack | PromQL semantic compatibility against the upstream compliance suite. | Only policy-approved entries in `harness/compliance/expected-failures.json` are allowed. |
 | `./scripts/run-harness.sh --suite bench` / `./scripts/run-bench.sh` | `bench-native-lowering.json` | frozen compliance stack | Short native-lowering tripwire against the small fixture and baseline file. | Benchmark regressions fail when they exceed the gate. |
-| `./scripts/run-sweep.sh` sparse benchmark | `bench-native-lowering-7d.json` via `--corpus-set native` | isolated benchmark stack, 7d sparse by default | Default long-range benchmark signal for native lowering, routing, and CBE changes. | Query errors or benchmark command failures fail the bench pass. |
-| `./scripts/run-sweep.sh --density dense` | `bench-processing-7d.json` via `--corpus-set processing` | isolated benchmark stack, 7d dense by default | Processing-heavy bounded-output workload where Prometheus timing bands are meaningful. | Query errors or benchmark command failures fail the bench pass. |
+| `./scripts/run-sweep.sh` fast active-series benchmark | `bench-native-lowering-7d.json` via `--corpus-set native` | isolated benchmark stack, 7d `fast` active-series preset by default | Default long-range benchmark signal for native lowering, routing, and CBE changes. | Query errors or benchmark command failures fail the bench pass. |
+| `./scripts/run-sweep.sh --active-series-preset profile-50k --corpus-set processing` | `bench-processing-7d.json` via `--corpus-set processing` | isolated benchmark stack, 7d profile-50k active-series preset | Processing-heavy bounded-output workload where Prometheus timing bands are meaningful. | Query errors or benchmark command failures fail the bench pass. |
 
 Default runs should be boring, stable, and fast enough for routine use. Use
 opt-in corpora for native-only gaps, stress data, dashboard promotion, or
@@ -58,9 +58,9 @@ commands for the benchmark corpus families.
 | Corpus | Rows | Keep split? | Use when |
 | --- | ---: | --- | --- |
 | `bench-native-lowering.json` | 26 | Yes. It belongs to the frozen compliance-stack tripwire and baseline. | Running `run-bench.sh` standalone or the `bench` suite. |
-| `bench-native-lowering-7d.json` | 34 | Yes. It is the default sparse long-range sweep corpus and has more routing/CBE shapes than 30d/1y. | Routine sweep benchmarks and routing comparisons. |
-| `bench-native-lowering-30d.json`, `bench-native-lowering-1y.json` | 16 each | Yes. Long windows require different query windows and pinned eval times. | Checking scaling across longer sparse profiles. |
-| `bench-processing-7d.json`, `bench-processing-30d.json`, `bench-processing-1y.json` | 8 each | Yes. These are dense/processing workloads with profile-specific windows. | Measuring bounded-output processing cases, especially on dense data. |
+| `bench-native-lowering-7d.json` | 34 | Yes. It is the default fast active-series long-range sweep corpus and has more routing/CBE shapes than 30d/1y. | Routine sweep benchmarks and routing comparisons. |
+| `bench-native-lowering-30d.json`, `bench-native-lowering-1y.json` | 16 each | Yes. Long windows require different query windows and pinned eval times. | Checking scaling across longer active-series profiles. |
+| `bench-processing-7d.json`, `bench-processing-30d.json`, `bench-processing-1y.json` | 8 each | Yes. These are processing workloads with profile-specific windows. | Measuring bounded-output processing cases, especially at higher active-series targets. |
 | `bench-optimization-tuning.json` | 16 | Yes. It is a compliance-stack optimization experiment corpus. | Local tuning on the small fixture. |
 | `bench-optimization-tuning-7d.json` | 15 | Yes. It is the only long-range optimization corpus currently present. | Focused 7d optimization sweeps with `--corpus-set optimization`. |
 
@@ -73,7 +73,7 @@ that point at missing files.
 Before adding a corpus or moving rows between corpora, record:
 
 - the intended caller and whether it is a default or opt-in input;
-- the required stack, fixture, profile, density, and eval-time assumptions;
+- the required stack, fixture, profile, active-series target, and eval-time assumptions;
 - whether failures mean regressions, visible gaps, allowed compliance deviances,
   or benchmark regressions;
 - whether rows use exact comparison, structural comparison, native-only mode,

@@ -26,7 +26,7 @@ type benchMatrixSweepRow struct {
 	Category          string
 	Query             string
 	Profile           string
-	Density           string
+	ActiveSeries      string
 	Transport         string
 	Corpus            string
 	Mode              string
@@ -92,7 +92,7 @@ func renderSweepBenchMatrix(opts BenchMatrixOptions) (string, error) {
 			continue
 		}
 		profile := firstNonEmpty(meta.Profile, report.RunLabels["profile"], "unknown")
-		density := firstNonEmpty(meta.Density, report.RunLabels["density"], "unknown")
+		activeSeries := firstNonEmpty(meta.ActiveSeries, meta.LegacyDensity, report.RunLabels["active-series"], report.RunLabels["density"], "unknown")
 		transport := firstNonEmpty(meta.Transport, report.RunLabels["transport"], "unknown")
 		corpus := strings.TrimSuffix(filepath.Base(firstNonEmpty(report.CorpusPath, reportPath)), filepath.Ext(firstNonEmpty(report.CorpusPath, reportPath)))
 		for _, row := range report.Rows {
@@ -116,7 +116,7 @@ func renderSweepBenchMatrix(opts BenchMatrixOptions) (string, error) {
 				}
 				strict := result.StrictCandidate
 				selected := result.SelectedCandidate
-				rows = append(rows, benchMatrixSweepRow{Category: firstNonEmpty(row.Category, "uncategorized"), Query: row.Name, Profile: profile, Density: density, Transport: transport, Corpus: corpus, Mode: mode, RoutingPolicy: result.RoutingPolicy, Strategy: result.Strategy, StrictCandidate: strict, SelectedCandidate: selected, ServedCandidate: result.ServedCandidate, CandidateFlip: strict != "" && selected != "" && strict != selected, PromP50MS: prom, ShimP50MS: &shim, Ratio: ratio, PromBand: firstNonEmpty(row.PromBand, "n/a")})
+				rows = append(rows, benchMatrixSweepRow{Category: firstNonEmpty(row.Category, "uncategorized"), Query: row.Name, Profile: profile, ActiveSeries: activeSeries, Transport: transport, Corpus: corpus, Mode: mode, RoutingPolicy: result.RoutingPolicy, Strategy: result.Strategy, StrictCandidate: strict, SelectedCandidate: selected, ServedCandidate: result.ServedCandidate, CandidateFlip: strict != "" && selected != "" && strict != selected, PromP50MS: prom, ShimP50MS: &shim, Ratio: ratio, PromBand: firstNonEmpty(row.PromBand, "n/a")})
 			}
 		}
 	}
@@ -125,19 +125,19 @@ func renderSweepBenchMatrix(opts BenchMatrixOptions) (string, error) {
 	fmt.Fprintf(&b, "## Sweep benchmark matrix: %s\n\n", firstNonEmpty(manifest.RunName, filepath.Base(filepath.Dir(opts.SweepPath))))
 	fmt.Fprintf(&b, "Manifest: `%s`\n\n", opts.SweepPath)
 	if opts.PerQuery {
-		b.WriteString("| Category | Query | Profile | Density | Transport | Corpus | Mode | Routing policy | Strategy | Strict candidate | Selected candidate | Served candidate | Candidate flip | Prom band | Prom p50 | Shim p50 | S/P |\n")
+		b.WriteString("| Category | Query | Profile | Active series | Transport | Corpus | Mode | Routing policy | Strategy | Strict candidate | Selected candidate | Served candidate | Candidate flip | Prom band | Prom p50 | Shim p50 | S/P |\n")
 		b.WriteString("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---:|---:|---:|\n")
 		sort.Slice(rows, func(i, j int) bool { return sweepPerQueryKey(rows[i]) < sweepPerQueryKey(rows[j]) })
 		for _, row := range rows {
-			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", row.Category, row.Query, row.Profile, row.Density, row.Transport, row.Corpus, row.Mode, valueOr(row.RoutingPolicy, "n/a"), row.Strategy, valueOr(row.StrictCandidate, "n/a"), valueOr(row.SelectedCandidate, "n/a"), valueOr(row.ServedCandidate, "n/a"), yesNo(row.CandidateFlip), row.PromBand, formatOptional(row.PromP50MS), formatOptional(row.ShimP50MS), formatRatio(row.Ratio))
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", row.Category, row.Query, row.Profile, row.ActiveSeries, row.Transport, row.Corpus, row.Mode, valueOr(row.RoutingPolicy, "n/a"), row.Strategy, valueOr(row.StrictCandidate, "n/a"), valueOr(row.SelectedCandidate, "n/a"), valueOr(row.ServedCandidate, "n/a"), yesNo(row.CandidateFlip), row.PromBand, formatOptional(row.PromP50MS), formatOptional(row.ShimP50MS), formatRatio(row.Ratio))
 		}
 	} else {
-		b.WriteString("| Category | Profile | Density | Transport | Mode | Routing policy | Count | Strategies | Candidate flips | Prom p50 med | Shim p50 med | S/P med | Target bands |\n")
+		b.WriteString("| Category | Profile | Active series | Transport | Mode | Routing policy | Count | Strategies | Candidate flips | Prom p50 med | Shim p50 med | S/P med | Target bands |\n")
 		b.WriteString("|---|---|---|---|---|---|---:|---|---:|---:|---:|---:|---|\n")
 		buckets := map[string][]benchMatrixSweepRow{}
 		keys := []string{}
 		for _, row := range rows {
-			key := strings.Join([]string{row.Category, row.Profile, row.Density, row.Transport, row.Mode, row.RoutingPolicy}, "\x00")
+			key := strings.Join([]string{row.Category, row.Profile, row.ActiveSeries, row.Transport, row.Mode, row.RoutingPolicy}, "\x00")
 			if _, ok := buckets[key]; !ok {
 				keys = append(keys, key)
 			}
@@ -252,7 +252,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 func sweepPerQueryKey(r benchMatrixSweepRow) string {
-	return strings.Join([]string{r.Category, r.Query, r.Profile, r.Density, r.Mode, r.RoutingPolicy}, "|")
+	return strings.Join([]string{r.Category, r.Query, r.Profile, r.ActiveSeries, r.Mode, r.RoutingPolicy}, "|")
 }
 func yesNo(v bool) string {
 	if v {

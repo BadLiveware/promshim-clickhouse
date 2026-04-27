@@ -44,26 +44,29 @@ var profiles = map[string]profileConfig{
 
 func main() {
 	var (
-		endpoint       = flag.String("endpoint", "http://localhost:29092/write", "ClickHouse remote-write endpoint.")
-		username       = flag.String("username", "default", "Basic-auth username for the remote-write endpoint.")
-		password       = flag.String("password", "otel", "Basic-auth password for the remote-write endpoint.")
-		profile        = flag.String("profile", "", "Named dashboard profile: 7d | 30d | 1y. Sets --end-time, --duration, --step. Overrides those flags when set.")
-		density        = flag.String("density", "sparse", "Dataset density: sparse | dense | stress-50k | stress-500k. Higher densities use non-overlapping windows and higher cardinality unless --instances-per-job is explicitly set.")
-		endTimeFlag    = flag.String("end-time", "2026-03-22T21:45:42Z", "RFC3339 timestamp of the last sample. Pin this and reference it from the bench corpus.")
-		duration       = flag.Duration("duration", 168*time.Hour, "Window size ending at --end-time (e.g. 168h for 7d, 720h for 30d).")
-		step           = flag.Duration("step", 15*time.Second, "Sample interval per series.")
-		jobsFlag       = flag.String("jobs", "demo-api,demo-worker", "Comma-separated job label values.")
-		instancesFlag  = flag.Int("instances-per-job", 5, "Number of instance label values per job.")
-		batchSamples   = flag.Int("batch-samples", 50000, "Approximate samples per remote-write POST.")
-		seed           = flag.Int64("seed", 42, "PRNG seed for gauge jitter (output is deterministic for a given seed).")
-		maxConcurrent  = flag.Int("max-concurrency", 8, "Maximum number of in-flight remote-write POSTs.")
-		initConcurrent = flag.Int("initial-concurrency", 2, "Starting concurrency for the AIMD regulator. Ignored when --no-adaptive is set.")
-		noAdaptive     = flag.Bool("no-adaptive", false, "Disable the AIMD regulator and run with fixed --max-concurrency workers (deterministic mode).")
-		probeInterval  = flag.Duration("probe-interval", 5*time.Second, "How often the health-probe goroutine polls signals (host load, CH, Prom). Zero disables all probes.")
-		chProbeURL     = flag.String("ch-probe-url", "", "ClickHouse HTTP URL for health probes (e.g. http://localhost:28124). Empty disables CH probing.")
-		promProbeURL   = flag.String("prom-probe-url", "", "Prometheus HTTP URL for health probes (e.g. http://localhost:29190). Empty disables Prom probing.")
-		maxHostLoadPct = flag.Float64("max-host-load-pct", 50.0, "Throttle when 1-min load average exceeds this percentage of NumCPU. Default 50 leaves the machine usable for other work; raise to 80–90 in CI or on dedicated bench hosts. Set to 0 to disable host-load probing.")
+		endpoint           = flag.String("endpoint", "http://localhost:29092/write", "ClickHouse remote-write endpoint.")
+		username           = flag.String("username", "default", "Basic-auth username for the remote-write endpoint.")
+		password           = flag.String("password", "otel", "Basic-auth password for the remote-write endpoint.")
+		profile            = flag.String("profile", "", "Named dashboard profile: 7d | 30d | 1y. Sets --end-time, --duration, --step. Overrides those flags when set.")
+		density            = flag.String("density", "", "Deprecated compatibility alias: sparse | dense | stress-50k | stress-500k.")
+		activeSeries       = flag.String("active-series", "", "Target active series count, e.g. 5000, 50k, 500k.")
+		activeSeriesPreset = flag.String("active-series-preset", "", "Active series preset: fast | profile-50k | profile-500k. Default: fast.")
+		endTimeFlag        = flag.String("end-time", "2026-03-22T21:45:42Z", "RFC3339 timestamp of the last sample. Pin this and reference it from the bench corpus.")
+		duration           = flag.Duration("duration", 168*time.Hour, "Window size ending at --end-time (e.g. 168h for 7d, 720h for 30d).")
+		step               = flag.Duration("step", 15*time.Second, "Sample interval per series.")
+		jobsFlag           = flag.String("jobs", "demo-api,demo-worker", "Comma-separated job label values.")
+		instancesFlag      = flag.Int("instances-per-job", 5, "Number of instance label values per job.")
+		batchSamples       = flag.Int("batch-samples", 50000, "Approximate samples per remote-write POST.")
+		seed               = flag.Int64("seed", 42, "PRNG seed for gauge jitter (output is deterministic for a given seed).")
+		maxConcurrent      = flag.Int("max-concurrency", 8, "Maximum number of in-flight remote-write POSTs.")
+		initConcurrent     = flag.Int("initial-concurrency", 2, "Starting concurrency for the AIMD regulator. Ignored when --no-adaptive is set.")
+		noAdaptive         = flag.Bool("no-adaptive", false, "Disable the AIMD regulator and run with fixed --max-concurrency workers (deterministic mode).")
+		probeInterval      = flag.Duration("probe-interval", 5*time.Second, "How often the health-probe goroutine polls signals (host load, CH, Prom). Zero disables all probes.")
+		chProbeURL         = flag.String("ch-probe-url", "", "ClickHouse HTTP URL for health probes (e.g. http://localhost:28124). Empty disables CH probing.")
+		promProbeURL       = flag.String("prom-probe-url", "", "Prometheus HTTP URL for health probes (e.g. http://localhost:29190). Empty disables Prom probing.")
+		maxHostLoadPct     = flag.Float64("max-host-load-pct", 50.0, "Throttle when 1-min load average exceeds this percentage of NumCPU. Default 50 leaves the machine usable for other work; raise to 80–90 in CI or on dedicated bench hosts. Set to 0 to disable host-load probing.")
 	)
+	flag.StringVar(activeSeriesPreset, "named-active-series", "", "Alias for --active-series-preset.")
 	flag.Parse()
 
 	instancesExplicit := false
@@ -73,11 +76,15 @@ func main() {
 		}
 	})
 
-	switch *density {
-	case "sparse", "dense", "stress-50k", "stress-500k":
-	default:
-		log.Fatalf("unknown --density %q (want: sparse | dense | stress-50k | stress-500k)", *density)
+	selection, err := promharness.ActiveSeriesSelections(*activeSeries, *activeSeriesPreset, *density)
+	if err != nil {
+		log.Fatal(err)
 	}
+	if len(selection) != 1 {
+		log.Fatalf("ch-seed-long accepts one active-series selection per run, got %d", len(selection))
+	}
+	activeSelection := selection[0]
+	*density = activeSelection.Label
 
 	if *profile != "" {
 		p, ok := profiles[*profile]
@@ -88,12 +95,12 @@ func main() {
 		*duration = p.duration
 		*step = p.step
 		if !instancesExplicit {
-			*instancesFlag = defaultInstancesPerJob(*profile, *density)
+			*instancesFlag = promharness.InstancesPerJobForActiveSeries(activeSelection.Target)
 		}
-		log.Printf("[seed-long] profile=%s density=%s end_time=%s duration=%s step=%s instances_per_job=%d",
-			*profile, *density, *endTimeFlag, p.duration, p.step, *instancesFlag)
-	} else if !instancesExplicit && *density != "sparse" {
-		*instancesFlag = defaultInstancesPerJob("", *density)
+		log.Printf("[seed-long] profile=%s active_series=%s target=%d actual=%d end_time=%s duration=%s step=%s instances_per_job=%d",
+			*profile, *density, activeSelection.Target, promharness.ActualActiveSeries(activeSelection.Target), *endTimeFlag, p.duration, p.step, *instancesFlag)
+	} else if !instancesExplicit {
+		*instancesFlag = promharness.InstancesPerJobForActiveSeries(activeSelection.Target)
 	}
 
 	endTime, err := time.Parse(time.RFC3339, *endTimeFlag)
@@ -180,46 +187,27 @@ func profileEndTime(p profileConfig, density string) string {
 	if err != nil {
 		panic(err)
 	}
-	// Densities other than sparse live in non-overlapping windows immediately
-	// before the sparse window, each separated by a one-day gap. This avoids
-	// duplicate series at identical timestamps when multiple densities are
-	// pre-seeded into the same observability.prometheus table.
+	// Active-series labels other than the first slot live in non-overlapping
+	// windows immediately before the first-slot window, each separated by a one-day
+	// gap. This avoids duplicate series at identical timestamps when multiple
+	// dataset sizes are pre-seeded into the same observability.prometheus table.
 	offset := -time.Duration(slot)*p.duration - time.Duration(slot)*24*time.Hour
 	return endTime.Add(offset).Format(time.RFC3339)
 }
 
-// densitySlot assigns each density a non-overlapping window index. Slot 0 is
-// the canonical sparse window; higher slots shift earlier in time.
+// densitySlot assigns each active-series label a non-overlapping window index.
 func densitySlot(density string) int {
 	switch density {
-	case "sparse":
+	case "sparse", "fast-5k":
 		return 0
-	case "dense":
+	case "dense", "profile-50k":
 		return 1
-	case "stress-50k":
+	case "stress-50k", "profile-500k":
 		return 2
 	case "stress-500k":
 		return 3
 	default:
-		return 0
-	}
-}
-
-func defaultInstancesPerJob(profile, density string) int {
-	switch density {
-	case "dense":
-		if profile == "1y" {
-			return 50
-		}
-		return 100
-	case "stress-50k":
-		// 1924 instances/job × 2 jobs × 13 series_per_instance = 50,024 series.
-		return 1924
-	case "stress-500k":
-		// 19231 instances/job × 2 jobs × 13 series_per_instance = 500,006 series.
-		return 19231
-	default:
-		return 5
+		return 3
 	}
 }
 

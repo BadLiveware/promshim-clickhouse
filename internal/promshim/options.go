@@ -45,6 +45,7 @@ type Options struct {
 	PromotedTagColumns            []string
 	DiscoverPromotedTagColumns    bool
 	NativeGridFunctions           string
+	CumulativeAvgOverTime         string
 
 	DisableEntireQueryDelegation bool
 }
@@ -78,6 +79,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		PromotedTagColumns:            splitCSVEnv(getenv("PROM_SHIM_PROMOTED_TAG_COLUMNS", "")),
 		DiscoverPromotedTagColumns:    getenvBool("PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS", false),
 		NativeGridFunctions:           getenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "prefer"),
+		CumulativeAvgOverTime:         getenv("PROM_SHIM_CUMULATIVE_AVG_OVER_TIME", "prefer"),
 	}
 
 	if _, err := local.ParseNativeLoweringMode(string(opts.NativeLoweringMode)); err != nil {
@@ -97,6 +99,9 @@ func LoadOptionsFromEnv() (Options, error) {
 	}
 	if normalized := normalizeNativeGridFunctionsMode(opts.NativeGridFunctions); normalized == "" {
 		return Options{}, fmt.Errorf("invalid PROM_SHIM_NATIVE_GRID_FUNCTIONS: %q", opts.NativeGridFunctions)
+	}
+	if normalized := normalizePreferOffMode(opts.CumulativeAvgOverTime); normalized == "" {
+		return Options{}, fmt.Errorf("invalid PROM_SHIM_CUMULATIVE_AVG_OVER_TIME: %q", opts.CumulativeAvgOverTime)
 	}
 
 	if _, err := url.Parse(opts.ClickHouseEndpoint); err != nil {
@@ -168,6 +173,10 @@ func getenvInt64(key string, fallback int64) int64 {
 }
 
 func normalizeNativeGridFunctionsMode(value string) string {
+	return normalizePreferOffMode(value)
+}
+
+func normalizePreferOffMode(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "prefer":
 		return "prefer"
@@ -200,6 +209,7 @@ func normalizeOptions(opts Options) Options {
 	}
 	opts.ClickHouseSettingsProfile = storage.NormalizeSettingsProfileName(opts.ClickHouseSettingsProfile)
 	opts.NativeGridFunctions = normalizeNativeGridFunctionsMode(opts.NativeGridFunctions)
+	opts.CumulativeAvgOverTime = normalizePreferOffMode(opts.CumulativeAvgOverTime)
 	opts.NativeLoweringMode = local.NormalizeNativeLoweringMode(opts.NativeLoweringMode)
 	opts.RoutingPolicy = NormalizeRoutingPolicy(opts.RoutingPolicy)
 	if opts.MaxRangePointsPerSeries <= 0 {

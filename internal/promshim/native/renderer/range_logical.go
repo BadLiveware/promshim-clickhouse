@@ -226,7 +226,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 					// avg_over_time can be computed from cumulative per-series sums/counts and
 					// ASOF boundary lookups. This avoids the id-only grid→data join fanout that
 					// is expensive for dense, high-overlap windows.
-					if isIdentity && fn == "avg_over_time" && !preferDirectSelectorWindowJoin(lookbackMS, params.StepMS) {
+					if isIdentity && cfg.EnableCumulativeAvgOverTime && fn == "avg_over_time" && !preferDirectSelectorWindowJoin(lookbackMS, params.StepMS) {
 						childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
 						source, err := renderAggregationSourceView(view, params)
 						if err != nil {

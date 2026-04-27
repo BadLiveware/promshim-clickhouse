@@ -9,7 +9,7 @@ import (
 )
 
 func testRenderConfig() storage.QueryConfig {
-	return storage.QueryConfig{Database: "observability", Table: "prometheus"}
+	return storage.QueryConfig{Database: "observability", Table: "prometheus", EnableCumulativeAvgOverTime: true}
 }
 
 func buildLowerInputs(t *testing.T, query string) (logicalpkg.Node, *logicalpkg.Analysis, *native.Analysis) {

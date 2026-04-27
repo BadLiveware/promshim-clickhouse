@@ -30,6 +30,11 @@ type QueryConfig struct {
 	// EnableNativeGridFunctions allows guarded tier-2 lowering to call
 	// ClickHouse TimeSeries grid functions for supported range operators.
 	EnableNativeGridFunctions bool
+
+	// EnableCumulativeAvgOverTime allows high-overlap avg_over_time selectors
+	// to use cumulative per-series state and ASOF boundary lookups instead of
+	// a grid-to-data fanout join.
+	EnableCumulativeAvgOverTime bool
 }
 
 type AggregationSource struct {

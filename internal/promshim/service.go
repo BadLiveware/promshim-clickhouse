@@ -33,7 +33,7 @@ func (h *queryService) ClickHouseTransport() string {
 }
 
 func (h *queryService) queryConfig() storage.QueryConfig {
-	return storage.QueryConfig{Database: h.opts.Database, Table: h.opts.Table, PromotedTagColumns: h.promotedTagColumns, EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer"}
+	return storage.QueryConfig{Database: h.opts.Database, Table: h.opts.Table, PromotedTagColumns: h.promotedTagColumns, EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer"}
 }
 
 func mergePromotedTagColumns(base, extra map[string]struct{}) map[string]struct{} {
@@ -136,7 +136,7 @@ func NewHandler(opts Options) (http.Handler, error) {
 	service := &queryService{
 		opts:               opts,
 		client:             client,
-		evaluator:          local.NewEvaluator(opts.Database, opts.Table, client).WithPromotedTagColumns(promotedTagColumns).WithNativeGridFunctions(opts.NativeGridFunctions == "prefer"),
+		evaluator:          local.NewEvaluator(opts.Database, opts.Table, client).WithPromotedTagColumns(promotedTagColumns).WithNativeGridFunctions(opts.NativeGridFunctions == "prefer").WithCumulativeAvgOverTime(opts.CumulativeAvgOverTime == "prefer"),
 		promotedTagColumns: promotedTagColumns,
 		timeSeriesIDType:   timeSeriesIDType,
 		selectorStats:      newSelectorStatsCache(5 * time.Minute),

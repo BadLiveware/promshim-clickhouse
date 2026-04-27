@@ -118,6 +118,40 @@ func TestLoadOptionsFromEnvNativeGridFunctions(t *testing.T) {
 	}
 }
 
+func TestLoadOptionsFromEnvCumulativeAvgOverTime(t *testing.T) {
+	t.Setenv("PROM_SHIM_CUMULATIVE_AVG_OVER_TIME", "")
+	opts, err := LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.CumulativeAvgOverTime != "prefer" {
+		t.Fatalf("default CumulativeAvgOverTime = %q, want prefer", opts.CumulativeAvgOverTime)
+	}
+
+	t.Setenv("PROM_SHIM_CUMULATIVE_AVG_OVER_TIME", "off")
+	opts, err = LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.CumulativeAvgOverTime != "off" {
+		t.Fatalf("CumulativeAvgOverTime = %q, want off", opts.CumulativeAvgOverTime)
+	}
+
+	t.Setenv("PROM_SHIM_CUMULATIVE_AVG_OVER_TIME", "prefer")
+	opts, err = LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.CumulativeAvgOverTime != "prefer" {
+		t.Fatalf("CumulativeAvgOverTime = %q, want prefer", opts.CumulativeAvgOverTime)
+	}
+
+	t.Setenv("PROM_SHIM_CUMULATIVE_AVG_OVER_TIME", "surprise")
+	if _, err := LoadOptionsFromEnv(); err == nil || !strings.Contains(err.Error(), "PROM_SHIM_CUMULATIVE_AVG_OVER_TIME") {
+		t.Fatalf("LoadOptionsFromEnv invalid cumulative avg error = %v", err)
+	}
+}
+
 func TestLoadOptionsFromEnvPromotedTagColumns(t *testing.T) {
 	t.Setenv("PROM_SHIM_PROMOTED_TAG_COLUMNS", "instance, pod ,node")
 	t.Setenv("PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS", "true")

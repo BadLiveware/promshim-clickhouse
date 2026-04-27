@@ -103,6 +103,9 @@ func CorpusPathsFor(profile, set string) ([]string, error) {
 	case "both":
 		out = append(out, "harness/corpus/bench-native-lowering"+suffix+".json", "harness/corpus/bench-processing"+suffix+".json")
 	case "optimization":
+		if profile != "7d" {
+			return nil, fmt.Errorf("--corpus-set optimization currently supports only --profile 7d (got: %s)", profile)
+		}
 		out = append(out, "harness/corpus/bench-optimization-tuning"+suffix+".json")
 	default:
 		return nil, fmt.Errorf("--corpus-set must be native|processing|optimization|both (got: %s)", set)

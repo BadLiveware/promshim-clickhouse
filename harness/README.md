@@ -221,6 +221,10 @@ GRAFANA_COOKIE="$(pbpaste)" \
 
 The extractor writes raw dashboard JSON plus `queries.jsonl` and `queries.csv` under the selected output directory. Treat the output as exploratory input for corpus curation, not as a stable gate until queries are reviewed and promoted into a harness corpus.
 
+### Corpus catalog and defaults
+
+See `harness/corpus/README.md` for the corpus catalog, default-corpus policy, and guidance on which splits are stable gates, benchmark inputs, focused native-only probes, or exploratory dashboard-promotion corpora.
+
 ### Native SQL lowering starter corpus
 
 For the native SQL lowering roadmap there are also smaller focused corpora:

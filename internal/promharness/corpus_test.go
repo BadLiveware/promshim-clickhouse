@@ -110,6 +110,65 @@ func TestCommonDashboardSubsetMetadataMatchesCorpus(t *testing.T) {
 	}
 }
 
+func TestBenchmarkCorpusMetadataMatchesCorpora(t *testing.T) {
+	t.Parallel()
+
+	for _, fixture := range []string{"bench-native-lowering.metadata.json", "bench-processing.metadata.json", "bench-optimization-tuning.metadata.json"} {
+		fixture := fixture
+		t.Run(fixture, func(t *testing.T) {
+			t.Parallel()
+
+			payload, err := os.ReadFile(corpusFixturePath(fixture))
+			if err != nil {
+				t.Fatalf("read benchmark metadata: %v", err)
+			}
+			var metadata struct {
+				Name           string `json:"name"`
+				Purpose        string `json:"purpose"`
+				ProfileCorpora []struct {
+					Profile string `json:"profile"`
+					Path    string `json:"path"`
+					Rows    int    `json:"rows"`
+				} `json:"profileCorpora"`
+			}
+			if err := json.Unmarshal(payload, &metadata); err != nil {
+				t.Fatalf("unmarshal benchmark metadata: %v", err)
+			}
+			if strings.TrimSpace(metadata.Name) == "" {
+				t.Fatal("metadata name must not be empty")
+			}
+			if strings.TrimSpace(metadata.Purpose) == "" {
+				t.Fatal("metadata purpose must not be empty")
+			}
+			if len(metadata.ProfileCorpora) == 0 {
+				t.Fatal("metadata must list at least one profile corpus")
+			}
+
+			seenProfiles := map[string]struct{}{}
+			for _, corpus := range metadata.ProfileCorpora {
+				if strings.TrimSpace(corpus.Profile) == "" {
+					t.Fatal("profile corpus profile must not be empty")
+				}
+				if _, dup := seenProfiles[corpus.Profile]; dup {
+					t.Fatalf("duplicate profile corpus %q", corpus.Profile)
+				}
+				seenProfiles[corpus.Profile] = struct{}{}
+				if !strings.HasPrefix(corpus.Path, "harness/corpus/") {
+					t.Fatalf("profile corpus path %q must live under harness/corpus", corpus.Path)
+				}
+				queries, err := LoadQueryCorpus(filepath.Join("..", "..", corpus.Path))
+				if err != nil {
+					t.Fatalf("load profile corpus %q: %v", corpus.Path, err)
+				}
+				validateQueryCorpus(t, corpus.Path, queries)
+				if corpus.Rows != len(queries) {
+					t.Fatalf("profile corpus %q row count mismatch: metadata=%d corpus=%d", corpus.Path, corpus.Rows, len(queries))
+				}
+			}
+		})
+	}
+}
+
 func TestNativeLoweringStarterMetadataMatchesCorpus(t *testing.T) {
 	t.Parallel()
 

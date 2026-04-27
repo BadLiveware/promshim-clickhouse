@@ -131,14 +131,15 @@ type Limit struct {
 }
 
 type Select struct {
-	With    []CTE
-	Columns []ColExpr
-	From    Source
-	Where   Expr
-	GroupBy []Expr
-	Having  Expr
-	OrderBy []OrderExpr
-	Limit   *Limit
+	With     []CTE
+	Distinct bool
+	Columns  []ColExpr
+	From     Source
+	Where    Expr
+	GroupBy  []Expr
+	Having   Expr
+	OrderBy  []OrderExpr
+	Limit    *Limit
 }
 
 type Table struct {
@@ -414,6 +415,9 @@ func (s *Select) writeSelect(ctx *buildCtx) {
 		ctx.write(" ")
 	}
 	ctx.write("SELECT ")
+	if s.Distinct {
+		ctx.write("DISTINCT ")
+	}
 	for i, col := range s.Columns {
 		if i > 0 {
 			ctx.write(", ")

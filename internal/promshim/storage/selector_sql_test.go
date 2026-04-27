@@ -92,7 +92,7 @@ func TestBuildInstantSelectorQuerySQLMatchesNormalizedBuilderShape(t *testing.T)
 	if err != nil {
 		t.Fatalf("expected instant selector SQL, got error: %v", err)
 	}
-	expected := "SELECT series.tags AS tags, max(d.timestamp) AS timestamp, argMax(d.value, d.timestamp) AS value FROM timeSeriesData(`observability`.`prometheus`) AS d INNER JOIN ( SELECT src.id, arrayConcat([tuple('__name__', src.metric_name)], arrayMap((k, v) -> tuple(k, v), mapKeys(src.tags), mapValues(src.tags))) AS tags FROM timeSeriesTags(`observability`.`prometheus`) AS src WHERE src.metric_name = {instant_matcher_0_value:String} AND src.max_time >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND src.min_time <= fromUnixTimestamp64Milli({required_end_ms:Int64}) ) AS series ON d.id = series.id WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) GROUP BY d.id, series.tags HAVING NOT isNaN(value) ORDER BY tags SETTINGS allow_experimental_time_series_table = 1 FORMAT JSONEachRow"
+	expected := "SELECT series.tags AS tags, max(d.timestamp) AS timestamp, argMax(d.value, d.timestamp) AS value FROM timeSeriesData(`observability`.`prometheus`) AS d INNER JOIN ( SELECT DISTINCT src.id, arrayConcat([tuple('__name__', src.metric_name)], arrayMap((k, v) -> tuple(k, v), mapKeys(src.tags), mapValues(src.tags))) AS tags FROM timeSeriesTags(`observability`.`prometheus`) AS src WHERE src.metric_name = {instant_matcher_0_value:String} AND src.max_time >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND src.min_time <= fromUnixTimestamp64Milli({required_end_ms:Int64}) ) AS series ON d.id = series.id WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) GROUP BY d.id, series.tags HAVING NOT isNaN(value) ORDER BY tags SETTINGS allow_experimental_time_series_table = 1 FORMAT JSONEachRow"
 	if sqlb.NormalizeSQL(sql) != expected {
 		t.Fatalf("unexpected normalized SQL:\nwant: %s\n got: %s", expected, sqlb.NormalizeSQL(sql))
 	}
@@ -287,6 +287,9 @@ func TestBuildRangeSelectorQuerySQLUsesStepGridLookbackAndOffset(t *testing.T) {
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)
 		}
 	}
+	if strings.Contains(sql, "positiveModulo(") {
+		t.Fatalf("expected overlapping step/lookback range selector to skip phase filter, got %q", sql)
+	}
 	if params["param_lookback_ms"] != "300000" || params["param_offset_ms"] != "60000" {
 		t.Fatalf("expected lookback/offset params, got %#v", params)
 	}
@@ -304,8 +307,36 @@ func TestBuildRangeSelectorQuerySQLUsesStepGridAndLookback(t *testing.T) {
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)
 		}
 	}
+	if strings.Contains(sql, "positiveModulo(") {
+		t.Fatalf("expected overlapping step/lookback range selector to skip phase filter, got %q", sql)
+	}
 	if params["param_lookback_ms"] != "300000" || params["param_offset_ms"] != "0" {
 		t.Fatalf("expected 5m lookback and zero offset params, got %#v", params)
+	}
+}
+
+func TestBuildRangeSelectorQuerySQLFiltersASOFRightSideForSparseEvalGrid(t *testing.T) {
+	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, time.Minute, SelectorKindInstantVector)
+
+	sql, params, err := BuildRangeSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -360000, 300000, 0, 3600000, int64(time.Hour/time.Millisecond))
+	if err != nil {
+		t.Fatalf("expected range selector SQL, got error: %v", err)
+	}
+	for _, expected := range []string{
+		"SELECT DISTINCT src.id",
+		"positiveModulo(toUnixTimestamp64Milli(timestamp) + {offset_ms:Int64} - {start_ms:Int64}, {step_ms:Int64}) = 0",
+		"positiveModulo(toUnixTimestamp64Milli(timestamp) + {offset_ms:Int64} - {start_ms:Int64}, {step_ms:Int64}) >= ({step_ms:Int64} - {lookback_ms:Int64})",
+		"NOT isNaN(value)",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected %q in SQL, got %q", expected, sql)
+		}
+	}
+	if strings.Contains(sql, "NOT isNaN(d.value)") {
+		t.Fatalf("expected stale-marker filter to remain after ASOF match, got %q", sql)
+	}
+	if params["param_lookback_ms"] != "300000" || params["param_offset_ms"] != "60000" || params["param_step_ms"] != "3600000" {
+		t.Fatalf("unexpected range selector params: %#v", params)
 	}
 }
 

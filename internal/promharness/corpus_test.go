@@ -79,6 +79,62 @@ func TestDraftGrafanaTopPanelThemeCorporaLoadAndValidate(t *testing.T) {
 	}
 }
 
+func TestCorpusMetadataReferencesExistingCorpora(t *testing.T) {
+	t.Parallel()
+
+	paths, err := filepath.Glob(corpusFixturePath("*.metadata.json"))
+	if err != nil {
+		t.Fatalf("glob corpus metadata: %v", err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("expected at least one corpus metadata fixture")
+	}
+	for _, path := range paths {
+		path := path
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			t.Parallel()
+
+			payload, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read metadata: %v", err)
+			}
+			var metadata struct {
+				SourceCorpus       string   `json:"sourceCorpus"`
+				SourceCorpora      []string `json:"sourceCorpora"`
+				RecommendedCommand string   `json:"recommendedCommand"`
+			}
+			if err := json.Unmarshal(payload, &metadata); err != nil {
+				t.Fatalf("unmarshal metadata: %v", err)
+			}
+			for _, source := range append(metadata.SourceCorpora, metadata.SourceCorpus) {
+				source = strings.TrimSpace(source)
+				if source == "" {
+					continue
+				}
+				if !strings.HasPrefix(source, "harness/corpus/") {
+					t.Fatalf("source corpus %q must live under harness/corpus", source)
+				}
+				if _, err := os.Stat(filepath.Join("..", "..", source)); err != nil {
+					t.Fatalf("source corpus %q is not readable: %v", source, err)
+				}
+			}
+			fields := strings.Fields(metadata.RecommendedCommand)
+			for i, field := range fields {
+				if field != "--corpus" || i+1 >= len(fields) {
+					continue
+				}
+				corpus := strings.TrimSpace(fields[i+1])
+				if corpus == "" {
+					t.Fatal("recommended --corpus value must not be empty")
+				}
+				if _, err := os.Stat(corpusFixturePath(corpus)); err != nil {
+					t.Fatalf("recommended corpus %q is not readable: %v", corpus, err)
+				}
+			}
+		})
+	}
+}
+
 func TestCommonDashboardSubsetMetadataMatchesCorpus(t *testing.T) {
 	t.Parallel()
 

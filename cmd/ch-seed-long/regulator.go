@@ -86,7 +86,12 @@ func (rb *regulatorBaseline) get() time.Duration {
 // The completedBatches counter is the same atomic.Int64 that the worker
 // pool updates on each successful POST. Passing it lets the regulator see
 // throughput trends without coupling to the worker code.
-func runRegulator(ctx context.Context, target *atomic.Int32, ring *rttRing, completedBatches *atomic.Int64, cfg regulatorConfig, _ *concurrencyLimiter) {
+//
+// rampUpFreeze is a Unix-nanos deadline shared with the health probe: any
+// throttle source (stall here, kill-switch in probe.go) writes a "no
+// ramp-up before time T" deadline to it; the regulator's ramp-up branch
+// honors it. nil disables the freeze entirely.
+func runRegulator(ctx context.Context, target *atomic.Int32, ring *rttRing, completedBatches *atomic.Int64, rampUpFreeze *atomic.Int64, cfg regulatorConfig) {
 	if cfg.Tick <= 0 {
 		cfg.Tick = 2 * time.Second
 	}
@@ -119,16 +124,10 @@ func runRegulator(ctx context.Context, target *atomic.Int32, ring *rttRing, comp
 	// Stall detection state: track batch-completion count per tick so we
 	// can spot "all workers in flight, none completing" — invisible to the
 	// RTT ring (which only updates on completion).
-	//
-	// rampSuppressUntil prevents ramp-up immediately undoing a stall
-	// throttle. Without it, the regulator oscillates: stall halves target,
-	// ramp-up restores it, stall halves again — pointless churn that
-	// doesn't actually relieve backend pressure.
 	var (
-		lastCompleted     int64
-		stallStreak       int
-		holdStreak        int
-		rampSuppressUntil time.Time
+		lastCompleted int64
+		stallStreak   int
+		holdStreak    int
 	)
 
 	for {
@@ -189,16 +188,18 @@ func runRegulator(ctx context.Context, target *atomic.Int32, ring *rttRing, comp
 			}
 			reason = fmt.Sprintf("stall (%d ticks no completions)", stallStreak)
 			stallStreak = 0
-			// Suppress ramp-up for a few ticks so the throttle has time to
-			// actually relieve pressure before the regulator re-evaluates.
-			rampSuppressUntil = time.Now().Add(5 * cfg.Tick)
+			// Suppress ramp-up for 5 ticks so the throttle has time to
+			// relieve pressure before the regulator re-evaluates. Shared
+			// with the probe's kill-switch via rampUpFreeze (atomic-max
+			// write so the later deadline always wins).
+			suppressRampUntil(rampUpFreeze, time.Now().Add(5*cfg.Tick))
 		case p50 > 0 && p99 > 0 && float64(p99)/float64(p50) > cfg.TailDecreasePct:
 			newN = oldN - 1
 			if newN < cfg.MinN {
 				newN = cfg.MinN
 			}
 			reason = "tail-latency"
-		case base > 0 && float64(p50) <= float64(base)*cfg.IncreaseAtPct && oldN < cfg.MaxN && time.Now().After(rampSuppressUntil):
+		case base > 0 && float64(p50) <= float64(base)*cfg.IncreaseAtPct && oldN < cfg.MaxN && rampUpAllowed(rampUpFreeze):
 			newN = oldN + 1
 			reason = "ramp-up"
 		case base > 0 && float64(p50) > float64(base)*cfg.HoldBandPct:

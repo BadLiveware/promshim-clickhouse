@@ -30,7 +30,7 @@ func TestRegulatorRampsUpUnderStableLatency(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	go runRegulator(ctx, &target, ring, nil, cfg, nil)
+	go runRegulator(ctx, &target, ring, nil, nil, cfg)
 
 	// Continuously feed low-latency observations so baseline stays low.
 	feedDone := make(chan struct{})
@@ -83,7 +83,7 @@ func TestRegulatorHalvesOnErrors(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	go runRegulator(ctx, &target, ring, nil, cfg, nil)
+	go runRegulator(ctx, &target, ring, nil, nil, cfg)
 
 	// Inject errors.
 	for i := 0; i < 16; i++ {
@@ -131,7 +131,7 @@ func TestRegulatorThrottlesOnTailLatency(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	go runRegulator(ctx, &target, ring, nil, cfg, nil)
+	go runRegulator(ctx, &target, ring, nil, nil, cfg)
 
 	deadline := time.Now().Add(150 * time.Millisecond)
 	for time.Now().Before(deadline) {
@@ -182,7 +182,7 @@ func TestRegulatorRespectsMaxN(t *testing.T) {
 		}
 	}()
 
-	go runRegulator(ctx, &target, ring, nil, cfg, nil)
+	go runRegulator(ctx, &target, ring, nil, nil, cfg)
 
 	time.Sleep(150 * time.Millisecond)
 	cancel()
@@ -224,7 +224,7 @@ func TestRegulatorThrottlesOnStall(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	go runRegulator(ctx, &target, ring, &completed, cfg, nil)
+	go runRegulator(ctx, &target, ring, &completed, nil, cfg)
 
 	// Stall halves target per fire and suppresses ramp-up for 5 ticks.
 	// Repeated stall fires should drive target down to MinN within a
@@ -265,7 +265,7 @@ func TestRegulatorThrottlesOnStallWithEmptyRing(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	go runRegulator(ctx, &target, ring, &completed, cfg, nil)
+	go runRegulator(ctx, &target, ring, &completed, nil, cfg)
 
 	// Stall halves target each fire. With Tick=5ms and StallTicks=3 the
 	// first throttle should land within ~20ms; sustained stall drives
@@ -325,7 +325,7 @@ func TestRegulatorStallResetsOnProgress(t *testing.T) {
 		}
 	}()
 
-	go runRegulator(ctx, &target, ring, &completed, cfg, nil)
+	go runRegulator(ctx, &target, ring, &completed, nil, cfg)
 
 	time.Sleep(150 * time.Millisecond)
 	cancel()

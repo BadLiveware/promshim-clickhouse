@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/prometheus/common/expfmt"
 )
 
 // probeConfig parameterizes the kill-switch health probes.
@@ -49,15 +51,10 @@ func defaultProbeConfig(chURL, chUser, chPass, promURL string, interval time.Dur
 
 // runHealthProbe periodically queries CH and Prom for explicit pressure
 // signals. When any signal trips, it: (a) divides target by ThrottleDivisor
-// (multiplicative decrease, harsher than RTT-based AIMD), and (b) holds
-// rampUpFreeze open for ThrottleHoldOff so the regulator's ramp-up branch
-// is suppressed.
-//
-// rampUpFreeze is a Unix nano timestamp; the regulator should compare against
-// time.Now() and skip ramp-up if rampUpFreeze > now. Phase-2 regulator does
-// not yet honor this — wiring is deferred to a future commit since the
-// kill-switch's hard divide is already a strong enough signal in practice.
-func runHealthProbe(ctx context.Context, target *atomic.Int32, rampUpFreeze *atomic.Int64, cfg probeConfig, _ *concurrencyLimiter) {
+// (multiplicative decrease, harsher than RTT-based AIMD), and (b) writes a
+// future ramp-up-freeze deadline into rampUpFreeze (Unix-nanos) so the
+// regulator's ramp-up branch is suppressed for ThrottleHoldOff after a fire.
+func runHealthProbe(ctx context.Context, target *atomic.Int32, rampUpFreeze *atomic.Int64, cfg probeConfig) {
 	if cfg.Interval <= 0 {
 		return // disabled
 	}
@@ -84,7 +81,7 @@ func runHealthProbe(ctx context.Context, target *atomic.Int32, rampUpFreeze *ato
 		}
 		if newN < oldN {
 			target.Store(newN)
-			rampUpFreeze.Store(time.Now().Add(cfg.ThrottleHoldOff).UnixNano())
+			suppressRampUntil(rampUpFreeze, time.Now().Add(cfg.ThrottleHoldOff))
 			if cfg.OnFire != nil {
 				cfg.OnFire(reason, oldN, newN)
 			} else {
@@ -241,8 +238,11 @@ func chQueryInt(ctx context.Context, client *http.Client, baseURL, user, pass, q
 }
 
 // promScrapeMetric pulls one named metric from a Prometheus /metrics endpoint
-// (text format). Returns the first matching sample value. Useful for cheap
-// counter/gauge probes without spinning up a real PromQL query.
+// using the canonical text-format parser. Returns the first sample value.
+//
+// Uses expfmt rather than line-based parsing so that quirks like optional
+// timestamp suffixes, labels with spaces, and metric-name prefix collisions
+// (e.g. "_total" suffixes) don't produce wrong values silently.
 func promScrapeMetric(ctx context.Context, client *http.Client, baseURL, metric string) (float64, error) {
 	u, err := url.Parse(baseURL)
 	if err != nil {
@@ -262,29 +262,24 @@ func promScrapeMetric(ctx context.Context, client *http.Client, baseURL, metric 
 	if resp.StatusCode/100 != 2 {
 		return 0, fmt.Errorf("Prom scrape: %s", resp.Status)
 	}
-	body, err := io.ReadAll(resp.Body)
+
+	families, err := (&expfmt.TextParser{}).TextToMetricFamilies(resp.Body)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("parse /metrics: %w", err)
 	}
-	for _, line := range strings.Split(string(body), "\n") {
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if !strings.HasPrefix(line, metric) {
-			continue
-		}
-		// Match exact metric name (no labels) or labelled form.
-		// Format: metric{labels} value timestamp_optional
-		spaceIdx := strings.LastIndex(line, " ")
-		if spaceIdx < 0 {
-			continue
-		}
-		// Verify the prefix is exactly `metric` followed by `{` or ` `.
-		head := strings.TrimSuffix(line[:spaceIdx], " ")
-		if !(head == metric || strings.HasPrefix(head, metric+"{")) {
-			continue
-		}
-		return strconv.ParseFloat(strings.TrimSpace(line[spaceIdx+1:]), 64)
+	family, ok := families[metric]
+	if !ok || len(family.Metric) == 0 {
+		return 0, fmt.Errorf("metric %q not found in /metrics output", metric)
 	}
-	return 0, fmt.Errorf("metric %q not found in /metrics output", metric)
+	m := family.Metric[0]
+	switch {
+	case m.Gauge != nil:
+		return m.Gauge.GetValue(), nil
+	case m.Counter != nil:
+		return m.Counter.GetValue(), nil
+	case m.Untyped != nil:
+		return m.Untyped.GetValue(), nil
+	default:
+		return 0, fmt.Errorf("metric %q has no scalar value (type=%s)", metric, family.GetType())
+	}
 }

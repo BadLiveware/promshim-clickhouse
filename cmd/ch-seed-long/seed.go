@@ -109,8 +109,8 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 	}
 	requests := make(chan batch, 2*cfg.MaxConcurrency)
 
-	// Concurrency target — phase 2 regulator will mutate this. Phase 1 leaves
-	// it pinned at MaxConcurrency.
+	// Concurrency target. Mutated by the regulator (RTT-based AIMD) and the
+	// probe (kill-switch). Pinned at MaxConcurrency when --no-adaptive is set.
 	target := atomic.Int32{}
 	if cfg.NoAdaptive {
 		target.Store(int32(cfg.MaxConcurrency))
@@ -218,14 +218,16 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 				err := promharness.WriteToRemoteWriteEndpoint(ctx, client, cfg.Endpoint, b.req)
 				elapsed := time.Since(postStart)
 				if err != nil {
+					// All remote-write errors are treated as fatal: the protocol
+					// is at-most-once-per-batch (no idempotency keys, no partial
+					// replay), so retrying after a partial-write would risk
+					// silent duplicate samples. Fail fast and let the caller
+					// decide whether to re-seed cleanly.
 					errCount.Add(1)
 					rtt.observe(elapsed, true)
-					if isFatal(err) {
-						stash := err
-						generatorErr.CompareAndSwap(nil, &stash)
-						return
-					}
-					continue
+					stash := err
+					generatorErr.CompareAndSwap(nil, &stash)
+					return
 				}
 				rtt.observe(elapsed, false)
 				batchCount.Add(1)
@@ -234,29 +236,36 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 		}()
 	}
 
-	// Adaptive regulator. Disabled when --no-adaptive is set; in that mode the
-	// target stays pinned at MaxConcurrency and runRegulator is not started.
+	// Adaptive regulator. Disabled when --no-adaptive is set; in that mode
+	// the target stays pinned at MaxConcurrency and runRegulator is not
+	// started. rampUpFreeze is shared between the regulator's stall path
+	// and the probe's kill-switch — both writers monotonically extend the
+	// "no ramp-up before time T" deadline.
 	rampUpFreeze := atomic.Int64{}
 	if !cfg.NoAdaptive {
 		regCtx, regCancel := context.WithCancel(ctx)
 		defer regCancel()
-		go runRegulator(regCtx, &target, rtt, &batchCount, defaultRegulatorConfig(int32(cfg.MaxConcurrency)), limiter)
+		go runRegulator(regCtx, &target, rtt, &batchCount, &rampUpFreeze,
+			defaultRegulatorConfig(int32(cfg.MaxConcurrency)))
 
 		// Health probe: runs whenever ProbeInterval > 0. Always checks host
-		// CPU usage (which doesn't depend on backend URLs); also checks CH and
-		// Prom signals if their URLs are configured. The host-CPU check is
-		// what catches local-machine saturation when seeder + backend share a
-		// host — the per-batch RTT regulator can't see that directly.
+		// CPU usage (which doesn't depend on backend URLs); also checks CH
+		// and Prom signals if their URLs are configured. Host-CPU catches
+		// the case where seeder + backend share a host and the per-batch
+		// RTT regulator can't see saturation directly.
 		if cfg.ProbeInterval > 0 {
 			go runHealthProbe(regCtx, &target, &rampUpFreeze,
 				defaultProbeConfig(cfg.CHURL, cfg.CHUsername, cfg.CHPassword, cfg.PromURL,
-					cfg.ProbeInterval, cfg.MaxHostLoadPct),
-				limiter)
+					cfg.ProbeInterval, cfg.MaxHostLoadPct))
 		}
 	}
 
 	// Periodic progress log so users can see throughput trending without
-	// waiting for the run to finish.
+	// waiting for the run to finish. Scoped to a derived context with a
+	// deferred cancel so the goroutine exits when runStream returns,
+	// even if the caller's ctx is long-lived.
+	progressCtx, progressCancel := context.WithCancel(ctx)
+	defer progressCancel()
 	progressDone := make(chan struct{})
 	go func() {
 		defer close(progressDone)
@@ -266,7 +275,7 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 		var lastTime time.Time = start
 		for {
 			select {
-			case <-ctx.Done():
+			case <-progressCtx.Done():
 				return
 			case t := <-ticker.C:
 				cur := sampleCount.Load()
@@ -327,12 +336,31 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 	return stats, nil
 }
 
-// isFatal reports whether a remote-write error should abort the entire seed
-// run. Currently we treat all errors as fatal because Prometheus remote-write
-// is at-most-once-per-batch (no idempotency keys, no partial replay), so a
-// retry that succeeds after a partial-write would risk silent duplicate
-// samples. Future work could differentiate transient (5xx) from permanent
-// errors and retry transient ones with the same payload.
-func isFatal(err error) bool {
-	return err != nil
+// suppressRampUntil writes a future deadline (Unix nanos) to the shared
+// rampUpFreeze atomic, monotonically — only later deadlines win. Both the
+// regulator's stall path and the probe's kill-switch fire write through
+// this so a stronger throttle source is never overwritten by a weaker one.
+func suppressRampUntil(rampUpFreeze *atomic.Int64, deadline time.Time) {
+	if rampUpFreeze == nil {
+		return
+	}
+	target := deadline.UnixNano()
+	for {
+		cur := rampUpFreeze.Load()
+		if cur >= target {
+			return
+		}
+		if rampUpFreeze.CompareAndSwap(cur, target) {
+			return
+		}
+	}
+}
+
+// rampUpAllowed reports whether the freeze deadline has passed.
+// nil rampUpFreeze means freezing is disabled (always allowed).
+func rampUpAllowed(rampUpFreeze *atomic.Int64) bool {
+	if rampUpFreeze == nil {
+		return true
+	}
+	return time.Now().UnixNano() >= rampUpFreeze.Load()
 }

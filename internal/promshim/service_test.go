@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	httpapi "github.com/BadLiveware/promshim-clickhouse/internal/promshim/httpapi"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/local"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 )
@@ -1430,6 +1431,54 @@ func TestNativeLoweringOffIgnoresCostRoutingPolicy(t *testing.T) {
 	}
 	if got := res.Header().Get("X-Promshim-Routing-Reason"); got != "native_lowering_mode_ignores_cost_routing" {
 		t.Fatalf("routing reason = %q", got)
+	}
+}
+
+func TestDedicatedExplainShadowModeShowsServedLocalPlan(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=1%20%2B%202&time=300&native_lowering_mode=shadow", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			NativeLoweringMode string            `json:"nativeLoweringMode"`
+			Plan               local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "success" || body.Data.NativeLoweringMode != "shadow" {
+		t.Fatalf("unexpected explain payload: %#v", body)
+	}
+	if body.Data.Plan.Strategy != "local" {
+		t.Fatalf("expected dedicated shadow explain to show served local plan, got %#v", body.Data.Plan)
+	}
+}
+
+func TestSelectInstantPlanForRoutingRebuildsLocalOverride(t *testing.T) {
+	service := &queryService{opts: Options{Database: "observability", Table: "prometheus", ClickHouseVersion: "26.3", DisableEntireQueryDelegation: true}}
+	req := httpapi.InstantQueryRequest{Query: "up", Time: "300", NativeLoweringMode: string(local.NativeLoweringModeForceSupported)}
+	_, _, plan, analysis, apiErr := service.buildInstantPlan(req)
+	if apiErr != nil {
+		t.Fatalf("buildInstantPlan: %v", apiErr)
+	}
+	strictExplain := local.ExplainPlanWithLowering(plan, analysis.Root)
+	if strictExplain.Strategy != "native_sql" {
+		t.Fatalf("expected strict native plan, got %#v", strictExplain)
+	}
+	routing := httpapi.RoutingInfo{Decision: "local_override", StrictStrategy: strictExplain.Strategy, SelectedStrategy: "local", CandidateDecision: &httpapi.CandidateDecision{SelectedCandidate: "full_local"}}
+	_, _, selectedExplain, selectedRouting := service.selectInstantPlanForRouting(httpapi.InstantQueryRequest{Query: "up", Time: "300"}, plan, analysis, routing)
+	if selectedRouting.Decision != "local_override" || selectedExplain.Strategy == strictExplain.Strategy {
+		t.Fatalf("expected rebuilt override explain, got routing=%#v plan=%#v", selectedRouting, selectedExplain)
 	}
 }
 

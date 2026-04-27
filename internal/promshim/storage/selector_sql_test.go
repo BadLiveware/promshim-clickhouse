@@ -219,15 +219,15 @@ func TestBuildRangeWindowSelectorQuerySQLUsesInclusiveTemporalBounds(t *testing.
 	}
 }
 
-func TestBuildRangeWindowSelectorQuerySQLSkipsUnusedRateAliases(t *testing.T) {
+func TestBuildRangeWindowSelectorQuerySQLAddsExtrapolatedRateInputs(t *testing.T) {
 	selector := selectorSourceFromMatchers("demo_cpu_usage_seconds_total", nil, 5*time.Minute, 0, SelectorKindRangeVector)
 
 	sql, _, err := BuildRangeWindowSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -300000, 300000, 0, 300000, 30000, "rate", "if(arrayExists(v -> isNaN(v), window_values) OR (window_duration_ms) <= 0, nan, (counter_delta_sum) / (window_duration_ms))", 1)
 	if err != nil {
 		t.Fatalf("expected rate range window selector SQL, got error: %v", err)
 	}
-	if strings.Contains(sql, "window_timestamps") {
-		t.Fatalf("expected rate SQL to skip unused window_timestamps alias, got %q", sql)
+	if !strings.Contains(sql, "arrayMap(point -> tupleElement(point, 1), window_series) AS window_timestamps") {
+		t.Fatalf("expected rate SQL to expose timestamps for extrapolation, got %q", sql)
 	}
 	if strings.Contains(sql, "changes_count") {
 		t.Fatalf("expected rate SQL to skip unused changes_count alias, got %q", sql)
@@ -263,7 +263,7 @@ func TestBuildRangeWindowSelectorDirectAggregateRowsQuerySQLUsesGroupedRateAlias
 	if err != nil {
 		t.Fatalf("expected direct aggregate rows SQL for rate, got error: %v", err)
 	}
-	for _, expected := range []string{"count() AS sample_count", "countIf(isNaN(ifNull(toFloat64(d.value), nan))) AS nan_count", "max(d.timestamp) - min(d.timestamp) AS window_duration_ms", "deltaSumTimestamp(ifNull(toFloat64(d.value), nan), toUnixTimestamp64Milli(d.timestamp)) AS counter_delta_sum", "if(nan_count > 0 OR sample_count <= 1 OR window_duration_ms <= 0, nan, counter_delta_sum / window_duration_ms) AS value", "windowed.id = series.id", "GROUP BY grid.id, grid.eval_ts"} {
+	for _, expected := range []string{"count() AS sample_count", "countIf(isNaN(ifNull(toFloat64(d.value), nan))) AS nan_count", "toUnixTimestamp64Milli(min(d.timestamp)) AS first_timestamp_ms", "toUnixTimestamp64Milli(max(d.timestamp)) AS last_timestamp_ms", "toUnixTimestamp64Milli(max(d.timestamp)) - toUnixTimestamp64Milli(min(d.timestamp)) AS window_duration_ms", "deltaSumTimestamp(ifNull(toFloat64(d.value), nan), toUnixTimestamp64Milli(d.timestamp)) AS counter_delta_sum", "counter_delta_sum * (if(", "toFloat64({lookback_ms:Int64}) / 1000.0", "windowed.id = series.id", "GROUP BY grid.id, grid.eval_ts"} {
 		if !strings.Contains(sql, expected) {
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)
 		}

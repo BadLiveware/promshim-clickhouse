@@ -118,7 +118,7 @@ func buildRangeFunctionOverWindowedRowsSQL(sourceRowsSQL, fn string, paramNumber
 
 func rangeWindowSourceNeedsTimestamps(fn string) bool {
 	switch fn {
-	case "irate", "increase", "delta", "deriv", "predict_linear", "ts_of_first_over_time", "ts_of_last_over_time", "ts_of_max_over_time", "ts_of_min_over_time":
+	case "rate", "irate", "increase", "delta", "deriv", "predict_linear", "ts_of_first_over_time", "ts_of_last_over_time", "ts_of_max_over_time", "ts_of_min_over_time":
 		return true
 	default:
 		return false
@@ -199,14 +199,7 @@ func canUseRangeFunctionRowsFastPath(fn string) bool {
 }
 
 func supportsDirectSelectorWindowAggregate(fn string, lookbackMS int64) bool {
-	switch fn {
-	case "avg_over_time":
-		return true
-	case "rate":
-		return lookbackMS >= 60_000
-	default:
-		return false
-	}
+	return fn == "avg_over_time"
 }
 
 func canUseNativeGridRangeFunction(fn string, lookbackMS, offsetMS int64) bool {
@@ -272,17 +265,21 @@ func buildInstantRateOverRowsSQL(sourceRowsSQL, finalTagsExpr string, evaluation
 			{Expr: sqlb.Ident("final_tags"), Alias: "final_tags"},
 			{Expr: sqlb.RawLit{V: "count()"}, Alias: "sample_count"},
 			{Expr: sqlb.RawLit{V: "countIf(isNaN(value))"}, Alias: "nan_count"},
-			{Expr: sqlb.RawLit{V: "max(timestamp) - min(timestamp)"}, Alias: "range_duration_ms"},
+			{Expr: sqlb.RawLit{V: "toUnixTimestamp64Milli(min(timestamp))"}, Alias: "first_timestamp_ms"},
+			{Expr: sqlb.RawLit{V: "toUnixTimestamp64Milli(max(timestamp))"}, Alias: "last_timestamp_ms"},
+			{Expr: sqlb.RawLit{V: "toUnixTimestamp64Milli(max(timestamp)) - toUnixTimestamp64Milli(min(timestamp))"}, Alias: "range_duration_ms"},
 			{Expr: sqlb.RawLit{V: counterDeltaExpr}, Alias: "range_counter_delta_sum"},
 		},
 		From:    groupedFrom,
 		GroupBy: []sqlb.Expr{sqlb.Ident("final_tags")},
 	}
+	factor := scalarExtrapolationFactorSQL("first_timestamp_ms", "last_timestamp_ms", "sample_count", strconv.FormatInt(evaluationTimeMS, 10), rangeMS)
+	rangeSeconds := storage.NativeFloatLiteral(float64(rangeMS) / 1000.0)
 	outer := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
 			{Expr: sqlb.Ident("final_tags"), Alias: "tags"},
 			{Expr: sqlb.RawLit{V: "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"}, Alias: "timestamp"},
-			{Expr: sqlb.RawLit{V: "if(nan_count > 0 OR sample_count <= 1 OR range_duration_ms <= 0, nan, range_counter_delta_sum / range_duration_ms)"}, Alias: "value"},
+			{Expr: sqlb.RawLit{V: "if(nan_count > 0 OR sample_count <= 1 OR range_duration_ms <= 0, nan, (range_counter_delta_sum) * (" + factor + ") / (" + rangeSeconds + "))"}, Alias: "value"},
 		},
 		From:    sqlb.SubSelect{S: grouped},
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("final_tags")}},
@@ -406,7 +403,7 @@ func instantRangeFunctionNeedsValues(fn string) bool {
 
 func instantRangeFunctionNeedsTimestamps(fn string) bool {
 	switch fn {
-	case "irate", "increase", "delta", "deriv", "predict_linear", "ts_of_first_over_time", "ts_of_last_over_time", "ts_of_max_over_time", "ts_of_min_over_time":
+	case "rate", "irate", "increase", "delta", "deriv", "predict_linear", "ts_of_first_over_time", "ts_of_last_over_time", "ts_of_max_over_time", "ts_of_min_over_time":
 		return true
 	default:
 		return false
@@ -508,10 +505,19 @@ func extrapolationFactorSQL(timestampsExpr sqlb.Expr, seriesLength sqlb.Expr, ev
 	}
 	tsSQL := renderSQLExprNoParams(timestampsExpr)
 	lenSQL := renderSQLExprNoParams(seriesLength)
-	firstMS := "toFloat64(toUnixTimestamp64Milli(arrayElement(" + tsSQL + ", 1)))"
-	lastMS := "toFloat64(toUnixTimestamp64Milli(arrayElement(" + tsSQL + ", " + lenSQL + ")))"
+	firstMS := "toUnixTimestamp64Milli(arrayElement(" + tsSQL + ", 1))"
+	lastMS := "toUnixTimestamp64Milli(arrayElement(" + tsSQL + ", " + lenSQL + "))"
+	return scalarExtrapolationFactorSQL(firstMS, lastMS, lenSQL, evalTimeMSExpr, rangeMS)
+}
+
+func scalarExtrapolationFactorSQL(firstMSExpr, lastMSExpr, sampleCountExpr, evalTimeMSExpr string, rangeMS int64) string {
+	if rangeMS <= 0 {
+		return "1.0"
+	}
+	firstMS := "toFloat64(" + firstMSExpr + ")"
+	lastMS := "toFloat64(" + lastMSExpr + ")"
 	sampledMS := "((" + lastMS + ") - (" + firstMS + "))"
-	avgMS := "((" + sampledMS + ") / greatest(toFloat64(" + lenSQL + ") - 1, 1))"
+	avgMS := "((" + sampledMS + ") / greatest(toFloat64(" + sampleCountExpr + ") - 1, 1))"
 	threshold := "((" + avgMS + ") * 1.1)"
 	rangeStart := "((" + evalTimeMSExpr + ") - " + strconv.FormatInt(rangeMS, 10) + ".0)"
 	rangeEnd := "(" + evalTimeMSExpr + ")"
@@ -632,8 +638,10 @@ func rangeFunctionValueExpr(fn, seriesExpr, valuesSourceExpr string, paramNumber
 		if valuesSourceExpr == "range_values" {
 			durationExpr = sqlb.Ident("range_duration_ms")
 		}
+		factor := extrapolationFactorSQL(timestampsExpr, seriesLength, interceptTimeMSExpr, rangeMS)
+		rangeSeconds := storage.NativeFloatLiteral(float64(rangeMS) / 1000.0)
 		condition := sqlb.RawLit{V: renderSQLExprNoParams(hasNaN) + " OR (" + renderSQLExprNoParams(durationExpr) + ") <= 0"}
-		resultExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(counterDeltaExpr) + ") / (" + renderSQLExprNoParams(durationExpr) + ")"}
+		resultExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(counterDeltaExpr) + ") * (" + factor + ") / (" + rangeSeconds + ")"}
 		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{condition, sqlb.RawLit{V: "nan"}, resultExpr}})
 	case "irate":
 		lastValue := arrayElementAtLength(valuesExpr)

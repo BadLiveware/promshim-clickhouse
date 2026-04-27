@@ -82,8 +82,8 @@ var variantArgs = map[string][]string{
 
 func main() {
 	source := flag.String("source", filepath.FromSlash("harness/compliance/prom-compliance/promql/promql-test-queries.yml"), "Prometheus compliance query YAML")
-	jsonOut := flag.String("json-out", filepath.FromSlash("native-promql-compliance-alignment.json"), "JSON output path")
-	mdOut := flag.String("md-out", filepath.FromSlash("native-promql-compliance-alignment.md"), "Markdown output path")
+	jsonOut := flag.String("json-out", filepath.FromSlash("harness/artifacts/matrices/native-promql-compliance-alignment.json"), "JSON output path")
+	mdOut := flag.String("md-out", filepath.FromSlash("harness/artifacts/matrices/native-promql-compliance-alignment.md"), "Markdown output path")
 	maxExamples := flag.Int("max-examples", 40, "Max partial/unsupported example rows per section")
 	flag.Parse()
 

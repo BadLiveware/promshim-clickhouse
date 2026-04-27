@@ -287,8 +287,8 @@ go run ./cmd/promshim-promql-compliance
 
 That writes:
 
-- `native-promql-compliance-alignment.json`
-- `native-promql-compliance-alignment.md`
+- `harness/artifacts/matrices/native-promql-compliance-alignment.json`
+- `harness/artifacts/matrices/native-promql-compliance-alignment.md`
 
 and expands the upstream `promql-test-queries.yml` variant matrix so the current native measurement surface can be compared against the same query families the compliance suite expects.
 

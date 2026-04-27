@@ -317,7 +317,14 @@ func newSeriesState(series []seriesDesc, rng *rand.Rand) []seriesState {
 }
 
 func advanceSeries(desc *seriesDesc, state *seriesState, start, end time.Time, step time.Duration) []prompb.Sample {
-	var points []prompb.Sample
+	// Pre-allocate to the exact step count: this is the only allocation in
+	// the generator's per-batch path, called len(Series) times per batch.
+	// Append-grow would do log₂(N) reallocations per series.
+	n := int(end.Sub(start) / step)
+	if n < 0 {
+		n = 0
+	}
+	points := make([]prompb.Sample, 0, n)
 	for ts := start; ts.Before(end); ts = ts.Add(step) {
 		var value float64
 		switch desc.kind {

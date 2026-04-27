@@ -51,7 +51,7 @@ func (cl *concurrencyLimiter) waitForSlot(ctx context.Context, workerID int) boo
 			return false
 		case <-time.After(cl.pollInterval):
 		}
-		if cl.draining != nil && cl.draining.Load() {
+		if cl.draining.Load() {
 			return false
 		}
 		if int(cl.target.Load()) > workerID {

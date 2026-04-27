@@ -16,17 +16,17 @@ import (
 
 // probeConfig parameterizes the kill-switch health probes.
 type probeConfig struct {
-	Interval         time.Duration // poll cadence (default 5s)
-	CHURL            string        // ClickHouse HTTP URL; empty disables CH probes
-	CHUsername       string        // basic auth user for CH (defaults to "default")
-	CHPassword       string        // basic auth password for CH
-	PromURL          string        // Prometheus HTTP URL; empty disables Prom probes
-	MaxActiveParts   int           // CH parts threshold; 0 disables
-	MaxMergeBacklog  int64         // CH BackgroundPoolTask threshold; 0 disables
-	MaxHostCPUPct    float64       // throttle when host CPU exceeds this percent (0 disables)
-	ThrottleDivisor  int32         // multiplicative decrease factor on kill-switch fire (default 4)
-	ThrottleHoldOff  time.Duration // pause regulator ramp-up for this long after a fire (default 10s)
-	OnFire           func(reason string, oldN, newN int32) // optional log/metrics hook
+	Interval        time.Duration                         // poll cadence (default 5s)
+	CHURL           string                                // ClickHouse HTTP URL; empty disables CH probes
+	CHUsername      string                                // basic auth user for CH (defaults to "default")
+	CHPassword      string                                // basic auth password for CH
+	PromURL         string                                // Prometheus HTTP URL; empty disables Prom probes
+	MaxActiveParts  int                                   // CH parts threshold; 0 disables
+	MaxMergeBacklog int64                                 // CH BackgroundPoolTask threshold; 0 disables
+	MaxHostCPUPct   float64                               // throttle when host CPU exceeds this percent (0 disables)
+	ThrottleDivisor int32                                 // multiplicative decrease factor on kill-switch fire (default 4)
+	ThrottleHoldOff time.Duration                         // pause regulator ramp-up for this long after a fire (default 10s)
+	OnFire          func(reason string, oldN, newN int32) // optional log/metrics hook
 }
 
 func defaultProbeConfig(chURL, chUser, chPass, promURL string, interval time.Duration, hostLoadPct float64) probeConfig {

@@ -12,16 +12,16 @@ import (
 // a typical local bench-stack (low-RTT writes; the dominant signal is tail
 // latency rising under sustained load).
 type regulatorConfig struct {
-	Tick           time.Duration // how often to re-evaluate target (default 2s)
-	MaxN           int32         // hard ceiling
-	MinN           int32         // hard floor (typically 1)
-	HoldBandPct    float64       // p50 tolerance band — within HoldBandPct of baseline = "stable, hold steady"
-	IncreaseAtPct  float64       // p50 must be ≤ baseline × IncreaseAtPct to ramp up
-	TailDecreasePct float64      // p99 / p50 ratio above this value triggers additive decrease (tail-latency throttling)
-	MinSamples     int           // minimum ring observations before the regulator acts
-	StallTicks     int           // consecutive zero-completion ticks before stall throttling fires (default 3 = 6s at 2s tick)
-	HoldLogEvery   int           // log a "hold" decision every N ticks even when target unchanged (default 10 ≈ 20s); 0 disables
-	OnChange       func(oldN, newN int32, reason string) // optional log/metrics hook
+	Tick            time.Duration                         // how often to re-evaluate target (default 2s)
+	MaxN            int32                                 // hard ceiling
+	MinN            int32                                 // hard floor (typically 1)
+	HoldBandPct     float64                               // p50 tolerance band — within HoldBandPct of baseline = "stable, hold steady"
+	IncreaseAtPct   float64                               // p50 must be ≤ baseline × IncreaseAtPct to ramp up
+	TailDecreasePct float64                               // p99 / p50 ratio above this value triggers additive decrease (tail-latency throttling)
+	MinSamples      int                                   // minimum ring observations before the regulator acts
+	StallTicks      int                                   // consecutive zero-completion ticks before stall throttling fires (default 3 = 6s at 2s tick)
+	HoldLogEvery    int                                   // log a "hold" decision every N ticks even when target unchanged (default 10 ≈ 20s); 0 disables
+	OnChange        func(oldN, newN int32, reason string) // optional log/metrics hook
 }
 
 // defaultRegulatorConfig is what the seeder uses when no overrides are
@@ -73,7 +73,7 @@ func (rb *regulatorBaseline) get() time.Duration {
 // AIMD logic per tick (in priority order):
 //   - error_rate > 0%             → multiplicative decrease: N = max(MinN, N/2)
 //   - stall (no completions for StallTicks ticks while N > MinN)
-//                                 → additive decrease:        N = max(MinN, N-1)
+//     → additive decrease:        N = max(MinN, N-1)
 //   - p99/p50 > TailDecreasePct   → additive decrease:        N = max(MinN, N-1)
 //   - p50 ≤ baseline×IncreaseAtPct → additive increase:        N = min(MaxN, N+1)
 //   - else                         → hold

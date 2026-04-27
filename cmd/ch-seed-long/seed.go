@@ -21,13 +21,13 @@ import (
 // which batches reach the endpoint can vary, which the remote-write protocol
 // is indifferent to.
 type streamConfig struct {
-	Endpoint        string
-	StartTime       time.Time
-	EndTime         time.Time
-	Step            time.Duration
-	BatchSamples    int
-	Series          []seriesDesc
-	State           []seriesState
+	Endpoint     string
+	StartTime    time.Time
+	EndTime      time.Time
+	Step         time.Duration
+	BatchSamples int
+	Series       []seriesDesc
+	State        []seriesState
 
 	// MaxConcurrency caps the number of in-flight remote-write POSTs.
 	// When the regulator is disabled (NoAdaptive=true), this is the fixed
@@ -64,18 +64,18 @@ type streamConfig struct {
 
 // streamStats holds end-of-run aggregate counters reported back to main.
 type streamStats struct {
-	Batches       int
-	Samples       int
-	Errors        int
-	Wallclock     time.Duration
-	MaxObservedN  int
-	MinObservedN  int
+	Batches      int
+	Samples      int
+	Errors       int
+	Wallclock    time.Duration
+	MaxObservedN int
+	MinObservedN int
 }
 
 // runStream executes the parallel seeding pipeline. It blocks until either:
-//   * the entire time window has been emitted and all in-flight workers drain,
-//   * the context is cancelled,
-//   * a fatal error occurs (any single batch error is fatal — Prometheus
+//   - the entire time window has been emitted and all in-flight workers drain,
+//   - the context is cancelled,
+//   - a fatal error occurs (any single batch error is fatal — Prometheus
 //     remote-write protocol does not define a partial-success response, so
 //     we do not retry; instead we surface the error so the seeder fails fast).
 func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
@@ -120,12 +120,12 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 
 	rtt := newRTTRing(256)
 	var (
-		batchCount      atomic.Int64
-		sampleCount     atomic.Int64 // samples acked by CH/Prom (post-POST)
-		samplesEmitted  atomic.Int64 // samples produced by the generator
-		errCount        atomic.Int64
-		maxN            atomic.Int32
-		minN            atomic.Int32
+		batchCount     atomic.Int64
+		sampleCount    atomic.Int64 // samples acked by CH/Prom (post-POST)
+		samplesEmitted atomic.Int64 // samples produced by the generator
+		errCount       atomic.Int64
+		maxN           atomic.Int32
+		minN           atomic.Int32
 	)
 	maxN.Store(target.Load())
 	minN.Store(target.Load())

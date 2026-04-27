@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 )
 
 // subqueryCases covers subquery inputs that all lower natively: a bare leaf
@@ -77,4 +79,65 @@ func TestLowerSubqueryNilErrors(t *testing.T) {
 	if errors.Is(err, errUnsupportedLowerNode) {
 		t.Fatalf("expected non-sentinel error for nil node, got sentinel")
 	}
+}
+
+func TestSubqueryEnvelopeDefaultsMissingStepToOuterRangeStep(t *testing.T) {
+	subquery := logicalSubqueryForTest(t, `sum(up)[5m:]`)
+	params := testRenderParamsRange()
+	params.StepMS = 30_000
+
+	startMS, endMS, stepMS, err := subqueryRenderEnvelopeLogical(subquery, params)
+	if err != nil {
+		t.Fatalf("subqueryRenderEnvelopeLogical: %v", err)
+	}
+	if stepMS != params.StepMS {
+		t.Fatalf("expected subquery step to default to outer step %d, got %d", params.StepMS, stepMS)
+	}
+	if endMS != params.EndMS {
+		t.Fatalf("expected end %d, got %d", params.EndMS, endMS)
+	}
+	wantStart := alignSubqueryStepStart(params.StartMS-subquery.Range.Milliseconds(), params.StepMS)
+	if startMS != wantStart {
+		t.Fatalf("expected start %d, got %d", wantStart, startMS)
+	}
+}
+
+func TestSubqueryEnvelopeResolvesRangeAnchors(t *testing.T) {
+	params := testRenderParamsRange()
+	for _, tc := range []struct {
+		name    string
+		query   string
+		wantEnd int64
+	}{
+		{name: "start", query: `(up * 100)[2m:1m] @ start()`, wantEnd: params.StartMS},
+		{name: "end", query: `(up * 100)[2m:1m] @ end()`, wantEnd: params.EndMS},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			subquery := logicalSubqueryForTest(t, tc.query)
+			startMS, endMS, stepMS, err := subqueryRenderEnvelopeLogical(subquery, params)
+			if err != nil {
+				t.Fatalf("subqueryRenderEnvelopeLogical: %v", err)
+			}
+			if stepMS != subquery.Step.Milliseconds() {
+				t.Fatalf("expected explicit subquery step %d, got %d", subquery.Step.Milliseconds(), stepMS)
+			}
+			if endMS != tc.wantEnd {
+				t.Fatalf("expected anchored end %d, got %d", tc.wantEnd, endMS)
+			}
+			wantStart := alignSubqueryStepStart(tc.wantEnd-subquery.Range.Milliseconds(), stepMS)
+			if startMS != wantStart {
+				t.Fatalf("expected anchored start %d, got %d", wantStart, startMS)
+			}
+		})
+	}
+}
+
+func logicalSubqueryForTest(t *testing.T, query string) *logicalpkg.SubqueryPlan {
+	t.Helper()
+	root, _, _ := buildLowerInputs(t, query)
+	subquery, ok := root.(*logicalpkg.SubqueryPlan)
+	if !ok {
+		t.Fatalf("expected logical subquery root, got %T", root)
+	}
+	return subquery
 }

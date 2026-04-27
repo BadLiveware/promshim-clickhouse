@@ -6,6 +6,8 @@ import (
 
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+
+	"github.com/prometheus/prometheus/promql/parser"
 )
 
 // lowerSubquery lowers a SubqueryPlan (PromQL subquery expressions like
@@ -61,11 +63,7 @@ func subqueryRenderEnvelopeLogical(n *logicalpkg.SubqueryPlan, params RenderPara
 	if n.Range <= 0 {
 		return 0, 0, 0, fmt.Errorf("subquery range must be greater than zero")
 	}
-	step := n.Step
-	if step <= 0 {
-		step = time.Minute
-	}
-	stepMS := step.Milliseconds()
+	stepMS := subqueryStepMS(n, params)
 	if stepMS <= 0 {
 		return 0, 0, 0, fmt.Errorf("subquery step must be greater than zero")
 	}
@@ -76,15 +74,54 @@ func subqueryRenderEnvelopeLogical(n *logicalpkg.SubqueryPlan, params RenderPara
 		endMS := params.EvaluationTimeMS
 		if n.Timestamp != nil {
 			endMS = *n.Timestamp
+		} else if resolved, ok := resolveSubqueryStartEndMS(n.StartOrEnd, params); ok {
+			endMS = resolved
 		}
 		endMS -= offsetMS
 		startMS := alignSubqueryStepStart(endMS-rangeMS, stepMS)
 		return startMS, endMS, stepMS, nil
 	case native.RenderModeRange:
+		if n.Timestamp != nil {
+			endMS := *n.Timestamp - offsetMS
+			startMS := alignSubqueryStepStart(endMS-rangeMS, stepMS)
+			return startMS, endMS, stepMS, nil
+		}
+		if resolved, ok := resolveSubqueryStartEndMS(n.StartOrEnd, params); ok {
+			endMS := resolved - offsetMS
+			startMS := alignSubqueryStepStart(endMS-rangeMS, stepMS)
+			return startMS, endMS, stepMS, nil
+		}
 		endMS := params.EndMS - offsetMS
 		startMS := alignSubqueryStepStart(params.StartMS-offsetMS-rangeMS, stepMS)
 		return startMS, endMS, stepMS, nil
 	default:
 		return 0, 0, 0, fmt.Errorf("native subquery rendering in %s mode is not implemented yet", params.Mode)
+	}
+}
+
+func subqueryStepMS(n *logicalpkg.SubqueryPlan, params RenderParams) int64 {
+	if n.Step > 0 {
+		return n.Step.Milliseconds()
+	}
+	if params.Mode == native.RenderModeRange && params.StepMS > 0 {
+		return params.StepMS
+	}
+	return time.Minute.Milliseconds()
+}
+
+func resolveSubqueryStartEndMS(token parser.ItemType, params RenderParams) (int64, bool) {
+	switch token {
+	case parser.START:
+		if params.Mode == native.RenderModeRange {
+			return params.StartMS, true
+		}
+		return params.EvaluationTimeMS, true
+	case parser.END:
+		if params.Mode == native.RenderModeRange {
+			return params.EndMS, true
+		}
+		return params.EvaluationTimeMS, true
+	default:
+		return 0, false
 	}
 }

@@ -802,7 +802,15 @@ func buildRangeInstantSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, 
 		},
 		From: sqlb.SubSelect{S: gridBase, Alias: "grid_base"},
 	}
-	rightRowsSQL := "SELECT id, timestamp, value FROM " + schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)) + " WHERE timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND id IN (SELECT id FROM (" + matchedSeriesSQL + ") AS matched_series_ids)"
+	rightWhereClauses := []string{
+		"timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64})",
+		"timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})",
+	}
+	if phaseFilter := rangeInstantSelectorPhaseFilterSQL(selector.LookbackMS, stepMS); phaseFilter != "" {
+		rightWhereClauses = append(rightWhereClauses, phaseFilter)
+	}
+	rightWhereClauses = append(rightWhereClauses, "id IN (SELECT id FROM ("+matchedSeriesSQL+") AS matched_series_ids)")
+	rightRowsSQL := "SELECT id, timestamp, value FROM " + schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)) + " WHERE " + strings.Join(rightWhereClauses, " AND ")
 	inner := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
 			{Expr: innerTagsExpr, Alias: "tags"},
@@ -822,6 +830,14 @@ func buildRangeInstantSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, 
 		return "", nil, err
 	}
 	return sql, params, nil
+}
+
+func rangeInstantSelectorPhaseFilterSQL(lookbackMS, stepMS int64) string {
+	if lookbackMS <= 0 || stepMS <= lookbackMS {
+		return ""
+	}
+	phase := "positiveModulo(toUnixTimestamp64Milli(timestamp) + {offset_ms:Int64} - {start_ms:Int64}, {step_ms:Int64})"
+	return "(" + phase + " = 0 OR " + phase + " >= ({step_ms:Int64} - {lookback_ms:Int64}))"
 }
 
 func buildRangeMatrixSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
@@ -963,8 +979,9 @@ func buildMatchedSeriesSQL(cfg QueryConfig, selector SelectorSource, prefix stri
 		columns = append(columns, sqlb.ColExpr{Expr: sqlb.RawLit{V: selectorTagsExpr(cfg, selector, metricColumn, tagsColumn)}, Alias: "tags"})
 	}
 	query := &sqlb.Select{
-		Columns: columns,
-		From:    sqlb.RawSource{SQL: schema.TimeSeriesTagsRef(timeSeriesTableRef(cfg)), Alias: "src"},
+		Distinct: true,
+		Columns:  columns,
+		From:     sqlb.RawSource{SQL: schema.TimeSeriesTagsRef(timeSeriesTableRef(cfg)), Alias: "src"},
 	}
 	if len(whereClauses) > 0 {
 		query.Where = sqlb.RawLit{V: strings.Join(whereClauses, " AND ")}

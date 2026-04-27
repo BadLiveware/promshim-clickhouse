@@ -34,23 +34,6 @@ type Plan interface {
 	explain() ExplainNode
 }
 
-type annotatedQueryPlan struct {
-	Inner    Plan
-	Lowering *nativeplan.LoweringInfo
-}
-
-func (p *annotatedQueryPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
-	return p.Inner.execute(ctx, Evaluator, params)
-}
-
-func (p *annotatedQueryPlan) explain() ExplainNode {
-	explain := p.Inner.explain()
-	if p.Lowering != nil {
-		explain.Lowering = p.Lowering.ExplainInfo()
-	}
-	return explain
-}
-
 func annotateQueryPlan(plan Plan, _ *nativeplan.LoweringInfo) Plan {
 	return plan
 }
@@ -72,17 +55,42 @@ func (p *delegatedExprPlan) explain() ExplainNode {
 }
 
 type Evaluator struct {
-	database string
-	table    string
-	client   *storage.Client
+	database                    string
+	table                       string
+	promotedTagColumns          map[string]struct{}
+	enableNativeGridFunctions   bool
+	enableCumulativeAvgOverTime bool
+	client                      *storage.Client
+	localMemo                   map[string]model.RuntimeValue
 }
 
 func NewEvaluator(database, table string, client *storage.Client) *Evaluator {
 	return &Evaluator{database: database, table: table, client: client}
 }
 
+func (e *Evaluator) WithPromotedTagColumns(columns map[string]struct{}) *Evaluator {
+	e.promotedTagColumns = columns
+	return e
+}
+
+func (e *Evaluator) WithNativeGridFunctions(enabled bool) *Evaluator {
+	e.enableNativeGridFunctions = enabled
+	return e
+}
+
+func (e *Evaluator) WithCumulativeAvgOverTime(enabled bool) *Evaluator {
+	e.enableCumulativeAvgOverTime = enabled
+	return e
+}
+
+func (e *Evaluator) queryConfig() storage.QueryConfig {
+	return storage.QueryConfig{Database: e.database, Table: e.table, PromotedTagColumns: e.promotedTagColumns, EnableNativeGridFunctions: e.enableNativeGridFunctions, EnableCumulativeAvgOverTime: e.enableCumulativeAvgOverTime}
+}
+
 func (e *Evaluator) Evaluate(ctx context.Context, plan Plan, params EvalParams) (model.RuntimeValue, error) {
-	value, err := plan.execute(ctx, e, params)
+	requestEvaluator := *e
+	requestEvaluator.localMemo = map[string]model.RuntimeValue{}
+	value, err := plan.execute(ctx, &requestEvaluator, params)
 	if err != nil {
 		return nil, WithInternalContext(err, "evaluating query plan in %s mode", params.Mode)
 	}
@@ -97,7 +105,7 @@ func (e *Evaluator) executeDelegated(ctx context.Context, expr parser.Expr, para
 
 	switch params.Mode {
 	case EvalModeInstant:
-		sql, queryParams := storage.BuildInstantQuerySQL(storage.QueryConfig{Database: e.database, Table: e.table}, promQL, params.EvaluationTime.UnixMilli())
+		sql, queryParams := storage.BuildInstantQuerySQL(e.queryConfig(), promQL, params.EvaluationTime.UnixMilli())
 		switch expr.Type() {
 		case parser.ValueTypeVector:
 			samples, err := e.executeDelegatedInstantSamples(ctx, sql, queryParams)
@@ -121,7 +129,7 @@ func (e *Evaluator) executeDelegated(ctx context.Context, expr parser.Expr, para
 			return nil, NewUnsupportedErrorf("delegated instant result type %q for %q is not implemented yet", expr.Type(), expr.String())
 		}
 	case EvalModeRange:
-		sql, queryParams := storage.BuildRangeQuerySQL(storage.QueryConfig{Database: e.database, Table: e.table}, promQL, params.Start.UnixMilli(), params.End.UnixMilli(), params.Step.Milliseconds())
+		sql, queryParams := storage.BuildRangeQuerySQL(e.queryConfig(), promQL, params.Start.UnixMilli(), params.End.UnixMilli(), params.Step.Milliseconds())
 		series, err := e.executeDelegatedRangeSeries(ctx, sql, queryParams)
 		if err != nil {
 			return nil, WithInternalContext(NormalizeInternalError(err), "executing/decoding delegated range matrix result for %q", expr.String())
@@ -143,7 +151,7 @@ func (e *Evaluator) executeDelegatedInstantSamples(ctx context.Context, sql stri
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	return DecodeInstantSamples(response.Body)
 }
 
@@ -155,7 +163,7 @@ func (e *Evaluator) executeDelegatedRangeSeries(ctx context.Context, sql string,
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	return DecodeRangeSeries(response.Body)
 }
 
@@ -173,10 +181,12 @@ func BuildEntireQueryDelegatedPlan(expr parser.Expr) (Plan, *nativeplan.Analysis
 	if err != nil {
 		return nil, nil, err
 	}
-	logicalRoot, _, err = logicalopt.Optimize(logicalRoot, logicalopt.DefaultPasses)
+	logicalRoot, logicalAnalysis, trace, err := logicalopt.OptimizeWithTrace(logicalRoot, logicalopt.DefaultPassesForEnv())
 	if err != nil {
 		return nil, nil, err
 	}
+	_ = trace
+	_ = logicalAnalysis
 	analysis := nativeplan.Analyze(logicalRoot)
 	return annotateQueryPlan(&delegatedExprPlan{Expr: expr}, analysis.Root), analysis, nil
 }
@@ -186,7 +196,7 @@ func BuildPlanWithContextAndAnalysis(expr parser.Expr, ctx PlanContext) (Plan, *
 	if err != nil {
 		return nil, nil, err
 	}
-	logicalRoot, logicalAnalysis, err := logicalopt.Optimize(logicalRoot, logicalopt.DefaultPasses)
+	logicalRoot, logicalAnalysis, trace, err := logicalopt.OptimizeWithTrace(logicalRoot, logicalopt.DefaultPassesForEnv())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -203,36 +213,28 @@ func BuildPlanWithContextAndAnalysis(expr parser.Expr, ctx PlanContext) (Plan, *
 	// nativeSubtreePlan, thread the logical root + analysis in so
 	// execute() can drive SQL via renderer.Lower. Subtree-pushdown
 	// sites (tier 3a) leave these nil.
-	attachLogicalRootForLower(plan, logicalRoot, logicalAnalysis)
+	attachLogicalRootForLower(plan, logicalRoot, logicalAnalysis, trace)
 	return plan, analysis, nil
 }
 
 // attachLogicalRootForLower populates the LogicalRoot/LogicalAnalysis
 // fields on a top-level nativeSubtreePlan so execute() can route
 // through renderer.Lower. No-op if plan isn't a nativeSubtreePlan.
-func attachLogicalRootForLower(plan Plan, logical logicalPlan, logicalAnalysis *logicalpkg.Analysis) {
+func attachLogicalRootForLower(plan Plan, logical logicalPlan, logicalAnalysis *logicalpkg.Analysis, trace *logicalopt.Trace) {
 	if native, ok := plan.(*nativeSubtreePlan); ok {
 		native.LogicalRoot = logical
 		native.LogicalAnalysis = logicalAnalysis
+		native.LogicalOptimizationTrace = trace
 	}
 }
 
 func buildExecPlan(plan logicalPlan) (Plan, error) {
-	optimized, _, err := logicalopt.Optimize(plan, logicalopt.DefaultPasses)
+	optimized, _, err := logicalopt.Optimize(plan, logicalopt.DefaultPassesForEnv())
 	if err != nil {
 		return nil, err
 	}
 	analysis := nativeplan.Analyze(optimized)
 	return buildExecPlanWithAnalysis(optimized, DefaultPlanContext(EvalModeInstant), analysis)
-}
-
-func buildExecPlanWithContext(plan logicalPlan, ctx PlanContext) (Plan, error) {
-	optimized, _, err := logicalopt.Optimize(plan, logicalopt.DefaultPasses)
-	if err != nil {
-		return nil, err
-	}
-	analysis := nativeplan.Analyze(optimized)
-	return buildExecPlanWithAnalysis(optimized, ctx, analysis)
 }
 
 func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, error) {
@@ -286,6 +288,12 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nati
 		rhs, err := buildExecPlanWithAnalysis(node.RHS, ctx, analysis)
 		if err != nil {
 			return nil, WithInternalContext(err, "building execution right operand plan for binary expression %q", node.ExprString())
+		}
+		lhsExpr := logicalExprString(node.LHS)
+		rhsExpr := logicalExprString(node.RHS)
+		if lhsExpr != "" && lhsExpr == rhsExpr && shouldMemoizeRepeatedLocalPlan(lhs) && shouldMemoizeRepeatedLocalPlan(rhs) {
+			lhs = memoizeLocalPlan(lhsExpr, lhs)
+			rhs = memoizeLocalPlan(lhsExpr, rhs)
 		}
 		return annotateQueryPlan(&localBinaryPlan{Expr: node.ExprString(), Op: node.Op, VectorMatching: cloneVectorMatching(node.VectorMatching), ReturnBool: node.ReturnBool, LHS: lhs, RHS: rhs}, analysis.InfoFor(node)), nil
 	case *logicalAggregationPlan:

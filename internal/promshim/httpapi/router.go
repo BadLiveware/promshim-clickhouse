@@ -2,9 +2,12 @@ package httpapi
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/obs"
 )
@@ -23,9 +26,10 @@ type Response struct {
 	// successful response as X-Promshim-Strategy / X-Promshim-Fallback-Reason
 	// headers. They are advisory — producers may leave them unset on endpoints
 	// where the concept does not apply (labels, series, label_values).
-	Strategy       string
-	FallbackReason string
-	Routing        *RoutingInfo
+	Strategy        string
+	FallbackReason  string
+	SettingsProfile string
+	Routing         *RoutingInfo
 }
 
 type EstimateState struct {
@@ -46,6 +50,7 @@ type QueryCostClass struct {
 	EstimateState         EstimateState `json:"estimateState"`
 	HasAggregation        bool          `json:"hasAggregation"`
 	HasRangeFunction      bool          `json:"hasRangeFunction"`
+	HasRepeatedRangeFunc  bool          `json:"hasRepeatedRangeFunction"`
 	HasVectorJoin         bool          `json:"hasVectorJoin"`
 	HasHistogram          bool          `json:"hasHistogram"`
 	HasSubquery           bool          `json:"hasSubquery"`
@@ -70,6 +75,16 @@ type RoutingCost struct {
 	Unit   string  `json:"unit"`
 }
 
+type RoutingCapEvaluation struct {
+	Name     string  `json:"name"`
+	Estimate int64   `json:"estimate"`
+	Limit    int64   `json:"limit"`
+	Exceeded bool    `json:"exceeded"`
+	OverBy   int64   `json:"overBy,omitempty"`
+	Usage    float64 `json:"usage"`
+	Unit     string  `json:"unit"`
+}
+
 type CandidateCost struct {
 	Value float64 `json:"value"`
 	Unit  string  `json:"unit"`
@@ -89,6 +104,7 @@ type ExecutionCandidate struct {
 	RejectReasons      []string       `json:"rejectReasons,omitempty"`
 	EstimatesAvailable bool           `json:"estimatesAvailable"`
 	EstimatedCost      *CandidateCost `json:"estimatedCost,omitempty"`
+	SettingsProfile    string         `json:"settingsProfile,omitempty"`
 }
 
 type CandidateDecision struct {
@@ -98,21 +114,23 @@ type CandidateDecision struct {
 }
 
 type RoutingInfo struct {
-	Policy             string               `json:"policy"`
-	StrictStrategy     string               `json:"strictStrategy"`
-	SelectedStrategy   string               `json:"selectedStrategy"`
-	WouldSelect        string               `json:"wouldSelect"`
-	Decision           string               `json:"decision"`
-	Reason             string               `json:"reason"`
-	EstimatesAvailable bool                 `json:"estimatesAvailable"`
-	MissingEstimates   []string             `json:"missingEstimates,omitempty"`
-	Cost               *RoutingCost         `json:"cost,omitempty"`
-	Caps               map[string]int64     `json:"caps,omitempty"`
-	CapHits            []string             `json:"capHits,omitempty"`
-	EnabledFamilies    []string             `json:"enabledFamilies,omitempty"`
-	CandidateDecision  *CandidateDecision   `json:"candidateDecision,omitempty"`
-	Candidates         []ExecutionCandidate `json:"candidates,omitempty"`
-	Class              QueryCostClass       `json:"class"`
+	Policy             string                 `json:"policy"`
+	StrictStrategy     string                 `json:"strictStrategy"`
+	SelectedStrategy   string                 `json:"selectedStrategy"`
+	WouldSelect        string                 `json:"wouldSelect"`
+	Decision           string                 `json:"decision"`
+	Reason             string                 `json:"reason"`
+	EstimatesAvailable bool                   `json:"estimatesAvailable"`
+	MissingEstimates   []string               `json:"missingEstimates,omitempty"`
+	Cost               *RoutingCost           `json:"cost,omitempty"`
+	Caps               map[string]int64       `json:"caps,omitempty"`
+	CapHits            []string               `json:"capHits,omitempty"`
+	CapEvaluations     []RoutingCapEvaluation `json:"capEvaluations,omitempty"`
+	EnabledFamilies    []string               `json:"enabledFamilies,omitempty"`
+	CandidateDecision  *CandidateDecision     `json:"candidateDecision,omitempty"`
+	Candidates         []ExecutionCandidate   `json:"candidates,omitempty"`
+	Class              QueryCostClass         `json:"class"`
+	SettingsProfile    string                 `json:"settingsProfile,omitempty"`
 }
 
 type InstantQueryRequest struct {
@@ -195,7 +213,7 @@ func (h *Handler) handleReady(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), r.Header.Get("X-Promshim-Log-Comment")))
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "query")))
 	resp, apiErr := h.service.InstantQuery(ctx, InstantQueryRequest{
 		Query:              r.URL.Query().Get("query"),
 		Time:               r.URL.Query().Get("time"),
@@ -207,7 +225,7 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleQueryRange(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), r.Header.Get("X-Promshim-Log-Comment")))
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "query_range")))
 	resp, apiErr := h.service.RangeQuery(ctx, RangeQueryRequest{
 		Query:              r.URL.Query().Get("query"),
 		Start:              r.URL.Query().Get("start"),
@@ -221,7 +239,7 @@ func (h *Handler) handleQueryRange(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleQueryExplain(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), r.Header.Get("X-Promshim-Log-Comment")))
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "query_explain")))
 	resp, apiErr := h.service.ExplainInstant(ctx, InstantQueryRequest{
 		Query:              r.URL.Query().Get("query"),
 		Time:               r.URL.Query().Get("time"),
@@ -233,7 +251,7 @@ func (h *Handler) handleQueryExplain(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleQueryRangeExplain(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), r.Header.Get("X-Promshim-Log-Comment")))
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "query_range_explain")))
 	resp, apiErr := h.service.ExplainRange(ctx, RangeQueryRequest{
 		Query:              r.URL.Query().Get("query"),
 		Start:              r.URL.Query().Get("start"),
@@ -247,7 +265,7 @@ func (h *Handler) handleQueryRangeExplain(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) handleLabels(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), r.Header.Get("X-Promshim-Log-Comment")))
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "labels")))
 	resp, apiErr := h.service.Labels(ctx, MetadataRequest{
 		Matchers: readMatchers(r),
 		Start:    r.URL.Query().Get("start"),
@@ -257,7 +275,7 @@ func (h *Handler) handleLabels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleLabelValues(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), r.Header.Get("X-Promshim-Log-Comment")))
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "label_values")))
 	resp, apiErr := h.service.LabelValues(ctx, LabelValuesRequest{
 		Name: r.PathValue("name"),
 		MetadataRequest: MetadataRequest{
@@ -270,7 +288,7 @@ func (h *Handler) handleLabelValues(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleSeries(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), r.Header.Get("X-Promshim-Log-Comment")))
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "series")))
 	resp, apiErr := h.service.Series(ctx, MetadataRequest{
 		Matchers: readMatchers(r),
 		Start:    r.URL.Query().Get("start"),
@@ -316,6 +334,9 @@ func setPromshimHeaders(w http.ResponseWriter, resp *Response, metrics *obs.CHMe
 	if resp.FallbackReason != "" {
 		w.Header().Set("X-Promshim-Fallback-Reason", resp.FallbackReason)
 	}
+	if resp.SettingsProfile != "" {
+		w.Header().Set("X-Promshim-Settings-Profile", resp.SettingsProfile)
+	}
 	if resp.Routing != nil {
 		w.Header().Set("X-Promshim-Routing-Policy", resp.Routing.Policy)
 		w.Header().Set("X-Promshim-Routing-Decision", resp.Routing.Decision)
@@ -355,6 +376,32 @@ func wantsExplain(r *http.Request) bool {
 	default:
 		return false
 	}
+}
+
+func requestLogComment(r *http.Request, endpoint string) string {
+	if header := r.Header.Get("X-Promshim-Log-Comment"); header != "" {
+		return header
+	}
+	hashInput := endpoint + "\x00" + r.URL.RawQuery
+	sum := sha256.Sum256([]byte(hashInput))
+	queryHash := hex.EncodeToString(sum[:])[:16]
+	mode := safeLogPart(r.URL.Query().Get("native_lowering_mode"), "default")
+	policy := safeLogPart(r.URL.Query().Get("routing_policy"), "default")
+	return "promshim endpoint=" + safeLogPart(endpoint, "unknown") + " query_hash=" + queryHash + " mode=" + mode + " policy=" + policy
+}
+
+func safeLogPart(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = fallback
+	}
+	value = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.' {
+			return r
+		}
+		return '_'
+	}, value)
+	return value
 }
 
 func writePromError(w http.ResponseWriter, apiErr APIError) {

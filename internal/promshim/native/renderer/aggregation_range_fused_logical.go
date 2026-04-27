@@ -42,7 +42,9 @@ func tryRenderFusedRangeAggregationLogical(ctx LoweringCtx, n *logicalpkg.Aggreg
 	}
 	emitZeroOnEmpty := aggInfo.Aggregation.EmitZeroOnEmpty
 
-	sql, queryParams, err := renderFusedRangeAggregationLogicalSQL(ctx, n)
+	childCtx := ctx
+	childCtx.Params = aggregationChildRenderParams(n, ctx.Params)
+	sql, queryParams, err := renderFusedRangeAggregationLogicalSQL(childCtx, n)
 	if err != nil {
 		return renderedFragment{}, false, err
 	}
@@ -56,6 +58,11 @@ func tryRenderFusedRangeAggregationLogical(ctx LoweringCtx, n *logicalpkg.Aggreg
 // renderFusedRangeAggregationLogicalRowsSQL and wraps it with the
 // standard matrix-subquery shell.
 func renderFusedRangeAggregationLogicalSQL(ctx LoweringCtx, n *logicalpkg.AggregationPlan) (string, map[string]string, error) {
+	if sql, queryParams, ok, err := tryRenderNativeGridRangeSumAggregationSQL(ctx, n); err != nil {
+		return "", nil, err
+	} else if ok {
+		return sql, queryParams, nil
+	}
 	rowsSQL, rowParams, err := renderFusedRangeAggregationLogicalRowsSQL(ctx, n)
 	if err != nil {
 		return "", nil, err
@@ -63,12 +70,53 @@ func renderFusedRangeAggregationLogicalSQL(ctx LoweringCtx, n *logicalpkg.Aggreg
 	return storage.BuildRangeRowsToMatrixSubquerySQL(rowsSQL, rowParams)
 }
 
+func tryRenderNativeGridRangeSumAggregationSQL(ctx LoweringCtx, n *logicalpkg.AggregationPlan) (string, map[string]string, bool, error) {
+	if n == nil || n.Op != parser.SUM || !ctx.Config.EnableNativeGridFunctions {
+		return "", nil, false, nil
+	}
+	childNode, fn, ok := rangeFunctionChildNode(n.Child)
+	if !ok || childNode == nil {
+		return "", nil, false, nil
+	}
+	child, ok := childNode.(*logicalpkg.LeafExprPlan)
+	if !ok {
+		return "", nil, false, nil
+	}
+	if _, isMatrix := child.Expr.(*parser.MatrixSelector); !isMatrix {
+		return "", nil, false, nil
+	}
+	leafInfo := ctx.NativeAnalysis.InfoFor(child)
+	if leafInfo == nil || leafInfo.LeafSelector == nil || leafInfo.SourceExpr == nil {
+		return "", nil, false, fmt.Errorf("native-grid range sum aggregation leaf selector metadata missing")
+	}
+	view := leafInfo.SourceExpr
+	sel := leafInfo.LeafSelector
+	lookbackMS := sel.Lookback.Milliseconds()
+	offsetMS := sel.Offset.Milliseconds()
+	isIdentity := view.ValueExpr == "{value}" && view.TagsExpr == "{tags}" && !view.DropsMetric
+	if !isIdentity || !canUseNativeGridRangeFunction(fn, lookbackMS, offsetMS) {
+		return "", nil, false, nil
+	}
+	childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
+	source, err := renderAggregationSourceView(view, ctx.Params)
+	if err != nil {
+		return "", nil, false, err
+	}
+	tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(ctx.Params))
+	sql, queryParams, err := storage.BuildRangeNativeGridSelectorSumAggregationQuerySQLWithFinalTags(ctx.Config, *source.Selector, childRequiredStartMS, childRequiredEndMS, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, fn, tagsExpr, n.Grouping, n.Without)
+	if err != nil {
+		return "", nil, false, err
+	}
+	return sql, queryParams, true, nil
+}
+
 // renderFusedRangeAggregationLogicalRowsSQL renders the inner range
 // function over the aggregation's child via
 // renderRangeFunctionRowsLogicalSQL and wraps the result with the
 // aggregation subquery built from the AggregationPlan's Op, Grouping,
 // Without, ParamNumber, and ParamString fields (all read directly off
-// the logical plan).
+// the logical plan). Callers pass Params already adjusted for the
+// aggregation child so label projection is applied exactly once.
 func renderFusedRangeAggregationLogicalRowsSQL(ctx LoweringCtx, n *logicalpkg.AggregationPlan) (string, map[string]string, error) {
 	if !canFuseRangeAggregationLogicalDirect(n, ctx.Params) {
 		return "", nil, fmt.Errorf("fused range aggregation rows (logical) require a supported aggregation plan")
@@ -124,7 +172,25 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 		lookbackMS := sel.Lookback.Milliseconds()
 		offsetMS := sel.Offset.Milliseconds()
 		isIdentity := view.ValueExpr == "{value}" && view.TagsExpr == "{tags}" && !view.DropsMetric
-		if isIdentity && fn == "rate" && preferDirectSelectorWindowJoin(lookbackMS, ctx.Params.StepMS) {
+		if isIdentity && ctx.Config.EnableNativeGridFunctions && canUseNativeGridRangeFunction(fn, lookbackMS, offsetMS) {
+			childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
+			source, err := renderAggregationSourceView(view, ctx.Params)
+			if err != nil {
+				return "", nil, err
+			}
+			tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(ctx.Params))
+			return storage.BuildRangeNativeGridSelectorRowsQuerySQLWithFinalTags(ctx.Config, *source.Selector, childRequiredStartMS, childRequiredEndMS, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, fn, tagsExpr)
+		}
+		if isIdentity && ctx.Config.EnableCumulativeAvgOverTime && fn == "avg_over_time" && !preferDirectSelectorWindowJoin(lookbackMS, ctx.Params.StepMS) {
+			childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
+			source, err := renderAggregationSourceView(view, ctx.Params)
+			if err != nil {
+				return "", nil, err
+			}
+			tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(ctx.Params))
+			return storage.BuildRangeWindowSelectorCumulativeAvgRowsQuerySQLWithFinalTags(ctx.Config, *source.Selector, childRequiredStartMS, childRequiredEndMS, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
+		}
+		if isIdentity && supportsDirectSelectorWindowAggregate(fn, lookbackMS) && preferDirectSelectorWindowAggregate(fn, lookbackMS, ctx.Params.StepMS) {
 			childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
 			source, err := renderAggregationSourceView(view, ctx.Params)
 			if err != nil {

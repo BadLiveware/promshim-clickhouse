@@ -161,7 +161,7 @@ func main() {
 
 func printTable(report promharness.BenchReport) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "QUERY\tENDPOINT\tSTRATEGY\tCH_RT\tCH_MS\tPROM_P50\tNATIVE_P50\tFALLBACK_P50\tN/P\tF/N\tNOTE")
+	_, _ = fmt.Fprintln(w, "QUERY\tENDPOINT\tSTRATEGY\tCH_RT\tCH_MS\tPROM_P50\tNATIVE_P50\tFALLBACK_P50\tN/P\tF/N\tNOTE")
 	for _, row := range report.Rows {
 		note := row.FallbackReason
 		if row.StrategyFlap {
@@ -170,7 +170,7 @@ func printTable(report promharness.BenchReport) {
 		if row.Error != "" && row.Strategy == "" {
 			note = "err: " + row.Error
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%s\n",
 			truncate(row.Name, 44),
 			row.Endpoint,
 			row.Strategy,
@@ -199,7 +199,7 @@ func printTable(report promharness.BenchReport) {
 
 func printTableV2(report promharness.BenchReportV2) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "QUERY\tENDPOINT\tMODE\tROUTING\tSTRATEGY\tCH_RT\tCH_MS\tPROM_P50\tPROM_BAND\tSHIM_P50\tS/P\tNOTE")
+	_, _ = fmt.Fprintln(w, "QUERY\tENDPOINT\tMODE\tROUTING\tSTRATEGY\tCH_RT\tCH_MS\tPROM_P50\tPROM_BAND\tSHIM_P50\tS/P\tNOTE")
 	for _, row := range report.Rows {
 		promP50 := 0.0
 		if row.Prom != nil {
@@ -219,7 +219,7 @@ func printTableV2(report promharness.BenchReportV2) {
 			if result.Error != "" {
 				note = "err: " + result.Error
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%d\t%.2f\t%s\t%.2f\t%.2f\t%s\n",
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%d\t%.2f\t%s\t%.2f\t%.2f\t%s\n",
 				truncate(row.Name, 44),
 				row.Endpoint,
 				mode,
@@ -284,6 +284,6 @@ func truncate(s string, n int) string {
 }
 
 func fail(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "promshim-bench: "+format+"\n", args...)
+	_, _ = fmt.Fprintf(os.Stderr, "promshim-bench: "+format+"\n", args...)
 	os.Exit(2)
 }

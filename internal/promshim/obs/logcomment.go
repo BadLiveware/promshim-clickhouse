@@ -1,6 +1,11 @@
 package obs
 
-import "context"
+import (
+	"context"
+	"strings"
+)
+
+const maxLogCommentLength = 512
 
 type logCommentCtxKey struct{}
 
@@ -10,6 +15,7 @@ type logCommentCtxKey struct{}
 // profile captures can group/correlate queries across SQL-shape rewrites.
 // Empty strings are ignored — no tag is attached.
 func WithLogComment(ctx context.Context, tag string) context.Context {
+	tag = normalizeLogComment(tag)
 	if tag == "" {
 		return ctx
 	}
@@ -23,4 +29,21 @@ func LogCommentFromContext(ctx context.Context) string {
 	}
 	v, _ := ctx.Value(logCommentCtxKey{}).(string)
 	return v
+}
+
+func normalizeLogComment(tag string) string {
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return ""
+	}
+	tag = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, tag)
+	if len(tag) > maxLogCommentLength {
+		return tag[:maxLogCommentLength]
+	}
+	return tag
 }

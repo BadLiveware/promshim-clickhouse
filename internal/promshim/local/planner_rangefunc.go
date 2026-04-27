@@ -27,7 +27,8 @@ func (p *localRangeFunctionPlan) execute(ctx context.Context, Evaluator *Evaluat
 		var (
 			vector model.VectorValue
 		)
-		if p.Func == "predict_linear" {
+		switch p.Func {
+		case "predict_linear":
 			if p.ParamNumber == nil {
 				return nil, NewExecutionErrorf("predict_linear requires a duration parameter")
 			}
@@ -38,12 +39,12 @@ func (p *localRangeFunctionPlan) execute(ctx context.Context, Evaluator *Evaluat
 				End:            params.End,
 				Step:           params.Step,
 			})
-		} else if p.Func == "double_exponential_smoothing" || p.Func == "holt_winters" {
+		case "double_exponential_smoothing", "holt_winters":
 			if len(p.ParamNumbers) != 2 || p.ParamNumbers[0] == nil || p.ParamNumbers[1] == nil {
 				return nil, NewExecutionErrorf("%s requires smoothing and trend parameters", p.Func)
 			}
 			vector, err = exec.ApplyDoubleExponentialSmoothing(*p.ParamNumbers[0], *p.ParamNumbers[1], childValue)
-		} else {
+		default:
 			vector, err = exec.ApplyRangeFunctionInstant(p.Func, childValue)
 		}
 		if err != nil {

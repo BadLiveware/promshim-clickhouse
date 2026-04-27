@@ -2,11 +2,15 @@ package renderer
 
 import (
 	"fmt"
+	"os"
 
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
+	"github.com/prometheus/prometheus/promql/parser"
 )
+
+const DisableNativeRepeatedSubexpressionReuseEnv = "PROM_SHIM_DISABLE_NATIVE_REPEATED_SUBEXPRESSION_REUSE"
 
 // lowerBinaryVectorJoin renders a vector-vector BinaryPlan directly from the
 // logical tree. LHS/RHS are lowered via Lower (bubbling errUnsupportedLowerNode
@@ -50,6 +54,17 @@ func lowerBinaryVectorJoin(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQ
 	}
 	switch ctx.Params.Mode {
 	case native.RenderModeInstant:
+		if binaryVectorSelfReuseEligible(n, joinShape) {
+			childSQL, childParams, err := lowerBinaryVectorJoinSide(ctx, n.LHS, "lhs")
+			if err != nil {
+				return RenderedQuery{}, err
+			}
+			sql, queryParams, err := storage.BuildInstantBinaryVectorSelfJoinSQL(childSQL, childParams, joinCfg)
+			if err != nil {
+				return RenderedQuery{}, err
+			}
+			return finalizeRenderedFragment(renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams})
+		}
 		lhsSQL, lhsParams, err := lowerBinaryVectorJoinSide(ctx, n.LHS, "lhs")
 		if err != nil {
 			return RenderedQuery{}, err
@@ -90,6 +105,40 @@ func lowerBinaryVectorJoin(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQ
 // join and namespaces the result under the given alias ("lhs" or "rhs")
 // so the rendered SQL is embeddable as a FROM source inside the join
 // body.
+func binaryVectorSelfReuseEligible(n *logicalpkg.BinaryPlan, joinShape string) bool {
+	if n == nil || nativeRepeatedSubexpressionReuseDisabled() || n.ReturnBool || n.Op != nativePromQLAddOp() || joinShape != "one_to_one" {
+		return false
+	}
+	if n.VectorMatching != nil && (n.VectorMatching.On || len(n.VectorMatching.MatchingLabels) > 0 || len(n.VectorMatching.Include) > 0) {
+		return false
+	}
+	lhsExpr := nodeExprString(n.LHS)
+	rhsExpr := nodeExprString(n.RHS)
+	return lhsExpr != "" && lhsExpr == rhsExpr
+}
+
+func nodeExprString(n logicalpkg.Node) string {
+	if n == nil {
+		return ""
+	}
+	exprNode, ok := n.(interface{ ExprString() string })
+	if !ok {
+		return ""
+	}
+	return exprNode.ExprString()
+}
+
+func nativePromQLAddOp() parser.ItemType { return parser.ADD }
+
+func nativeRepeatedSubexpressionReuseDisabled() bool {
+	switch os.Getenv(DisableNativeRepeatedSubexpressionReuseEnv) {
+	case "1", "true", "TRUE", "yes", "YES", "on", "ON":
+		return true
+	default:
+		return false
+	}
+}
+
 func lowerBinaryVectorJoinSide(ctx LoweringCtx, child logicalpkg.Node, prefix string) (string, map[string]string, error) {
 	rendered, err := Lower(ctx, child)
 	if err != nil {

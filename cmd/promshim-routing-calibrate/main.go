@@ -8,7 +8,9 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -25,12 +27,14 @@ type sweepManifest struct {
 	RunName     string `json:"runName"`
 	ArtifactDir string `json:"artifactDir"`
 	Axes        struct {
-		Profile    string   `json:"profile"`
-		Density    string   `json:"density"`
-		Transport  string   `json:"transport"`
-		ShimModes  []string `json:"shimModes"`
-		MemoryMode string   `json:"memoryMode"`
-		CorpusSet  string   `json:"corpusSet"`
+		Profile                    string   `json:"profile"`
+		Density                    string   `json:"density"`
+		Transport                  string   `json:"transport"`
+		ShimModes                  []string `json:"shimModes"`
+		MemoryMode                 string   `json:"memoryMode"`
+		ClickHouseReferenceProfile string   `json:"clickHouseReferenceProfile"`
+		PromshimSettingsProfile    string   `json:"promshimSettingsProfile"`
+		CorpusSet                  string   `json:"corpusSet"`
 	} `json:"axes"`
 	Endpoints  map[string]string `json:"endpoints"`
 	Compliance struct {
@@ -84,6 +88,7 @@ type benchShimResult struct {
 	Strategy           string  `json:"strategy"`
 	CHRoundtrips       int     `json:"chRoundtrips"`
 	CHMillis           int     `json:"chMillis"`
+	SettingsProfile    string  `json:"settingsProfile"`
 	StrategyFlap       bool    `json:"strategyFlap"`
 	Error              string  `json:"error"`
 }
@@ -116,37 +121,49 @@ type calibrationOutput struct {
 }
 
 type calibrationSource struct {
-	SweepName        string            `json:"sweepName,omitempty"`
-	ManifestPath     string            `json:"manifestPath,omitempty"`
-	BenchReports     []string          `json:"benchReports"`
-	MemoryReports    []string          `json:"memoryReports,omitempty"`
-	ComplianceStatus string            `json:"complianceStatus,omitempty"`
-	Endpoints        map[string]string `json:"endpoints,omitempty"`
+	SweepName                  string            `json:"sweepName,omitempty"`
+	ManifestPath               string            `json:"manifestPath,omitempty"`
+	BenchReports               []string          `json:"benchReports"`
+	MemoryReports              []string          `json:"memoryReports,omitempty"`
+	ComplianceStatus           string            `json:"complianceStatus,omitempty"`
+	ClickHouseReferenceProfile string            `json:"clickHouseReferenceProfile,omitempty"`
+	PromshimSettingsProfile    string            `json:"promshimSettingsProfile,omitempty"`
+	Endpoints                  map[string]string `json:"endpoints,omitempty"`
 }
 
 type calibrationClass struct {
-	Family                 string          `json:"family"`
-	Profile                string          `json:"profile,omitempty"`
-	Density                string          `json:"density,omitempty"`
-	Transport              string          `json:"transport,omitempty"`
-	CorpusPath             string          `json:"corpusPath,omitempty"`
-	Rows                   int             `json:"rows"`
-	NativeP50MedianMS      float64         `json:"nativeP50MedianMs,omitempty"`
-	LocalP50MedianMS       float64         `json:"localP50MedianMs,omitempty"`
-	CostPreferP50MedianMS  float64         `json:"costPreferP50MedianMs,omitempty"`
-	PromP50MedianMS        float64         `json:"promP50MedianMs,omitempty"`
-	LocalNativeRatioMedian float64         `json:"localNativeRatioMedian,omitempty"`
-	StrictCandidate        string          `json:"strictCandidate,omitempty"`
-	SelectedCandidate      string          `json:"selectedCandidate,omitempty"`
-	ServedCandidate        string          `json:"servedCandidate,omitempty"`
-	CandidateFlipRows      int             `json:"candidateFlipRows,omitempty"`
-	Recommendation         string          `json:"recommendation"`
-	Confidence             string          `json:"confidence"`
-	CoverageNotes          []string        `json:"coverageNotes,omitempty"`
-	Reasons                []string        `json:"reasons"`
-	Memory                 *memoryCounters `json:"memory,omitempty"`
-	StrategyFlips          int             `json:"strategyFlips,omitempty"`
-	MissingMemoryComments  int             `json:"missingMemoryComments,omitempty"`
+	Family                     string               `json:"family"`
+	Profile                    string               `json:"profile,omitempty"`
+	Density                    string               `json:"density,omitempty"`
+	Transport                  string               `json:"transport,omitempty"`
+	ClickHouseReferenceProfile string               `json:"clickHouseReferenceProfile,omitempty"`
+	PromshimSettingsProfile    string               `json:"promshimSettingsProfile,omitempty"`
+	CorpusPath                 string               `json:"corpusPath,omitempty"`
+	Rows                       int                  `json:"rows"`
+	NativeP50MedianMS          float64              `json:"nativeP50MedianMs,omitempty"`
+	LocalP50MedianMS           float64              `json:"localP50MedianMs,omitempty"`
+	CostPreferP50MedianMS      float64              `json:"costPreferP50MedianMs,omitempty"`
+	PromP50MedianMS            float64              `json:"promP50MedianMs,omitempty"`
+	LocalNativeRatioMedian     float64              `json:"localNativeRatioMedian,omitempty"`
+	StrictCandidate            string               `json:"strictCandidate,omitempty"`
+	SelectedCandidate          string               `json:"selectedCandidate,omitempty"`
+	ServedCandidate            string               `json:"servedCandidate,omitempty"`
+	CandidateFlipRows          int                  `json:"candidateFlipRows,omitempty"`
+	Recommendation             string               `json:"recommendation"`
+	Confidence                 string               `json:"confidence"`
+	CoverageNotes              []string             `json:"coverageNotes,omitempty"`
+	Reasons                    []string             `json:"reasons"`
+	Features                   *calibrationFeatures `json:"features,omitempty"`
+	Memory                     *memoryCounters      `json:"memory,omitempty"`
+	StrategyFlips              int                  `json:"strategyFlips,omitempty"`
+	MissingMemoryComments      int                  `json:"missingMemoryComments,omitempty"`
+}
+
+type calibrationFeatures struct {
+	RangeWindowSecondsMedian float64 `json:"rangeWindowSecondsMedian,omitempty"`
+	SelectorCountMedian      float64 `json:"selectorCountMedian,omitempty"`
+	GroupingLabelCountMedian float64 `json:"groupingLabelCountMedian,omitempty"`
+	QueryLengthMedian        float64 `json:"queryLengthMedian,omitempty"`
 }
 
 type memoryCounters struct {
@@ -158,14 +175,17 @@ type memoryCounters struct {
 
 type sample struct {
 	name, family, profile, density, transport, corpusPath string
+	clickHouseReferenceProfile, promshimSettingsProfile   string
 	strictCandidate, selectedCandidate, servedCandidate   string
 	promP50, nativeP50, localP50, costPreferP50           float64
+	rangeWindowSeconds, selectorCount                     float64
+	groupingLabelCount, queryLength                       float64
 	strategyFlap, candidateFlip                           bool
 	memory                                                *memoryQueryLogEntry
 	missingMemory                                         bool
 }
 
-type groupKey struct{ family, profile, density, transport, corpusPath string }
+type groupKey struct{ family, profile, density, transport, clickHouseReferenceProfile, promshimSettingsProfile, corpusPath string }
 
 func main() {
 	var sweeps, legacyBench stringList
@@ -233,7 +253,7 @@ func readSweep(path string) ([]sample, calibrationSource, []string, error) {
 	if err := readJSON(path, &manifest); err != nil {
 		return nil, calibrationSource{}, nil, fmt.Errorf("read sweep manifest %q: %w", path, err)
 	}
-	source := calibrationSource{SweepName: manifest.RunName, ManifestPath: path, ComplianceStatus: manifest.Compliance.Status, Endpoints: manifest.Endpoints}
+	source := calibrationSource{SweepName: manifest.RunName, ManifestPath: path, ComplianceStatus: manifest.Compliance.Status, ClickHouseReferenceProfile: manifest.Axes.ClickHouseReferenceProfile, PromshimSettingsProfile: manifest.Axes.PromshimSettingsProfile, Endpoints: manifest.Endpoints}
 	memoryByReport, missingByReport, warnings := readSweepMemory(path, manifest.Bench.MemoryReports)
 	var samples []sample
 	root := repoRootFor(path)
@@ -255,6 +275,12 @@ func readSweep(path string) ([]sample, calibrationSource, []string, error) {
 			}
 			if benchSamples[i].transport == "" {
 				benchSamples[i].transport = firstNonEmpty(report.Transport, manifest.Axes.Transport)
+			}
+			if benchSamples[i].clickHouseReferenceProfile == "" {
+				benchSamples[i].clickHouseReferenceProfile = manifest.Axes.ClickHouseReferenceProfile
+			}
+			if benchSamples[i].promshimSettingsProfile == "" {
+				benchSamples[i].promshimSettingsProfile = manifest.Axes.PromshimSettingsProfile
 			}
 			comments := benchLogComments(benchSamples[i], "prefer")
 			if entry, ok := findMemoryEntry(mem, comments); ok {
@@ -307,13 +333,17 @@ func readBenchReport(path string, _ calibrationSource) ([]sample, error) {
 	}
 	var samples []sample
 	for _, row := range report.Rows {
-		s := sample{name: row.Name, family: firstNonEmpty(row.Category, "uncategorized"), profile: report.RunLabels["profile"], density: report.RunLabels["density"], transport: report.RunLabels["transport"], corpusPath: report.CorpusPath}
+		features := extractQueryFeatures(row.Query)
+		s := sample{name: row.Name, family: firstNonEmpty(row.Category, "uncategorized"), profile: report.RunLabels["profile"], density: report.RunLabels["density"], transport: report.RunLabels["transport"], corpusPath: report.CorpusPath, rangeWindowSeconds: features.rangeWindowSeconds, selectorCount: features.selectorCount, groupingLabelCount: features.groupingLabelCount, queryLength: features.queryLength}
 		if row.Prom != nil {
 			s.promP50 = row.Prom.P50MS
 		}
 		for mode, result := range row.Shim {
 			if result.CostFamily != "" {
 				s.family = result.CostFamily
+			}
+			if result.SettingsProfile != "" && s.promshimSettingsProfile == "" {
+				s.promshimSettingsProfile = result.SettingsProfile
 			}
 			if modeAffectsRoutingCalibration(mode) && result.StrategyFlap {
 				s.strategyFlap = true
@@ -355,7 +385,7 @@ func readBenchReport(path string, _ calibrationSource) ([]sample, error) {
 func summarizeSamples(samples []sample) []calibrationClass {
 	groups := map[groupKey][]sample{}
 	for _, s := range samples {
-		key := groupKey{s.family, s.profile, s.density, s.transport, s.corpusPath}
+		key := groupKey{s.family, s.profile, s.density, s.transport, s.clickHouseReferenceProfile, s.promshimSettingsProfile, s.corpusPath}
 		groups[key] = append(groups[key], s)
 	}
 	keys := make([]groupKey, 0, len(groups))
@@ -373,6 +403,7 @@ func summarizeSamples(samples []sample) []calibrationClass {
 		var flips, missingMemory, candidateFlipRows int
 		var coverageNotes []string
 		var selectedRows, readCompressed, functionExec, memoryP95 []float64
+		var rangeWindows, selectorCounts, groupingCounts, queryLengths []float64
 		for _, s := range vals {
 			if s.nativeP50 > 0 {
 				native = append(native, s.nativeP50)
@@ -389,6 +420,10 @@ func summarizeSamples(samples []sample) []calibrationClass {
 			if s.nativeP50 > 0 && s.localP50 > 0 {
 				ratios = append(ratios, s.localP50/s.nativeP50)
 			}
+			rangeWindows = append(rangeWindows, s.rangeWindowSeconds)
+			selectorCounts = append(selectorCounts, s.selectorCount)
+			groupingCounts = append(groupingCounts, s.groupingLabelCount)
+			queryLengths = append(queryLengths, s.queryLength)
 			if s.strategyFlap {
 				flips++
 			}
@@ -421,27 +456,37 @@ func summarizeSamples(samples []sample) []calibrationClass {
 			coverageNotes = append(coverageNotes, "candidate headers missing in class rows")
 		}
 		class := calibrationClass{
-			Family:                 key.family,
-			Profile:                key.profile,
-			Density:                key.density,
-			Transport:              key.transport,
-			CorpusPath:             key.corpusPath,
-			Rows:                   len(vals),
-			NativeP50MedianMS:      median(native),
-			LocalP50MedianMS:       median(local),
-			CostPreferP50MedianMS:  median(costPrefer),
-			PromP50MedianMS:        median(prom),
-			LocalNativeRatioMedian: median(ratios),
-			StrictCandidate:        mostFrequent(strictCandidates),
-			SelectedCandidate:      mostFrequent(selectedCandidates),
-			ServedCandidate:        mostFrequent(servedCandidates),
-			CandidateFlipRows:      candidateFlipRows,
-			CoverageNotes:          coverageNotes,
-			StrategyFlips:          flips,
-			MissingMemoryComments:  missingMemory,
+			Family:                     key.family,
+			Profile:                    key.profile,
+			Density:                    key.density,
+			Transport:                  key.transport,
+			ClickHouseReferenceProfile: key.clickHouseReferenceProfile,
+			PromshimSettingsProfile:    key.promshimSettingsProfile,
+			CorpusPath:                 key.corpusPath,
+			Rows:                       len(vals),
+			NativeP50MedianMS:          median(native),
+			LocalP50MedianMS:           median(local),
+			CostPreferP50MedianMS:      median(costPrefer),
+			PromP50MedianMS:            median(prom),
+			LocalNativeRatioMedian:     median(ratios),
+			StrictCandidate:            mostFrequent(strictCandidates),
+			SelectedCandidate:          mostFrequent(selectedCandidates),
+			ServedCandidate:            mostFrequent(servedCandidates),
+			CandidateFlipRows:          candidateFlipRows,
+			CoverageNotes:              coverageNotes,
+			StrategyFlips:              flips,
+			MissingMemoryComments:      missingMemory,
 		}
 		class.Recommendation, class.Reasons = recommend(class)
 		class.Confidence = classConfidence(class)
+		if len(rangeWindows) > 0 || len(selectorCounts) > 0 || len(groupingCounts) > 0 || len(queryLengths) > 0 {
+			class.Features = &calibrationFeatures{
+				RangeWindowSecondsMedian: median(rangeWindows),
+				SelectorCountMedian:      median(selectorCounts),
+				GroupingLabelCountMedian: median(groupingCounts),
+				QueryLengthMedian:        median(queryLengths),
+			}
+		}
 		if len(selectedRows) > 0 || len(readCompressed) > 0 || len(functionExec) > 0 || len(memoryP95) > 0 {
 			class.Memory = &memoryCounters{SelectedRowsMedian: median(selectedRows), ReadCompressedBytesMedian: median(readCompressed), FunctionExecuteMedian: median(functionExec), MemoryP95BytesMedian: median(memoryP95)}
 		}
@@ -465,7 +510,7 @@ func recommend(class calibrationClass) (string, []string) {
 	if strings.Contains(family, "range") || strings.Contains(family, "subquery") || strings.Contains(family, "aggregation") || class.LocalNativeRatioMedian >= 1.0 {
 		return "native_required", []string{fmt.Sprintf("native remains preferred for family; local/native median %.2f", class.LocalNativeRatioMedian)}
 	}
-	if class.LocalNativeRatioMedian <= 0.70 && (strings.Contains(family, "selector") || strings.Contains(family, "rate") || strings.Contains(family, "histogram")) {
+	if class.LocalNativeRatioMedian <= 0.70 && (strings.Contains(family, "selector") || strings.Contains(family, "rate") || strings.Contains(family, "increase") || strings.Contains(family, "histogram")) {
 		return "local_candidate", []string{fmt.Sprintf("local/native median %.2f <= 0.70 for bounded candidate family", class.LocalNativeRatioMedian)}
 	}
 	return "insufficient_data", []string{fmt.Sprintf("no initial rule for local/native median %.2f", class.LocalNativeRatioMedian)}
@@ -490,6 +535,12 @@ func renderMarkdown(out calibrationOutput) string {
 		for _, report := range source.BenchReports {
 			fmt.Fprintf(&b, "  - bench `%s`\n", report)
 		}
+		if source.ClickHouseReferenceProfile != "" {
+			fmt.Fprintf(&b, "  - ClickHouse reference profile `%s`\n", source.ClickHouseReferenceProfile)
+		}
+		if source.PromshimSettingsProfile != "" {
+			fmt.Fprintf(&b, "  - promshim settings profile `%s`\n", source.PromshimSettingsProfile)
+		}
 		for _, memory := range source.MemoryReports {
 			fmt.Fprintf(&b, "  - memory `%s`\n", memory)
 		}
@@ -501,10 +552,14 @@ func renderMarkdown(out calibrationOutput) string {
 		}
 	}
 	fmt.Fprintf(&b, "\n## Class recommendations\n\n")
-	fmt.Fprintf(&b, "| Family | Profile | Density | Rows | Native p50 ms | Local p50 ms | CostPrefer p50 ms | L/N | Strict cand. | Selected cand. | Served cand. | Cand. flips | Confidence | Recommendation | Reasons |\n")
-	fmt.Fprintf(&b, "|---|---|---|---:|---:|---:|---:|---:|---|---|---|---:|---|---|---|\n")
+	fmt.Fprintf(&b, "| Family | Profile | Density | Settings profile | CH ref profile | Rows | Native p50 ms | Local p50 ms | CostPrefer p50 ms | L/N | Range s (med) | Selectors (med) | Group labels (med) | Query chars (med) | Strict cand. | Selected cand. | Served cand. | Cand. flips | Confidence | Recommendation | Reasons |\n")
+	fmt.Fprintf(&b, "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---|---:|---|---|---|\n")
 	for _, class := range out.Classes {
-		fmt.Fprintf(&b, "| %s | %s | %s | %d | %s | %s | %s | %s | %s | %s | %s | %d | %s | %s | %s |\n", class.Family, class.Profile, class.Density, class.Rows, fmtFloat(class.NativeP50MedianMS), fmtFloat(class.LocalP50MedianMS), fmtFloat(class.CostPreferP50MedianMS), fmtFloat(class.LocalNativeRatioMedian), firstNonEmpty(class.StrictCandidate, "—"), firstNonEmpty(class.SelectedCandidate, "—"), firstNonEmpty(class.ServedCandidate, "—"), class.CandidateFlipRows, class.Confidence, class.Recommendation, strings.Join(class.Reasons, "; "))
+		features := calibrationFeatures{}
+		if class.Features != nil {
+			features = *class.Features
+		}
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %d | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %d | %s | %s | %s |\n", class.Family, class.Profile, class.Density, firstNonEmpty(class.PromshimSettingsProfile, "—"), firstNonEmpty(class.ClickHouseReferenceProfile, "—"), class.Rows, fmtFloat(class.NativeP50MedianMS), fmtFloat(class.LocalP50MedianMS), fmtFloat(class.CostPreferP50MedianMS), fmtFloat(class.LocalNativeRatioMedian), fmtFloat(features.RangeWindowSecondsMedian), fmtFloat(features.SelectorCountMedian), fmtFloat(features.GroupingLabelCountMedian), fmtFloat(features.QueryLengthMedian), firstNonEmpty(class.StrictCandidate, "—"), firstNonEmpty(class.SelectedCandidate, "—"), firstNonEmpty(class.ServedCandidate, "—"), class.CandidateFlipRows, class.Confidence, class.Recommendation, strings.Join(class.Reasons, "; "))
 		if len(class.CoverageNotes) > 0 {
 			fmt.Fprintf(&b, "  - coverage: %s\n", strings.Join(class.CoverageNotes, "; "))
 		}
@@ -548,6 +603,96 @@ func hasMissingMemoryComment(missing map[string]bool, comments []string) bool {
 		}
 	}
 	return false
+}
+
+type queryFeatures struct {
+	rangeWindowSeconds float64
+	selectorCount      float64
+	groupingLabelCount float64
+	queryLength        float64
+}
+
+var (
+	rangeSelectorPattern = regexp.MustCompile(`\[(\d+[smhdwy])\]`)
+	groupingPattern      = regexp.MustCompile(`(?i)(?:by|without)\s*\(([^)]*)\)`)
+)
+
+func extractQueryFeatures(query string) queryFeatures {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return queryFeatures{}
+	}
+	features := queryFeatures{
+		rangeWindowSeconds: maxRangeWindowSeconds(q),
+		selectorCount:      float64(strings.Count(q, "{")),
+		groupingLabelCount: float64(groupingLabelCount(q)),
+		queryLength:        float64(len(q)),
+	}
+	return features
+}
+
+func maxRangeWindowSeconds(query string) float64 {
+	matches := rangeSelectorPattern.FindAllStringSubmatch(query, -1)
+	maxSeconds := 0.0
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		seconds, ok := parsePromDurationSeconds(match[1])
+		if !ok {
+			continue
+		}
+		if seconds > maxSeconds {
+			maxSeconds = seconds
+		}
+	}
+	return maxSeconds
+}
+
+func parsePromDurationSeconds(raw string) (float64, bool) {
+	if len(raw) < 2 {
+		return 0, false
+	}
+	unit := raw[len(raw)-1]
+	value, err := strconv.Atoi(raw[:len(raw)-1])
+	if err != nil || value <= 0 {
+		return 0, false
+	}
+	multiplier := 0.0
+	switch unit {
+	case 's':
+		multiplier = 1
+	case 'm':
+		multiplier = 60
+	case 'h':
+		multiplier = 3600
+	case 'd':
+		multiplier = 86400
+	case 'w':
+		multiplier = 7 * 86400
+	case 'y':
+		multiplier = 365 * 86400
+	default:
+		return 0, false
+	}
+	return float64(value) * multiplier, true
+}
+
+func groupingLabelCount(query string) int {
+	matches := groupingPattern.FindAllStringSubmatch(query, -1)
+	count := 0
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		parts := strings.Split(match[1], ",")
+		for _, part := range parts {
+			if strings.TrimSpace(part) != "" {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 func sanitizeLogCommentPart(value string) string {

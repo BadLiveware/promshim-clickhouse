@@ -108,7 +108,7 @@ func maybeBuildNativeRangeLikePlan(node logicalpkg.Node, kind, expr string, ctx 
 }
 
 func maybeBuildNativeRangeLikePlanAllowRange(node logicalpkg.Node, kind, expr string, ctx PlanContext, analysis *nativeplan.Analysis, allowRange bool) (Plan, bool, error) {
-	if ctx.Mode != EvalModeInstant && !(allowRange && ctx.Mode == EvalModeRange) {
+	if ctx.Mode != EvalModeInstant && (!allowRange || ctx.Mode != EvalModeRange) {
 		return nil, false, nil
 	}
 	info := analysis.InfoFor(node)

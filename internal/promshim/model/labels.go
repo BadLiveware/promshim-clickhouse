@@ -3,8 +3,6 @@ package model
 import (
 	"sort"
 	"strings"
-
-	"github.com/prometheus/prometheus/model/labels"
 )
 
 func NormalizeLabelSet(metric map[string]string) []NormalizedLabel {
@@ -40,7 +38,7 @@ func LabelsKey(metric map[string]string) string {
 
 func AggregationMetric(metric map[string]string, grouping []string, without bool) map[string]string {
 	if without {
-		excluded := map[string]struct{}{labels.MetricName: {}}
+		excluded := map[string]struct{}{"__name__": {}}
 		for _, label := range grouping {
 			excluded[label] = struct{}{}
 		}
@@ -68,7 +66,7 @@ func AggregationMetric(metric map[string]string, grouping []string, without bool
 func DropMetricName(metric map[string]string) map[string]string {
 	result := make(map[string]string, len(metric))
 	for key, value := range metric {
-		if key == labels.MetricName {
+		if key == "__name__" {
 			continue
 		}
 		result[key] = value
@@ -101,9 +99,5 @@ func CloneSeries(series []RangeSeries) []RangeSeries {
 }
 
 func CloneRangePoints(points []RangePoint) []RangePoint {
-	result := make([]RangePoint, 0, len(points))
-	for _, point := range points {
-		result = append(result, point)
-	}
-	return result
+	return append([]RangePoint(nil), points...)
 }

@@ -1,7 +1,5 @@
 package logical
 
-import promlabels "github.com/prometheus/prometheus/model/labels"
-
 // Lineage state wire values used in NodeInfo.LabelLineage.Known and
 // Wildcard. The enum LabelLineageState declared in nodeinfo.go is the
 // canonical form for node-level propagation; the string values below
@@ -36,7 +34,7 @@ func LineageStateString(state LabelLineageState) string {
 // __name__ and all other labels come directly from storage.
 func leafLineage() LabelLineage {
 	return LabelLineage{
-		Known:      map[string]string{promlabels.MetricName: lineageStateOriginal},
+		Known:      map[string]string{"__name__": lineageStateOriginal},
 		Wildcard:   lineageStateOriginal,
 		MetricName: LabelLineagePassthrough,
 	}
@@ -47,7 +45,7 @@ func leafLineage() LabelLineage {
 // the result schema.
 func unknownLineage() LabelLineage {
 	return LabelLineage{
-		Known:      map[string]string{promlabels.MetricName: lineageStateUnknown},
+		Known:      map[string]string{"__name__": lineageStateUnknown},
 		Wildcard:   lineageStateUnknown,
 		MetricName: LabelLineagePassthrough,
 	}
@@ -58,7 +56,7 @@ func unknownLineage() LabelLineage {
 // labelset unrelated to their input.
 func syntheticLineage() LabelLineage {
 	return LabelLineage{
-		Known:      map[string]string{promlabels.MetricName: lineageStateDropped},
+		Known:      map[string]string{"__name__": lineageStateDropped},
 		Wildcard:   lineageStateDropped,
 		MetricName: LabelLineageDropped,
 	}
@@ -100,13 +98,13 @@ func passthroughLineage(child LabelLineage) LabelLineage {
 // dropped.
 func aggregationLineage(child LabelLineage, grouping []string, without bool) LabelLineage {
 	result := LabelLineage{
-		Known:      map[string]string{promlabels.MetricName: lineageStateDropped},
+		Known:      map[string]string{"__name__": lineageStateDropped},
 		MetricName: LabelLineageDropped,
 	}
 	if without {
 		result.Wildcard = child.Wildcard
 		for key, value := range child.Known {
-			if key == promlabels.MetricName {
+			if key == "__name__" {
 				continue
 			}
 			result.Known[key] = value

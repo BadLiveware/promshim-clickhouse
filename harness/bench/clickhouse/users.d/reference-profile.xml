@@ -1,0 +1,17 @@
+<clickhouse>
+  <profiles>
+    <default>
+      <!-- Benchmark-only evidence profile for promshim ClickHouse tuning runs.
+           These settings make query-log and ProfileEvents attribution explicit;
+           they are not required for promshim correctness and are mounted only by
+           harness/bench/docker-compose.reference.yml. -->
+      <allow_experimental_time_series_table>1</allow_experimental_time_series_table>
+      <log_queries>1</log_queries>
+      <log_queries_probability>1</log_queries_probability>
+      <log_queries_min_query_duration_ms>0</log_queries_min_query_duration_ms>
+      <log_profile_events>1</log_profile_events>
+      <log_query_settings>1</log_query_settings>
+      <log_queries_cut_to_length>20000</log_queries_cut_to_length>
+    </default>
+  </profiles>
+</clickhouse>

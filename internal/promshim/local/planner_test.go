@@ -1470,6 +1470,9 @@ func TestExplainPlanDescribesNativeAggregationStrategy(t *testing.T) {
 	if strings.Contains(strings.ToUpper(explain.RenderedSQL), "SELECT *") {
 		t.Fatalf("expected final rendered SQL to avoid SELECT *, got %q", explain.RenderedSQL)
 	}
+	if !strings.Contains(explain.RenderedSQL, "src.tags['job']") || strings.Contains(explain.RenderedSQL, "mapKeys(src.tags)") {
+		t.Fatalf("expected aggregation child selector to project only job label, got %q", explain.RenderedSQL)
+	}
 }
 
 func TestExplainPlanDescribesNativeTransformedAggregationStrategy(t *testing.T) {
@@ -2108,22 +2111,40 @@ func TestBuildPlanWithContextCreatesIncreasePlanForSubqueryInRangeMode(t *testin
 	}
 }
 
-func TestBuildPlanWithContextCreatesLocalAggregationOverIncreaseInRangeMode(t *testing.T) {
-	expr, err := logical.ParseExpression("sum(increase(up[5m]))")
-	if err != nil {
-		t.Fatal(err)
+func TestBuildPlanWithContextCreatesNativeRootAggregationOverRangeFunctionInPreferRangeMode(t *testing.T) {
+	cases := []struct {
+		name            string
+		query           string
+		wantSourceShape nativeplan.SubtreeShape
+	}{
+		{name: "sum_rate", query: "sum(rate(up[5m]))", wantSourceShape: nativeplan.SubtreeShapeRangeFunction},
+		{name: "grouped_sum_rate", query: "sum by(job) (rate(up[5m]))", wantSourceShape: nativeplan.SubtreeShapeRangeFunction},
+		{name: "sum_increase", query: "sum(increase(up[5m]))", wantSourceShape: nativeplan.SubtreeShapeRangeFunction},
+		{name: "scaled_rate", query: "sum(8 * rate(up[5m]))", wantSourceShape: nativeplan.SubtreeShapeValueTransform},
 	}
 
-	execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, PreferNativeAggregationPushdown: true})
-	if err != nil {
-		t.Fatalf("expected aggregation over increase plan, got error: %v", err)
-	}
-	agg, ok := execPlan.(*localAggregationPlan)
-	if !ok {
-		t.Fatalf("expected localAggregationPlan, got %T", execPlan)
-	}
-	if _, ok := agg.Child.(*nativeSubtreePlan); !ok {
-		t.Fatalf("expected nativeSubtreePlan child, got %T", agg.Child)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			expr, err := logical.ParseExpression(tc.query)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			execPlan, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeRange, Start: time.Unix(0, 0).UTC(), End: time.Unix(300, 0).UTC(), Step: time.Minute, NativeLoweringMode: NativeLoweringModePrefer, PreferNativeAggregationPushdown: true})
+			if err != nil {
+				t.Fatalf("expected native aggregation plan, got error: %v", err)
+			}
+			nativeRoot, ok := execPlan.(*nativeSubtreePlan)
+			if !ok {
+				t.Fatalf("expected nativeSubtreePlan root, got %T", execPlan)
+			}
+			if nativeRoot.Info == nil || nativeRoot.Info.SubtreeShape != nativeplan.SubtreeShapeAggregation || nativeRoot.Info.Aggregation == nil || nativeRoot.Info.Aggregation.SourceInfo == nil {
+				t.Fatalf("expected native aggregation subtree, got %#v", nativeRoot.Info)
+			}
+			if nativeRoot.Info.Aggregation.SourceInfo.SubtreeShape != tc.wantSourceShape {
+				t.Fatalf("expected aggregation source shape %s, got %#v", tc.wantSourceShape, nativeRoot.Info.Aggregation.SourceInfo)
+			}
+		})
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -64,14 +65,16 @@ func (t *HTTPJSONTransport) Query(ctx context.Context, req QueryRequest) (Rows, 
 		return nil, err
 	}
 
-	requestURL := t.baseURL.String()
-	if tag := obs.LogCommentFromContext(ctx); tag != "" {
-		u := *t.baseURL
-		q := u.Query()
-		q.Set("log_comment", tag)
-		u.RawQuery = q.Encode()
-		requestURL = u.String()
+	u := *t.baseURL
+	q := u.Query()
+	for key, value := range req.Settings {
+		q.Set(key, fmt.Sprint(value))
 	}
+	if tag := obs.LogCommentFromContext(ctx); tag != "" {
+		q.Set("log_comment", tag)
+	}
+	u.RawQuery = q.Encode()
+	requestURL := u.String()
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, &body)
 	if err != nil {
 		return nil, err
@@ -89,7 +92,7 @@ func (t *HTTPJSONTransport) Query(ctx context.Context, req QueryRequest) (Rows, 
 	}
 	if response.StatusCode >= 400 {
 		observeQuery(TransportHTTP, req.Purpose, "error", duration)
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		var payload bytes.Buffer
 		_, _ = payload.ReadFrom(response.Body)
 		message := strings.TrimSpace(payload.String())

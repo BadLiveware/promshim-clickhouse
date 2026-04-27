@@ -83,3 +83,86 @@ func TestLoadOptionsFromEnvCostRoutingLocalFamilies(t *testing.T) {
 		t.Fatalf("CostRoutingLocalFamilies = %+v", opts.CostRoutingLocalFamilies)
 	}
 }
+
+func TestLoadOptionsFromEnvNativeGridFunctions(t *testing.T) {
+	t.Setenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "")
+	opts, err := LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.NativeGridFunctions != "prefer" {
+		t.Fatalf("default NativeGridFunctions = %q, want prefer", opts.NativeGridFunctions)
+	}
+
+	t.Setenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "off")
+	opts, err = LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.NativeGridFunctions != "off" {
+		t.Fatalf("NativeGridFunctions = %q, want off", opts.NativeGridFunctions)
+	}
+
+	t.Setenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "prefer")
+	opts, err = LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.NativeGridFunctions != "prefer" {
+		t.Fatalf("NativeGridFunctions = %q, want prefer", opts.NativeGridFunctions)
+	}
+
+	t.Setenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "surprise")
+	if _, err := LoadOptionsFromEnv(); err == nil || !strings.Contains(err.Error(), "PROM_SHIM_NATIVE_GRID_FUNCTIONS") {
+		t.Fatalf("LoadOptionsFromEnv invalid native grid functions error = %v", err)
+	}
+}
+
+func TestLoadOptionsFromEnvCumulativeAvgOverTime(t *testing.T) {
+	t.Setenv("PROM_SHIM_CUMULATIVE_AVG_OVER_TIME", "")
+	opts, err := LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.CumulativeAvgOverTime != "prefer" {
+		t.Fatalf("default CumulativeAvgOverTime = %q, want prefer", opts.CumulativeAvgOverTime)
+	}
+
+	t.Setenv("PROM_SHIM_CUMULATIVE_AVG_OVER_TIME", "off")
+	opts, err = LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.CumulativeAvgOverTime != "off" {
+		t.Fatalf("CumulativeAvgOverTime = %q, want off", opts.CumulativeAvgOverTime)
+	}
+
+	t.Setenv("PROM_SHIM_CUMULATIVE_AVG_OVER_TIME", "prefer")
+	opts, err = LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.CumulativeAvgOverTime != "prefer" {
+		t.Fatalf("CumulativeAvgOverTime = %q, want prefer", opts.CumulativeAvgOverTime)
+	}
+
+	t.Setenv("PROM_SHIM_CUMULATIVE_AVG_OVER_TIME", "surprise")
+	if _, err := LoadOptionsFromEnv(); err == nil || !strings.Contains(err.Error(), "PROM_SHIM_CUMULATIVE_AVG_OVER_TIME") {
+		t.Fatalf("LoadOptionsFromEnv invalid cumulative avg error = %v", err)
+	}
+}
+
+func TestLoadOptionsFromEnvPromotedTagColumns(t *testing.T) {
+	t.Setenv("PROM_SHIM_PROMOTED_TAG_COLUMNS", "instance, pod ,node")
+	t.Setenv("PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS", "true")
+	opts, err := LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(opts.PromotedTagColumns) != 3 || opts.PromotedTagColumns[0] != "instance" || opts.PromotedTagColumns[1] != "pod" || opts.PromotedTagColumns[2] != "node" {
+		t.Fatalf("PromotedTagColumns = %+v", opts.PromotedTagColumns)
+	}
+	if !opts.DiscoverPromotedTagColumns {
+		t.Fatalf("DiscoverPromotedTagColumns = false, want true")
+	}
+}

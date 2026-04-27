@@ -22,11 +22,15 @@ func (c *Client) QueryInstantSamples(ctx context.Context, req QueryRequest) (sam
 	if !ok {
 		return nil, fmt.Errorf("typed instant row decoding requires %s transport, got %s", TransportNative, c.transportKind)
 	}
+	req, err = c.prepareQueryRequest(req)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := nativeTransport.QueryNativeRows(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	start := time.Now()
 	decoded := 0
@@ -63,11 +67,15 @@ func (c *Client) QueryRangeSeries(ctx context.Context, req QueryRequest) (series
 	if !ok {
 		return nil, fmt.Errorf("typed range row decoding requires %s transport, got %s", TransportNative, c.transportKind)
 	}
+	req, err = c.prepareQueryRequest(req)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := nativeTransport.QueryNativeRows(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	start := time.Now()
 	decoded := 0

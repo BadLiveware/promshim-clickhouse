@@ -17,7 +17,7 @@
 #
 # Usage:
 #   ./scripts/seed-long-range.sh --profile 7d | 30d | 1y | all
-#   ./scripts/seed-long-range.sh --density sparse|dense  (default: sparse)
+#   ./scripts/seed-long-range.sh --density sparse|dense|stress-50k|stress-500k  (default: sparse)
 #   ./scripts/seed-long-range.sh --target ch|prom|both  (default: both)
 #   ./scripts/seed-long-range.sh [--duration 168h] [--step 15s]
 #                                [--end-time 2026-03-22T21:45:42Z]
@@ -83,8 +83,8 @@ case "$TARGET" in
   *) echo "error: --target must be ch|prom|both (got: $TARGET)" >&2; exit 64 ;;
 esac
 case "$DENSITY" in
-  sparse|dense) ;;
-  *) echo "error: --density must be sparse|dense (got: $DENSITY)" >&2; exit 64 ;;
+  sparse|dense|stress-50k|stress-500k) ;;
+  *) echo "error: --density must be sparse|dense|stress-50k|stress-500k (got: $DENSITY)" >&2; exit 64 ;;
 esac
 
 if [[ "$PROFILE" == "all" ]]; then

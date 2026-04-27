@@ -351,7 +351,11 @@ The harness configures ClickHouse's Prometheus remote-write endpoint at
 
 The `TimeSeries` engine is still experimental in ClickHouse, so the schema
 contract is centralized under `internal/promshim/storage/schema/` to make
-upstream ClickHouse changes easier to audit.
+upstream ClickHouse changes easier to audit. Deployment-level TimeSeries tuning
+recommendations live in `docs/clickhouse-timeseries-deployment-tuning.md`; the
+native grid-function lowering design lives in
+`docs/native-grid-function-lowering.md`; the rejected per-series pruning scout is
+recorded in `docs/per-series-time-bound-pruning.md`.
 
 ## Configuration
 
@@ -371,11 +375,23 @@ upstream ClickHouse changes easier to audit.
 | `PROM_SHIM_CLICKHOUSE_MAX_OPEN_CONNS` | `10` | Native driver maximum open connections. |
 | `PROM_SHIM_CLICKHOUSE_MAX_IDLE_CONNS` | `10` | Native driver maximum idle connections. |
 | `PROM_SHIM_CLICKHOUSE_CONN_MAX_LIFETIME_SECONDS` | `3600` | Native driver connection maximum lifetime. |
-| `PROM_SHIM_REQUEST_TIMEOUT_SECONDS` | `30` | ClickHouse request timeout. |
-| `PROM_SHIM_CLICKHOUSE_VERSION` | `26.3` | Version used by the delegation capability classifier. |
+| `PROM_SHIM_REQUEST_TIMEOUT_SECONDS` | `30` | ClickHouse request timeout. The `default_safe` ClickHouse settings profile also sends this as `max_execution_time`. |
+| `PROM_SHIM_CLICKHOUSE_VERSION` | `26.3` | Version used by delegation and settings-profile capability classifiers. |
+| `PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE` | `default_safe` | Shim-owned per-query ClickHouse settings profile. Supported names: `none`, `default_safe`, `repeated_selective`, `tiny_instant`, `simple_range`, `long_range_scan`, `aggregation_heavy`, `join_heavy`, `subtree_pushdown`, `benchmark_control`. `benchmark_control` is an explicit measurement profile that applies bounded `max_threads=4`; other performance profile names remain gated until measured evidence justifies applied settings. |
+| `PROM_SHIM_CLICKHOUSE_MAX_MEMORY_USAGE_BYTES` | `0` | Optional `default_safe` per-query `max_memory_usage` cap; `0` leaves it unset. |
+| `PROM_SHIM_CLICKHOUSE_MAX_ROWS_TO_READ` | `0` | Optional `default_safe` per-query `max_rows_to_read` cap; `0` leaves it unset until estimates justify a cap. |
+| `PROM_SHIM_CLICKHOUSE_MAX_RESULT_ROWS` | `0` | Optional `default_safe` per-query `max_result_rows` cap; `0` leaves it unset until a result-row contract is explicit. |
+| `PROM_SHIM_PROMOTED_TAG_COLUMNS` | empty | Comma-separated Prometheus label names whose ClickHouse `tags_to_columns` column has the same name on the TimeSeries tags table. Native selector SQL uses these columns for label matchers and label projection instead of probing `src.tags[...]`. |
+| `PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS` | `false` | When true, promshim queries ClickHouse `system.columns` / `system.tables` at startup and adds identity `tags_to_columns` entries (`'label':'label'`) to the promoted tag column set. Explicit `PROM_SHIM_PROMOTED_TAG_COLUMNS` entries are still honored. Discovery failure is logged and ignored. |
+| `PROM_SHIM_NATIVE_GRID_FUNCTIONS` | `prefer` | Native-grid lowering gate. `prefer` lets supported tier-2 range selectors for `rate`, `irate`, `delta`, `idelta`, and `last_over_time` use ClickHouse TimeSeries grid functions; set `off` to roll back to promshim's SQL-level kernels. |
+| `PROM_SHIM_CUMULATIVE_AVG_OVER_TIME` | `prefer` | High-overlap `avg_over_time` lowering gate. `prefer` uses cumulative per-series state plus ASOF boundary lookups to avoid dense grid-to-data join fanout; set `off` to roll back to the direct grouped aggregate path. |
 | `PROM_SHIM_NATIVE_LOWERING_MODE` | `prefer` | Global lowering mode; see execution modes above. |
 | `PROM_SHIM_ROUTING_POLICY` | `strict` | Global cost-routing policy; see cost routing policies above. |
 | `PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES` | empty | Comma-separated family gates eligible for `cost_prefer` local overrides, e.g. `selector_instant,rate_instant`. |
+| `PROM_SHIM_DISABLE_OPTIMIZED_IR` | unset / false | Rollback/differential-testing gate that disables logical IR rewrite passes while preserving baseline planning. |
+| `PROM_SHIM_DISABLE_NATIVE_AGGREGATION_LABEL_PROJECTION` | unset / false | Rollback/differential-testing gate that disables native `by(...)` aggregation child label projection and restores full selector tag materialization. |
+| `PROM_SHIM_DISABLE_NATIVE_REPEATED_SUBEXPRESSION_REUSE` | unset / false | Rollback/differential-testing gate that disables native SQL reuse for identical vector subexpressions. |
+| `PROM_SHIM_DISABLE_LOCAL_REPEATED_EXPRESSION_CACHE` | unset / false | Rollback/differential-testing gate that disables request-local caching for repeated local range-function subexpressions. |
 | `PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES` | `50000` | Reject range queries above this point count per series. |
 | `PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES` | `5000` | Chunk eligible local range plans above this point count per series. |
 | `PROM_SHIM_MAX_RESPONSE_SERIES` | `5000` | Reject responses with more series than this limit. |
@@ -387,11 +403,16 @@ Per-request knobs:
 - `routing_policy=strict|cost_shadow|cost_prefer`
 - `explain=1` or `explain=true`
 - `X-Promshim-Log-Comment: ...` to forward a ClickHouse `log_comment` for query
-  log/profile correlation.
+  log/profile correlation. When omitted, promshim generates a bounded comment
+  containing endpoint, normalized mode/policy, and a hash of request parameters;
+  raw PromQL and label values are not included.
 
 Successful query responses include `X-Promshim-CH-Transport: http|native` so
 transport rollout can be correlated with strategy, round-trip, and duration
-headers. Explain responses include the same value as `clickHouseTransport`.
+headers. They also include `X-Promshim-Settings-Profile` when a settings profile
+was resolved. Explain responses include the same transport value as
+`clickHouseTransport` and settings provenance as `clickHouseSettingsProfile` and
+`plan.settingsProfile`.
 
 ## Quick start for local development
 
@@ -523,9 +544,9 @@ memory mode uses `PROM_SHIM_ENABLE_PPROF=1` in local harness stacks; keep that
 disabled in production unless the endpoint is otherwise protected.
 
 `run-bench.sh` and `seed-long-range.sh` remain available as lower-level/debug
-helpers, but avoid manual long-range loops for normal work because they are easy
-to accidentally point at the compliance stack. If using those helpers directly,
-pass explicit benchmark endpoints from `run-sweep.sh --bench-status`.
+helpers, but avoid manual long-range command repetition for normal work because
+it is easy to accidentally point at the compliance stack. If using those helpers
+directly, pass explicit benchmark endpoints from `run-sweep.sh --bench-status`.
 
 The legacy benchmark tripwire compares reference Prometheus, promshim native
 SQL, and local fallback behavior on pinned corpora:
@@ -536,51 +557,70 @@ SQL, and local fallback behavior on pinned corpora:
 
 Benchmark matrices below were refreshed from live sweep artifacts on this branch:
 
-- `harness/artifacts/sweeps/cbe-readme-7d-sparse-r2`
-- `harness/artifacts/sweeps/cbe-readme-long-range-sparse-r1`
-- `harness/artifacts/sweeps/cbe-readme-7d-dense-processing-r1`
+- `harness/artifacts/sweeps/readme-refresh-20260426-7d-sparse`
+- `harness/artifacts/sweeps/readme-refresh-20260426-long-range-sparse`
+- `harness/artifacts/sweeps/readme-refresh-20260426-7d-dense-processing`
 
 These are not a claim that promshim beats Prometheus in this local harness.
 They are a routing calibration/tripwire dataset. In addition to p50 latency, the
-matrices now include CBE decision telemetry (`routingDecision`,
-`routingReason`, strict/served candidate IDs) and memory-side signals
-(`selectedRows`, memory p95) from `memory-summary-*.json`.
+matrices include CBE decision telemetry (`routingDecision`, `routingReason`,
+strict/served candidate IDs) and memory-side signals from
+`memory-summary-*.json`.
 
-### 7d sparse CBE matrix (strict vs cost_prefer)
+The matrix artifacts below were captured before native-grid lowering became the
+default. They therefore reflect the explicit rollback behavior
+`PROM_SHIM_NATIVE_GRID_FUNCTIONS=off`. The native-grid default was measured
+separately as a focused before/after check:
+`harness/artifacts/sweeps/native-grid-focused-baseline` and
+`harness/artifacts/sweeps/native-grid-focused-candidate`.
+
+### 7d sparse CBE category matrix (strict vs cost_prefer)
 
 10 timed repeats, 2 warmups, mode `prefer`, routing policies
 `strict,cost_shadow,cost_prefer`, with `cost_shadow` warmup and
 `PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES=rate_instant`.
 
-| Query | Strict strategy/p50 | Cost-prefer strategy/p50 | CBE decision | Reason | Candidate (strict→served) | Δ vs strict | CH rts/ms | Selected rows | Mem p95 (MiB) |
-|---|---:|---:|---|---|---|---:|---:|---:|---:|
-| `plain_selector_instant_long` | delegated_promql/13.61 | delegated_promql/13.10 | `strict_low_confidence` | `delegated_promql_has_no_cost_model` | `whole_query_delegation→whole_query_delegation` | -3.8% | 1/7 | 53.8M | 0.3 |
-| `selector_regex_instant_long` | delegated_promql/14.28 | delegated_promql/13.89 | `strict_low_confidence` | `delegated_promql_has_no_cost_model` | `whole_query_delegation→whole_query_delegation` | -2.7% | 1/8 | 53.3M | 0.3 |
-| `rate_1h_instant` | native_sql/39.03 | local/15.01 | `local_override` | `rate_local_candidate_under_caps` | `native_sql→full_local` | -61.5% | 1/8 | 54.0M | 0.4 |
-| `rate_6h_instant` | native_sql/40.97 | native_sql/40.87 | `strict_over_cap` | `hard_cap` | `native_sql→native_sql` | -0.2% | 1/12 | 1.67B | 16.2 |
-| `rate_1d_instant` | native_sql/46.52 | native_sql/45.35 | `strict_over_cap` | `hard_cap` | `native_sql→native_sql` | -2.5% | 1/12 | 1.68B | 51.0 |
-| `avg_over_time_1d_instant` | native_sql/37.44 | native_sql/37.57 | `strict_over_cap` | `hard_cap` | `native_sql→native_sql` | +0.4% | 1/8 | 1.68B | 38.5 |
-| `sum_rate_by_job_6h_instant` | local/40.91 | local/41.28 | `strict_over_cap` | `hard_cap` | `full_local→full_local` | +0.9% | 1/12 | 1.67B | 15.9 |
-| `histogram_quantile_1h_instant` | native_sql/161.91 | native_sql/161.13 | `strict_low_confidence` | `family_gate_disabled` | `native_sql→native_sql` | -0.5% | 1/129 | 1.66B | 6.3 |
-| `rate_5m_range_1d` | native_sql/540.24 | native_sql/537.21 | `strict_over_cap` | `hard_cap` | `native_sql→native_sql` | -0.6% | 1/17 | 1.68B | 83.1 |
-| `sum_rate_by_job_range_7d` | local/1748.51 | local/1733.29 | `strict_over_cap` | `hard_cap` | `full_local→full_local` | -0.9% | 1/18 | 1.79B | 236.4 |
+| Category | Count | Strict strategy/p50 | Cost-prefer strategy/p50 | CBE decision | Δ vs strict |
+|---|---:|---:|---:|---|---:|
+| `aggregation_by_projection` | 1 | native_sql:1/31.95 | native_sql:1/30.69 | `strict_low_confidence:1` | -3.9% |
+| `instant_avg_over_time` | 1 | native_sql:1/36.50 | native_sql:1/36.20 | `strict_over_cap:1` | -0.8% |
+| `instant_histogram_quantile` | 2 | native_sql:2/133.50 | native_sql:2/133.03 | `strict_low_confidence:2` | -0.4% |
+| `instant_rate_long` | 1 | native_sql:1/37.59 | native_sql:1/38.11 | `strict_over_cap:1` | +1.4% |
+| `instant_rate_short` | 2 | native_sql:2/33.65 | local:2/21.24 | `local_override:2` | -36.9% |
+| `instant_repeated_aggregation_subexpr` | 2 | native_sql:2/36.92 | native_sql:2/37.16 | `strict_over_cap:2` | +0.7% |
+| `instant_repeated_subexpr` | 1 | native_sql:1/32.91 | native_sql:1/33.16 | `strict_low_confidence:1` | +0.8% |
+| `instant_sum_rate` | 1 | native_sql:1/36.47 | native_sql:1/36.96 | `strict_low_confidence:1` | +1.3% |
+| `range_aggregation_by_projection` | 1 | native_sql:1/48.83 | native_sql:1/45.28 | `strict_low_confidence:1` | -7.3% |
+| `range_rate` | 1 | native_sql:1/99.54 | native_sql:1/100.20 | `strict_over_cap:1` | +0.7% |
+| `range_repeated_aggregation_subexpr` | 1 | native_sql:1/168.08 | native_sql:1/168.71 | `strict_over_cap:1` | +0.4% |
+| `range_repeated_subexpr` | 5 | native_sql:5/98.56 | native_sql:5/99.03 | `strict_over_cap:5` | +0.5% |
+| `range_sum_rate` | 1 | native_sql:1/164.33 | native_sql:1/163.09 | `strict_over_cap:1` | -0.8% |
+| `selector_plain` | 1 | delegated_promql:1/12.69 | delegated_promql:1/11.61 | `strict_low_confidence:1` | -8.6% |
+| `selector_regex` | 1 | delegated_promql:1/12.51 | delegated_promql:1/12.55 | `strict_low_confidence:1` | +0.4% |
 
 ### Long-range sparse matrix (category medians)
 
-Category medians across `7d`, `30d`, and `1y` corpora, comparing strict (`prefer` + `strict`) to `cost_prefer`.
+Category medians across `7d`, `30d`, and `1y` corpora, comparing strict
+(`prefer` + `strict`) to `cost_prefer`.
 
-| Category | 7d strict p50 | 7d cost_prefer p50 | 7d decision | 30d strict p50 | 30d cost_prefer p50 | 30d decision | 1y strict p50 | 1y cost_prefer p50 | 1y decision |
+| Category | 7d strict | 7d cost_prefer | 7d decision | 30d strict | 30d cost_prefer | 30d decision | 1y strict | 1y cost_prefer | 1y decision |
 |---|---:|---:|---|---:|---:|---|---:|---:|---|
-| instant_avg_over_time | 37.37 | 37.37 | strict_over_cap | 42.92 | 42.44 | strict_over_cap | 40.94 | 39.99 | strict_over_cap |
-| instant_histogram_quantile | 158.00 | 156.63 | strict_low_confidence | 165.76 | 163.41 | strict_over_cap | 161.55 | 160.40 | strict_over_cap |
-| instant_rate_long | 45.86 | 43.62 | strict_over_cap | 49.20 | 47.68 | strict_over_cap | 41.77 | 41.21 | strict_over_cap |
-| instant_rate_short | 38.38 | 26.66 | local_override | 39.72 | 40.24 | strict_over_cap | — | — | — |
-| instant_sum_rate | 39.66 | 39.43 | strict_over_cap | 42.14 | 41.59 | strict_over_cap | 41.00 | 41.98 | strict_over_cap |
-| range_avg_over_time | — | — | — | 427.29 | 442.47 | strict_over_cap | 558.94 | 577.20 | strict_over_cap |
-| range_rate | 522.19 | 516.74 | strict_over_cap | 7585.06 | 7399.50 | strict_over_cap | 9893.76 | 10083.56 | strict_over_cap |
-| range_sum_rate | 1600.38 | 1611.99 | strict_over_cap | 1846.82 | 1881.77 | strict_over_cap | 4850.49 | 4951.02 | strict_over_cap |
-| selector_plain | 13.13 | 12.37 | strict_low_confidence | 12.57 | 12.96 | strict_low_confidence | 12.15 | 12.17 | strict_low_confidence |
-| selector_regex | 12.64 | 12.71 | strict_low_confidence | — | — | — | — | — | — |
+| `aggregation_by_projection` | 31.41 | 30.78 | `strict_low_confidence:1` | — | — | — | — | — | — |
+| `instant_avg_over_time` | 35.76 | 35.98 | `strict_over_cap:1` | 40.68 | 40.19 | `strict_over_cap:1` | 37.06 | 38.32 | `strict_over_cap:1` |
+| `instant_histogram_quantile` | 129.54 | 130.34 | `strict_low_confidence:2` | 119.88 | 119.55 | `strict_over_cap:1` | 122.54 | 120.77 | `strict_over_cap:1` |
+| `instant_rate_long` | 38.21 | 36.67 | `strict_over_cap:1` | 38.66 | 38.51 | `strict_over_cap:2` | 34.52 | 34.04 | `strict_over_cap:3` |
+| `instant_rate_short` | 33.56 | 20.78 | `local_override:2` | 33.93 | 15.96 | `local_override:1` | — | — | — |
+| `instant_repeated_aggregation_subexpr` | 37.00 | 36.96 | `strict_over_cap:2` | — | — | — | — | — | — |
+| `instant_repeated_subexpr` | 32.59 | 32.16 | `strict_low_confidence:1` | — | — | — | — | — | — |
+| `instant_sum_rate` | 36.59 | 37.20 | `strict_low_confidence:1` | 37.54 | 37.36 | `strict_over_cap:1` | 37.62 | 36.70 | `strict_over_cap:1` |
+| `range_aggregation_by_projection` | 46.54 | 45.78 | `strict_low_confidence:1` | — | — | — | — | — | — |
+| `range_avg_over_time` | — | — | — | 396.12 | 407.89 | `strict_over_cap:1` | 543.21 | 542.96 | `strict_over_cap:1` |
+| `range_rate` | 97.80 | 98.32 | `strict_over_cap:1` | 497.04 | 501.34 | `strict_over_cap:1` | 564.27 | 571.16 | `strict_over_cap:1` |
+| `range_repeated_aggregation_subexpr` | 163.14 | 164.90 | `strict_over_cap:1` | — | — | — | — | — | — |
+| `range_repeated_subexpr` | 100.21 | 99.39 | `strict_over_cap:5` | — | — | — | — | — | — |
+| `range_sum_rate` | 157.37 | 162.78 | `strict_over_cap:1` | 184.54 | 188.81 | `strict_over_cap:1` | 344.72 | 344.60 | `strict_over_cap:1` |
+| `selector_plain` | 12.81 | 12.01 | `strict_low_confidence:1` | 12.42 | 11.93 | `strict_low_confidence:1` | 12.27 | 11.91 | `strict_low_confidence:1` |
+| `selector_regex` | 12.30 | 13.33 | `strict_low_confidence:1` | — | — | — | — | — | — |
 
 ### 7d dense processing matrix
 
@@ -589,32 +629,52 @@ control where `cost_prefer` should not flip serving.
 
 | Query | Prom band | Strict strategy/p50 | Cost-prefer strategy/p50 | Decision | Reason |
 |---|---|---:|---:|---|---|
-| `processing_sum_rate_1h_by_job_instant_7d` | too_fast | local/54.72 | local/55.54 | `strict_over_cap` | `hard_cap` |
-| `processing_sum_rate_6h_by_job_mode_instant_7d` | too_fast | local/80.95 | local/87.60 | `strict_over_cap` | `hard_cap` |
-| `processing_avg_memory_6h_by_job_type_instant_7d` | too_fast | local/57.50 | local/59.73 | `strict_over_cap` | `hard_cap` |
-| `processing_histogram_quantile_1h_instant_7d` | too_fast | native_sql/182.62 | native_sql/185.22 | `strict_over_cap` | `hard_cap` |
-| `processing_sum_rate_5m_by_job_range_24h_7d` | too_fast | local/12195.19 | local/12214.21 | `strict_over_cap` | `hard_cap` |
+| `processing_sum_rate_1h_by_job_instant_7d` | too_fast | native_sql/53.52 | native_sql/50.15 | `strict_over_cap` | `hard_cap` |
+| `processing_sum_rate_6h_by_job_mode_instant_7d` | too_fast | native_sql/60.51 | native_sql/60.07 | `strict_over_cap` | `hard_cap` |
+| `processing_avg_memory_6h_by_job_type_instant_7d` | too_fast | native_sql/57.77 | native_sql/59.79 | `strict_over_cap` | `hard_cap` |
+| `processing_histogram_quantile_1h_instant_7d` | too_fast | native_sql/131.61 | native_sql/130.71 | `strict_over_cap` | `hard_cap` |
+| `processing_sum_rate_5m_by_job_range_24h_7d` | too_fast | native_sql/11514.28 | native_sql/11625.58 | `strict_over_cap` | `hard_cap` |
 | `processing_sum_rate_1h_by_job_range_7d` | too_slow | error/timeout | error/timeout | `n/a` | `n/a` |
-| `processing_avg_memory_1h_by_job_type_range_24h_7d` | in_band | local/12856.71 | local/12681.57 | `strict_over_cap` | `hard_cap` |
-| `processing_histogram_quantile_1h_range_24h_7d` | in_band | native_sql/5561.41 | native_sql/5380.55 | `strict_over_cap` | `hard_cap` |
+| `processing_avg_memory_1h_by_job_type_range_24h_7d` | in_band | native_sql/12122.48 | native_sql/11788.71 | `strict_over_cap` | `hard_cap` |
+| `processing_histogram_quantile_1h_range_24h_7d` | in_band | native_sql/5325.95 | native_sql/5290.24 | `strict_over_cap` | `hard_cap` |
+
+### Native-grid default check
+
+With the default `PROM_SHIM_NATIVE_GRID_FUNCTIONS=prefer`, focused 7d sparse
+range-rate rows showed large wins while staying on `native_sql` with one
+ClickHouse roundtrip:
+
+| Query | Rollback/off p50 | Native-grid p50 | Δ |
+|---|---:|---:|---:|
+| `sum_rate_by_job_range_7d` prefer | 161.12 | 70.03 | -56.5% |
+| `sum_rate_by_job_range_7d` force_supported | 165.28 | 69.09 | -58.2% |
+| `rate_5m_range_1d` prefer | 92.75 | 48.31 | -47.9% |
+| `rate_5m_range_1d` force_supported | 97.79 | 48.71 | -50.2% |
 
 ### What this implies for CBE today
 
 - **Strict remains the reference default and rollback path.** `cost_prefer` is
   still gated by explicit confidence/cap checks and family allowlists.
-- **One served flip is consistently validated:** short-window instant `rate`
-  (`rate_1h_instant`) can safely serve `full_local` (`local_override`) with a
-  large p50 win versus strict native SQL on sparse 7d.
+- **One served flip remains consistently validated:** short-window instant
+  `rate` can serve `full_local` (`local_override`) with a large p50 win versus
+  strict native SQL on sparse `7d`/`30d` profiles.
 - **Most other families stay strict by design:** `strict_over_cap`,
-  `strict_low_confidence`, and `family_gate_disabled` dominate outside that
-  narrow gate.
-- **Long-range and dense controls still block broad expansion:** many range and
-  heavy-processing queries remain far above reference Prometheus latencies in
-  this harness and are intentionally kept on strict candidates.
-- **Candidate/memory telemetry is now good enough for review:** per-query
-  candidate IDs and memory-side counters are populated (no missing-comment
-  errors in these runs), so follow-up expansion can be evidence-backed rather
-  than wall-clock-only.
+  `strict_low_confidence`, and disabled family gates dominate outside that
+  narrow allowlist.
+- **Native SQL range-rate work has materially improved strict behavior:** the
+  rollback SQL kernel has sparse 7d range-rate category medians around
+  `98–100 ms`, and range-sum-rate medians around `157–164 ms`; the native-grid
+  default is substantially faster for the focused range-rate rows above.
+- **Native-grid is the default range-function kernel where validated, with a
+  simple rollback:** set `PROM_SHIM_NATIVE_GRID_FUNCTIONS=off` to return
+  supported `rate`, `irate`, `delta`, `idelta`, and `last_over_time` range
+  selectors to promshim's SQL-level implementations.
+- **Dense range processing is still the main gap:** heavy 24h range processing
+  rows remain multi-second and `processing_sum_rate_1h_by_job_range_7d` still
+  times out in this harness.
+- **Memory telemetry was mostly clean:** the sparse runs had no missing log
+  comments; the dense processing run had missing query-log comments only for the
+  timed-out `processing_sum_rate_1h_by_job_range_7d` row.
 
 For native SQL optimization work, preserve before/after artifacts and inspect
 ClickHouse profile counters rather than relying on wall-clock noise alone. The
@@ -700,13 +760,18 @@ That design chooses an explicit set of trade-offs:
 | `harness/` | Deterministic differential harness and query corpora. |
 | `harness/compliance/` | Upstream PromQL compliance harness integration. |
 | `scripts/` | Local validation, benchmark, profile, and stack helpers. |
+| `docs/optimizer-contracts.md` | Optimizer evidence, IR invariant, query-family, explain, and rejection-reason contract. |
+| `docs/clickhouse-tuning-inventory.md` | Inventory of ClickHouse tuning surfaces and shim-owned settings profile rules. |
+| `docs/clickhouse-reference-profile.md` | Operator-facing reference ClickHouse profile and benchmark-context guidance for promshim workloads. |
+| `docs/optimization-rollout.md` | Rollout, calibration, regression, and rollback guidance for optimization work. |
 
 ## Development rules of thumb
 
 - Treat the execution priority as a hard invariant: whole-query delegation,
   then native SQL, then subtree pushdown, then local fallback.
-- Put new feature coverage in tier 1 or tier 2. Tiers 3 and 4 are fallbacks and
-  should only change for correctness fixes unless explicitly requested.
+- Put unrelated new semantic coverage in tier 1 or tier 2. CBE work may improve
+  tiers 3 and 4 as known-correct routing candidates when the change is tied to
+  routing quality, safety caps, observability, or measured performance.
 - Do not add compliance allowlist entries for shim gaps. Fix the gap or leave it
   visible.
 - Use the harness before claiming support. For native work, run the native-only

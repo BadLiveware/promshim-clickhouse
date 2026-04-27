@@ -8,6 +8,7 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
+	"github.com/prometheus/prometheus/promql/parser"
 )
 
 // renderHistogramProjectionLogical renders a HistogramProjectionPlan.
@@ -188,6 +189,78 @@ func histogramChildUsesOnlyLETagsLogical(childNode logicalpkg.Node) bool {
 	return childAggregationUsesOnlyLETags(agg)
 }
 
+func tryRenderDirectClassicHistogramGroupsLogical(cfg storage.QueryConfig, childNode logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams, histogramTagsExpr, leRaw, upperBoundExpr, whereExpr sqlb.Expr, prefix string) (renderedFragment, bool, error) {
+	if params.Mode != native.RenderModeInstant {
+		return renderedFragment{}, false, nil
+	}
+	agg, ok := childNode.(*logicalpkg.AggregationPlan)
+	if !ok || agg == nil || agg.Op != parser.SUM || agg.Without || !hasLabel(agg.Grouping, "le") || agg.Child == nil {
+		return renderedFragment{}, false, nil
+	}
+
+	ctx := LoweringCtx{Config: cfg, Analysis: logicalAnalysis, NativeAnalysis: analysis, Params: params}
+	childRendered, err := Lower(ctx, agg.Child)
+	if err != nil {
+		return renderedFragment{}, false, err
+	}
+	childSQL, childParams, err := namespaceRenderedQuery(trimRenderedQuerySQL(childRendered.SQL), childRendered.QueryParams, prefix)
+	if err != nil {
+		return renderedFragment{}, false, err
+	}
+
+	innerRows := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("tags"), Alias: "tags"},
+			{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
+			{Expr: sqlb.Ident("value"), Alias: "value"},
+			{Expr: leRaw, Alias: "le_raw"},
+		},
+		From: rawRenderedSubquerySourceWithAlias(childSQL, prefix+"_direct_child_rows"),
+	}
+
+	coalescedColumns := []sqlb.ColExpr{
+		{Expr: histogramTagsExpr, Alias: "histogram_tags"},
+		{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
+		{Expr: upperBoundExpr, Alias: "upper_bound"},
+		{Expr: sqlb.RawLit{V: "if(countIf(isNaN(value)) > 0, nan, sum(value))"}, Alias: "cumulative_count"},
+	}
+	coalescedGroupBy := []sqlb.Expr{sqlb.Ident("histogram_tags"), sqlb.Ident("timestamp"), sqlb.Ident("upper_bound")}
+	groupedColumns := []sqlb.ColExpr{
+		{Expr: sqlb.Ident("histogram_tags"), Alias: "tags"},
+		{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
+		{Expr: sqlb.RawLit{V: "arraySort(item -> item.1, groupArray((upper_bound, cumulative_count)))"}, Alias: "buckets"},
+	}
+	groupedGroupBy := []sqlb.Expr{sqlb.Ident("histogram_tags"), sqlb.Ident("timestamp")}
+	if childAggregationUsesOnlyLETags(agg) {
+		coalescedColumns[0] = sqlb.ColExpr{Expr: emit.EmptyTagsArray(), Alias: "histogram_tags"}
+		coalescedGroupBy = []sqlb.Expr{sqlb.Ident("timestamp"), sqlb.Ident("upper_bound")}
+		groupedColumns[0] = sqlb.ColExpr{Expr: emit.EmptyTagsArray(), Alias: "tags"}
+		groupedGroupBy = []sqlb.Expr{sqlb.Ident("timestamp")}
+	}
+
+	coalesced := &sqlb.Select{
+		Columns: coalescedColumns,
+		From:    sqlb.SubSelect{S: innerRows, Alias: "histogram_points"},
+		Where:   whereExpr,
+		GroupBy: coalescedGroupBy,
+	}
+	grouped := &sqlb.Select{
+		Columns: groupedColumns,
+		From:    sqlb.SubSelect{S: coalesced, Alias: "coalesced_histogram_rows"},
+		GroupBy: groupedGroupBy,
+	}
+	return renderedFragment{Select: grouped, ExtraParams: childParams}, true, nil
+}
+
+func hasLabel(labels []string, want string) bool {
+	for _, label := range labels {
+		if label == want {
+			return true
+		}
+	}
+	return false
+}
+
 // renderClassicHistogramGroupsQueryLogical normalizes classic histogram
 // bucket vectors into one grouped row per histogram identity and timestamp.
 // It reads the child via a logical.Node + analysis.
@@ -211,6 +284,12 @@ func renderClassicHistogramGroupsQueryLogical(cfg storage.QueryConfig, childNode
 		histogramTagsExpr = emit.EmptyTagsArray()
 	}
 	whereExpr := sqlb.RawLit{V: "le_raw != '' AND upper_bound IS NOT NULL"}
+
+	if direct, ok, err := tryRenderDirectClassicHistogramGroupsLogical(cfg, childNode, logicalAnalysis, analysis, params, histogramTagsExpr, leRaw, upperBoundExpr, whereExpr, prefix); err != nil {
+		return renderedFragment{}, err
+	} else if ok {
+		return direct, nil
+	}
 
 	var (
 		flattened   *sqlb.Select

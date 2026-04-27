@@ -21,7 +21,7 @@ func TestSelectorSignatureMatcherOrderIsStable(t *testing.T) {
 
 func TestSelectorSignatureIncludesTimeBoundsLookbackAndOffset(t *testing.T) {
 	plain := selectorSignaturesForTest(t, `up`)
-	lookback := selectorSignaturesForTest(t, `rate(up[5m])`)
+	lookback := selectorSignaturesForTest(t, `rate(up[10m])`)
 	offset := selectorSignaturesForTest(t, `up offset 1m`)
 	if plain[0].key() == lookback[0].key() {
 		t.Fatal("plain and lookback signatures must differ")
@@ -29,11 +29,31 @@ func TestSelectorSignatureIncludesTimeBoundsLookbackAndOffset(t *testing.T) {
 	if plain[0].key() == offset[0].key() {
 		t.Fatal("plain and offset signatures must differ")
 	}
-	if lookback[0].LookbackMS != int64((5 * time.Minute).Milliseconds()) {
-		t.Fatalf("lookback = %d", lookback[0].LookbackMS)
+	if plain[0].LookbackMS != int64((5 * time.Minute).Milliseconds()) {
+		t.Fatalf("plain lookback = %d", plain[0].LookbackMS)
+	}
+	if lookback[0].LookbackMS != int64((10 * time.Minute).Milliseconds()) {
+		t.Fatalf("range lookback = %d", lookback[0].LookbackMS)
 	}
 	if offset[0].OffsetMS != int64(time.Minute.Milliseconds()) {
 		t.Fatalf("offset = %d", offset[0].OffsetMS)
+	}
+}
+
+func TestEstimateSamplesPerSeriesUsesExpandedSignatureSpanOnce(t *testing.T) {
+	instant := time.Unix(300, 0)
+	expr, err := logical.ParseExpression(`rate(up[6h])`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sigs := extractSelectorSignatures(expr, queryCostTiming{Endpoint: "query", Start: instant, End: instant})
+	if len(sigs) != 1 {
+		t.Fatalf("signature count = %d, want 1", len(sigs))
+	}
+	got := estimateSamplesPerSeries(sigs[0])
+	want := int64((6*time.Hour).Milliseconds()/15000 + 1)
+	if got != want {
+		t.Fatalf("samples per series = %d, want %d (signature=%+v)", got, want, sigs[0])
 	}
 }
 

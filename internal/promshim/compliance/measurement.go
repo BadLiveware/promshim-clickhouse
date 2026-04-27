@@ -3,7 +3,6 @@ package compliance
 import (
 	"strings"
 
-	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/local"
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 )
@@ -121,7 +120,7 @@ func MeasureNativeSupport(query string) (NativeMeasurementSnapshot, error) {
 		return snapshot, nil
 	}
 
-	logical, err := local.BuildLogicalPlan(expr)
+	logical, err := logicalpkg.ToLogical(expr)
 	if err != nil {
 		return snapshot, err
 	}

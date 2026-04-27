@@ -473,13 +473,19 @@ func (a *Analysis) walkInner(node logicalpkg.Node) *LoweringInfo {
 			info.LabelLineage.Wildcard = child.LabelLineage.Wildcard
 		}
 		info.LabelLineage.MetricName = LabelLineageDropped
-		info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
 		lowerable := child != nil && child.NativeLowerable && child.OutputKind == OutputKindInstantVector
+		if child != nil {
+			info.TimeRequirements = combineTimeRequirements(child.TimeRequirements)
+		}
 		for _, paramChild := range n.ParamChildren {
 			paramInfo := a.walk(paramChild)
 			children = append(children, paramInfo)
+			if paramInfo == nil {
+				lowerable = false
+				continue
+			}
 			info.TimeRequirements = combineTimeRequirements(info.TimeRequirements, paramInfo.TimeRequirements)
-			if paramInfo == nil || !paramInfo.NativeLowerable || paramInfo.OutputKind != OutputKindScalar {
+			if !paramInfo.NativeLowerable || paramInfo.OutputKind != OutputKindScalar {
 				lowerable = false
 				continue
 			}

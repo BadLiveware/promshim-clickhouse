@@ -2,7 +2,6 @@ package local
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/prometheus/prometheus/promql/parser"
@@ -70,42 +69,4 @@ func NormalizeClickHouseVersion(raw string) string {
 		return "26.3"
 	}
 	return trimmed
-}
-
-func compareClickHouseVersion(left, right string) int {
-	lp := parseVersionParts(left)
-	rp := parseVersionParts(right)
-	maxLen := len(lp)
-	if len(rp) > maxLen {
-		maxLen = len(rp)
-	}
-	for i := 0; i < maxLen; i++ {
-		lv, rv := 0, 0
-		if i < len(lp) {
-			lv = lp[i]
-		}
-		if i < len(rp) {
-			rv = rp[i]
-		}
-		if lv < rv {
-			return -1
-		}
-		if lv > rv {
-			return 1
-		}
-	}
-	return 0
-}
-
-func parseVersionParts(raw string) []int {
-	parts := strings.Split(NormalizeClickHouseVersion(raw), ".")
-	out := make([]int, 0, len(parts))
-	for _, part := range parts {
-		value, err := strconv.Atoi(part)
-		if err != nil {
-			break
-		}
-		out = append(out, value)
-	}
-	return out
 }

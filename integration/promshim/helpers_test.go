@@ -1,7 +1,6 @@
 package promshim_test
 
 import (
-	"fmt"
 	"strconv"
 	"testing"
 )
@@ -13,22 +12,8 @@ func assertEqual(t *testing.T, got, want any) {
 	}
 }
 
-func assertUnsupportedContains(t *testing.T, payload map[string]any, parts ...string) {
-	t.Helper()
-	assertEqual(t, payload["status"], "error")
-	errorText, _ := payload["error"].(string)
-	if errorText == "" {
-		t.Fatalf("expected error text, got %#v", payload)
-	}
-	for _, part := range parts {
-		if !contains(errorText, part) {
-			t.Fatalf("expected %q to contain %q", errorText, part)
-		}
-	}
-}
-
 func contains(value, substring string) bool {
-	return len(substring) == 0 || (len(value) >= len(substring) && fmt.Sprintf("%s", value) != "" && (func() bool { return stringIndexFold(value, substring) >= 0 })())
+	return len(substring) == 0 || (value != "" && len(value) >= len(substring) && stringIndexFold(value, substring) >= 0)
 }
 
 func stringIndexFold(s, substr string) int {

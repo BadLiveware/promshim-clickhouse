@@ -1,0 +1,4 @@
+services:
+  clickhouse:
+    volumes:
+      - ./clickhouse/users.d/reference-profile.xml:/etc/clickhouse-server/users.d/bench-reference-profile.xml:ro

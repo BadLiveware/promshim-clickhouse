@@ -108,7 +108,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 							return renderedFragment{}, err
 						}
 						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
-						sql, err := buildInstantRateOverRowsSQL(trimRenderedQuerySQL(rowsSQL), tagsExpr, params.EvaluationTimeMS)
+						sql, err := buildInstantRateOverRowsSQL(trimRenderedQuerySQL(rowsSQL), tagsExpr, params.EvaluationTimeMS, leafInfo.LeafSelector.Lookback.Milliseconds())
 						if err != nil {
 							return renderedFragment{}, err
 						}
@@ -210,10 +210,39 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						}
 						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: rowParams}, nil
 					}
+					if isIdentity && cfg.EnableNativeGridFunctions && canUseNativeGridRangeFunction(fn, lookbackMS, offsetMS) {
+						childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
+						source, err := renderAggregationSourceView(view, params)
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
+						sql, queryParams, err := storage.BuildRangeNativeGridSelectorQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, fn, tagsExpr)
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
+					}
+					// avg_over_time can be computed from cumulative per-series sums/counts and
+					// ASOF boundary lookups. This avoids the id-only grid→data join fanout that
+					// is expensive for dense, high-overlap windows.
+					if isIdentity && cfg.EnableCumulativeAvgOverTime && fn == "avg_over_time" && !preferDirectSelectorWindowJoin(lookbackMS, params.StepMS) {
+						childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
+						source, err := renderAggregationSourceView(view, params)
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
+						sql, queryParams, err := storage.BuildRangeWindowSelectorCumulativeAvgQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
+						if err != nil {
+							return renderedFragment{}, err
+						}
+						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
+					}
 					// Keep the selector-scoped grid→data join that benchmarks well on long-range
 					// windows, but skip per-step window_series/window_values materialization for
-					// direct avg_over_time selectors by aggregating inside that grouped join.
-					if isIdentity && fn == "avg_over_time" && preferDirectSelectorWindowJoin(lookbackMS, params.StepMS) {
+					// direct range selectors that are safe to aggregate inside that grouped join.
+					if isIdentity && supportsDirectSelectorWindowAggregate(fn, lookbackMS) && preferDirectSelectorWindowAggregate(fn, lookbackMS, params.StepMS) {
 						childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
 						source, err := renderAggregationSourceView(view, params)
 						if err != nil {
@@ -355,7 +384,7 @@ func rangeFunctionChildNode(n logicalpkg.Node) (logicalpkg.Node, string, bool) {
 // Consumed by the AggregationPlan lowerer. Capability shape:
 //
 //   - range-mode only (params.Mode == RenderModeRange),
-//   - the aggregation is a SUM (agg.Op == parser.SUM),
+//   - the aggregation is a supported direct reducer (SUM, AVG, MIN, MAX, or COUNT),
 //   - the aggregation's child is one of the seven range-function plan
 //     kinds,
 //   - that range-function's child is either a LeafExprPlan wrapping a
@@ -363,18 +392,13 @@ func rangeFunctionChildNode(n logicalpkg.Node) (logicalpkg.Node, string, bool) {
 //
 // Non-matching nodes return false, falling through to the non-fused
 // aggregation rendering path.
-func canFuseRangeAggregationLogical(agg *logicalpkg.AggregationPlan, params RenderParams) bool {
-	return canFuseRangeAggregationLogicalDirect(agg, params)
-}
-
 // canFuseRangeAggregationLogicalDirect is a pure logical-plan shape
-// predicate; see canFuseRangeAggregationLogical above for the shape
-// requirements.
+// predicate; see the shape requirements above.
 func canFuseRangeAggregationLogicalDirect(agg *logicalpkg.AggregationPlan, params RenderParams) bool {
 	if params.Mode != native.RenderModeRange || agg == nil || agg.Child == nil {
 		return false
 	}
-	if agg.Op != parser.SUM {
+	if !canFuseRangeAggregationOp(agg.Op) {
 		return false
 	}
 	rangeChild, _, ok := rangeFunctionChildNode(agg.Child)
@@ -399,6 +423,15 @@ func canFuseRangeAggregationLogicalDirect(agg *logicalpkg.AggregationPlan, param
 // AggregationPlan directly: the capability check is pure-logical
 // (canFuseRangeAggregationLogicalDirect) and the SQL synthesis runs on
 // the logical plan through tryRenderFusedRangeAggregationLogical.
+func canFuseRangeAggregationOp(op parser.ItemType) bool {
+	switch op {
+	case parser.SUM, parser.AVG, parser.MIN, parser.MAX, parser.COUNT:
+		return true
+	default:
+		return false
+	}
+}
+
 func tryRenderFusedRangeAggregationLogicalDirect(cfg storage.QueryConfig, agg *logicalpkg.AggregationPlan, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams) (renderedFragment, bool, error) {
 	ctx := LoweringCtx{
 		Config:         cfg,
@@ -429,19 +462,20 @@ func tryRenderSubqueryRowsSourceLogical(ctx LoweringCtx, n *logicalpkg.SubqueryP
 		return "", nil, false, err
 	}
 	childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(n.Child, startMS, endMS)
+	childParams := aggregationChildRenderParams(agg, RenderParams{
+		Mode:                native.RenderModeRange,
+		StartMS:             startMS,
+		EndMS:               endMS,
+		StepMS:              stepMS,
+		RequiredStartMS:     childRequiredStartMS,
+		RequiredEndMS:       childRequiredEndMS,
+		ResolveSourcePromQL: ctx.Params.ResolveSourcePromQL,
+	})
 	childCtx := LoweringCtx{
 		Config:         ctx.Config,
 		Analysis:       ctx.Analysis,
 		NativeAnalysis: ctx.NativeAnalysis,
-		Params: RenderParams{
-			Mode:                native.RenderModeRange,
-			StartMS:             startMS,
-			EndMS:               endMS,
-			StepMS:              stepMS,
-			RequiredStartMS:     childRequiredStartMS,
-			RequiredEndMS:       childRequiredEndMS,
-			ResolveSourcePromQL: ctx.Params.ResolveSourcePromQL,
-		},
+		Params:         childParams,
 	}
 	if !canFuseRangeAggregationLogicalDirect(agg, childCtx.Params) {
 		return "", nil, false, nil

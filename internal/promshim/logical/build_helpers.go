@@ -177,7 +177,7 @@ func deriveAbsentOutputMetric(expr parser.Expr) map[string]string {
 	result := make(map[string]string)
 	has := make(map[string]bool, len(matchers))
 	for _, matcher := range matchers {
-		if matcher.Name == promlabels.MetricName {
+		if matcher.Name == "__name__" {
 			continue
 		}
 		if matcher.Type == promlabels.MatchEqual && !has[matcher.Name] {

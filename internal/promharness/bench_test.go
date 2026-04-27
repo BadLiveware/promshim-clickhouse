@@ -43,6 +43,7 @@ func TestParseHeaders(t *testing.T) {
 	h.Set("X-Promshim-Fallback-Reason", "")
 	h.Set("X-Promshim-CH-Roundtrips", "7")
 	h.Set("X-Promshim-CH-Millis", "42")
+	h.Set("X-Promshim-Settings-Profile", "default_safe")
 	h.Set("X-Promshim-Routing-Policy", "strict")
 	h.Set("X-Promshim-Routing-Decision", "strict")
 	h.Set("X-Promshim-Routing-Reason", "strict_policy")
@@ -53,7 +54,7 @@ func TestParseHeaders(t *testing.T) {
 	h.Set("X-Promshim-Served-Candidate", "native_sql")
 	h.Set("X-Promshim-Cost-Family", "selector")
 	got := parseHeaders(h)
-	want := headerSample{strategy: "native_sql", fallbackReason: "", roundtrips: 7, millis: 42, routingPolicy: "strict", routingDecision: "strict", routingReason: "strict_policy", strictStrategy: "native_sql", selectedStrategy: "native_sql", strictCandidate: "native_sql", selectedCandidate: "native_sql", servedCandidate: "native_sql", costFamily: "selector"}
+	want := headerSample{strategy: "native_sql", fallbackReason: "", settingsProfile: "default_safe", roundtrips: 7, millis: 42, routingPolicy: "strict", routingDecision: "strict", routingReason: "strict_policy", strictStrategy: "native_sql", selectedStrategy: "native_sql", strictCandidate: "native_sql", selectedCandidate: "native_sql", servedCandidate: "native_sql", costFamily: "selector"}
 	if got != want {
 		t.Fatalf("parseHeaders = %+v, want %+v", got, want)
 	}
@@ -276,6 +277,22 @@ func TestRunBenchV2ModesAndLabels(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(artifactDir, "custom-v2.json")); err != nil {
 		t.Fatalf("custom v2 artifact not written: %v", err)
+	}
+}
+
+func TestSummarizeTimingsIncludesResponsePhases(t *testing.T) {
+	timing := summarizeTimings([]requestTiming{
+		{TotalMS: 10, HeaderMS: 3, BodyDrainMS: 7},
+		{TotalMS: 20, HeaderMS: 4, BodyDrainMS: 16},
+	})
+	if timing.P50MS != 10 || timing.P95MS != 20 {
+		t.Fatalf("total timing = %+v", timing)
+	}
+	if timing.HeaderP50MS != 3 || timing.HeaderP95MS != 4 {
+		t.Fatalf("header timing = %+v", timing)
+	}
+	if timing.BodyDrainP50MS != 7 || timing.BodyDrainP95MS != 16 {
+		t.Fatalf("body drain timing = %+v", timing)
 	}
 }
 

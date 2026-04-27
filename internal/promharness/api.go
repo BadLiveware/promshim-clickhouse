@@ -77,7 +77,7 @@ func QueryAndFetch(client *http.Client, baseURL string, manifest Manifest, spec 
 	if err != nil {
 		return queryResult{}, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	var envelope apiEnvelope
 	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
 		return queryResult{}, err

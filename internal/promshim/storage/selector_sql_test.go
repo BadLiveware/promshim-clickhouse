@@ -102,7 +102,7 @@ func TestSelectorTagsExprSkipsSortForSingleRequiredLabel(t *testing.T) {
 	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, 0, SelectorKindInstantVector)
 	selector.RequireFullTags = false
 	selector.RequiredTagLabels = []string{"job"}
-	got := selectorTagsExpr(selector, "metric_name", "tags")
+	got := selectorTagsExpr(QueryConfig{}, selector, "metric_name", "tags")
 	if !strings.Contains(got, "if(mapContains(tags, 'job'), [tuple('job', concat('', tags['job']))], CAST([], 'Array(Tuple(String, String))'))") {
 		t.Fatalf("expected direct single-label selector tags expr, got %q", got)
 	}
@@ -110,6 +110,63 @@ func TestSelectorTagsExprSkipsSortForSingleRequiredLabel(t *testing.T) {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("expected single-label selector tags expr to avoid %q, got %q", unwanted, got)
 		}
+	}
+}
+
+func TestSelectorTagsExprIncludesPromotedColumnsInFullTags(t *testing.T) {
+	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, 0, SelectorKindInstantVector)
+	got := selectorTagsExpr(QueryConfig{PromotedTagColumns: map[string]struct{}{"instance": {}, "job": {}}}, selector, "src.metric_name", "src.tags")
+	for _, expected := range []string{
+		"[tuple('__name__', src.metric_name)]",
+		"if(src.`instance` != '', [tuple('instance', concat('', src.`instance`))], CAST([], 'Array(Tuple(String, String))'))",
+		"if(src.`job` != '', [tuple('job', concat('', src.`job`))], CAST([], 'Array(Tuple(String, String))'))",
+		"tag -> NOT has(['instance', 'job'], tag.1)",
+		"mapKeys(src.tags)",
+		"mapValues(src.tags)",
+	} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("expected full tags expression to contain %q, got %q", expected, got)
+		}
+	}
+}
+
+func TestBuildInstantSelectorQuerySQLUsesPromotedTagColumns(t *testing.T) {
+	instanceEQ, err := labels.NewMatcher(labels.MatchEqual, "instance", "a:9090")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobRE, err := labels.NewMatcher(labels.MatchRegexp, "job", "api|worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := selectorSourceFromMatchers("up", []*labels.Matcher{instanceEQ, jobRE}, 5*time.Minute, 0, SelectorKindInstantVector)
+	selector.RequireFullTags = false
+	selector.RequiredTagLabels = []string{"instance"}
+	cfg := QueryConfig{Database: "observability", Table: "prometheus", PromotedTagColumns: map[string]struct{}{"instance": {}, "job": {}}}
+
+	sql, params, err := BuildInstantSelectorQuerySQL(cfg, selector, 1000, 2000)
+	if err != nil {
+		t.Fatalf("expected instant selector SQL, got error: %v", err)
+	}
+	for _, expected := range []string{
+		"src.`instance` = {instant_matcher_1_value:String}",
+		"match(src.`job`, {instant_matcher_2_value:String})",
+		"if(src.`instance` != '', [tuple('instance', concat('', src.`instance`))], CAST([], 'Array(Tuple(String, String))')) AS tags",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected promoted tag column SQL to contain %q, got %q", expected, sql)
+		}
+	}
+	for _, unwanted := range []string{"src.tags[concat('', {instant_matcher_1_key:String})]", "src.tags[concat('', {instant_matcher_2_key:String})]", "concat('', src.tags['instance'])"} {
+		if strings.Contains(sql, unwanted) {
+			t.Fatalf("expected promoted tag column SQL to avoid %q, got %q", unwanted, sql)
+		}
+	}
+	if _, ok := params["param_instant_matcher_1_key"]; ok {
+		t.Fatalf("did not expect key param for promoted instance matcher: %#v", params)
+	}
+	if _, ok := params["param_instant_matcher_2_key"]; ok {
+		t.Fatalf("did not expect key param for promoted job matcher: %#v", params)
 	}
 }
 
@@ -137,7 +194,7 @@ func TestBuildRangeWindowSelectorQuerySQLUsesStepGridAndRangeWindow(t *testing.T
 	if err != nil {
 		t.Fatalf("expected range window selector SQL, got error: %v", err)
 	}
-	for _, expected := range []string{"arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts", "arraySort(item -> item.1, groupArray((d.timestamp, d.value))) AS window_series", "d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64})", "d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})", "GROUP BY grid.id, grid.tags, grid.eval_ts"} {
+	for _, expected := range []string{"arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts", "arraySort(groupArray((d.timestamp, d.value))) AS window_series", "d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64})", "d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})", "GROUP BY grid.id, grid.tags, grid.eval_ts"} {
 		if !strings.Contains(sql, expected) {
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)
 		}
@@ -225,7 +282,7 @@ func TestBuildRangeSelectorQuerySQLUsesStepGridLookbackAndOffset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected range selector SQL, got error: %v", err)
 	}
-	for _, expected := range []string{"d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64})", "d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})"} {
+	for _, expected := range []string{"ASOF INNER JOIN", "grid.eval_bound >= d.timestamp", "grid_base.eval_ts - toIntervalMillisecond({offset_ms:Int64}) AS eval_bound", "d.timestamp >= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})"} {
 		if !strings.Contains(sql, expected) {
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)
 		}
@@ -242,7 +299,7 @@ func TestBuildRangeSelectorQuerySQLUsesStepGridAndLookback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected range selector SQL, got error: %v", err)
 	}
-	for _, expected := range []string{"arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts", "argMax(d.value, d.timestamp)", "toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})", "GROUP BY grid.id, grid.tags, grid.eval_ts"} {
+	for _, expected := range []string{"arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts", "ASOF INNER JOIN", "grid.eval_bound >= d.timestamp", "toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64})", "NOT isNaN(value)"} {
 		if !strings.Contains(sql, expected) {
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)
 		}
@@ -259,7 +316,7 @@ func TestBuildRangeSelectorQuerySQLPreservesNegativeOffset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected range selector SQL, got error: %v", err)
 	}
-	if !strings.Contains(sql, "d.timestamp <= grid.eval_ts - toIntervalMillisecond({offset_ms:Int64})") {
+	if !strings.Contains(sql, "grid_base.eval_ts - toIntervalMillisecond({offset_ms:Int64}) AS eval_bound") {
 		t.Fatalf("expected offset placeholder in SQL, got %q", sql)
 	}
 	if params["param_offset_ms"] != "-60000" {
@@ -282,8 +339,8 @@ func TestBuildRangeSelectorQuerySQLOmitsTagsProjectionWhenUnneeded(t *testing.T)
 	if !strings.Contains(sql, "CAST([], 'Array(Tuple(String, String))') AS tags") {
 		t.Fatalf("expected synthesized empty tags in tagless range selector SQL, got %q", sql)
 	}
-	if !strings.Contains(sql, "GROUP BY grid.id, grid.eval_ts") {
-		t.Fatalf("expected tagless range selector SQL to group without grid.tags, got %q", sql)
+	if strings.Contains(sql, "GROUP BY grid.id") || strings.Contains(sql, "argMax(") {
+		t.Fatalf("expected tagless range selector SQL to use ASOF without inner grouping, got %q", sql)
 	}
 }
 

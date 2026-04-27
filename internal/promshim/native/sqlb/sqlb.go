@@ -127,6 +127,7 @@ type OrderExpr struct {
 type Limit struct {
 	Count  int
 	Offset int
+	By     []Expr
 }
 
 type Select struct {
@@ -457,6 +458,10 @@ func (s *Select) writeSelect(ctx *buildCtx) {
 			ctx.write(fmt.Sprintf("%d, ", s.Limit.Offset))
 		}
 		ctx.write(fmt.Sprintf("%d", s.Limit.Count))
+		if len(s.Limit.By) > 0 {
+			ctx.write(" BY ")
+			writeExprList(ctx, s.Limit.By)
+		}
 	}
 }
 

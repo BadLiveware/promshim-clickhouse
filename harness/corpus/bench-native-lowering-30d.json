@@ -83,5 +83,65 @@
     "endOffsetSeconds": 0,
     "stepSeconds": 3600,
     "compareMode": "structural"
+  },
+  {
+    "name": "topk_histogram_quantile_by_instance_job_1h_range_30d",
+    "endpoint": "query_range",
+    "query": "topk(10, histogram_quantile(0.95, sum by (instance, job, le) (rate(demo_api_request_duration_seconds_bucket[1h]))))",
+    "category": "range_topk_histogram_quantile",
+    "startOffsetSeconds": -2592000,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 3600,
+    "compareMode": "structural"
+  },
+  {
+    "name": "max_over_time_gauge_by_3labels_1h_range_30d",
+    "endpoint": "query_range",
+    "query": "max by (instance, job, type) (max_over_time(demo_memory_usage_bytes[1h]))",
+    "category": "range_max_over_time_gauge",
+    "startOffsetSeconds": -2592000,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 3600,
+    "compareMode": "structural"
+  },
+  {
+    "name": "avg_over_time_gauge_by_3labels_1h_range_30d",
+    "endpoint": "query_range",
+    "query": "avg by (instance, job, type) (avg_over_time(demo_memory_usage_bytes[1h]))",
+    "category": "range_avg_over_time_gauge",
+    "startOffsetSeconds": -2592000,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 3600,
+    "compareMode": "structural"
+  },
+  {
+    "name": "subquery_rate_over_aggregate_1h_range_30d",
+    "endpoint": "query_range",
+    "query": "rate(sum by (job) (demo_cpu_usage_seconds_total)[1h:5m])",
+    "category": "range_subquery_rate_over_aggregate",
+    "startOffsetSeconds": -2592000,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 3600,
+    "compareMode": "structural"
+  },
+  {
+    "name": "ratio_with_and_on_guard_1h_range_30d",
+    "endpoint": "query_range",
+    "query": "(sum by (job) (rate(demo_api_request_duration_seconds_count[1h])) / sum by (job) (rate(demo_cpu_usage_seconds_total[1h]))) and on (job) (sum by (job) (rate(demo_cpu_usage_seconds_total[1h])) > 0)",
+    "category": "range_ratio_and_on_guard",
+    "startOffsetSeconds": -2592000,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 3600,
+    "compareMode": "structural"
+  },
+  {
+    "name": "triple_sibling_rate_dedup_by_job_1h_range_30d",
+    "endpoint": "query_range",
+    "query": "sum by (job) (rate(demo_cpu_usage_seconds_total{mode=\"user\"}[1h])) + sum by (job) (rate(demo_cpu_usage_seconds_total{mode=\"system\"}[1h])) + sum by (job) (rate(demo_cpu_usage_seconds_total{mode=\"idle\"}[1h]))",
+    "category": "range_sibling_rate_dedup",
+    "startOffsetSeconds": -2592000,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 3600,
+    "compareMode": "structural"
   }
 ]

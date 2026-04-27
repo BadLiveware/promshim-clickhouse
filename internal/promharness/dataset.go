@@ -87,7 +87,7 @@ func GenerateDataset(cfg SeedConfig) generatedDataset {
 				if !gapPoint && !staleAfterMidpoint && i%3 == 0 {
 					builder.AddSample("harness_sparse_gauge", common, timestamp, float64(100+i+len(job)+len(instance)))
 				}
-				if i < 3 && !(cfg.DatasetVariant == "churn_stale" && job == "api" && instance == "a" && i == 2) {
+				if i < 3 && (cfg.DatasetVariant != "churn_stale" || job != "api" || instance != "a" || i != 2) {
 					builder.AddSample("harness_disappearing_gauge", common, timestamp, float64(i+1))
 				}
 				if !gapPoint && !staleAfterMidpoint {

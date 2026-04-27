@@ -1,0 +1,115 @@
+-- ClickHouse TimeSeries deployment tuning templates for promshim.
+--
+-- These statements are intentionally commented templates, not a script to run
+-- blindly. The TimeSeries engine owns inner data/tags tables and the exposed
+-- table names differ by ClickHouse version and operator configuration. Resolve
+-- the actual inner table names first (for example from SHOW CREATE TABLE,
+-- system.tables, or your operator's generated resources), then apply the
+-- equivalent DDL during a controlled maintenance rollout.
+--
+-- Validate with EXPLAIN indexes=1 and normalized system.query_log counters
+-- before/after. Do not apply to compliance/benchmark fixtures while comparing
+-- historical artifacts.
+
+-- 1. Data table timestamp pruning.
+-- Helps predicates of the form timestamp BETWEEN ... AND ... prune granules.
+--
+-- ALTER TABLE <database>.<inner_time_series_data_table>
+--   ADD INDEX min_max_ts (timestamp) TYPE minmax GRANULARITY 8;
+--
+-- ALTER TABLE <database>.<inner_time_series_data_table>
+--   MATERIALIZE INDEX min_max_ts;
+
+-- 2. Tags table label-key pruning (only when label-key presence is in WHERE).
+-- This is transparent and droppable, but it only helps query shapes whose
+-- storage predicate can use mapKeys(tags), has(mapKeys(tags), ...), or an
+-- equivalent key-presence expression. It does not prune when mapKeys(tags) is
+-- used only to project labels after the metric primary key has already selected
+-- the tags granule.
+--
+-- Scout note: on the benchmark stack, `sum by (type)
+-- (avg_over_time(demo_memory_usage_bytes[1h]))` uses mapKeys(tags) only in a
+-- projection. Adding this index was not used by EXPLAIN and produced no pruning
+-- signal, so do not recommend it as a blanket promshim tuning without a
+-- predicate-shape proof.
+--
+-- ALTER TABLE <database>.<inner_time_series_tags_table>
+--   ADD INDEX tag_keys (mapKeys(tags)) TYPE bloom_filter GRANULARITY 4;
+--
+-- ALTER TABLE <database>.<inner_time_series_tags_table>
+--   MATERIALIZE INDEX tag_keys;
+--
+-- Rollback:
+-- ALTER TABLE <database>.<inner_time_series_tags_table>
+--   DROP INDEX IF EXISTS tag_keys;
+
+-- 3. Tags table label-value pruning (requires measured granule reduction).
+-- Helps only when equality predicates over tag map values have granules to skip.
+-- Scout note: on the benchmark stack, `src.tags['job'] = 'demo-api'` caused
+-- ClickHouse to list a mapValues(tags) bloom filter in EXPLAIN, but the metric
+-- primary key had already reduced the tags scan to one granule (`1/1`), so the
+-- index did not reduce selected granules. Do not recommend it without a broader
+-- or more selective fixture proving granule reduction.
+--
+-- ALTER TABLE <database>.<inner_time_series_tags_table>
+--   ADD INDEX tag_values (mapValues(tags)) TYPE bloom_filter(0.01) GRANULARITY 4;
+--
+-- ALTER TABLE <database>.<inner_time_series_tags_table>
+--   MATERIALIZE INDEX tag_values;
+--
+-- Rollback:
+-- ALTER TABLE <database>.<inner_time_series_tags_table>
+--   DROP INDEX IF EXISTS tag_values;
+
+-- 4. Data table sample codecs.
+-- Prometheus samples are usually regular timestamp/value streams. DoubleDelta
+-- on the timestamp and Gorilla on the Float64 value are transparent codecs and
+-- are reversible by MODIFY COLUMN back to the deployment default and rewriting
+-- parts. Expect storage-level signal; treat runtime attribution cautiously if
+-- physical read counters such as SelectedRows or ReadRows also move.
+--
+-- New TimeSeries table template:
+--
+-- CREATE TABLE <database>.<time_series_table>
+-- (
+--     id UUID,
+--     timestamp DateTime64(3) CODEC(DoubleDelta, ZSTD(1)),
+--     value Float64 CODEC(Gorilla, ZSTD(1))
+-- )
+-- ENGINE = TimeSeries
+-- DATA ENGINE = MergeTree
+-- ORDER BY (id, timestamp);
+--
+-- Existing inner data table template, after resolving the actual inner table
+-- name from SHOW CREATE TABLE or system.tables:
+--
+-- ALTER TABLE <database>.<inner_time_series_data_table>
+--   MODIFY COLUMN timestamp DateTime64(3) CODEC(DoubleDelta, ZSTD(1));
+--
+-- ALTER TABLE <database>.<inner_time_series_data_table>
+--   MODIFY COLUMN value Float64 CODEC(Gorilla, ZSTD(1));
+--
+-- Existing parts need merge/rewrite activity before on-disk compression changes
+-- are fully reflected. Validate with system.columns compression_codec,
+-- system.parts compressed/uncompressed bytes, and query_log ReadCompressedBytes.
+-- Rollback by MODIFY COLUMN to the prior codec/default and rewriting parts.
+
+-- 5. Prefer schema-level partitioning for long-retention data when creating a
+-- new TimeSeries deployment. Existing deployments should migrate via a planned
+-- backfill rather than altering hot production storage in place.
+--
+-- Example shape only; use the TimeSeries/operator DDL supported by your
+-- ClickHouse version:
+--
+-- CREATE TABLE <database>.<time_series_table>
+-- (
+--     id UUID,
+--     timestamp DateTime64(3) CODEC(DoubleDelta, ZSTD(1)),
+--     value Float64 CODEC(Gorilla, ZSTD(1))
+-- )
+-- ENGINE = TimeSeries
+-- DATA ENGINE = MergeTree
+-- PARTITION BY toYYYYMM(timestamp)
+-- ORDER BY (id, timestamp)
+-- SETTINGS
+--   tags_to_columns = {'instance': 'LowCardinality(String)', 'pod': 'LowCardinality(String)', 'node': 'LowCardinality(String)'};

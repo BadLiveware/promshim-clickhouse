@@ -2,7 +2,9 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 )
 
@@ -13,30 +15,60 @@ const (
 )
 
 func (c *Client) QueryStringRows(ctx context.Context, req QueryRequest) (values []string, err error) {
-	nativeTransport, ok := c.transport.(*NativeDriverTransport)
-	if !ok {
-		return nil, fmt.Errorf("typed string row decoding requires %s transport, got %s", TransportNative, c.transportKind)
+	if nativeTransport, ok := c.transport.(*NativeDriverTransport); ok {
+		req, err = c.prepareQueryRequest(req)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := nativeTransport.QueryNativeRows(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = rows.Close() }()
+
+		start := time.Now()
+		decoded := 0
+		defer func() { observeDecode(TransportNative, req.Purpose, decoded, time.Since(start), err) }()
+		values = make([]string, 0, 16)
+		for rows.Next() {
+			var value string
+			if err := rows.Scan(&value); err != nil {
+				return nil, fmt.Errorf("scan string metadata row: %w", err)
+			}
+			values = append(values, value)
+			decoded++
+		}
+		if rowsErr := rows.Err(); rowsErr != nil {
+			return nil, fmt.Errorf("read string metadata rows: %w", rowsErr)
+		}
+		return values, nil
 	}
-	rows, err := nativeTransport.QueryNativeRows(ctx, req)
+
+	rows, err := c.Query(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	start := time.Now()
 	decoded := 0
-	defer func() { observeDecode(TransportNative, req.Purpose, decoded, time.Since(start), err) }()
+	defer func() { observeDecode(c.transportKind, req.Purpose, decoded, time.Since(start), err) }()
+	decoder := json.NewDecoder(rows)
 	values = make([]string, 0, 16)
-	for rows.Next() {
-		var value string
-		if err := rows.Scan(&value); err != nil {
-			return nil, fmt.Errorf("scan string metadata row: %w", err)
+	for {
+		var row map[string]string
+		if err := decoder.Decode(&row); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, fmt.Errorf("decode string metadata row: %w", err)
 		}
-		values = append(values, value)
+		if value, ok := row["value"]; ok {
+			values = append(values, value)
+		} else if value, ok := row["name"]; ok {
+			values = append(values, value)
+		}
 		decoded++
-	}
-	if rowsErr := rows.Err(); rowsErr != nil {
-		return nil, fmt.Errorf("read string metadata rows: %w", rowsErr)
 	}
 	return values, nil
 }
@@ -46,11 +78,15 @@ func (c *Client) QuerySeriesRows(ctx context.Context, req QueryRequest) (series 
 	if !ok {
 		return nil, fmt.Errorf("typed series row decoding requires %s transport, got %s", TransportNative, c.transportKind)
 	}
+	req, err = c.prepareQueryRequest(req)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := nativeTransport.QueryNativeRows(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	start := time.Now()
 	decoded := 0

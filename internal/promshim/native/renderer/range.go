@@ -17,10 +17,21 @@ func preferDirectSelectorWindowJoin(lookbackMS, stepMS int64) bool {
 	// The direct window-join path duplicates raw points into every overlapping
 	// step bucket. That is a good trade when overlap is shallow (for example
 	// 1m windows on a 30s step), but once each point fan-outs across many step
-	// buckets the older materialize-then-window path is cheaper. Keep the fast
-	// path for low-overlap windows only.
+	// buckets the older materialize-then-window path is cheaper. Keep the generic
+	// fast path for low-overlap windows only; aggregate-specific helpers can opt
+	// into direct grouped aggregates when they avoid per-step array materialization.
 	overlapSlots := ((lookbackMS + stepMS - 1) / stepMS) + 1
 	return overlapSlots <= 4
+}
+
+func preferDirectSelectorWindowAggregate(fn string, lookbackMS, stepMS int64) bool {
+	if lookbackMS <= 0 || stepMS <= 0 {
+		return false
+	}
+	if fn == "avg_over_time" {
+		return true
+	}
+	return preferDirectSelectorWindowJoin(lookbackMS, stepMS)
 }
 
 func buildWindowedArraysSourceSQL(sourceSQL, fn string, startMS, endMS, stepMS, rangeMS, offsetMS int64) (string, error) {
@@ -156,8 +167,12 @@ func buildRangeFunctionOverWindowedSourceSQL(windowedSourceSQL, fn, finalTagsExp
 		From:    rawRenderedSubquerySourceWithAlias(trimRenderedQuerySQL(windowedSourceSQL), "step_windows"),
 		Where:   sqlb.RawLit{V: "length(window_series) > " + strconv.Itoa(minimumSeriesLengthForRangeFunction(fn))},
 	}
+	timeSeriesExpr := emit.SortedTimeSeriesGroupArray()
+	if fn == "rate" {
+		timeSeriesExpr = sqlb.RawLit{V: "arraySort(groupArray((timestamp, value)))"}
+	}
 	outer := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"}},
+		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: timeSeriesExpr, Alias: "time_series"}},
 		From:    sqlb.SubSelect{S: perStep},
 		GroupBy: []sqlb.Expr{sqlb.Ident("final_tags")},
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("final_tags")}},
@@ -183,6 +198,32 @@ func canUseRangeFunctionRowsFastPath(fn string) bool {
 	}
 }
 
+func supportsDirectSelectorWindowAggregate(fn string, lookbackMS int64) bool {
+	switch fn {
+	case "avg_over_time":
+		return true
+	case "rate":
+		return lookbackMS >= 60_000
+	default:
+		return false
+	}
+}
+
+func canUseNativeGridRangeFunction(fn string, lookbackMS, offsetMS int64) bool {
+	if lookbackMS <= 0 || offsetMS != 0 {
+		return false
+	}
+	switch fn {
+	case "rate", "irate", "delta", "idelta", "last_over_time":
+		// Very short windows have compliance-sensitive empty-window behavior in
+		// Prometheus. Keep them on promshim's SQL kernel until targeted fixtures
+		// prove ClickHouse's grid functions are identical there too.
+		return lookbackMS >= 60_000
+	default:
+		return false
+	}
+}
+
 func buildInstantRangeFunctionOverRowsSQL(sourceRowsSQL, fn, finalTagsExpr string, evaluationTimeMS int64) (string, error) {
 	valueExpr, err := rangeFunctionRowsFastPathValueExpr(fn, "value")
 	if err != nil {
@@ -201,23 +242,30 @@ func buildInstantRangeFunctionOverRowsSQL(sourceRowsSQL, fn, finalTagsExpr strin
 	return buildNativeWrapperSQL(outer)
 }
 
-func buildInstantRateOverRowsSQL(sourceRowsSQL, finalTagsExpr string, evaluationTimeMS int64) (string, error) {
+func buildInstantRateOverRowsSQL(sourceRowsSQL, finalTagsExpr string, evaluationTimeMS, rangeMS int64) (string, error) {
+	valueExpr := emit.NullableFloatCoerce("value")
 	prepared := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
 			{Expr: sqlb.RawLit{V: finalTagsExpr}, Alias: "final_tags"},
 			{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
-			{Expr: sqlb.RawLit{V: emit.NullableFloatCoerce("value")}, Alias: "value"},
+			{Expr: sqlb.RawLit{V: valueExpr}, Alias: "value"},
 		},
 		From: rawRenderedSubquerySource(trimRenderedQuerySQL(sourceRowsSQL)),
 	}
-	annotated := &sqlb.Select{
-		Columns: []sqlb.ColExpr{
-			{Expr: sqlb.Ident("final_tags"), Alias: "final_tags"},
-			{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
-			{Expr: sqlb.Ident("value"), Alias: "value"},
-			{Expr: sqlb.RawLit{V: "lagInFrame(value, 1, nan) OVER (PARTITION BY final_tags ORDER BY timestamp)"}, Alias: "prev_value"},
-		},
-		From: sqlb.SubSelect{S: prepared},
+	groupedFrom := sqlb.Source(sqlb.SubSelect{S: prepared})
+	counterDeltaExpr := "deltaSumTimestamp(" + valueExpr + ", toUnixTimestamp64Milli(timestamp))"
+	if rangeMS < 60_000 {
+		annotated := &sqlb.Select{
+			Columns: []sqlb.ColExpr{
+				{Expr: sqlb.Ident("final_tags"), Alias: "final_tags"},
+				{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
+				{Expr: sqlb.Ident("value"), Alias: "value"},
+				{Expr: sqlb.RawLit{V: "lagInFrame(value, 1, nan) OVER (PARTITION BY final_tags ORDER BY timestamp)"}, Alias: "prev_value"},
+			},
+			From: sqlb.SubSelect{S: prepared},
+		}
+		groupedFrom = sqlb.SubSelect{S: annotated}
+		counterDeltaExpr = "sum(if(isNaN(value) OR isNaN(prev_value), toFloat64(0), if(value < prev_value, value, value - prev_value)))"
 	}
 	grouped := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
@@ -225,9 +273,9 @@ func buildInstantRateOverRowsSQL(sourceRowsSQL, finalTagsExpr string, evaluation
 			{Expr: sqlb.RawLit{V: "count()"}, Alias: "sample_count"},
 			{Expr: sqlb.RawLit{V: "countIf(isNaN(value))"}, Alias: "nan_count"},
 			{Expr: sqlb.RawLit{V: "max(timestamp) - min(timestamp)"}, Alias: "range_duration_ms"},
-			{Expr: sqlb.RawLit{V: "sum(if(isNaN(value) OR isNaN(prev_value), toFloat64(0), if(value < prev_value, value, value - prev_value)))"}, Alias: "range_counter_delta_sum"},
+			{Expr: sqlb.RawLit{V: counterDeltaExpr}, Alias: "range_counter_delta_sum"},
 		},
-		From:    sqlb.SubSelect{S: annotated},
+		From:    groupedFrom,
 		GroupBy: []sqlb.Expr{sqlb.Ident("final_tags")},
 	}
 	outer := &sqlb.Select{
@@ -502,14 +550,10 @@ func rangeFunctionValueExpr(fn, seriesExpr, valuesSourceExpr string, paramNumber
 	counterDeltaExpr := sqlb.Expr(sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "(p, c) -> if(c < p, c, c - p)"}, prevValues, curValues}}}})
 	changesExpr := sqlb.Expr(sqlb.Call{Name: "toFloat64", Args: []sqlb.Expr{sqlb.Call{Name: "arraySum", Args: []sqlb.Expr{sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "(p, c) -> if(c != p, 1, 0)"}, prevValues, curValues}}}}}})
 	if valuesSourceExpr == "window_values" {
-		prevValues = sqlb.Ident("window_values_prev")
-		curValues = sqlb.Ident("window_values_cur")
 		counterDeltaExpr = sqlb.Ident("counter_delta_sum")
 		changesExpr = sqlb.Ident("changes_count")
 	}
 	if valuesSourceExpr == "range_values" {
-		prevValues = sqlb.Ident("range_values_prev")
-		curValues = sqlb.Ident("range_values_cur")
 		counterDeltaExpr = sqlb.Ident("range_counter_delta_sum")
 		changesExpr = sqlb.Ident("range_changes_count")
 	}

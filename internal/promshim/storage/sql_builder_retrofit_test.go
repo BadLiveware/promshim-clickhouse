@@ -151,7 +151,7 @@ func TestBuildInstantAggregationQuerySQLWithBoundsSupportsTier1Reducers(t *testi
 	if err != nil {
 		t.Fatalf("expected topk aggregation SQL, got error: %v", err)
 	}
-	for _, check := range []string{"row_number() OVER (PARTITION BY grouping_tags ORDER BY isNaN(value) ASC, value DESC, tags ASC)", "WHERE rank <= 3", "SELECT tags AS tags, timestamp AS timestamp, value AS value"} {
+	for _, check := range []string{"ORDER BY grouping_tags, isNaN(value), value DESC, tags LIMIT 3 BY grouping_tags", "SELECT tags AS tags, timestamp AS timestamp, value AS value"} {
 		if !strings.Contains(sqlb.NormalizeSQL(topkSQL), sqlb.NormalizeSQL(check)) {
 			t.Fatalf("expected topk SQL to contain %q, got %s", check, sqlb.NormalizeSQL(topkSQL))
 		}
@@ -187,7 +187,7 @@ func TestBuildRangeAggregationQuerySQLWithBoundsSupportsTopKSelection(t *testing
 	if err != nil {
 		t.Fatalf("expected range topk aggregation SQL, got error: %v", err)
 	}
-	for _, check := range []string{"row_number() OVER (PARTITION BY grouping_tags, timestamp ORDER BY isNaN(value) ASC, value DESC, tags ASC)", "WHERE rank <= 2", "arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series", "GROUP BY tags ORDER BY tags"} {
+	for _, check := range []string{"ORDER BY grouping_tags, timestamp, isNaN(value), value DESC, tags LIMIT 2 BY grouping_tags, timestamp", "arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series", "GROUP BY tags ORDER BY tags"} {
 		if !strings.Contains(sqlb.NormalizeSQL(sql), sqlb.NormalizeSQL(check)) {
 			t.Fatalf("expected range topk SQL to contain %q, got %s", check, sqlb.NormalizeSQL(sql))
 		}

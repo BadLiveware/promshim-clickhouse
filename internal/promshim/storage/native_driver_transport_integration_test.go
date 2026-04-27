@@ -13,7 +13,7 @@ import (
 
 func TestNativeDriverTransportIntegrationSettingsAndParameters(t *testing.T) {
 	transport := requireNativeDriverTransport(t)
-	defer transport.Close()
+	defer func() { _ = transport.Close() }()
 
 	ctx := obs.WithLogComment(context.Background(), "native-integration")
 	ctx, metrics := obs.WithCHMetrics(ctx)
@@ -71,7 +71,7 @@ func TestNativeDriverTransportIntegrationSettingsAndParameters(t *testing.T) {
 
 func TestNativeDriverTransportIntegrationValueDecoders(t *testing.T) {
 	transport := requireNativeDriverTransport(t)
-	defer transport.Close()
+	defer func() { _ = transport.Close() }()
 
 	client := &Client{transportKind: TransportNative, transport: transport}
 	instant, err := client.QueryInstantSamples(context.Background(), QueryRequest{SQL: "SELECT [tuple('__name__', 'up')] AS tags, fromUnixTimestamp64Milli(1700000123456) AS timestamp, toFloat64('nan') AS value\nFORMAT JSONEachRow"})
@@ -93,7 +93,7 @@ func TestNativeDriverTransportIntegrationValueDecoders(t *testing.T) {
 
 func TestNativeDriverTransportIntegrationMetadataDecoders(t *testing.T) {
 	transport := requireNativeDriverTransport(t)
-	defer transport.Close()
+	defer func() { _ = transport.Close() }()
 
 	client := &Client{transportKind: TransportNative, transport: transport}
 	strings, err := client.QueryStringRows(context.Background(), QueryRequest{SQL: "SELECT 'alpha' AS label UNION ALL SELECT 'beta' AS label ORDER BY label\nFORMAT JSONEachRow"})
@@ -115,7 +115,7 @@ func TestNativeDriverTransportIntegrationMetadataDecoders(t *testing.T) {
 
 func TestNativeDriverTransportIntegrationDenormalFloats(t *testing.T) {
 	transport := requireNativeDriverTransport(t)
-	defer transport.Close()
+	defer func() { _ = transport.Close() }()
 
 	row := transport.QueryNativeRow(context.Background(), QueryRequest{SQL: "SELECT toFloat64('nan'), toFloat64('inf'), toFloat64('-inf')"})
 	var nan, posInf, negInf float64
@@ -156,7 +156,7 @@ func requireNativeDriverTransport(t *testing.T) *NativeDriverTransport {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := transport.Ping(ctx); err != nil {
-		transport.Close()
+		_ = transport.Close()
 		t.Skipf("ClickHouse native integration fixture unavailable: %v", err)
 	}
 	return transport

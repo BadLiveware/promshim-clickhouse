@@ -54,7 +54,7 @@ func effectiveNativeInfoNameMatchers(matchers []*labels.Matcher) []*labels.Match
 	positive := false
 	cloned := make([]*labels.Matcher, 0, len(matchers))
 	for _, matcher := range matchers {
-		if matcher == nil || matcher.Name != labels.MetricName {
+		if matcher == nil || matcher.Name != "__name__" {
 			continue
 		}
 		if matcher.Type == labels.MatchEqual || matcher.Type == labels.MatchRegexp {
@@ -66,15 +66,15 @@ func effectiveNativeInfoNameMatchers(matchers []*labels.Matcher) []*labels.Match
 		return cloned
 	}
 	if len(cloned) > 0 {
-		return append([]*labels.Matcher{labels.MustNewMatcher(labels.MatchRegexp, labels.MetricName, ".+_info")}, cloned...)
+		return append([]*labels.Matcher{labels.MustNewMatcher(labels.MatchRegexp, "__name__", ".+_info")}, cloned...)
 	}
-	return []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, labels.MetricName, "target_info")}
+	return []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "__name__", "target_info")}
 }
 
 func infoJoinDataLabelMatchers(matchers []*labels.Matcher) []*labels.Matcher {
 	out := make([]*labels.Matcher, 0, len(matchers))
 	for _, matcher := range matchers {
-		if matcher == nil || matcher.Name == labels.MetricName {
+		if matcher == nil || matcher.Name == "__name__" {
 			continue
 		}
 		out = append(out, labels.MustNewMatcher(matcher.Type, matcher.Name, matcher.Value))
@@ -89,7 +89,7 @@ func infoJoinCopyLabelNames(matchers []*labels.Matcher) []string {
 	seen := map[string]struct{}{}
 	out := make([]string, 0)
 	for _, matcher := range matchers {
-		if matcher == nil || matcher.Name == labels.MetricName {
+		if matcher == nil || matcher.Name == "__name__" {
 			continue
 		}
 		if _, ok := seen[matcher.Name]; ok {
@@ -104,7 +104,7 @@ func infoJoinCopyLabelNames(matchers []*labels.Matcher) []string {
 
 func infoJoinDropUnmatched(matchers []*labels.Matcher) bool {
 	for _, matcher := range matchers {
-		if matcher == nil || matcher.Name == labels.MetricName {
+		if matcher == nil || matcher.Name == "__name__" {
 			continue
 		}
 		if !matcher.Matches("") {

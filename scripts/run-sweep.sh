@@ -14,6 +14,7 @@ Common examples:
   ./scripts/run-sweep.sh --setup --profile all --density sparse --target both
   ./scripts/run-sweep.sh --name pr-42-default
   ./scripts/run-sweep.sh --profile 7d --density dense --corpus-set processing --estimate
+  ./scripts/run-sweep.sh --profile 7d --corpus-set optimization --skip-compliance
   ./scripts/run-sweep.sh --bench-status
   ./scripts/run-sweep.sh --bench-reset --yes
 
@@ -41,10 +42,15 @@ Options:
   --include-prom BOOL            Include Prometheus timing in v2 bench reports (default true).
   --memory {off|summary|detailed}
                                   Capture memory trade-off artifacts (default summary).
-  --corpus-set {native|processing|both}
+  --clickhouse-reference-profile NAME
+                                  Reference profile label recorded in sweep artifacts (default default-benchmark-compose).
+  --settings-profile NAME        promshim ClickHouse settings profile for benchmark containers (default default_safe).
+  --corpus-set {native|processing|optimization|both}
                                   Benchmark corpus family (default: native; dense defaults to processing).
   --profile {7d|30d|1y|all}      Profile to inspect/seed (default for setup: all).
-  --density {sparse|dense|all}   Dataset density (default for setup: sparse).
+  --density {sparse|dense|stress-50k|stress-500k|all}
+                                  Dataset density (default for setup: sparse).
+                                  stress-50k targets ~50,000 active series; stress-500k ~500,000.
   --target {both|ch|prom}        Seed/check target (default: both).
   --seed {reuse|missing|always|never}
                                   Seed policy (normal default: reuse; --setup default: missing).
@@ -98,6 +104,8 @@ WARMUP_ROUTING_POLICIES=""
 COST_ROUTING_LOCAL_FAMILIES=""
 INCLUDE_PROM="true"
 MEMORY_MODE="summary"
+CLICKHOUSE_REFERENCE_PROFILE="${PROM_SHIM_BENCH_CLICKHOUSE_REFERENCE_PROFILE:-default-benchmark-compose}"
+SETTINGS_PROFILE="${PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE:-default_safe}"
 CORPUS_SET=""
 YES=0
 
@@ -119,6 +127,8 @@ while [[ $# -gt 0 ]]; do
     --cost-routing-local-families) COST_ROUTING_LOCAL_FAMILIES="$2"; shift 2 ;;
     --include-prom) INCLUDE_PROM="$2"; shift 2 ;;
     --memory)       MEMORY_MODE="$2"; shift 2 ;;
+    --clickhouse-reference-profile) CLICKHOUSE_REFERENCE_PROFILE="$2"; shift 2 ;;
+    --settings-profile) SETTINGS_PROFILE="$2"; shift 2 ;;
     --corpus-set)   CORPUS_SET="$2"; shift 2 ;;
     --profile)      PROFILE="$2"; shift 2 ;;
     --density)      DENSITY="$2"; shift 2 ;;
@@ -144,10 +154,14 @@ case "$TRANSPORT" in
   native|http) ;;
   *) fatal "--transport must be native|http (got: $TRANSPORT)" ;;
 esac
+case "$CLICKHOUSE_REFERENCE_PROFILE" in
+  default-benchmark-compose|promshim-ch-timeseries-reference-v1) ;;
+  *) fatal "--clickhouse-reference-profile must be default-benchmark-compose|promshim-ch-timeseries-reference-v1 (got: $CLICKHOUSE_REFERENCE_PROFILE)" ;;
+esac
 if [[ -n "$CORPUS_SET" ]]; then
   case "$CORPUS_SET" in
-    native|processing|both) ;;
-    *) fatal "--corpus-set must be native|processing|both (got: $CORPUS_SET)" ;;
+    native|processing|optimization|both) ;;
+    *) fatal "--corpus-set must be native|processing|optimization|both (got: $CORPUS_SET)" ;;
   esac
 fi
 if (( ESTIMATE == 1 && EXECUTE == 0 )); then
@@ -185,8 +199,8 @@ profiles_for() {
 densities_for() {
   case "$1" in
     all) printf '%s\n' sparse dense ;;
-    sparse|dense) printf '%s\n' "$1" ;;
-    *) fatal "--density must be sparse|dense|all (got: $1)" ;;
+    sparse|dense|stress-50k|stress-500k) printf '%s\n' "$1" ;;
+    *) fatal "--density must be sparse|dense|stress-50k|stress-500k|all (got: $1)" ;;
   esac
 }
 
@@ -210,19 +224,25 @@ profiles = {
 }
 end, duration = profiles[profile]
 dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
-if density == "dense":
-    dt = dt - duration - timedelta(days=1)
+slots = {"sparse": 0, "dense": 1, "stress-50k": 2, "stress-500k": 3}
+slot = slots.get(density, 0)
+if slot > 0:
+    dt = dt - slot * duration - slot * timedelta(days=1)
 print(dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
 PY
 }
 
 compose() {
-  (cd "$BENCH_DIR" && PROM_SHIM_CLICKHOUSE_TRANSPORT="$TRANSPORT" PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES="$COST_ROUTING_LOCAL_FAMILIES" docker compose "$@")
+  local compose_args=("-f" "docker-compose.yml")
+  if [[ "$CLICKHOUSE_REFERENCE_PROFILE" == "promshim-ch-timeseries-reference-v1" ]]; then
+    compose_args+=("-f" "docker-compose.reference.yml")
+  fi
+  (cd "$BENCH_DIR" && PROM_SHIM_CLICKHOUSE_TRANSPORT="$TRANSPORT" PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE="$SETTINGS_PROFILE" PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES="$COST_ROUTING_LOCAL_FAMILIES" PROM_SHIM_DISABLE_OPTIMIZED_IR="${PROM_SHIM_DISABLE_OPTIMIZED_IR:-}" PROM_SHIM_DISABLE_NATIVE_AGGREGATION_LABEL_PROJECTION="${PROM_SHIM_DISABLE_NATIVE_AGGREGATION_LABEL_PROJECTION:-}" PROM_SHIM_DISABLE_NATIVE_REPEATED_SUBEXPRESSION_REUSE="${PROM_SHIM_DISABLE_NATIVE_REPEATED_SUBEXPRESSION_REUSE:-}" PROM_SHIM_DISABLE_LOCAL_REPEATED_EXPRESSION_CACHE="${PROM_SHIM_DISABLE_LOCAL_REPEATED_EXPRESSION_CACHE:-}" docker compose "${compose_args[@]}" "$@")
 }
 
 start_bench_stack() {
-  log "Starting isolated benchmark stack (transport=${TRANSPORT})."
-  compose up -d
+  log "Starting isolated benchmark stack (transport=${TRANSPORT}; rebuilding buildable services if needed)."
+  compose up -d --build
   wait_for_http "ClickHouse" "${BENCH_CH_URL}/ping" "-u" "default:otel"
   wait_for_ch_schema
   wait_for_http "Prometheus" "${BENCH_PROM_URL}/-/ready"
@@ -409,6 +429,9 @@ corpus_paths_for() {
   if [[ "$set" == "processing" || "$set" == "both" ]]; then
     echo "harness/corpus/bench-processing${suffix}.json"
   fi
+  if [[ "$set" == "optimization" ]]; then
+    echo "harness/corpus/bench-optimization-tuning${suffix}.json"
+  fi
 }
 
 estimate_samples() {
@@ -423,7 +446,16 @@ profiles = {
 }
 duration_seconds, step_seconds = profiles[profile]
 points = duration_seconds // step_seconds
-instances_per_job = 5 if density == "sparse" else (50 if profile == "1y" else 100)
+if density == "sparse":
+    instances_per_job = 5
+elif density == "dense":
+    instances_per_job = 50 if profile == "1y" else 100
+elif density == "stress-50k":
+    instances_per_job = 1924
+elif density == "stress-500k":
+    instances_per_job = 19231
+else:
+    raise SystemExit(f"unknown density {density!r}")
 jobs = 2
 series_per_instance = 13
 series = jobs * instances_per_job * series_per_instance
@@ -445,6 +477,8 @@ print_sweep_plan() {
   echo "Warmup routing policies: ${WARMUP_ROUTING_POLICIES:-none}"
   echo "Cost routing local families: ${COST_ROUTING_LOCAL_FAMILIES:-none}"
   echo "Memory mode: ${MEMORY_MODE}"
+  echo "ClickHouse reference profile: ${CLICKHOUSE_REFERENCE_PROFILE}"
+  echo "promshim settings profile: ${SETTINGS_PROFILE}"
   echo
   echo "Datasets:"
   for p in $(profiles_for "$PROFILE"); do
@@ -469,13 +503,13 @@ print_sweep_plan() {
 
 generate_sweep_artifacts() {
   local artifact_dir="$1" compliance_status="$2" bench_status="$3"
-  python3 - "$REPO_ROOT" "$artifact_dir" "$RUN_NAME" "$PROFILE" "$DENSITY" "$TRANSPORT" "$SEED_POLICY" "$SHIM_MODES" "$ROUTING_POLICIES" "$WARMUP_ROUTING_POLICIES" "$COST_ROUTING_LOCAL_FAMILIES" "$INCLUDE_PROM" "$CORPUS_SET" "$compliance_status" "$bench_status" "$BENCH_PROM_URL" "$BENCH_SHIM_URL" "$BENCH_CH_URL" "$MEMORY_MODE" <<'PY'
-import json, pathlib, sys
+  python3 - "$REPO_ROOT" "$artifact_dir" "$RUN_NAME" "$PROFILE" "$DENSITY" "$TRANSPORT" "$SEED_POLICY" "$SHIM_MODES" "$ROUTING_POLICIES" "$WARMUP_ROUTING_POLICIES" "$COST_ROUTING_LOCAL_FAMILIES" "$INCLUDE_PROM" "$CORPUS_SET" "$compliance_status" "$bench_status" "$BENCH_PROM_URL" "$BENCH_SHIM_URL" "$BENCH_CH_URL" "$MEMORY_MODE" "$CLICKHOUSE_REFERENCE_PROFILE" "$SETTINGS_PROFILE" <<'PY'
+import json, pathlib, subprocess, sys
 from datetime import datetime, timezone
 
 (repo, artifact_dir, run_name, profile, density, transport, seed_policy,
  shim_modes, routing_policies, warmup_routing_policies, cost_routing_local_families, include_prom, corpus_set, compliance_status, bench_status,
- prom_url, shim_url, ch_url, memory_mode) = sys.argv[1:20]
+ prom_url, shim_url, ch_url, memory_mode, clickhouse_reference_profile, settings_profile) = sys.argv[1:22]
 root = pathlib.Path(repo)
 out_dir = root / artifact_dir
 reports = []
@@ -534,6 +568,79 @@ for path in sorted(out_dir.glob("bench-report*.json")):
                 "report": rel,
             })
 slow_rows.sort(key=lambda r: (r.get("shimP50Ms") or 0), reverse=True)
+
+def run_cmd_result(args, cwd=root):
+    try:
+        completed = subprocess.run(args, cwd=cwd, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except FileNotFoundError as exc:
+        return {"ok": False, "stdout": "", "stderr": str(exc), "returncode": None}
+    except subprocess.CalledProcessError as exc:
+        return {
+            "ok": False,
+            "stdout": (exc.stdout or "").strip(),
+            "stderr": (exc.stderr or "").strip(),
+            "returncode": exc.returncode,
+        }
+    return {"ok": True, "stdout": completed.stdout.strip(), "stderr": completed.stderr.strip(), "returncode": completed.returncode}
+
+def run_cmd(args, cwd=root):
+    result = run_cmd_result(args, cwd=cwd)
+    return result["stdout"] if result["ok"] else None
+
+def benchmark_stack_provenance():
+    git_status = run_cmd(["git", "status", "--porcelain"]) or ""
+    provenance = {
+        "composeBuildRequested": bench_status != "skipped",
+        "git": {
+            "revision": run_cmd(["git", "rev-parse", "HEAD"]),
+            "dirty": bool(git_status),
+            "statusPorcelain": git_status.splitlines()[:50],
+        },
+        "promshim": {},
+    }
+    if bench_status == "skipped":
+        return provenance
+    bench_dir = root / "harness" / "bench"
+    compose_args = ["docker", "compose", "-f", "docker-compose.yml"]
+    if clickhouse_reference_profile == "promshim-ch-timeseries-reference-v1":
+        compose_args += ["-f", "docker-compose.reference.yml"]
+    provenance["composeFiles"] = compose_args[3::2]
+    container_result = run_cmd_result(compose_args + ["ps", "-q", "promshim"], cwd=bench_dir)
+    container_id = container_result["stdout"]
+    if not container_result["ok"] or not container_id:
+        provenance["promshim"].update({
+            "available": False,
+            "reason": "compose_ps_failed" if not container_result["ok"] else "container_not_found",
+            "returncode": container_result["returncode"],
+            "stderr": container_result["stderr"],
+        })
+        return provenance
+    provenance["promshim"]["containerId"] = container_id
+    inspect_result = run_cmd_result(["docker", "inspect", container_id])
+    raw = inspect_result["stdout"]
+    if not inspect_result["ok"] or not raw:
+        provenance["promshim"].update({
+            "available": False,
+            "reason": "docker_inspect_failed",
+            "returncode": inspect_result["returncode"],
+            "stderr": inspect_result["stderr"],
+        })
+        return provenance
+    try:
+        info = json.loads(raw)[0]
+    except Exception as exc:
+        provenance["promshim"].update({"available": False, "reason": "docker_inspect_invalid_json", "error": str(exc)})
+        return provenance
+    config = info.get("Config") or {}
+    provenance["promshim"].update({
+        "available": True,
+        "containerName": (info.get("Name") or "").lstrip("/"),
+        "containerCreatedAt": info.get("Created"),
+        "image": config.get("Image"),
+        "imageId": info.get("Image"),
+    })
+    return provenance
+
 manifest = {
     "schemaVersion": 1,
     "runName": run_name,
@@ -550,9 +657,12 @@ manifest = {
         "costRoutingLocalFamilies": [f for f in cost_routing_local_families.split(",") if f],
         "includeProm": include_prom,
         "memoryMode": memory_mode,
+        "clickHouseReferenceProfile": clickhouse_reference_profile,
+        "promshimSettingsProfile": settings_profile,
         "corpusSet": corpus_set,
     },
     "endpoints": {"prometheus": prom_url, "promshim": shim_url, "clickhouse": ch_url},
+    "benchmarkStack": benchmark_stack_provenance(),
     "compliance": {"status": compliance_status, "log": f"{artifact_dir}/compliance.log" if compliance_status != "skipped" else None},
     "bench": {"status": bench_status, "reports": reports, "memoryReports": memory_reports, "memoryDetailManifests": memory_details},
     "summaries": {"markdown": f"{artifact_dir}/summary.md", "json": f"{artifact_dir}/summary.json"},
@@ -568,6 +678,8 @@ summary = {
     "strategyHistogram": strategy_hist,
     "routingPolicyHistogram": routing_policy_hist,
     "targetBands": target_bands,
+    "clickHouseReferenceProfile": clickhouse_reference_profile,
+    "promshimSettingsProfile": settings_profile,
     "topSlowRows": slow_rows[:20],
 }
 out_dir.mkdir(parents=True, exist_ok=True)
@@ -588,6 +700,8 @@ lines = [
     f"- Warmup routing policies: `{warmup_routing_policies or 'none'}`",
     f"- Cost routing local families: `{cost_routing_local_families or 'none'}`",
     f"- Memory mode: `{memory_mode}`",
+    f"- ClickHouse reference profile: `{clickhouse_reference_profile}`",
+    f"- promshim settings profile: `{settings_profile}`",
     f"- Memory summaries: `{len(memory_reports)}`",
     f"- Memory detail manifests: `{len(memory_details)}`",
     "",

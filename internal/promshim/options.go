@@ -18,52 +18,68 @@ const (
 )
 
 type Options struct {
-	ClickHouseEndpoint        string
-	ClickHouseNativeAddr      string
-	Database                  string
-	Table                     string
-	Username                  string
-	Password                  string
-	ClickHouseCompression     string
-	RequestTimeout            time.Duration
-	ClickHouseTransport       storage.TransportKind
-	ClickHouseMaxOpenConns    int
-	ClickHouseMaxIdleConns    int
-	ClickHouseConnMaxLifetime time.Duration
-	ClickHouseVersion         string
-	NativeLoweringMode        local.NativeLoweringMode
-	RoutingPolicy             RoutingPolicy
-	CostRoutingLocalFamilies  []string
-	MaxRangePointsPerSeries   int64
-	RangeChunkPointsPerSeries int64
-	MaxResponseSeries         int64
-	MaxResponsePoints         int64
+	ClickHouseEndpoint            string
+	ClickHouseNativeAddr          string
+	Database                      string
+	Table                         string
+	Username                      string
+	Password                      string
+	ClickHouseCompression         string
+	RequestTimeout                time.Duration
+	ClickHouseTransport           storage.TransportKind
+	ClickHouseMaxOpenConns        int
+	ClickHouseMaxIdleConns        int
+	ClickHouseConnMaxLifetime     time.Duration
+	ClickHouseVersion             string
+	ClickHouseSettingsProfile     string
+	ClickHouseMaxMemoryUsageBytes int64
+	ClickHouseMaxRowsToRead       int64
+	ClickHouseMaxResultRows       int64
+	NativeLoweringMode            local.NativeLoweringMode
+	RoutingPolicy                 RoutingPolicy
+	CostRoutingLocalFamilies      []string
+	MaxRangePointsPerSeries       int64
+	RangeChunkPointsPerSeries     int64
+	MaxResponseSeries             int64
+	MaxResponsePoints             int64
+	PromotedTagColumns            []string
+	DiscoverPromotedTagColumns    bool
+	NativeGridFunctions           string
+	CumulativeAvgOverTime         string
 
 	DisableEntireQueryDelegation bool
 }
 
 func LoadOptionsFromEnv() (Options, error) {
 	opts := Options{
-		ClickHouseEndpoint:        getenv("PROM_SHIM_CLICKHOUSE_ENDPOINT", "http://127.0.0.1:8123/"),
-		ClickHouseNativeAddr:      getenv("PROM_SHIM_CLICKHOUSE_NATIVE_ADDR", "127.0.0.1:9000"),
-		Database:                  getenv("PROM_SHIM_CLICKHOUSE_DATABASE", "observability"),
-		Table:                     getenv("PROM_SHIM_CLICKHOUSE_TABLE", "prometheus"),
-		Username:                  getenv("PROM_SHIM_CLICKHOUSE_USERNAME", "default"),
-		Password:                  getenv("PROM_SHIM_CLICKHOUSE_PASSWORD", "otel"),
-		ClickHouseCompression:     getenv("PROM_SHIM_CLICKHOUSE_COMPRESSION", "off"),
-		RequestTimeout:            time.Second * time.Duration(getenvInt("PROM_SHIM_REQUEST_TIMEOUT_SECONDS", 30)),
-		ClickHouseTransport:       storage.TransportKind(getenv("PROM_SHIM_CLICKHOUSE_TRANSPORT", string(storage.TransportNative))),
-		ClickHouseMaxOpenConns:    getenvInt("PROM_SHIM_CLICKHOUSE_MAX_OPEN_CONNS", 10),
-		ClickHouseMaxIdleConns:    getenvInt("PROM_SHIM_CLICKHOUSE_MAX_IDLE_CONNS", 10),
-		ClickHouseConnMaxLifetime: time.Second * time.Duration(getenvInt("PROM_SHIM_CLICKHOUSE_CONN_MAX_LIFETIME_SECONDS", 3600)),
-		ClickHouseVersion:         getenv("PROM_SHIM_CLICKHOUSE_VERSION", "26.3"),
-		NativeLoweringMode:        local.NativeLoweringMode(getenv("PROM_SHIM_NATIVE_LOWERING_MODE", string(local.NativeLoweringModePrefer))),
-		RoutingPolicy:             RoutingPolicy(getenv("PROM_SHIM_ROUTING_POLICY", string(RoutingPolicyStrict))),
-		CostRoutingLocalFamilies:  splitCSVEnv(getenv("PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES", "")),
-		MaxRangePointsPerSeries:   getenvInt64("PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES", local.DefaultMaxRangePointsPerSeries),
-		RangeChunkPointsPerSeries: getenvInt64("PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES", local.DefaultRangeChunkPointsPerSeries),
-		MaxResponseSeries:         getenvInt64("PROM_SHIM_MAX_RESPONSE_SERIES", defaultMaxResponseSeries),
-		MaxResponsePoints:         getenvInt64("PROM_SHIM_MAX_RESPONSE_POINTS", defaultMaxResponsePoints),
+		ClickHouseEndpoint:            getenv("PROM_SHIM_CLICKHOUSE_ENDPOINT", "http://127.0.0.1:8123/"),
+		ClickHouseNativeAddr:          getenv("PROM_SHIM_CLICKHOUSE_NATIVE_ADDR", "127.0.0.1:9000"),
+		Database:                      getenv("PROM_SHIM_CLICKHOUSE_DATABASE", "observability"),
+		Table:                         getenv("PROM_SHIM_CLICKHOUSE_TABLE", "prometheus"),
+		Username:                      getenv("PROM_SHIM_CLICKHOUSE_USERNAME", "default"),
+		Password:                      getenv("PROM_SHIM_CLICKHOUSE_PASSWORD", "otel"),
+		ClickHouseCompression:         getenv("PROM_SHIM_CLICKHOUSE_COMPRESSION", "off"),
+		RequestTimeout:                time.Second * time.Duration(getenvInt("PROM_SHIM_REQUEST_TIMEOUT_SECONDS", 30)),
+		ClickHouseTransport:           storage.TransportKind(getenv("PROM_SHIM_CLICKHOUSE_TRANSPORT", string(storage.TransportNative))),
+		ClickHouseMaxOpenConns:        getenvInt("PROM_SHIM_CLICKHOUSE_MAX_OPEN_CONNS", 10),
+		ClickHouseMaxIdleConns:        getenvInt("PROM_SHIM_CLICKHOUSE_MAX_IDLE_CONNS", 10),
+		ClickHouseConnMaxLifetime:     time.Second * time.Duration(getenvInt("PROM_SHIM_CLICKHOUSE_CONN_MAX_LIFETIME_SECONDS", 3600)),
+		ClickHouseVersion:             getenv("PROM_SHIM_CLICKHOUSE_VERSION", "26.3"),
+		ClickHouseSettingsProfile:     getenv("PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE", storage.SettingsProfileDefaultSafe),
+		ClickHouseMaxMemoryUsageBytes: getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_MEMORY_USAGE_BYTES", 0),
+		ClickHouseMaxRowsToRead:       getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_ROWS_TO_READ", 0),
+		ClickHouseMaxResultRows:       getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_RESULT_ROWS", 0),
+		NativeLoweringMode:            local.NativeLoweringMode(getenv("PROM_SHIM_NATIVE_LOWERING_MODE", string(local.NativeLoweringModePrefer))),
+		RoutingPolicy:                 RoutingPolicy(getenv("PROM_SHIM_ROUTING_POLICY", string(RoutingPolicyStrict))),
+		CostRoutingLocalFamilies:      splitCSVEnv(getenv("PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES", "")),
+		MaxRangePointsPerSeries:       getenvInt64("PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES", local.DefaultMaxRangePointsPerSeries),
+		RangeChunkPointsPerSeries:     getenvInt64("PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES", local.DefaultRangeChunkPointsPerSeries),
+		MaxResponseSeries:             getenvInt64("PROM_SHIM_MAX_RESPONSE_SERIES", defaultMaxResponseSeries),
+		MaxResponsePoints:             getenvInt64("PROM_SHIM_MAX_RESPONSE_POINTS", defaultMaxResponsePoints),
+		PromotedTagColumns:            splitCSVEnv(getenv("PROM_SHIM_PROMOTED_TAG_COLUMNS", "")),
+		DiscoverPromotedTagColumns:    getenvBool("PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS", false),
+		NativeGridFunctions:           getenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "prefer"),
+		CumulativeAvgOverTime:         getenv("PROM_SHIM_CUMULATIVE_AVG_OVER_TIME", "prefer"),
 	}
 
 	if _, err := local.ParseNativeLoweringMode(string(opts.NativeLoweringMode)); err != nil {
@@ -77,6 +93,15 @@ func LoadOptionsFromEnv() (Options, error) {
 	}
 	if err := storage.ValidateNativeCompression(opts.ClickHouseCompression); err != nil {
 		return Options{}, fmt.Errorf("invalid PROM_SHIM_CLICKHOUSE_COMPRESSION: %w", err)
+	}
+	if _, err := storage.ParseSettingsProfileName(opts.ClickHouseSettingsProfile); err != nil {
+		return Options{}, fmt.Errorf("invalid PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE: %w", err)
+	}
+	if normalized := normalizeNativeGridFunctionsMode(opts.NativeGridFunctions); normalized == "" {
+		return Options{}, fmt.Errorf("invalid PROM_SHIM_NATIVE_GRID_FUNCTIONS: %q", opts.NativeGridFunctions)
+	}
+	if normalized := normalizePreferOffMode(opts.CumulativeAvgOverTime); normalized == "" {
+		return Options{}, fmt.Errorf("invalid PROM_SHIM_CUMULATIVE_AVG_OVER_TIME: %q", opts.CumulativeAvgOverTime)
 	}
 
 	if _, err := url.Parse(opts.ClickHouseEndpoint); err != nil {
@@ -108,6 +133,21 @@ func splitCSVEnv(raw string) []string {
 	return out
 }
 
+func getenvBool(key string, fallback bool) bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	if value == "" {
+		return fallback
+	}
+	switch value {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
+}
+
 func getenvInt(key string, fallback int) int {
 	value := os.Getenv(key)
 	if value == "" {
@@ -132,6 +172,21 @@ func getenvInt64(key string, fallback int64) int64 {
 	return parsed
 }
 
+func normalizeNativeGridFunctionsMode(value string) string {
+	return normalizePreferOffMode(value)
+}
+
+func normalizePreferOffMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "prefer":
+		return "prefer"
+	case "off":
+		return "off"
+	default:
+		return ""
+	}
+}
+
 func normalizeOptions(opts Options) Options {
 	opts.ClickHouseVersion = local.NormalizeClickHouseVersion(opts.ClickHouseVersion)
 	if opts.ClickHouseNativeAddr == "" {
@@ -152,6 +207,9 @@ func normalizeOptions(opts Options) Options {
 	if opts.ClickHouseConnMaxLifetime <= 0 {
 		opts.ClickHouseConnMaxLifetime = time.Hour
 	}
+	opts.ClickHouseSettingsProfile = storage.NormalizeSettingsProfileName(opts.ClickHouseSettingsProfile)
+	opts.NativeGridFunctions = normalizeNativeGridFunctionsMode(opts.NativeGridFunctions)
+	opts.CumulativeAvgOverTime = normalizePreferOffMode(opts.CumulativeAvgOverTime)
 	opts.NativeLoweringMode = local.NormalizeNativeLoweringMode(opts.NativeLoweringMode)
 	opts.RoutingPolicy = NormalizeRoutingPolicy(opts.RoutingPolicy)
 	if opts.MaxRangePointsPerSeries <= 0 {

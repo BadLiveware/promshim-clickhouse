@@ -22,11 +22,15 @@ func (c *Client) QuerySelectorStats(ctx context.Context, req QueryRequest) (stat
 		if !ok {
 			return SelectorStats{}, fmt.Errorf("typed selector stats decoding requires %s transport, got %s", TransportNative, c.transportKind)
 		}
-		rows, err := nativeTransport.QueryNativeRows(ctx, req)
+		prepared, err := c.prepareQueryRequest(req)
 		if err != nil {
 			return SelectorStats{}, err
 		}
-		defer rows.Close()
+		rows, err := nativeTransport.QueryNativeRows(ctx, prepared)
+		if err != nil {
+			return SelectorStats{}, err
+		}
+		defer func() { _ = rows.Close() }()
 		if rows.Next() {
 			var count uint64
 			if err := rows.Scan(&count); err != nil {
@@ -39,12 +43,12 @@ func (c *Client) QuerySelectorStats(ctx context.Context, req QueryRequest) (stat
 		}
 		return stats, nil
 	}
-	response, err := c.Execute(ctx, req.SQL, req.Params)
+	rows, err := c.Query(ctx, req)
 	if err != nil {
 		return SelectorStats{}, err
 	}
-	defer response.Body.Close()
-	return decodeSelectorStats(response.Body)
+	defer func() { _ = rows.Close() }()
+	return decodeSelectorStats(rows)
 }
 
 func decodeSelectorStats(reader io.Reader) (SelectorStats, error) {

@@ -50,7 +50,7 @@ func applyNativeAggregateOverTimeForTest(name string, matrix model.MatrixValue) 
 		last := series.Values[len(series.Values)-1]
 		metric := model.DropMetricName(series.Metric)
 		sampleTimestamp := last.Timestamp
-		value := math.NaN()
+		var value float64
 		switch name {
 		case "last_over_time":
 			metric = model.CloneMetric(series.Metric)

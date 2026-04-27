@@ -6,7 +6,6 @@ import (
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
-	"github.com/prometheus/prometheus/promql/parser"
 )
 
 // renderAggregationLogical is the entry point for every aggregation op
@@ -71,15 +70,7 @@ func renderAggregationLogicalBody(ctx LoweringCtx, n *logicalpkg.AggregationPlan
 	}
 	cachedAgg := aggInfo.Aggregation
 
-	// Selection aggregations (topk, bottomk, limitk, limit_ratio) and
-	// count_values synthesize output labels from the input labelset and
-	// cannot lower through the empty-tags selector fast path; force the
-	// underlying selector to emit the full tags array via RenderParams.
-	sourceParams := ctx.Params
-	if native.IsSelectionNativeAggregation(n.Op) || n.Op == parser.COUNT_VALUES {
-		sourceParams.RequireFullTags = true
-		sourceParams.RequiredTagLabels = nil
-	}
+	sourceParams := aggregationChildRenderParams(n, ctx.Params)
 
 	// Branch 1: direct-aggregation-source. Render from the child node's
 	// SourceExprView (leaf / unary-source / binary-scalar-source shapes).
@@ -117,7 +108,7 @@ func renderAggregationLogicalBody(ctx LoweringCtx, n *logicalpkg.AggregationPlan
 	// Branch 2: subquery fallback. Lower the logical child directly so
 	// the child SQL is driven off the logical tree, then wrap it in an
 	// aggregation-over-subquery shell.
-	childSQL, childParams, err := renderLogicalSubquery(ctx.Config, n.Child, ctx.Analysis, ctx.NativeAnalysis, ctx.Params, "aggregation_child")
+	childSQL, childParams, err := renderLogicalSubquery(ctx.Config, n.Child, ctx.Analysis, ctx.NativeAnalysis, sourceParams, "aggregation_child")
 	if err != nil {
 		return renderedFragment{}, err
 	}

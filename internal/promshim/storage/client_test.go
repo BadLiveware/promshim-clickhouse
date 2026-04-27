@@ -31,6 +31,12 @@ func TestHTTPJSONTransportExecutePreservesHTTPRequest(t *testing.T) {
 		if got := query.Get("log_comment"); got != "bench-a" {
 			t.Fatalf("log_comment = %q, want bench-a", got)
 		}
+		if got := query.Get("max_execution_time"); got != "1" {
+			t.Fatalf("max_execution_time = %q, want 1", got)
+		}
+		if got := query.Get("readonly"); got != "2" {
+			t.Fatalf("readonly = %q, want 2", got)
+		}
 		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err != nil {
 			t.Fatalf("parse content type: %v", err)
@@ -60,7 +66,7 @@ func TestHTTPJSONTransportExecutePreservesHTTPRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx := obs.WithLogComment(context.Background(), "bench-a")
 	ctx, metrics := obs.WithCHMetrics(ctx)
@@ -68,7 +74,7 @@ func TestHTTPJSONTransportExecutePreservesHTTPRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	payload, err := io.ReadAll(response.Body)
 	if err != nil {
 		t.Fatalf("read response body: %v", err)
@@ -101,7 +107,7 @@ func TestHTTPJSONTransportMapsHTTPStatusErrors(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewClient: %v", err)
 			}
-			defer client.Close()
+			defer func() { _ = client.Close() }()
 
 			_, err = client.Execute(context.Background(), "SELECT 1", nil)
 			queryErr, ok := err.(*QueryError)
@@ -130,7 +136,7 @@ func TestNativeTransportExecuteRequiresTypedDecoder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient native: %v", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	_, err = client.Execute(context.Background(), "SELECT 1", nil)
 	if err == nil || !strings.Contains(err.Error(), ErrNativeRowsNeedTypedDecoder.Error()) {

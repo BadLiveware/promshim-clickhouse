@@ -220,10 +220,7 @@ func expandQuery(query string, remaining []string, args map[string]string) []str
 	if len(values) == 0 {
 		panic(fmt.Errorf("unknown variant arg %q", name))
 	}
-	filtered := make([]string, 0, len(remaining)-1)
-	for _, item := range remaining[1:] {
-		filtered = append(filtered, item)
-	}
+	filtered := append([]string(nil), remaining[1:]...)
 	out := make([]string, 0)
 	for _, value := range values {
 		next := make(map[string]string, len(args)+1)
@@ -264,14 +261,14 @@ func writeMarkdown(path string, report complianceReport) error {
 	var b strings.Builder
 	b.WriteString("# Path 2 PromQL compliance alignment\n\n")
 	b.WriteString("This file is generated from the read-only Prometheus compliance suite at `harness/compliance/prom-compliance/promql/promql-test-queries.yml`.\n\n")
-	b.WriteString(fmt.Sprintf("- Source: `%s`\n", report.SourcePath))
-	b.WriteString(fmt.Sprintf("- Expanded queries: `%d`\n", report.ExpandedQueries))
-	b.WriteString(fmt.Sprintf("- `should_fail` queries: `%d`\n\n", report.ShouldFailQueries))
+	_, _ = fmt.Fprintf(&b, "- Source: `%s`\n", report.SourcePath)
+	_, _ = fmt.Fprintf(&b, "- Expanded queries: `%d`\n", report.ExpandedQueries)
+	_, _ = fmt.Fprintf(&b, "- `should_fail` queries: `%d`\n\n", report.ShouldFailQueries)
 	b.WriteString("## Summary\n\n")
 	b.WriteString("| Path 2 status | Count |\n")
 	b.WriteString("|---|---:|\n")
 	for _, item := range report.Path2StatusSummary {
-		b.WriteString(fmt.Sprintf("| `%s` | %d |\n", item.Path2Status, item.Count))
+		_, _ = fmt.Fprintf(&b, "| `%s` | %d |\n", item.Path2Status, item.Count)
 	}
 	b.WriteString("\n")
 	writeBucketSummary(&b, "Unsupported implementation buckets", report.UnsupportedBucketSummary)
@@ -289,7 +286,7 @@ func writeBucketSummary(b *strings.Builder, title string, rows []bucketSummary) 
 	b.WriteString("| Bucket | Count |\n")
 	b.WriteString("|---|---:|\n")
 	for _, row := range rows {
-		b.WriteString(fmt.Sprintf("| `%s` | %d |\n", row.Bucket, row.Count))
+		_, _ = fmt.Fprintf(b, "| `%s` | %d |\n", row.Bucket, row.Count)
 	}
 	b.WriteString("\n")
 }
@@ -302,7 +299,7 @@ func writeExamples(b *strings.Builder, title string, rows []reportRow) {
 	b.WriteString("| Bucket | Query | Should fail | Plan reason | Native reason |\n")
 	b.WriteString("|---|---|---|---|---|\n")
 	for _, row := range rows {
-		b.WriteString(fmt.Sprintf("| `%s` | `%s` | `%t` | %s | %s |\n", escapeTable(row.ImplementationBucket), escapeTable(row.Query), row.ShouldFail, escapeTable(row.PlanReason), escapeTable(row.NativeReason)))
+		_, _ = fmt.Fprintf(b, "| `%s` | `%s` | `%t` | %s | %s |\n", escapeTable(row.ImplementationBucket), escapeTable(row.Query), row.ShouldFail, escapeTable(row.PlanReason), escapeTable(row.NativeReason))
 	}
 	b.WriteString("\n")
 }

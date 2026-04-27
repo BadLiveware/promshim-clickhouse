@@ -15,7 +15,7 @@ func executeStorageInstantSamples(ctx context.Context, client *storage.Client, s
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	return DecodeInstantSamples(response.Body)
 }
 
@@ -27,6 +27,6 @@ func executeStorageRangeSeries(ctx context.Context, client *storage.Client, sql 
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	return DecodeRangeSeries(response.Body)
 }

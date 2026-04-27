@@ -404,7 +404,9 @@ func tryRenderHistogramChildRowsSQLLogical(cfg storage.QueryConfig, childNode lo
 			}
 			rowsSQL, rowParams, err = buildHistogramIdentityTagAggregationRowsSQL(childRowsSQL, childRowParams, "timestamp")
 		} else {
-			rowsSQL, rowParams, err = renderFusedRangeAggregationLogicalRowsSQL(ctx, agg)
+			childCtx := ctx
+			childCtx.Params = aggregationChildRenderParams(agg, params)
+			rowsSQL, rowParams, err = renderFusedRangeAggregationLogicalRowsSQL(childCtx, agg)
 		}
 	case native.RenderModeInstant:
 		if agg.Op != parser.SUM {

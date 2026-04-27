@@ -4,7 +4,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 )
 
 // rangeFunctionCases covers all seven logical range-function plan kinds.
@@ -75,6 +78,182 @@ func TestLowerRangeFunctionGolden(t *testing.T) {
 					t.Errorf("SQL differs from golden %s\nwant:\n%s\ngot:\n%s", goldenPath, want, rq.SQL)
 				}
 			})
+		}
+	}
+}
+
+func TestLowerLongInstantRateUsesGuardedDirectAggregate(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[5m])`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if !strings.Contains(rq.SQL, "deltaSumTimestamp(") {
+		t.Fatalf("expected guarded instant rate aggregate SQL to contain deltaSumTimestamp, got %s", rq.SQL)
+	}
+	if strings.Contains(rq.SQL, "lagInFrame(") {
+		t.Fatalf("expected guarded instant rate aggregate to avoid lagInFrame, got %s", rq.SQL)
+	}
+}
+
+func TestLowerLongStepRateRangeUsesGuardedDirectAggregate(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[5m])`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params: RenderParams{
+			Mode:    native.RenderModeRange,
+			StartMS: 1_700_000_000_000,
+			EndMS:   1_700_086_400_000,
+			StepMS:  300_000,
+		},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	for _, expected := range []string{"deltaSumTimestamp(", "count() AS sample_count", "max(d.timestamp) - min(d.timestamp) AS window_duration_ms"} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected guarded direct rate aggregate SQL to contain %q, got %s", expected, rq.SQL)
+		}
+	}
+	if strings.Contains(rq.SQL, "arraySort(groupArray((d.timestamp, d.value))) AS window_series") {
+		t.Fatalf("expected guarded direct rate aggregate to avoid window_series materialization, got %s", rq.SQL)
+	}
+}
+
+func TestLowerLongStepRateRangeUsesNativeGridWhenEnabled(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[5m])`)
+	cfg := testRenderConfig()
+	cfg.EnableNativeGridFunctions = true
+	rq, err := Lower(LoweringCtx{
+		Config:         cfg,
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params: RenderParams{
+			Mode:    native.RenderModeRange,
+			StartMS: 1_700_000_000_000,
+			EndMS:   1_700_086_400_000,
+			StepMS:  300_000,
+		},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	for _, expected := range []string{"timeSeriesRateToGrid(", "arrayZip(arrayMap", "arrayFilter(point -> isNotNull(point.2)", "arrayMap(point -> (point.1, toFloat64(assumeNotNull(point.2)))"} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected native-grid rate SQL to contain %q, got %s", expected, rq.SQL)
+		}
+	}
+	for _, unexpected := range []string{"deltaSumTimestamp(", "ARRAY JOIN", "groupArray((timestamp, value))"} {
+		if strings.Contains(rq.SQL, unexpected) {
+			t.Fatalf("expected native-grid direct matrix SQL to avoid %q, got %s", unexpected, rq.SQL)
+		}
+	}
+}
+
+func TestLowerRangeFunctionsUseNativeGridWhenEnabled(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		query      string
+		chFunction string
+	}{
+		{name: "high_overlap_rate", query: `rate(demo_cpu_usage_seconds_total[5m])`, chFunction: "timeSeriesRateToGrid("},
+		{name: "irate", query: `irate(demo_cpu_usage_seconds_total[5m])`, chFunction: "timeSeriesInstantRateToGrid("},
+		{name: "delta", query: `delta(demo_cpu_usage_seconds_total[10m])`, chFunction: "timeSeriesDeltaToGrid("},
+		{name: "idelta", query: `idelta(demo_cpu_usage_seconds_total[10m])`, chFunction: "timeSeriesInstantDeltaToGrid("},
+		{name: "last_over_time", query: `last_over_time(demo_cpu_usage_seconds_total[5m])`, chFunction: "timeSeriesLastToGrid("},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, analysis, nativeAnalysis := buildLowerInputs(t, tc.query)
+			cfg := testRenderConfig()
+			cfg.EnableNativeGridFunctions = true
+			rq, err := Lower(LoweringCtx{
+				Config:         cfg,
+				Analysis:       analysis,
+				NativeAnalysis: nativeAnalysis,
+				Params: RenderParams{
+					Mode:    native.RenderModeRange,
+					StartMS: 1_700_000_000_000,
+					EndMS:   1_700_003_600_000,
+					StepMS:  30_000,
+				},
+			}, root)
+			if err != nil {
+				t.Fatalf("Lower: %v", err)
+			}
+			for _, expected := range []string{tc.chFunction, "arrayZip(arrayMap", "arrayFilter(point -> isNotNull(point.2)"} {
+				if !strings.Contains(rq.SQL, expected) {
+					t.Fatalf("expected native-grid SQL to contain %q, got %s", expected, rq.SQL)
+				}
+			}
+			for _, unexpected := range []string{"deltaSumTimestamp(", "arraySort(groupArray((d.timestamp, d.value))) AS window_series"} {
+				if strings.Contains(rq.SQL, unexpected) {
+					t.Fatalf("expected native-grid SQL to avoid %q, got %s", unexpected, rq.SQL)
+				}
+			}
+			if tc.name == "last_over_time" && strings.Contains(rq.SQL, "arrayFilter(tag -> tag.1 != '__name__'") {
+				t.Fatalf("last_over_time must preserve metric name before downstream operators, got %s", rq.SQL)
+			}
+		})
+	}
+}
+
+func TestLowerHighOverlapAvgOverTimeRangeUsesDirectAggregate(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `avg_over_time(demo_memory_usage_bytes[1h])`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params: RenderParams{
+			Mode:    native.RenderModeRange,
+			StartMS: 1_700_000_000_000,
+			EndMS:   1_700_086_400_000,
+			StepMS:  60_000,
+		},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	for _, expected := range []string{"sum(if(NOT isNaN(ifNull(toFloat64(d.value), nan))", "AS finite_sum", "ASOF LEFT JOIN", "upper.finite_sum - lower.finite_sum AS finite_sum", "finite_sum / finite_count"} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected high-overlap avg_over_time cumulative aggregate SQL to contain %q, got %s", expected, rq.SQL)
+		}
+	}
+	for _, unexpected := range []string{"arraySort(groupArray((d.timestamp, d.value))) AS window_series", "window_values", "CROSS JOIN", "avgIf("} {
+		if strings.Contains(rq.SQL, unexpected) {
+			t.Fatalf("expected high-overlap avg_over_time cumulative aggregate to avoid %q, got %s", unexpected, rq.SQL)
+		}
+	}
+}
+
+func TestLowerShortRateRangeUsesSortedWindowSeries(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[15s])`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params: RenderParams{
+			Mode:    native.RenderModeRange,
+			StartMS: 1_776_807_342_000,
+			EndMS:   1_776_807_942_000,
+			StepMS:  10_000,
+		},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if strings.Contains(rq.SQL, "deltaSumTimestamp(") {
+		t.Fatalf("short rate ranges must not use direct deltaSumTimestamp aggregate, got %s", rq.SQL)
+	}
+	for _, expected := range []string{"arraySort(groupArray((d.timestamp, d.value))) AS window_series", "arrayPopBack(window_values) AS window_values_prev", "arrayPopFront(window_values) AS window_values_cur"} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected %q in SQL, got %s", expected, rq.SQL)
 		}
 	}
 }

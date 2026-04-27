@@ -7,6 +7,7 @@ import (
 	"time"
 
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	logicalopt "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical/opt"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/renderer"
@@ -36,8 +37,9 @@ type nativeSubtreePlan struct {
 	// renderer.Lower(ctx, LogicalRoot) to produce SQL directly from
 	// the logical tree. Subtree-pushdown construction sites (tier 3a)
 	// leave these nil and use the per-subtree Node/Analysis pair below.
-	LogicalRoot     logicalpkg.Node
-	LogicalAnalysis *logicalpkg.Analysis
+	LogicalRoot              logicalpkg.Node
+	LogicalAnalysis          *logicalpkg.Analysis
+	LogicalOptimizationTrace *logicalopt.Trace
 	// Node and Analysis carry the logical node and native analysis for
 	// this subtree; distinct from LogicalRoot/LogicalAnalysis which
 	// are set only for the whole-query tier-2 plan.
@@ -85,7 +87,7 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 			}
 		}
 	}
-	cfg := storage.QueryConfig{Database: Evaluator.database, Table: Evaluator.table}
+	cfg := Evaluator.queryConfig()
 	renderParams := renderer.RenderParams{
 		Mode:             renderMode,
 		EvaluationTimeMS: params.EvaluationTime.UnixMilli(),
@@ -245,19 +247,24 @@ func (p *nativeSubtreePlan) explain() ExplainNode {
 		report = p.OptimizationReport
 	}
 	explain := ExplainNode{
-		Kind:                p.Kind,
-		Strategy:            "native_sql",
-		Expr:                p.Expr,
-		Reason:              p.Reason,
-		Estimate:            p.Estimate,
-		Children:            children,
-		RulesApplied:        append([]string(nil), report.RulesApplied...),
-		PushedPredicates:    append([]string(nil), report.PushedPredicates...),
-		InferredPredicates:  append([]string(nil), report.InferredPredicates...),
-		RequiredColumns:     append([]string(nil), report.RequiredColumns...),
-		MaterializedColumns: append([]string(nil), report.MaterializedColumns...),
-		SemanticBarriers:    append([]string(nil), report.SemanticBarriers...),
-		RenderedSQL:         report.RenderedSQL,
+		Kind:                 p.Kind,
+		Strategy:             "native_sql",
+		Expr:                 p.Expr,
+		Reason:               p.Reason,
+		Estimate:             p.Estimate,
+		Children:             children,
+		RulesApplied:         append([]string(nil), report.RulesApplied...),
+		PushedPredicates:     append([]string(nil), report.PushedPredicates...),
+		InferredPredicates:   append([]string(nil), report.InferredPredicates...),
+		RequiredColumns:      append([]string(nil), report.RequiredColumns...),
+		MaterializedColumns:  append([]string(nil), report.MaterializedColumns...),
+		SemanticBarriers:     append([]string(nil), report.SemanticBarriers...),
+		RequiredInputStartMS: report.RequiredInputStartMS,
+		RequiredInputEndMS:   report.RequiredInputEndMS,
+		RenderedSQL:          report.RenderedSQL,
+	}
+	if p.LogicalOptimizationTrace != nil || p.LogicalAnalysis != nil {
+		explain.LogicalOptimization = explainLogicalOptimization(p.LogicalOptimizationTrace, p.LogicalAnalysis)
 	}
 	if p.Info != nil && p.Info.JoinShape != "" {
 		explain.JoinShape = p.Info.JoinShape

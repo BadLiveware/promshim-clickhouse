@@ -40,6 +40,33 @@ func TestBuildInstantBinaryVectorJoinSQLIncludesJoinKeyAndDuplicateChecks(t *tes
 	}
 }
 
+func TestBuildInstantBinaryVectorSelfJoinSQLUsesOneSource(t *testing.T) {
+	sourceSQL := "SELECT tags, timestamp, value FROM source"
+	sql, _, err := BuildInstantBinaryVectorSelfJoinSQL(sourceSQL, map[string]string{"a": "b"}, BinaryJoinConfig{
+		Op: parser.ADD,
+		VectorMatching: &parser.VectorMatching{
+			Card: parser.CardOneToOne,
+		},
+		JoinShape: "one_to_one",
+	})
+	if err != nil {
+		t.Fatalf("expected self-join SQL, got error: %v", err)
+	}
+	for _, expected := range []string{
+		"(lhs.value + lhs.value) AS value",
+		"SELECT tags, timestamp, value FROM source",
+		"throwIf(count() > 1, 'found duplicate series for the match group on the lhs hand-side of the operation') = 0",
+		"arrayFilter(tag -> tag.1 != '__name__'",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected %q in SQL, got %q", expected, sql)
+		}
+	}
+	if strings.Contains(sql, " rhs") || strings.Contains(sql, " JOIN ") {
+		t.Fatalf("did not expect second source or join in self-join SQL, got %q", sql)
+	}
+}
+
 func TestBuildRangeBinaryVectorJoinSQLJoinsOnTimestampAndJoinGroup(t *testing.T) {
 	lhsSQL := "SELECT tags, time_series FROM lhs_source"
 	rhsSQL := "SELECT tags, time_series FROM rhs_source"

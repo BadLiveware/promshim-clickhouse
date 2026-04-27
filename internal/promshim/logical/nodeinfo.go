@@ -110,4 +110,15 @@ type NodeInfo struct {
 	LabelLineage     LabelLineage
 	DropsMetric      bool
 	TimeRequirements TimeRequirements
+
+	// Deterministic planning metadata. These fields are physical hints and
+	// explain/candidate inputs, not semantic facts. Missing metadata must keep
+	// routing conservative and must not affect PromQL results.
+	SelectorFingerprint        string
+	NormalizedMatchers         []string
+	SelectorReuseGroup         string
+	SelectorReuseBlockedReason string
+	RequiredLabels             []string
+	PrunableLabels             []string
+	ProjectionUnsafeReason     string
 }

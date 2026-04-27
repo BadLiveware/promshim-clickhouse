@@ -39,6 +39,8 @@ const (
 // explain output. Existing Execute adapter call sites leave it unset.
 type QueryPurpose string
 
+const QueryPurposeSchemaDiscovery QueryPurpose = "schema_discovery"
+
 // QueryRequest is the transport-neutral representation of a ClickHouse query.
 type QueryRequest struct {
 	SQL      string

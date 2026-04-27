@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -96,6 +97,35 @@ func TestLowerBinaryVectorJoinGolden(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestLowerBinaryVectorJoinReusesIdenticalInstantAddSubexpression(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `(rate(demo_cpu_usage_seconds_total[1h]) + rate(demo_cpu_usage_seconds_total[1h])) / 2`)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if got := strings.Count(rq.SQL, "timeSeriesData("); got != 1 {
+		t.Fatalf("timeSeriesData count = %d, want 1 in SQL:\n%s", got, rq.SQL)
+	}
+	if got := strings.Count(rq.SQL, "deltaSumTimestamp"); got != 1 {
+		t.Fatalf("deltaSumTimestamp count = %d, want 1 in SQL:\n%s", got, rq.SQL)
+	}
+	if !strings.Contains(rq.SQL, "lhs.value + lhs.value") {
+		t.Fatalf("expected self-reuse value expression, got SQL:\n%s", rq.SQL)
+	}
+}
+
+func TestLowerBinaryVectorJoinReuseRollbackGate(t *testing.T) {
+	t.Setenv(DisableNativeRepeatedSubexpressionReuseEnv, "true")
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `(rate(demo_cpu_usage_seconds_total[1h]) + rate(demo_cpu_usage_seconds_total[1h])) / 2`)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if got := strings.Count(rq.SQL, "timeSeriesData("); got != 2 {
+		t.Fatalf("timeSeriesData count = %d, want rollback to 2 in SQL:\n%s", got, rq.SQL)
 	}
 }
 

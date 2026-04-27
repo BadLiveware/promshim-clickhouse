@@ -24,6 +24,7 @@ func classifyQueryCost(expr parser.Expr, timing queryCostTiming, strictStrategy 
 		StepMS:             timing.Step.Milliseconds(),
 	}
 	walkQueryCost(expr, &class)
+	class.HasRepeatedRangeFunc = hasRepeatedRangeFunctionCall(expr)
 	if timing.Endpoint == "query_range" && timing.Step > 0 && !timing.End.Before(timing.Start) {
 		class.RangePointsPerSeries = int64(timing.End.Sub(timing.Start)/timing.Step) + 1
 		if class.SelectorCount > 0 {
@@ -82,7 +83,7 @@ func walkQueryCost(expr parser.Expr, class *httpapi.QueryCostClass) {
 		class.DropsAllLabels = len(node.Grouping) == 0 && !node.Without
 		walkQueryCost(node.Expr, class)
 	case *parser.BinaryExpr:
-		if node.VectorMatching != nil {
+		if hasExplicitVectorJoin(node) {
 			class.HasVectorJoin = true
 		}
 		walkQueryCost(node.LHS, class)
@@ -141,7 +142,7 @@ func queryFamilyBase(expr parser.Expr) string {
 		}
 		return "aggregation"
 	case *parser.BinaryExpr:
-		if node.VectorMatching != nil {
+		if hasExplicitVectorJoin(node) {
 			return "vector_match"
 		}
 		return "binary"
@@ -170,6 +171,17 @@ func outputKind(expr parser.Expr, endpoint string) string {
 	return string(expr.Type())
 }
 
+func hasExplicitVectorJoin(expr *parser.BinaryExpr) bool {
+	if expr == nil || expr.VectorMatching == nil {
+		return false
+	}
+	matching := expr.VectorMatching
+	if matching.Card != parser.CardOneToOne {
+		return true
+	}
+	return matching.On || len(matching.MatchingLabels) > 0 || len(matching.Include) > 0 || matching.FillValues.LHS != nil || matching.FillValues.RHS != nil
+}
+
 func isSelectionAggregation(name string) bool {
 	switch name {
 	case "topk", "bottomk", "limitk", "limit_ratio":
@@ -186,4 +198,46 @@ func isRangeFunction(name string) bool {
 	default:
 		return false
 	}
+}
+
+func hasRepeatedRangeFunctionCall(expr parser.Expr) bool {
+	seen := map[string]struct{}{}
+	repeated := false
+	var walk func(parser.Expr)
+	walk = func(node parser.Expr) {
+		if node == nil || repeated {
+			return
+		}
+		switch typed := node.(type) {
+		case *parser.Call:
+			name := strings.ToLower(typed.Func.Name)
+			if name == "rate" || name == "irate" || name == "increase" || isRangeFunction(name) {
+				key := typed.String()
+				if _, ok := seen[key]; ok {
+					repeated = true
+					return
+				}
+				seen[key] = struct{}{}
+			}
+			for _, arg := range typed.Args {
+				walk(arg)
+			}
+		case *parser.AggregateExpr:
+			if typed.Param != nil {
+				walk(typed.Param)
+			}
+			walk(typed.Expr)
+		case *parser.BinaryExpr:
+			walk(typed.LHS)
+			walk(typed.RHS)
+		case *parser.SubqueryExpr:
+			walk(typed.Expr)
+		case *parser.ParenExpr:
+			walk(typed.Expr)
+		case *parser.UnaryExpr:
+			walk(typed.Expr)
+		}
+	}
+	walk(expr)
+	return repeated
 }

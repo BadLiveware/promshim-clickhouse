@@ -48,7 +48,7 @@ func main() {
 		username      = flag.String("username", "default", "Basic-auth username for the remote-write endpoint.")
 		password      = flag.String("password", "otel", "Basic-auth password for the remote-write endpoint.")
 		profile       = flag.String("profile", "", "Named dashboard profile: 7d | 30d | 1y. Sets --end-time, --duration, --step. Overrides those flags when set.")
-		density       = flag.String("density", "sparse", "Dataset density: sparse | dense. Dense profiles use non-overlapping windows and higher cardinality unless --instances-per-job is explicitly set.")
+		density       = flag.String("density", "sparse", "Dataset density: sparse | dense | stress-50k | stress-500k. Higher densities use non-overlapping windows and higher cardinality unless --instances-per-job is explicitly set.")
 		endTimeFlag   = flag.String("end-time", "2026-03-22T21:45:42Z", "RFC3339 timestamp of the last sample. Pin this and reference it from the bench corpus.")
 		duration      = flag.Duration("duration", 168*time.Hour, "Window size ending at --end-time (e.g. 168h for 7d, 720h for 30d).")
 		step          = flag.Duration("step", 15*time.Second, "Sample interval per series.")
@@ -66,8 +66,10 @@ func main() {
 		}
 	})
 
-	if *density != "sparse" && *density != "dense" {
-		log.Fatalf("unknown --density %q (want: sparse | dense)", *density)
+	switch *density {
+	case "sparse", "dense", "stress-50k", "stress-500k":
+	default:
+		log.Fatalf("unknown --density %q (want: sparse | dense | stress-50k | stress-500k)", *density)
 	}
 
 	if *profile != "" {
@@ -83,7 +85,7 @@ func main() {
 		}
 		log.Printf("[seed-long] profile=%s density=%s end_time=%s duration=%s step=%s instances_per_job=%d",
 			*profile, *density, *endTimeFlag, p.duration, p.step, *instancesFlag)
-	} else if !instancesExplicit && *density == "dense" {
+	} else if !instancesExplicit && *density != "sparse" {
 		*instancesFlag = defaultInstancesPerJob("", *density)
 	}
 
@@ -176,27 +178,55 @@ func main() {
 }
 
 func profileEndTime(p profileConfig, density string) string {
-	if density == "sparse" {
+	slot := densitySlot(density)
+	if slot == 0 {
 		return p.endTime
 	}
 	endTime, err := time.Parse(time.RFC3339, p.endTime)
 	if err != nil {
 		panic(err)
 	}
-	// Dense profiles live in a separate, non-overlapping window immediately
-	// before the sparse window with a one-day gap. This avoids duplicate series
-	// at identical timestamps when both densities are pre-seeded in one stack.
-	return endTime.Add(-p.duration - 24*time.Hour).Format(time.RFC3339)
+	// Densities other than sparse live in non-overlapping windows immediately
+	// before the sparse window, each separated by a one-day gap. This avoids
+	// duplicate series at identical timestamps when multiple densities are
+	// pre-seeded into the same observability.prometheus table.
+	offset := -time.Duration(slot)*p.duration - time.Duration(slot)*24*time.Hour
+	return endTime.Add(offset).Format(time.RFC3339)
+}
+
+// densitySlot assigns each density a non-overlapping window index. Slot 0 is
+// the canonical sparse window; higher slots shift earlier in time.
+func densitySlot(density string) int {
+	switch density {
+	case "sparse":
+		return 0
+	case "dense":
+		return 1
+	case "stress-50k":
+		return 2
+	case "stress-500k":
+		return 3
+	default:
+		return 0
+	}
 }
 
 func defaultInstancesPerJob(profile, density string) int {
-	if density != "dense" {
+	switch density {
+	case "dense":
+		if profile == "1y" {
+			return 50
+		}
+		return 100
+	case "stress-50k":
+		// 1924 instances/job × 2 jobs × 13 series_per_instance = 50,024 series.
+		return 1924
+	case "stress-500k":
+		// 19231 instances/job × 2 jobs × 13 series_per_instance = 500,006 series.
+		return 19231
+	default:
 		return 5
 	}
-	if profile == "1y" {
-		return 50
-	}
-	return 100
 }
 
 func seedMarkerRequest(profile, density string, jobs []string, instancesPerJob int, duration, step time.Duration, seed int64, endTime time.Time) *prompb.WriteRequest {

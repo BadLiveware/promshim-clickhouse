@@ -1,4 +1,4 @@
-# Project AGENTS (promshim-clickhouse)
+# promshim-clickhouse
 
 ## Purpose
 
@@ -72,6 +72,29 @@ delegation classifier; tier 2 in `internal/promshim/native/renderer/` and
 cost-model plumbing, hard caps, and observability when tied to CBE;
 harness/validation in `harness/`, `scripts/`, `cmd/promshim-*`,
 `cmd/promharness-*`.
+
+### Native SQL builder evolution
+
+Grow `internal/promshim/native/sqlb/` as a typed ClickHouse SQL subset, not as a
+full SQL parser or a big-bang renderer rewrite. New native SQL physical shapes
+should add typed `sqlb` expressions, predicates, sources, or ClickHouse helper
+functions exactly where needed, while retaining raw escape hatches for legacy or
+unsupported syntax.
+
+When changing native SQL lowering:
+
+- Represent semantic and physical choices in plan structs first (strategy,
+  predicate placement, stale-marker placement, matched-series distinctness,
+  join/aggregation shape), then render through `sqlb`.
+- Prefer typed `sqlb` nodes/helpers for new optimization logic; keep raw SQL at
+  compatibility edges and make it visible in review.
+- Migrate path-by-path as optimization work touches code. Do not pause feature
+  or performance work for a repository-wide SQL-builder migration.
+- Preserve rendered SQL/goldens unless the commit intentionally changes the
+  physical shape; when it does, validate correctness and the claimed runtime
+  signal with the project benchmark/compliance playbooks.
+- Let this incremental subset evolve toward a fuller typed renderer only if the
+  codebase keeps needing those constructs.
 
 ## Promshim service
 

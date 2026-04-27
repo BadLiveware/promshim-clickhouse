@@ -288,6 +288,14 @@ fi
 if [[ -n "$MEMORY_MODE" ]]; then
   ARGS+=(--memory "$MEMORY_MODE")
 fi
+if [[ "$CLICKHOUSE_PROFILE_MODE" != "off" ]]; then
+  if (( LEGACY_REPORT == 1 )); then
+    fatal "--clickhouse-profile requires v2 reports; remove --legacy-report"
+  fi
+  if [[ -z "$SHIM_MODES" ]]; then
+    ARGS+=(--shim-modes prefer)
+  fi
+fi
 if (( LEGACY_REPORT == 1 )); then
   ARGS+=(--legacy-report)
 fi
@@ -538,21 +546,36 @@ SELECT
   quantile(0.5)(memory_usage) AS memoryP50Bytes,
   quantile(0.95)(memory_usage) AS memoryP95Bytes,
   max(memory_usage) AS memoryMaxBytes,
-  sum(read_rows) AS readRows,
-  sum(read_bytes) AS readBytes,
-  sum(result_rows) AS resultRows,
-  sum(ProfileEvents['SelectedRows']) AS selectedRows,
-  sum(ProfileEvents['SelectedBytes']) AS selectedBytes,
-  sum(ProfileEvents['ReadCompressedBytes']) AS readCompressedBytes,
-  sum(ProfileEvents['JoinBuildTableRowCount']) AS joinBuildTableRowCount,
-  sum(ProfileEvents['JoinProbeTableRowCount']) AS joinProbeTableRowCount,
-  sum(ProfileEvents['JoinResultRowCount']) AS joinResultRowCount,
-  sum(ProfileEvents['FilterTransformPassedRows']) AS filterTransformPassedRows,
-  sum(ProfileEvents['FunctionExecute']) AS functionExecute,
-  sum(ProfileEvents['RealTimeMicroseconds']) AS realTimeMicroseconds,
-  sum(ProfileEvents['UserTimeMicroseconds']) AS userTimeMicroseconds,
-  sum(ProfileEvents['SystemTimeMicroseconds']) AS systemTimeMicroseconds,
-  sum(ProfileEvents['DiskReadElapsedMicroseconds']) AS diskReadElapsedMicroseconds,
+  sum(read_rows) AS readRowsTotal,
+  quantile(0.5)(read_rows) AS readRowsP50,
+  sum(read_bytes) AS readBytesTotal,
+  quantile(0.5)(read_bytes) AS readBytesP50,
+  sum(result_rows) AS resultRowsTotal,
+  quantile(0.5)(result_rows) AS resultRowsP50,
+  sum(ProfileEvents['SelectedRows']) AS selectedRowsTotal,
+  quantile(0.5)(ProfileEvents['SelectedRows']) AS selectedRowsP50,
+  sum(ProfileEvents['SelectedBytes']) AS selectedBytesTotal,
+  quantile(0.5)(ProfileEvents['SelectedBytes']) AS selectedBytesP50,
+  sum(ProfileEvents['ReadCompressedBytes']) AS readCompressedBytesTotal,
+  quantile(0.5)(ProfileEvents['ReadCompressedBytes']) AS readCompressedBytesP50,
+  sum(ProfileEvents['JoinBuildTableRowCount']) AS joinBuildTableRowCountTotal,
+  quantile(0.5)(ProfileEvents['JoinBuildTableRowCount']) AS joinBuildTableRowCountP50,
+  sum(ProfileEvents['JoinProbeTableRowCount']) AS joinProbeTableRowCountTotal,
+  quantile(0.5)(ProfileEvents['JoinProbeTableRowCount']) AS joinProbeTableRowCountP50,
+  sum(ProfileEvents['JoinResultRowCount']) AS joinResultRowCountTotal,
+  quantile(0.5)(ProfileEvents['JoinResultRowCount']) AS joinResultRowCountP50,
+  sum(ProfileEvents['FilterTransformPassedRows']) AS filterTransformPassedRowsTotal,
+  quantile(0.5)(ProfileEvents['FilterTransformPassedRows']) AS filterTransformPassedRowsP50,
+  sum(ProfileEvents['FunctionExecute']) AS functionExecuteTotal,
+  quantile(0.5)(ProfileEvents['FunctionExecute']) AS functionExecuteP50,
+  sum(ProfileEvents['RealTimeMicroseconds']) AS realTimeMicrosecondsTotal,
+  quantile(0.5)(ProfileEvents['RealTimeMicroseconds']) AS realTimeMicrosecondsP50,
+  sum(ProfileEvents['UserTimeMicroseconds']) AS userTimeMicrosecondsTotal,
+  quantile(0.5)(ProfileEvents['UserTimeMicroseconds']) AS userTimeMicrosecondsP50,
+  sum(ProfileEvents['SystemTimeMicroseconds']) AS systemTimeMicrosecondsTotal,
+  quantile(0.5)(ProfileEvents['SystemTimeMicroseconds']) AS systemTimeMicrosecondsP50,
+  sum(ProfileEvents['DiskReadElapsedMicroseconds']) AS diskReadElapsedMicrosecondsTotal,
+  quantile(0.5)(ProfileEvents['DiskReadElapsedMicroseconds']) AS diskReadElapsedMicrosecondsP50,
   argMax(query_id, query_duration_ms) AS sampleQueryId,
   argMax(query, query_duration_ms) AS sampleNativeSQL
 FROM system.query_log
@@ -581,8 +604,8 @@ def needs_processors(row, meta):
     return (
         (row.get('queryDurationP50Ms') or 0) >= 500 or
         (row.get('memoryP95Bytes') or 0) >= 1_000_000_000 or
-        (row.get('joinResultRowCount') or 0) >= 100_000_000 or
-        (row.get('filterTransformPassedRows') or 0) >= 100_000_000 or
+        (row.get('joinResultRowCountP50') or 0) >= 100_000_000 or
+        (row.get('filterTransformPassedRowsP50') or 0) >= 100_000_000 or
         (ratio >= 2 and (row.get('queryDurationP50Ms') or 0) >= 100)
     )
 
@@ -599,10 +622,11 @@ for row in rows:
     query_dir.mkdir(parents=True, exist_ok=True)
     native_path = query_dir / 'native.sql'
     native_path.write_text((row.get('sampleNativeSQL') or '') + '\n')
+    native_rel = native_path.relative_to(pathlib.Path(output_path).parent)
     query_sample = dict(row)
     query_sample.pop('sampleNativeSQL', None)
     (query_dir / 'query-log-summary.json').write_text(json.dumps(query_sample, indent=2) + '\n')
-    out = {**meta, **query_sample, 'nativeSQLPath': str(native_path)}
+    out = {**meta, **query_sample, 'nativeSQLPath': str(native_rel)}
     if needs_processors(row, meta) and row.get('sampleQueryId'):
         proc_sql = f"""
 SELECT
@@ -642,7 +666,7 @@ FORMAT JSONEachRow
             (query_dir / 'processors-by-step.json').write_text(json.dumps(step_rows, indent=2) + '\n')
             write_tsv(query_dir / 'processors-by-name.tsv', proc_rows, ['name','processors','elapsedMicroseconds','elapsedSeconds','inputRows','outputRows','inputBytes','outputBytes'])
             write_tsv(query_dir / 'processors-by-step.tsv', step_rows, ['planStepName','name','processors','elapsedMicroseconds','elapsedSeconds','inputRows','outputRows'])
-            out['processorsByNamePath'] = str(query_dir / 'processors-by-name.tsv')
+            out['processorsByNamePath'] = str((query_dir / 'processors-by-name.tsv').relative_to(pathlib.Path(output_path).parent))
             out['topProcessors'] = proc_rows[:5]
         except Exception as exc:
             out['processorProfileError'] = str(exc)
@@ -662,6 +686,9 @@ def human(n):
             return f"{n:.1f}{suffix}" if suffix else str(int(n))
         n /= 1000
     return f"{n:.1f}P"
+def pick_metric(row, base):
+    return row.get(base + 'P50', row.get(base))
+
 def human_bytes(n):
     if n is None: return ''
     try: n = float(n)
@@ -672,7 +699,7 @@ def human_bytes(n):
         n /= 1024
     return f"{n:.1f}PiB"
 for r in hot:
-    lines.append(f"| `{r.get('queryName')}` | `{r.get('mode')}` | {r.get('queryDurationP50Ms', '')}ms | {human_bytes(r.get('memoryP95Bytes'))} | {human(r.get('readRows'))} | {human(r.get('joinResultRowCount'))} | {human(r.get('filterTransformPassedRows'))} | `{r.get('nativeSQLPath')}` |")
+    lines.append(f"| `{r.get('queryName')}` | `{r.get('mode')}` | {r.get('queryDurationP50Ms', '')}ms | {human_bytes(r.get('memoryP95Bytes'))} | {human(pick_metric(r, 'readRows'))} | {human(pick_metric(r, 'joinResultRowCount'))} | {human(pick_metric(r, 'filterTransformPassedRows'))} | `{r.get('nativeSQLPath')}` |")
 lines.append('')
 if summary.get('errors'):
     lines.append('## Errors')
@@ -686,7 +713,7 @@ if hot:
         top = ''
         if r.get('topProcessors'):
             top = ' top=' + ', '.join(f"{p.get('name')} {p.get('elapsedSeconds')}s" for p in r['topProcessors'][:3])
-        print(f"  {r.get('queryName')} mode={r.get('mode')} ch_p50={r.get('queryDurationP50Ms')}ms mem_p95={human_bytes(r.get('memoryP95Bytes'))} read={human(r.get('readRows'))} join={human(r.get('joinResultRowCount'))} filter={human(r.get('filterTransformPassedRows'))}{top}")
+        print(f"  {r.get('queryName')} mode={r.get('mode')} ch_p50={r.get('queryDurationP50Ms')}ms mem_p95={human_bytes(r.get('memoryP95Bytes'))} read_p50={human(pick_metric(r, 'readRows'))} join_p50={human(pick_metric(r, 'joinResultRowCount'))} filter_p50={human(pick_metric(r, 'filterTransformPassedRows'))}{top}")
 PY
 }
 

@@ -101,7 +101,7 @@ func TestLowerLongInstantRateUsesGuardedDirectAggregate(t *testing.T) {
 	}
 }
 
-func TestLowerLongStepRateRangeUsesGuardedDirectAggregate(t *testing.T) {
+func TestLowerLongStepRateRangeUsesExtrapolatedWindowJoin(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[5m])`)
 	rq, err := Lower(LoweringCtx{
 		Config:         testRenderConfig(),
@@ -117,13 +117,13 @@ func TestLowerLongStepRateRangeUsesGuardedDirectAggregate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
 	}
-	for _, expected := range []string{"deltaSumTimestamp(", "count() AS sample_count", "max(d.timestamp) - min(d.timestamp) AS window_duration_ms"} {
+	for _, expected := range []string{"arraySort(groupArray((d.timestamp, d.value))) AS window_series", "arrayMap(point -> tupleElement(point, 1), window_series) AS window_timestamps", "counter_delta_sum) * (if(", ") / (300)"} {
 		if !strings.Contains(rq.SQL, expected) {
-			t.Fatalf("expected guarded direct rate aggregate SQL to contain %q, got %s", expected, rq.SQL)
+			t.Fatalf("expected extrapolated rate window SQL to contain %q, got %s", expected, rq.SQL)
 		}
 	}
-	if strings.Contains(rq.SQL, "arraySort(groupArray((d.timestamp, d.value))) AS window_series") {
-		t.Fatalf("expected guarded direct rate aggregate to avoid window_series materialization, got %s", rq.SQL)
+	if strings.Contains(rq.SQL, "deltaSumTimestamp(") {
+		t.Fatalf("expected range rate to avoid non-extrapolated direct aggregate, got %s", rq.SQL)
 	}
 }
 

@@ -569,19 +569,38 @@ func directRangeWindowAggregateSpec(fn string) ([]sqlb.ColExpr, string, error) {
 			{Expr: sqlb.RawLit{V: "avgIf(" + valueExpr + ", NOT isNaN(" + valueExpr + "))"}, Alias: "avg_value"},
 		}, "if(nan_count > 0 OR finite_count = 0, nan, avg_value)", nil
 	case "rate":
+		factor := rateExtrapolationFactorSQL("first_timestamp_ms", "last_timestamp_ms", "sample_count", "toUnixTimestamp64Milli(eval_ts)", "{lookback_ms:Int64}")
 		return []sqlb.ColExpr{
 			{Expr: sqlb.RawLit{V: "countIf(isNaN(" + valueExpr + "))"}, Alias: "nan_count"},
-			{Expr: sqlb.RawLit{V: "max(d.timestamp) - min(d.timestamp)"}, Alias: "window_duration_ms"},
+			{Expr: sqlb.RawLit{V: "toUnixTimestamp64Milli(min(d.timestamp))"}, Alias: "first_timestamp_ms"},
+			{Expr: sqlb.RawLit{V: "toUnixTimestamp64Milli(max(d.timestamp))"}, Alias: "last_timestamp_ms"},
+			{Expr: sqlb.RawLit{V: "toUnixTimestamp64Milli(max(d.timestamp)) - toUnixTimestamp64Milli(min(d.timestamp))"}, Alias: "window_duration_ms"},
 			{Expr: sqlb.RawLit{V: "deltaSumTimestamp(" + valueExpr + ", toUnixTimestamp64Milli(d.timestamp))"}, Alias: "counter_delta_sum"},
-		}, "if(nan_count > 0 OR sample_count <= 1 OR window_duration_ms <= 0, nan, counter_delta_sum / window_duration_ms)", nil
+		}, "if(nan_count > 0 OR sample_count <= 1 OR window_duration_ms <= 0, nan, counter_delta_sum * (" + factor + ") / (toFloat64({lookback_ms:Int64}) / 1000.0))", nil
 	default:
 		return nil, "", fmt.Errorf("direct aggregate range-window selector SQL does not support %q", fn)
 	}
 }
 
+func rateExtrapolationFactorSQL(firstMSExpr, lastMSExpr, sampleCountExpr, evalTimeMSExpr, rangeMSExpr string) string {
+	firstMS := "toFloat64(" + firstMSExpr + ")"
+	lastMS := "toFloat64(" + lastMSExpr + ")"
+	sampledMS := "((" + lastMS + ") - (" + firstMS + "))"
+	avgMS := "((" + sampledMS + ") / greatest(toFloat64(" + sampleCountExpr + ") - 1, 1))"
+	threshold := "((" + avgMS + ") * 1.1)"
+	rangeStart := "((" + evalTimeMSExpr + ") - toFloat64(" + rangeMSExpr + "))"
+	rangeEnd := "(" + evalTimeMSExpr + ")"
+	gapStart := "((" + firstMS + ") - " + rangeStart + ")"
+	gapEnd := "(" + rangeEnd + " - (" + lastMS + "))"
+	addStart := "if(" + gapStart + " < " + threshold + ", " + gapStart + ", (" + avgMS + ") / 2)"
+	addEnd := "if(" + gapEnd + " < " + threshold + ", " + gapEnd + ", (" + avgMS + ") / 2)"
+	extrapolateTo := "((" + sampledMS + ") + (" + addStart + ") + (" + addEnd + "))"
+	return "if((" + sampledMS + ") <= 0, 1.0, (" + extrapolateTo + ") / (" + sampledMS + "))"
+}
+
 func rangeWindowFunctionNeedsTimestamps(fn string) bool {
 	switch fn {
-	case "irate", "increase", "delta", "deriv", "predict_linear", "ts_of_first_over_time", "ts_of_last_over_time", "ts_of_max_over_time", "ts_of_min_over_time":
+	case "rate", "irate", "increase", "delta", "deriv", "predict_linear", "ts_of_first_over_time", "ts_of_last_over_time", "ts_of_max_over_time", "ts_of_min_over_time":
 		return true
 	default:
 		return false

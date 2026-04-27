@@ -469,291 +469,60 @@ PY
 }
 
 print_sweep_plan() {
-  local artifact_dir="harness/artifacts/sweeps/${RUN_NAME}"
-  echo "Sweep run: ${RUN_NAME}"
-  echo "Artifacts: ${artifact_dir}"
-  echo "Transport: ${TRANSPORT}"
-  echo "Seed policy: ${SEED_POLICY}"
-  echo "Compliance: $([[ $SKIP_COMPLIANCE == 1 ]] && echo skipped || echo enabled)"
-  echo "Benchmark: $([[ $SKIP_BENCH == 1 ]] && echo skipped || echo enabled)"
-  echo "Benchmark modes: ${SHIM_MODES}"
-  echo "Routing policies: ${ROUTING_POLICIES}"
-  echo "Warmup routing policies: ${WARMUP_ROUTING_POLICIES:-none}"
-  echo "Cost routing local families: ${COST_ROUTING_LOCAL_FAMILIES:-none}"
-  echo "Memory mode: ${MEMORY_MODE}"
-  echo "ClickHouse profile mode: ${CLICKHOUSE_PROFILE_MODE}"
-  echo "ClickHouse reference profile: ${CLICKHOUSE_REFERENCE_PROFILE}"
-  echo "promshim settings profile: ${SETTINGS_PROFILE}"
-  echo
-  echo "Datasets:"
-  for p in $(profiles_for "$PROFILE"); do
-    for d in $(densities_for "$DENSITY"); do
-      printf '  %-3s %-6s eval=%s' "$p" "$d" "$(profile_end_time "$p" "$d")"
-      if (( ESTIMATE == 1 )); then printf ' %s' "$(estimate_samples "$p" "$d")"; fi
-      echo
-    done
-  done
-  echo
-  if (( SKIP_BENCH == 0 )); then
-    echo "Benchmark corpora:"
-    for p in $(profiles_for "$PROFILE"); do
-      for d in $(densities_for "$DENSITY"); do
-        while IFS= read -r corpus; do
-          [[ -n "$corpus" ]] && printf '  %-3s %-6s %s\n' "$p" "$d" "$corpus"
-        done < <(corpus_paths_for "$p" "$d" "$CORPUS_SET")
-      done
-    done
-  fi
+  local bin
+  bin="$(mktemp -d)/promshim-sweep-plan"
+  go build -o "$bin" ./cmd/promshim-sweep-plan
+  local args=(
+    --run-name "$RUN_NAME"
+    --profile "$PROFILE"
+    --density "$DENSITY"
+    --transport "$TRANSPORT"
+    --seed-policy "$SEED_POLICY"
+    --shim-modes "$SHIM_MODES"
+    --routing-policies "$ROUTING_POLICIES"
+    --warmup-routing-policies "$WARMUP_ROUTING_POLICIES"
+    --cost-routing-local-families "$COST_ROUTING_LOCAL_FAMILIES"
+    --memory-mode "$MEMORY_MODE"
+    --clickhouse-profile-mode "$CLICKHOUSE_PROFILE_MODE"
+    --clickhouse-reference-profile "$CLICKHOUSE_REFERENCE_PROFILE"
+    --settings-profile "$SETTINGS_PROFILE"
+    --corpus-set "$CORPUS_SET"
+  )
+  (( SKIP_COMPLIANCE == 1 )) && args+=(--skip-compliance)
+  (( SKIP_BENCH == 1 )) && args+=(--skip-bench)
+  (( ESTIMATE == 1 )) && args+=(--estimate)
+  "$bin" "${args[@]}"
 }
 
 generate_sweep_artifacts() {
   local artifact_dir="$1" compliance_status="$2" bench_status="$3"
-  python3 - "$REPO_ROOT" "$artifact_dir" "$RUN_NAME" "$PROFILE" "$DENSITY" "$TRANSPORT" "$SEED_POLICY" "$SHIM_MODES" "$ROUTING_POLICIES" "$WARMUP_ROUTING_POLICIES" "$COST_ROUTING_LOCAL_FAMILIES" "$INCLUDE_PROM" "$CORPUS_SET" "$compliance_status" "$bench_status" "$BENCH_PROM_URL" "$BENCH_SHIM_URL" "$BENCH_CH_URL" "$MEMORY_MODE" "$CLICKHOUSE_PROFILE_MODE" "$CLICKHOUSE_REFERENCE_PROFILE" "$SETTINGS_PROFILE" <<'PY'
-import json, pathlib, subprocess, sys
-from datetime import datetime, timezone
-
-(repo, artifact_dir, run_name, profile, density, transport, seed_policy,
- shim_modes, routing_policies, warmup_routing_policies, cost_routing_local_families, include_prom, corpus_set, compliance_status, bench_status,
- prom_url, shim_url, ch_url, memory_mode, clickhouse_profile_mode, clickhouse_reference_profile, settings_profile) = sys.argv[1:23]
-root = pathlib.Path(repo)
-out_dir = root / artifact_dir
-reports = []
-memory_reports = []
-memory_details = []
-clickhouse_profiles = []
-strategy_hist = {}
-routing_policy_hist = {}
-target_bands = {}
-slow_rows = []
-for mem_path in sorted(out_dir.glob("memory-summary*.json")):
-    memory_reports.append(str(mem_path.relative_to(root)))
-for detail_path in sorted(out_dir.glob("memory-detail*/manifest.json")):
-    memory_details.append(str(detail_path.relative_to(root)))
-for profile_path in sorted(out_dir.glob("clickhouse-profile-*.json")):
-    clickhouse_profiles.append(str(profile_path.relative_to(root)))
-for path in sorted(out_dir.glob("bench-report*.json")):
-    try:
-        data = json.loads(path.read_text())
-    except Exception:
-        continue
-    if data.get("schemaVersion") != 2:
-        continue
-    rel = str(path.relative_to(root))
-    labels = data.get("runLabels") or {}
-    report_routing_policies = set()
-    for row in data.get("rows") or []:
-        for result in (row.get("shim") or {}).values():
-            if result.get("routingPolicy"):
-                report_routing_policies.add(result["routingPolicy"])
-    reports.append({
-        "path": rel,
-        "corpusPath": data.get("corpusPath"),
-        "profile": labels.get("profile"),
-        "density": labels.get("density"),
-        "transport": labels.get("transport"),
-        "routingPolicies": sorted(report_routing_policies),
-        "rowCount": len(data.get("rows") or []),
-    })
-    for key, value in (data.get("summary", {}).get("strategyHistogram") or {}).items():
-        strategy_hist[key] = strategy_hist.get(key, 0) + value
-    for row in data.get("rows") or []:
-        band = row.get("promBand") or "n/a"
-        target_bands[band] = target_bands.get(band, 0) + 1
-        prom = (row.get("prom") or {}).get("p50Ms")
-        for mode, result in (row.get("shim") or {}).items():
-            p50 = result.get("p50Ms") or 0
-            routing_policy = result.get("routingPolicy") or "unknown"
-            routing_policy_hist[routing_policy] = routing_policy_hist.get(routing_policy, 0) + 1
-            slow_rows.append({
-                "query": row.get("name"),
-                "category": row.get("category"),
-                "mode": mode,
-                "routingPolicy": routing_policy,
-                "strategy": result.get("strategy"),
-                "promP50Ms": prom,
-                "shimP50Ms": p50,
-                "shimPromRatio": (p50 / prom) if prom else None,
-                "report": rel,
-            })
-slow_rows.sort(key=lambda r: (r.get("shimP50Ms") or 0), reverse=True)
-
-def run_cmd_result(args, cwd=root):
-    try:
-        completed = subprocess.run(args, cwd=cwd, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except FileNotFoundError as exc:
-        return {"ok": False, "stdout": "", "stderr": str(exc), "returncode": None}
-    except subprocess.CalledProcessError as exc:
-        return {
-            "ok": False,
-            "stdout": (exc.stdout or "").strip(),
-            "stderr": (exc.stderr or "").strip(),
-            "returncode": exc.returncode,
-        }
-    return {"ok": True, "stdout": completed.stdout.strip(), "stderr": completed.stderr.strip(), "returncode": completed.returncode}
-
-def run_cmd(args, cwd=root):
-    result = run_cmd_result(args, cwd=cwd)
-    return result["stdout"] if result["ok"] else None
-
-def benchmark_stack_provenance():
-    git_status = run_cmd(["git", "status", "--porcelain"]) or ""
-    provenance = {
-        "composeBuildRequested": bench_status != "skipped",
-        "git": {
-            "revision": run_cmd(["git", "rev-parse", "HEAD"]),
-            "dirty": bool(git_status),
-            "statusPorcelain": git_status.splitlines()[:50],
-        },
-        "promshim": {},
-    }
-    if bench_status == "skipped":
-        return provenance
-    bench_dir = root / "harness" / "bench"
-    compose_args = ["docker", "compose", "-f", "docker-compose.yml"]
-    if clickhouse_reference_profile == "promshim-ch-timeseries-reference-v1":
-        compose_args += ["-f", "docker-compose.reference.yml"]
-    provenance["composeFiles"] = compose_args[3::2]
-    container_result = run_cmd_result(compose_args + ["ps", "-q", "promshim"], cwd=bench_dir)
-    container_id = container_result["stdout"]
-    if not container_result["ok"] or not container_id:
-        provenance["promshim"].update({
-            "available": False,
-            "reason": "compose_ps_failed" if not container_result["ok"] else "container_not_found",
-            "returncode": container_result["returncode"],
-            "stderr": container_result["stderr"],
-        })
-        return provenance
-    provenance["promshim"]["containerId"] = container_id
-    inspect_result = run_cmd_result(["docker", "inspect", container_id])
-    raw = inspect_result["stdout"]
-    if not inspect_result["ok"] or not raw:
-        provenance["promshim"].update({
-            "available": False,
-            "reason": "docker_inspect_failed",
-            "returncode": inspect_result["returncode"],
-            "stderr": inspect_result["stderr"],
-        })
-        return provenance
-    try:
-        info = json.loads(raw)[0]
-    except Exception as exc:
-        provenance["promshim"].update({"available": False, "reason": "docker_inspect_invalid_json", "error": str(exc)})
-        return provenance
-    config = info.get("Config") or {}
-    provenance["promshim"].update({
-        "available": True,
-        "containerName": (info.get("Name") or "").lstrip("/"),
-        "containerCreatedAt": info.get("Created"),
-        "image": config.get("Image"),
-        "imageId": info.get("Image"),
-    })
-    return provenance
-
-manifest = {
-    "schemaVersion": 1,
-    "runName": run_name,
-    "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-    "artifactDir": artifact_dir,
-    "axes": {
-        "profile": profile,
-        "density": density,
-        "transport": transport,
-        "seedPolicy": seed_policy,
-        "shimModes": [m for m in shim_modes.split(",") if m],
-        "routingPolicies": [p for p in routing_policies.split(",") if p] or sorted(k for k in routing_policy_hist.keys() if k != "unknown"),
-        "warmupRoutingPolicies": [p for p in warmup_routing_policies.split(",") if p],
-        "costRoutingLocalFamilies": [f for f in cost_routing_local_families.split(",") if f],
-        "includeProm": include_prom,
-        "memoryMode": memory_mode,
-        "clickHouseProfileMode": clickhouse_profile_mode,
-        "clickHouseReferenceProfile": clickhouse_reference_profile,
-        "promshimSettingsProfile": settings_profile,
-        "corpusSet": corpus_set,
-    },
-    "endpoints": {"prometheus": prom_url, "promshim": shim_url, "clickhouse": ch_url},
-    "benchmarkStack": benchmark_stack_provenance(),
-    "compliance": {"status": compliance_status, "log": f"{artifact_dir}/compliance.log" if compliance_status != "skipped" else None},
-    "bench": {"status": bench_status, "reports": reports, "memoryReports": memory_reports, "memoryDetailManifests": memory_details, "clickHouseProfiles": clickhouse_profiles},
-    "summaries": {"markdown": f"{artifact_dir}/summary.md", "json": f"{artifact_dir}/summary.json"},
-}
-summary = {
-    "schemaVersion": 1,
-    "runName": run_name,
-    "complianceStatus": compliance_status,
-    "benchStatus": bench_status,
-    "reportCount": len(reports),
-    "memoryReportCount": len(memory_reports),
-    "memoryDetailCount": len(memory_details),
-    "clickHouseProfileCount": len(clickhouse_profiles),
-    "strategyHistogram": strategy_hist,
-    "routingPolicyHistogram": routing_policy_hist,
-    "targetBands": target_bands,
-    "clickHouseReferenceProfile": clickhouse_reference_profile,
-    "promshimSettingsProfile": settings_profile,
-    "topSlowRows": slow_rows[:20],
-}
-out_dir.mkdir(parents=True, exist_ok=True)
-(out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-(out_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-lines = [
-    f"# Sweep summary: {run_name}",
-    "",
-    f"- Artifacts: `{artifact_dir}`",
-    f"- Compliance: `{compliance_status}`",
-    f"- Benchmark: `{bench_status}`",
-    f"- Reports: `{len(reports)}`",
-    f"- Transport: `{transport}`",
-    f"- Profiles: `{profile}`",
-    f"- Density: `{density}`",
-    f"- Modes: `{shim_modes}`",
-    f"- Routing policies: `{routing_policies or ','.join(sorted(k for k in routing_policy_hist.keys() if k != 'unknown')) or 'n/a'}`",
-    f"- Warmup routing policies: `{warmup_routing_policies or 'none'}`",
-    f"- Cost routing local families: `{cost_routing_local_families or 'none'}`",
-    f"- Memory mode: `{memory_mode}`",
-    f"- ClickHouse profile mode: `{clickhouse_profile_mode}`",
-    f"- ClickHouse reference profile: `{clickhouse_reference_profile}`",
-    f"- promshim settings profile: `{settings_profile}`",
-    f"- Memory summaries: `{len(memory_reports)}`",
-    f"- Memory detail manifests: `{len(memory_details)}`",
-    f"- ClickHouse profile summaries: `{len(clickhouse_profiles)}`",
-    "",
-    "## Strategy histogram",
-    "",
-]
-if strategy_hist:
-    for key, value in sorted(strategy_hist.items()):
-        lines.append(f"- `{key}`: {value}")
-else:
-    lines.append("- No benchmark strategy data captured.")
-lines += ["", "## Routing policy histogram", ""]
-if routing_policy_hist:
-    for key, value in sorted(routing_policy_hist.items()):
-        lines.append(f"- `{key}`: {value}")
-else:
-    lines.append("- No routing policy data captured.")
-lines += ["", "## Prometheus target bands", ""]
-if target_bands:
-    for key, value in sorted(target_bands.items()):
-        lines.append(f"- `{key}`: {value}")
-else:
-    lines.append("- No target-band data captured.")
-lines += ["", "## Top slow rows", "", "| Query | Mode | Routing policy | Strategy | Prom p50 ms | Shim p50 ms | S/P | Report |", "|---|---|---|---|---:|---:|---:|---|"]
-for row in slow_rows[:10]:
-    ratio = row.get("shimPromRatio")
-    lines.append("| {query} | {mode} | {routing_policy} | {strategy} | {prom} | {shim} | {ratio} | `{report}` |".format(
-        query=row.get("query") or "",
-        mode=row.get("mode") or "",
-        routing_policy=row.get("routingPolicy") or "",
-        strategy=row.get("strategy") or "",
-        prom=f"{row['promP50Ms']:.2f}" if row.get("promP50Ms") is not None else "—",
-        shim=f"{row['shimP50Ms']:.2f}" if row.get("shimP50Ms") is not None else "—",
-        ratio=f"{ratio:.1f}×" if ratio is not None else "—",
-        report=row.get("report") or "",
-    ))
-(out_dir / "summary.md").write_text("\n".join(lines) + "\n")
-print(f"Wrote {out_dir / 'manifest.json'}")
-print(f"Wrote {out_dir / 'summary.md'}")
-PY
+  local bin
+  bin="$(mktemp -d)/promshim-sweep-artifacts"
+  log "Building cmd/promshim-sweep-artifacts -> ${bin}"
+  go build -o "$bin" ./cmd/promshim-sweep-artifacts
+  "$bin" \
+    --repo-root "$REPO_ROOT" \
+    --artifact-dir "$artifact_dir" \
+    --run-name "$RUN_NAME" \
+    --profile "$PROFILE" \
+    --density "$DENSITY" \
+    --transport "$TRANSPORT" \
+    --seed-policy "$SEED_POLICY" \
+    --shim-modes "$SHIM_MODES" \
+    --routing-policies "$ROUTING_POLICIES" \
+    --warmup-routing-policies "$WARMUP_ROUTING_POLICIES" \
+    --cost-routing-local-families "$COST_ROUTING_LOCAL_FAMILIES" \
+    --include-prom "$INCLUDE_PROM" \
+    --corpus-set "$CORPUS_SET" \
+    --compliance-status "$compliance_status" \
+    --bench-status "$bench_status" \
+    --prom-url "$BENCH_PROM_URL" \
+    --shim-url "$BENCH_SHIM_URL" \
+    --ch-url "$BENCH_CH_URL" \
+    --memory-mode "$MEMORY_MODE" \
+    --clickhouse-profile-mode "$CLICKHOUSE_PROFILE_MODE" \
+    --clickhouse-reference-profile "$CLICKHOUSE_REFERENCE_PROFILE" \
+    --settings-profile "$SETTINGS_PROFILE"
 }
 
 run_sweep() {

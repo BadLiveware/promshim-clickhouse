@@ -218,5 +218,83 @@
     "endOffsetSeconds": 0,
     "stepSeconds": 3600,
     "compareMode": "structural"
+  },
+  {
+    "name": "subquery_avg_over_time_irate_aggregate_instant",
+    "endpoint": "query",
+    "query": "avg_over_time(sum(irate(demo_cpu_usage_seconds_total[1m]))[10m:1m])",
+    "category": "instant_subquery_smoothed_rate",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  },
+  {
+    "name": "subquery_avg_rate_by_3labels_instant",
+    "endpoint": "query",
+    "query": "sum by (instance, job, mode) (avg_over_time(rate(demo_cpu_usage_seconds_total[5m])[30m:1m])) > 0",
+    "category": "instant_subquery_aggregation",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  },
+  {
+    "name": "offset_subquery_pct_change_instant",
+    "endpoint": "query",
+    "query": "avg_over_time(sum(irate(demo_cpu_usage_seconds_total[1m]))[10m:1m]) / avg_over_time(sum(irate(demo_cpu_usage_seconds_total[1m] offset 1h))[10m:1m]) - 1",
+    "category": "instant_offset_pct_change",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  },
+  {
+    "name": "predict_linear_lt_zero_instant",
+    "endpoint": "query",
+    "query": "predict_linear(demo_memory_usage_bytes[1h], 8*3600) < 0",
+    "category": "instant_predict_linear",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  },
+  {
+    "name": "clamp_max_max_rate_instant",
+    "endpoint": "query",
+    "query": "clamp_max(max(rate(demo_cpu_usage_seconds_total[5m])), 1)",
+    "category": "instant_clamp_max",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  },
+  {
+    "name": "absent_or_vector_default_instant",
+    "endpoint": "query",
+    "query": "absent(demo_cpu_usage_seconds_total{job=\"nonexistent\"}) or vector(0)",
+    "category": "instant_absent_default",
+    "timeOffsetSeconds": 0,
+    "compareMode": "structural"
+  },
+  {
+    "name": "subquery_rate_over_aggregate_5m_range_1d",
+    "endpoint": "query_range",
+    "query": "rate(sum by (job) (demo_cpu_usage_seconds_total)[5m:1m])",
+    "category": "range_subquery_rate_over_aggregate",
+    "startOffsetSeconds": -86400,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 300,
+    "compareMode": "structural"
+  },
+  {
+    "name": "ratio_with_and_on_guard_5m_range_1d",
+    "endpoint": "query_range",
+    "query": "(sum by (job) (rate(demo_api_request_duration_seconds_count[5m])) / sum by (job) (rate(demo_cpu_usage_seconds_total[5m]))) and on (job) (sum by (job) (rate(demo_cpu_usage_seconds_total[5m])) > 0)",
+    "category": "range_ratio_and_on_guard",
+    "startOffsetSeconds": -86400,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 300,
+    "compareMode": "structural"
+  },
+  {
+    "name": "triple_sibling_rate_dedup_by_job_5m_range_1d",
+    "endpoint": "query_range",
+    "query": "sum by (job) (rate(demo_cpu_usage_seconds_total{mode=\"user\"}[5m])) + sum by (job) (rate(demo_cpu_usage_seconds_total{mode=\"system\"}[5m])) + sum by (job) (rate(demo_cpu_usage_seconds_total{mode=\"idle\"}[5m]))",
+    "category": "range_sibling_rate_dedup",
+    "startOffsetSeconds": -86400,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 300,
+    "compareMode": "structural"
   }
 ]

@@ -55,6 +55,11 @@ type streamConfig struct {
 	// PromURL is the Prometheus HTTP endpoint used by the health probe.
 	// Empty disables Prom probing.
 	PromURL string
+
+	// MaxHostLoadPct is the percentage-of-NumCPU threshold for the host
+	// /proc/loadavg 1-min average. Default 50 (safe for shared dev hosts);
+	// 80–90 for CI / dedicated bench. 0 disables host-load probing.
+	MaxHostLoadPct float64
 }
 
 // streamStats holds end-of-run aggregate counters reported back to main.
@@ -231,12 +236,15 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 		defer regCancel()
 		go runRegulator(regCtx, &target, rtt, defaultRegulatorConfig(int32(cfg.MaxConcurrency)), limiter)
 
-		// Health probe: kill-switch on explicit CH/Prom pressure signals.
-		// Independent of the regulator — a kill-switch fire writes target
-		// directly. Disabled when ProbeInterval <= 0 OR no probe URLs are set.
-		if cfg.ProbeInterval > 0 && (cfg.CHURL != "" || cfg.PromURL != "") {
+		// Health probe: runs whenever ProbeInterval > 0. Always checks host
+		// CPU usage (which doesn't depend on backend URLs); also checks CH and
+		// Prom signals if their URLs are configured. The host-CPU check is
+		// what catches local-machine saturation when seeder + backend share a
+		// host — the per-batch RTT regulator can't see that directly.
+		if cfg.ProbeInterval > 0 {
 			go runHealthProbe(regCtx, &target, &rampUpFreeze,
-				defaultProbeConfig(cfg.CHURL, cfg.CHUsername, cfg.CHPassword, cfg.PromURL, cfg.ProbeInterval),
+				defaultProbeConfig(cfg.CHURL, cfg.CHUsername, cfg.CHPassword, cfg.PromURL,
+					cfg.ProbeInterval, cfg.MaxHostLoadPct),
 				limiter)
 		}
 	}

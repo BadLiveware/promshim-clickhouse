@@ -40,6 +40,10 @@
 #   --probe-interval D        Health-probe poll cadence (default 5s).
 #   --enable-probes           Turn on CH/Prom kill-switch probes (ch-probe-url
 #                             and prom-probe-url default to --ch-url/--prom-url).
+#   --max-host-load-pct N     Throttle when host CPU exceeds N%% (default 50,
+#                             measured via /proc/stat sampling, reactive within
+#                             one probe interval). Raise to 80–90 for CI or
+#                             dedicated bench hosts. 0 disables.
 #
 # Named profiles (recommended; they pin matching corpora):
 #   7d   → 2026-03-22T21:45:42Z - 7d @ 15s step  (~5M samples, ~5s wall)
@@ -75,6 +79,7 @@ INITIAL_CONCURRENCY=""
 NO_ADAPTIVE=""
 PROBE_INTERVAL=""
 ENABLE_PROBES=""
+MAX_HOST_LOAD_PCT=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -98,6 +103,7 @@ while [[ $# -gt 0 ]]; do
     --no-adaptive)         NO_ADAPTIVE="1"; shift ;;
     --probe-interval)      PROBE_INTERVAL="$2"; shift 2 ;;
     --enable-probes)       ENABLE_PROBES="1"; shift ;;
+    --max-host-load-pct)   MAX_HOST_LOAD_PCT="$2"; shift 2 ;;
     -h|--help)             sed -n '1,/^set -e/p' "$0" | head -n 30; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 64 ;;
   esac
@@ -125,6 +131,7 @@ if [[ "$PROFILE" == "all" ]]; then
     [[ -n "$NO_ADAPTIVE" ]] && args+=(--no-adaptive)
     [[ -n "$PROBE_INTERVAL" ]] && args+=(--probe-interval "$PROBE_INTERVAL")
     [[ -n "$ENABLE_PROBES" ]] && args+=(--enable-probes)
+    [[ -n "$MAX_HOST_LOAD_PCT" ]] && args+=(--max-host-load-pct "$MAX_HOST_LOAD_PCT")
     "$0" "${args[@]}"
   done
   exit 0
@@ -169,6 +176,7 @@ if [[ -n "$MAX_CONCURRENCY" ]]; then COMMON_ARGS+=(--max-concurrency "$MAX_CONCU
 if [[ -n "$INITIAL_CONCURRENCY" ]]; then COMMON_ARGS+=(--initial-concurrency "$INITIAL_CONCURRENCY"); fi
 if [[ -n "$NO_ADAPTIVE" ]]; then COMMON_ARGS+=(--no-adaptive); fi
 if [[ -n "$PROBE_INTERVAL" ]]; then COMMON_ARGS+=(--probe-interval "$PROBE_INTERVAL"); fi
+if [[ -n "$MAX_HOST_LOAD_PCT" ]]; then COMMON_ARGS+=(--max-host-load-pct "$MAX_HOST_LOAD_PCT"); fi
 
 # CH probe URL: --enable-probes turns it on with the same CH_URL we ping.
 CH_PROBE_ARGS=()

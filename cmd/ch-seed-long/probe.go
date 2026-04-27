@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -22,12 +23,13 @@ type probeConfig struct {
 	PromURL          string        // Prometheus HTTP URL; empty disables Prom probes
 	MaxActiveParts   int           // CH parts threshold; 0 disables
 	MaxMergeBacklog  int64         // CH BackgroundPoolTask threshold; 0 disables
+	MaxHostCPUPct    float64       // throttle when host CPU exceeds this percent (0 disables)
 	ThrottleDivisor  int32         // multiplicative decrease factor on kill-switch fire (default 4)
 	ThrottleHoldOff  time.Duration // pause regulator ramp-up for this long after a fire (default 10s)
 	OnFire           func(reason string, oldN, newN int32) // optional log/metrics hook
 }
 
-func defaultProbeConfig(chURL, chUser, chPass, promURL string, interval time.Duration) probeConfig {
+func defaultProbeConfig(chURL, chUser, chPass, promURL string, interval time.Duration, hostLoadPct float64) probeConfig {
 	if interval <= 0 {
 		interval = 5 * time.Second
 	}
@@ -39,6 +41,7 @@ func defaultProbeConfig(chURL, chUser, chPass, promURL string, interval time.Dur
 		PromURL:         promURL,
 		MaxActiveParts:  300,
 		MaxMergeBacklog: 50,
+		MaxHostCPUPct:   hostLoadPct, // already a percentage (50 = 50% busy)
 		ThrottleDivisor: 4,
 		ThrottleHoldOff: 10 * time.Second,
 	}
@@ -69,6 +72,10 @@ func runHealthProbe(ctx context.Context, target *atomic.Int32, rampUpFreeze *ato
 	ticker := time.NewTicker(cfg.Interval)
 	defer ticker.Stop()
 
+	// CPU sampler tracks the previous /proc/stat snapshot so each tick can
+	// compute an instantaneous percentage by diff. Initialize lazily.
+	var lastCPU cpuSnapshot
+
 	fire := func(reason string) {
 		oldN := target.Load()
 		newN := oldN / cfg.ThrottleDivisor
@@ -92,6 +99,24 @@ func runHealthProbe(ctx context.Context, target *atomic.Int32, rampUpFreeze *ato
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		}
+
+		// Host-CPU probe — universally applicable. Samples /proc/stat for
+		// instantaneous CPU% (diff against previous tick), fires when it
+		// exceeds MaxHostCPUPct. Reactive within one probe interval (~5s);
+		// load average would lag 30+ seconds for the same step change, so
+		// for sub-3-minute seed runs the load1 signal would arrive after
+		// most of the damage was done.
+		if cfg.MaxHostCPUPct > 0 {
+			cur, err := readCPUSnapshot()
+			if err == nil {
+				if lastCPU.total > 0 { // need a previous sample to compute delta
+					if pct := cpuBusyPct(lastCPU, cur); pct > cfg.MaxHostCPUPct {
+						fire(fmt.Sprintf("host CPU %.1f%% > %.1f%%", pct, cfg.MaxHostCPUPct))
+					}
+				}
+				lastCPU = cur
+			}
 		}
 
 		// CH probes — only fire if CHURL is configured
@@ -126,6 +151,60 @@ func runHealthProbe(ctx context.Context, target *atomic.Int32, rampUpFreeze *ato
 			}
 		}
 	}
+}
+
+// cpuSnapshot is a point-in-time view of /proc/stat's first "cpu" line —
+// the aggregate across all cores. Computing CPU% requires diffing two
+// snapshots: busy delta divided by total delta over the same interval.
+type cpuSnapshot struct {
+	idle  uint64 // idle + iowait jiffies
+	total uint64 // all jiffies (user + nice + system + idle + iowait + irq + softirq + steal + ...)
+}
+
+// readCPUSnapshot reads /proc/stat's first line and parses it. Returns an
+// error on systems without /proc (macOS) or if the file format is unexpected.
+// The caller treats an error as "host CPU probing unavailable" and skips.
+func readCPUSnapshot() (cpuSnapshot, error) {
+	data, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return cpuSnapshot{}, err
+	}
+	// First line: "cpu  user nice system idle iowait irq softirq steal guest guest_nice"
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "cpu ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 5 {
+			return cpuSnapshot{}, fmt.Errorf("/proc/stat cpu line too short: %q", line)
+		}
+		var snap cpuSnapshot
+		for i, f := range fields[1:] {
+			v, err := strconv.ParseUint(f, 10, 64)
+			if err != nil {
+				return cpuSnapshot{}, fmt.Errorf("/proc/stat field %d (%q): %w", i+1, f, err)
+			}
+			snap.total += v
+			// idle (i=3) and iowait (i=4) are the "not busy" buckets
+			if i == 3 || i == 4 {
+				snap.idle += v
+			}
+		}
+		return snap, nil
+	}
+	return cpuSnapshot{}, fmt.Errorf("/proc/stat has no cpu line")
+}
+
+// cpuBusyPct computes percent-busy across all cores between two snapshots.
+// Returns 0 if the deltas are degenerate (e.g., same snapshot read twice).
+func cpuBusyPct(prev, cur cpuSnapshot) float64 {
+	totalDelta := cur.total - prev.total
+	idleDelta := cur.idle - prev.idle
+	if totalDelta == 0 {
+		return 0
+	}
+	busy := totalDelta - idleDelta
+	return 100.0 * float64(busy) / float64(totalDelta)
 }
 
 // chQueryInt executes a single-cell SELECT against ClickHouse over HTTP and

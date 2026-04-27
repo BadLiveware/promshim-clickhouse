@@ -38,6 +38,27 @@ signal. No counter or EXPLAIN output can rescue a commit whose claim
 doesn't describe the code. Only proceed to the signals below once the
 claim is coherent with the patch.
 
+## Native SQL builder evolution rule
+
+When a ClickHouse optimization adds or changes a native SQL physical shape, keep
+`internal/promshim/native/sqlb/` moving toward a typed ClickHouse SQL subset
+without doing a big-bang renderer rewrite.
+
+- Put semantic and physical choices in plan structs first: strategy, predicate
+  placement, stale-marker placement, matched-series distinctness, join shape,
+  aggregation shape, and settings assumptions.
+- Add typed `sqlb` expressions/predicates/sources/ClickHouse helpers exactly as
+  the new shape needs them. Do not build a general SQL parser or model unused
+  ClickHouse syntax.
+- Use raw SQL only as an explicit escape hatch for legacy or unsupported syntax;
+  new optimization logic should prefer typed nodes so future rewrites can reuse
+  it.
+- Migrate path-by-path when optimization work touches a query family. Do not
+  churn unrelated renderer paths just to reduce raw SQL counts.
+- Treat renderer golden churn as a behavior signal: no churn for a pure builder
+  migration, intentional churn only for a physical-shape change backed by
+  correctness and ProfileEvents/benchmark evidence.
+
 ## Claim → required signal
 
 Match the commit's *claim* to the signal that must move. If the claimed

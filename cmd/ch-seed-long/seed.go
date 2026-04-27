@@ -1,0 +1,298 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/prometheus/prometheus/prompb"
+
+	"github.com/BadLiveware/promshim-clickhouse/internal/promharness"
+)
+
+// streamConfig configures a parallel seeding run. Behavior is deterministic
+// across MaxConcurrency values for the SAMPLES emitted (the generator runs
+// single-threaded and advances series state in time order); only the order in
+// which batches reach the endpoint can vary, which the remote-write protocol
+// is indifferent to.
+type streamConfig struct {
+	Endpoint        string
+	StartTime       time.Time
+	EndTime         time.Time
+	Step            time.Duration
+	BatchSamples    int
+	Series          []seriesDesc
+	State           []seriesState
+
+	// MaxConcurrency caps the number of in-flight remote-write POSTs.
+	// When the regulator is disabled (NoAdaptive=true), this is the fixed
+	// number of worker goroutines used.
+	MaxConcurrency int
+
+	// InitialConcurrency is the starting target for the regulator. Ignored
+	// when NoAdaptive is true (workers always run at MaxConcurrency).
+	InitialConcurrency int
+
+	// NoAdaptive disables the regulator. Workers always run at MaxConcurrency
+	// for deterministic behavior — useful when benchmarking the seeder itself.
+	NoAdaptive bool
+
+	// ProbeInterval is how often the health-probe goroutine polls
+	// ClickHouse and Prometheus. Zero or negative disables the probe.
+	ProbeInterval time.Duration
+
+	// CHURL is the ClickHouse HTTP endpoint (port 28124-style) used by the
+	// health probe to query system.metrics. Empty disables CH probing.
+	CHURL      string
+	CHUsername string
+	CHPassword string
+
+	// PromURL is the Prometheus HTTP endpoint used by the health probe.
+	// Empty disables Prom probing.
+	PromURL string
+}
+
+// streamStats holds end-of-run aggregate counters reported back to main.
+type streamStats struct {
+	Batches       int
+	Samples       int
+	Errors        int
+	Wallclock     time.Duration
+	MaxObservedN  int
+	MinObservedN  int
+}
+
+// runStream executes the parallel seeding pipeline. It blocks until either:
+//   * the entire time window has been emitted and all in-flight workers drain,
+//   * the context is cancelled,
+//   * a fatal error occurs (any single batch error is fatal — Prometheus
+//     remote-write protocol does not define a partial-success response, so
+//     we do not retry; instead we surface the error so the seeder fails fast).
+func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
+	if cfg.MaxConcurrency < 1 {
+		return streamStats{}, errors.New("MaxConcurrency must be >= 1")
+	}
+	if cfg.InitialConcurrency < 1 {
+		cfg.InitialConcurrency = cfg.MaxConcurrency
+	}
+	if cfg.InitialConcurrency > cfg.MaxConcurrency {
+		cfg.InitialConcurrency = cfg.MaxConcurrency
+	}
+
+	pointsPerBatch := cfg.BatchSamples / len(cfg.Series)
+	if pointsPerBatch < 1 {
+		pointsPerBatch = 1
+	}
+
+	// Buffered to 2× MaxConcurrency so the generator can stay one batch ahead
+	// of the slowest worker without racing arbitrarily ahead and pre-encoding
+	// dozens of batches that the regulator would prefer to suppress.
+	type batch struct {
+		req     *prompb.WriteRequest
+		samples int
+	}
+	requests := make(chan batch, 2*cfg.MaxConcurrency)
+
+	// Concurrency target — phase 2 regulator will mutate this. Phase 1 leaves
+	// it pinned at MaxConcurrency.
+	target := atomic.Int32{}
+	if cfg.NoAdaptive {
+		target.Store(int32(cfg.MaxConcurrency))
+	} else {
+		target.Store(int32(cfg.InitialConcurrency))
+	}
+
+	rtt := newRTTRing(256)
+	var (
+		batchCount      atomic.Int64
+		sampleCount     atomic.Int64 // samples acked by CH/Prom (post-POST)
+		samplesEmitted  atomic.Int64 // samples produced by the generator
+		errCount        atomic.Int64
+		maxN            atomic.Int32
+		minN            atomic.Int32
+	)
+	maxN.Store(target.Load())
+	minN.Store(target.Load())
+
+	start := time.Now()
+
+	// Generator goroutine: produces *prompb.WriteRequest values into the
+	// buffered channel. Owns all series state. Closes the channel on EOF
+	// or context cancellation.
+	var generatorErr atomic.Pointer[error]
+	go func() {
+		defer close(requests)
+		batchStart := cfg.StartTime
+		for batchStart.Before(cfg.EndTime) {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			batchEnd := batchStart.Add(time.Duration(pointsPerBatch) * cfg.Step)
+			if batchEnd.After(cfg.EndTime) {
+				batchEnd = cfg.EndTime
+			}
+			req := &prompb.WriteRequest{}
+			batchSamples := 0
+			for i := range cfg.Series {
+				points := advanceSeries(&cfg.Series[i], &cfg.State[i], batchStart, batchEnd, cfg.Step)
+				if len(points) == 0 {
+					continue
+				}
+				req.Timeseries = append(req.Timeseries, prompb.TimeSeries{
+					Labels:  cfg.Series[i].labels,
+					Samples: points,
+				})
+				batchSamples += len(points)
+			}
+			if len(req.Timeseries) == 0 {
+				batchStart = batchEnd
+				continue
+			}
+			samplesEmitted.Add(int64(batchSamples))
+			select {
+			case <-ctx.Done():
+				return
+			case requests <- batch{req: req, samples: batchSamples}:
+			}
+			batchStart = batchEnd
+		}
+	}()
+
+	// Worker goroutines: spawn MaxConcurrency of them. Each holds a
+	// concurrency-token (workerSlot) and yields back to a parking lot
+	// when its slot exceeds the regulator's current target.
+	//
+	// For phase 1 (NoAdaptive=true OR target==MaxConcurrency at start),
+	// this mechanism is no-op: every worker always holds a slot.
+	tokens := newTokenBucket(cfg.MaxConcurrency, &target)
+
+	var workerWG sync.WaitGroup
+	workerWG.Add(cfg.MaxConcurrency)
+	for w := 0; w < cfg.MaxConcurrency; w++ {
+		workerID := w
+		go func() {
+			defer workerWG.Done()
+			// Each worker owns its own http.Client → own TCP connection.
+			// MaxIdleConnsPerHost=1 + Timeout to bound long stalls.
+			client := &http.Client{
+				Timeout: 5 * time.Minute,
+				Transport: &http.Transport{
+					MaxIdleConnsPerHost: 1,
+					IdleConnTimeout:     2 * time.Minute,
+					DisableCompression:  true, // payload is already snappy-encoded
+				},
+			}
+			for b := range requests {
+				if !tokens.acquire(ctx, workerID) {
+					return // ctx cancelled
+				}
+				postStart := time.Now()
+				err := promharness.WriteToRemoteWriteEndpoint(ctx, client, cfg.Endpoint, b.req)
+				elapsed := time.Since(postStart)
+				tokens.release()
+				if err != nil {
+					errCount.Add(1)
+					rtt.observe(elapsed, true)
+					if isFatal(err) {
+						stash := err
+						generatorErr.CompareAndSwap(nil, &stash)
+						return
+					}
+					continue
+				}
+				rtt.observe(elapsed, false)
+				batchCount.Add(1)
+				sampleCount.Add(int64(b.samples))
+			}
+		}()
+	}
+
+	// Adaptive regulator. Disabled when --no-adaptive is set; in that mode the
+	// target stays pinned at MaxConcurrency and runRegulator is not started.
+	rampUpFreeze := atomic.Int64{}
+	if !cfg.NoAdaptive {
+		regCtx, regCancel := context.WithCancel(ctx)
+		defer regCancel()
+		go runRegulator(regCtx, &target, rtt, defaultRegulatorConfig(int32(cfg.MaxConcurrency)), tokens)
+
+		// Health probe: kill-switch on explicit CH/Prom pressure signals.
+		// Independent of the regulator — a kill-switch fire writes target
+		// directly. Disabled when ProbeInterval <= 0 OR no probe URLs are set.
+		if cfg.ProbeInterval > 0 && (cfg.CHURL != "" || cfg.PromURL != "") {
+			go runHealthProbe(regCtx, &target, &rampUpFreeze,
+				defaultProbeConfig(cfg.CHURL, cfg.CHUsername, cfg.CHPassword, cfg.PromURL, cfg.ProbeInterval),
+				tokens)
+		}
+	}
+
+	// Periodic progress log so users can see throughput trending without
+	// waiting for the run to finish.
+	progressDone := make(chan struct{})
+	go func() {
+		defer close(progressDone)
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		var lastSamples int64
+		var lastTime time.Time = start
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case t := <-ticker.C:
+				cur := sampleCount.Load()
+				emitted := samplesEmitted.Load()
+				delta := cur - lastSamples
+				dur := t.Sub(lastTime).Seconds()
+				if dur <= 0 {
+					continue
+				}
+				rate := float64(delta) / dur
+				p50, p99, errPct := rtt.summary()
+				log.Printf("[seed-long] progress: batches=%d acked=%d emitted=%d (+%dk acked last %.0fs = %.0fk/s) errors=%d rtt p50=%dms p99=%dms err%%=%.1f targetN=%d",
+					batchCount.Load(), cur, emitted, delta/1000, dur, rate/1000, errCount.Load(),
+					p50.Milliseconds(), p99.Milliseconds(), errPct, target.Load())
+				lastSamples = cur
+				lastTime = t
+				if n := target.Load(); n > maxN.Load() {
+					maxN.Store(n)
+				}
+				if n := target.Load(); n < minN.Load() {
+					minN.Store(n)
+				}
+			}
+		}
+	}()
+
+	// Wait for all workers to drain.
+	workerWG.Wait()
+	if errp := generatorErr.Load(); errp != nil {
+		return streamStats{}, fmt.Errorf("seed batch failed: %w", *errp)
+	}
+
+	stats := streamStats{
+		Batches:      int(batchCount.Load()),
+		Samples:      int(sampleCount.Load()),
+		Errors:       int(errCount.Load()),
+		Wallclock:    time.Since(start),
+		MaxObservedN: int(maxN.Load()),
+		MinObservedN: int(minN.Load()),
+	}
+	return stats, nil
+}
+
+// isFatal reports whether a remote-write error should abort the entire seed
+// run. Currently we treat all errors as fatal because Prometheus remote-write
+// is at-most-once-per-batch (no idempotency keys, no partial replay), so a
+// retry that succeeds after a partial-write would risk silent duplicate
+// samples. Future work could differentiate transient (5xx) from permanent
+// errors and retry transient ones with the same payload.
+func isFatal(err error) bool {
+	return err != nil
+}

@@ -28,6 +28,19 @@
 #                                [--ch-endpoint http://localhost:29092/write]
 #                                [--prom-endpoint http://localhost:29090/api/v1/write]
 #
+# Adaptive seeder controls (parallel POSTs + AIMD regulator):
+#   --batch-samples N         Approximate samples per POST (default 50000).
+#                             Bigger batches → fewer round-trips, important
+#                             for high-cardinality (stress-*) profiles.
+#   --max-concurrency N       Hard ceiling on in-flight POSTs (default 8).
+#   --initial-concurrency N   Regulator starting point (default 2).
+#   --no-adaptive             Disable AIMD; run with fixed N=max-concurrency
+#                             (deterministic, useful when benchmarking the
+#                             seeder itself).
+#   --probe-interval D        Health-probe poll cadence (default 5s).
+#   --enable-probes           Turn on CH/Prom kill-switch probes (ch-probe-url
+#                             and prom-probe-url default to --ch-url/--prom-url).
+#
 # Named profiles (recommended; they pin matching corpora):
 #   7d   → 2026-03-22T21:45:42Z - 7d @ 15s step  (~5M samples, ~5s wall)
 #   30d  → 2026-02-22T21:45:42Z - 30d @ 60s step (~5M samples, ~5s wall)
@@ -56,6 +69,12 @@ PROM_URL="http://localhost:29090"
 CH_ENDPOINT="http://localhost:29092/write"
 PROM_ENDPOINT="http://localhost:29090/api/v1/write"
 TARGET="both"
+BATCH_SAMPLES=""
+MAX_CONCURRENCY=""
+INITIAL_CONCURRENCY=""
+NO_ADAPTIVE=""
+PROBE_INTERVAL=""
+ENABLE_PROBES=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -73,6 +92,12 @@ while [[ $# -gt 0 ]]; do
     --prom-endpoint)       PROM_ENDPOINT="$2"; shift 2 ;;
     # --endpoint retained for backcompat; routes to CH.
     --endpoint)            CH_ENDPOINT="$2"; shift 2 ;;
+    --batch-samples)       BATCH_SAMPLES="$2"; shift 2 ;;
+    --max-concurrency)     MAX_CONCURRENCY="$2"; shift 2 ;;
+    --initial-concurrency) INITIAL_CONCURRENCY="$2"; shift 2 ;;
+    --no-adaptive)         NO_ADAPTIVE="1"; shift ;;
+    --probe-interval)      PROBE_INTERVAL="$2"; shift 2 ;;
+    --enable-probes)       ENABLE_PROBES="1"; shift ;;
     -h|--help)             sed -n '1,/^set -e/p' "$0" | head -n 30; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 64 ;;
   esac
@@ -94,6 +119,12 @@ if [[ "$PROFILE" == "all" ]]; then
     [[ -n "$DURATION" ]] && args+=(--duration "$DURATION")
     [[ -n "$STEP" ]] && args+=(--step "$STEP")
     [[ -n "$END_TIME" ]] && args+=(--end-time "$END_TIME")
+    [[ -n "$BATCH_SAMPLES" ]] && args+=(--batch-samples "$BATCH_SAMPLES")
+    [[ -n "$MAX_CONCURRENCY" ]] && args+=(--max-concurrency "$MAX_CONCURRENCY")
+    [[ -n "$INITIAL_CONCURRENCY" ]] && args+=(--initial-concurrency "$INITIAL_CONCURRENCY")
+    [[ -n "$NO_ADAPTIVE" ]] && args+=(--no-adaptive)
+    [[ -n "$PROBE_INTERVAL" ]] && args+=(--probe-interval "$PROBE_INTERVAL")
+    [[ -n "$ENABLE_PROBES" ]] && args+=(--enable-probes)
     "$0" "${args[@]}"
   done
   exit 0
@@ -133,10 +164,21 @@ if [[ -n "$PROFILE" ]];  then COMMON_ARGS+=(--profile "$PROFILE"); fi
 if [[ -n "$DURATION" ]]; then COMMON_ARGS+=(--duration "$DURATION"); fi
 if [[ -n "$STEP" ]];     then COMMON_ARGS+=(--step "$STEP"); fi
 if [[ -n "$END_TIME" ]]; then COMMON_ARGS+=(--end-time "$END_TIME"); fi
+if [[ -n "$BATCH_SAMPLES" ]]; then COMMON_ARGS+=(--batch-samples "$BATCH_SAMPLES"); fi
+if [[ -n "$MAX_CONCURRENCY" ]]; then COMMON_ARGS+=(--max-concurrency "$MAX_CONCURRENCY"); fi
+if [[ -n "$INITIAL_CONCURRENCY" ]]; then COMMON_ARGS+=(--initial-concurrency "$INITIAL_CONCURRENCY"); fi
+if [[ -n "$NO_ADAPTIVE" ]]; then COMMON_ARGS+=(--no-adaptive); fi
+if [[ -n "$PROBE_INTERVAL" ]]; then COMMON_ARGS+=(--probe-interval "$PROBE_INTERVAL"); fi
+
+# CH probe URL: --enable-probes turns it on with the same CH_URL we ping.
+CH_PROBE_ARGS=()
+if [[ -n "$ENABLE_PROBES" ]]; then
+  CH_PROBE_ARGS=(--ch-probe-url "$CH_URL" --prom-probe-url "$PROM_URL")
+fi
 
 if [[ "$TARGET" == "ch" || "$TARGET" == "both" ]]; then
   echo "[seed-long] target=ch endpoint=${CH_ENDPOINT}"
-  "$BIN" --endpoint "$CH_ENDPOINT" --username default --password otel "${COMMON_ARGS[@]}"
+  "$BIN" --endpoint "$CH_ENDPOINT" --username default --password otel "${COMMON_ARGS[@]}" "${CH_PROBE_ARGS[@]}"
   # Nudge CH to merge parts so subsequent queries see dense data.
   echo "[seed-long] OPTIMIZE inner tables (best-effort)"
   curl -sfS --data-binary @- -u default:otel "${CH_URL}/?database=observability" <<<"SYSTEM FLUSH LOGS" >/dev/null || true
@@ -146,7 +188,7 @@ if [[ "$TARGET" == "prom" || "$TARGET" == "both" ]]; then
   echo "[seed-long] target=prom endpoint=${PROM_ENDPOINT}"
   # Prom remote-write-receiver has no auth in the compliance stack; pass
   # empty username so withBasicAuth leaves the URL alone.
-  "$BIN" --endpoint "$PROM_ENDPOINT" --username "" --password "" "${COMMON_ARGS[@]}"
+  "$BIN" --endpoint "$PROM_ENDPOINT" --username "" --password "" "${COMMON_ARGS[@]}" "${CH_PROBE_ARGS[@]}"
 fi
 
 EFFECTIVE_PROFILE="${PROFILE:-custom}"

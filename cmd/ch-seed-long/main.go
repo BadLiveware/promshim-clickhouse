@@ -56,6 +56,12 @@ func main() {
 		instancesFlag = flag.Int("instances-per-job", 5, "Number of instance label values per job.")
 		batchSamples  = flag.Int("batch-samples", 50000, "Approximate samples per remote-write POST.")
 		seed          = flag.Int64("seed", 42, "PRNG seed for gauge jitter (output is deterministic for a given seed).")
+		maxConcurrent = flag.Int("max-concurrency", 8, "Maximum number of in-flight remote-write POSTs.")
+		initConcurrent = flag.Int("initial-concurrency", 2, "Starting concurrency for the AIMD regulator. Ignored when --no-adaptive is set.")
+		noAdaptive    = flag.Bool("no-adaptive", false, "Disable the AIMD regulator and run with fixed --max-concurrency workers (deterministic mode).")
+		probeInterval = flag.Duration("probe-interval", 5*time.Second, "How often the health-probe goroutine queries ClickHouse and Prometheus. Zero disables.")
+		chProbeURL    = flag.String("ch-probe-url", "", "ClickHouse HTTP URL for health probes (e.g. http://localhost:28124). Empty disables CH probing.")
+		promProbeURL  = flag.String("prom-probe-url", "", "Prometheus HTTP URL for health probes (e.g. http://localhost:29190). Empty disables Prom probing.")
 	)
 	flag.Parse()
 
@@ -120,7 +126,6 @@ func main() {
 	log.Printf("[seed-long] %d series, %d points/series ≈ %d total samples",
 		len(series), totalPoints, len(series)*totalPoints)
 
-	client := &http.Client{Timeout: 5 * time.Minute}
 	fullEndpoint := withBasicAuth(*endpoint, *username, *password)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -129,52 +134,39 @@ func main() {
 	rng := rand.New(rand.NewSource(*seed))
 	state := newSeriesState(series, rng)
 
-	// Choose a time-chunk size so each remote-write batch is ≈ batchSamples.
-	pointsPerBatch := *batchSamples / len(series)
-	if pointsPerBatch < 1 {
-		pointsPerBatch = 1
+	stats, err := runStream(ctx, streamConfig{
+		Endpoint:           fullEndpoint,
+		StartTime:          startTime,
+		EndTime:            endTime,
+		Step:               *step,
+		BatchSamples:       *batchSamples,
+		Series:             series,
+		State:              state,
+		MaxConcurrency:     *maxConcurrent,
+		InitialConcurrency: *initConcurrent,
+		NoAdaptive:         *noAdaptive,
+		ProbeInterval:      *probeInterval,
+		CHURL:              *chProbeURL,
+		CHUsername:         *username,
+		CHPassword:         *password,
+		PromURL:            *promProbeURL,
+	})
+	if err != nil {
+		log.Fatalf("[seed-long] stream: %v", err)
 	}
 
-	batches := 0
-	samples := 0
-	batchStart := startTime
-	for batchStart.Before(endTime) {
-		batchEnd := batchStart.Add(time.Duration(pointsPerBatch) * *step)
-		if batchEnd.After(endTime) {
-			batchEnd = endTime
-		}
-		req := &prompb.WriteRequest{}
-		for i := range series {
-			points := advanceSeries(&series[i], &state[i], batchStart, batchEnd, *step)
-			if len(points) == 0 {
-				continue
-			}
-			req.Timeseries = append(req.Timeseries, prompb.TimeSeries{
-				Labels:  series[i].labels,
-				Samples: points,
-			})
-			samples += len(points)
-		}
-		if len(req.Timeseries) == 0 {
-			break
-		}
-		if err := promharness.WriteToRemoteWriteEndpoint(ctx, client, fullEndpoint, req); err != nil {
-			log.Fatalf("[seed-long] remote-write batch %d: %v", batches+1, err)
-		}
-		batches++
-		log.Printf("[seed-long] batch %d: ts=%s..%s series=%d samples(total)=%d",
-			batches, batchStart.Format(time.RFC3339), batchEnd.Format(time.RFC3339),
-			len(req.Timeseries), samples)
-		batchStart = batchEnd
-	}
-
+	// Single-threaded marker post — runs after the parallel stream drains so
+	// it's guaranteed to be the latest sample for the marker series.
+	markerClient := &http.Client{Timeout: 30 * time.Second}
 	marker := seedMarkerRequest(*profile, *density, jobs, *instancesFlag, *duration, *step, *seed, endTime)
-	if err := promharness.WriteToRemoteWriteEndpoint(ctx, client, fullEndpoint, marker); err != nil {
+	if err := promharness.WriteToRemoteWriteEndpoint(ctx, markerClient, fullEndpoint, marker); err != nil {
 		log.Fatalf("[seed-long] remote-write seed marker: %v", err)
 	}
 	log.Printf("[seed-long] seed marker written at %s", endTime.Format(time.RFC3339))
 
-	log.Printf("[seed-long] done: %d batches, %d samples written", batches, samples)
+	log.Printf("[seed-long] done: %d batches, %d samples written, %d errors, wallclock=%s, observed concurrency [%d..%d]",
+		stats.Batches, stats.Samples, stats.Errors, stats.Wallclock.Round(time.Second),
+		stats.MinObservedN, stats.MaxObservedN)
 }
 
 func profileEndTime(p profileConfig, density string) string {

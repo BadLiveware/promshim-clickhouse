@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
-# reconcile-expected.sh - reconcile a compliance report against expected-failures.json.
 set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: reconcile-expected.sh [REPORT] [--allowlist PATH] [--mode MODE]
+
+Reconcile a compliance report against expected-failures.json. If REPORT is
+omitted, the latest compliance report in artifacts/ is used.
+
+Options:
+  --allowlist PATH  Expected-failures allowlist path.
+  --mode MODE       Apply mode-tagged allowlist entries for this mode.
+  -h, --help        Show this help.
+EOF
+}
+
 CALLER_PWD=$(pwd)
 
 cd "$(dirname "$0")/.."
@@ -13,7 +27,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --allowlist) allowlist="$2"; shift 2 ;;
     --mode)      mode="$2"; shift 2 ;;
-    -h|--help)   sed -n '2,8p' "$0"; exit 0 ;;
+    -h|--help)   usage; exit 0 ;;
     -*)          echo "unknown flag: $1" >&2; exit 2 ;;
     *)           report="$1"; shift ;;
   esac

@@ -87,7 +87,7 @@ func renderSweepBenchMatrix(opts BenchMatrixOptions) (string, error) {
 	rows := []benchMatrixSweepRow{}
 	for _, meta := range manifest.Bench.Reports {
 		reportPath := filepath.Join(root, filepath.FromSlash(meta.Path))
-		report, err := readBenchReportV2(reportPath)
+		report, err := loadBenchReportV2(reportPath)
 		if err != nil {
 			continue
 		}
@@ -240,17 +240,6 @@ func readBenchReport(path string) (BenchReport, error) {
 	var r BenchReport
 	if err := json.Unmarshal(content, &r); err != nil {
 		return BenchReport{}, err
-	}
-	return r, nil
-}
-func readBenchReportV2(path string) (BenchReportV2, error) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return BenchReportV2{}, err
-	}
-	var r BenchReportV2
-	if err := json.Unmarshal(content, &r); err != nil || r.SchemaVersion != 2 {
-		return BenchReportV2{}, fmt.Errorf("not v2")
 	}
 	return r, nil
 }

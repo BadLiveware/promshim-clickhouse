@@ -77,7 +77,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		MaxResponsePoints:             getenvInt64("PROM_SHIM_MAX_RESPONSE_POINTS", defaultMaxResponsePoints),
 		PromotedTagColumns:            splitCSVEnv(getenv("PROM_SHIM_PROMOTED_TAG_COLUMNS", "")),
 		DiscoverPromotedTagColumns:    getenvBool("PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS", false),
-		NativeGridFunctions:           getenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "off"),
+		NativeGridFunctions:           getenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "prefer"),
 	}
 
 	if _, err := local.ParseNativeLoweringMode(string(opts.NativeLoweringMode)); err != nil {
@@ -169,10 +169,10 @@ func getenvInt64(key string, fallback int64) int64 {
 
 func normalizeNativeGridFunctionsMode(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "off":
-		return "off"
-	case "prefer":
+	case "", "prefer":
 		return "prefer"
+	case "off":
+		return "off"
 	default:
 		return ""
 	}

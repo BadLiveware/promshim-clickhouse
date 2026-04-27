@@ -383,7 +383,7 @@ recorded in `docs/per-series-time-bound-pruning.md`.
 | `PROM_SHIM_CLICKHOUSE_MAX_RESULT_ROWS` | `0` | Optional `default_safe` per-query `max_result_rows` cap; `0` leaves it unset until a result-row contract is explicit. |
 | `PROM_SHIM_PROMOTED_TAG_COLUMNS` | empty | Comma-separated label names that are configured as ClickHouse `tags_to_columns` columns on the TimeSeries tags table. Native selector SQL uses these columns for label matchers and narrowed single-label projections while preserving `mapContains` label-presence semantics. |
 | `PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS` | `false` | When true, promshim describes `timeSeriesTags(database.table)` at startup and adds non-system columns to the promoted tag column set. Explicit `PROM_SHIM_PROMOTED_TAG_COLUMNS` entries are still honored. |
-| `PROM_SHIM_NATIVE_GRID_FUNCTIONS` | `off` | Experimental native-grid lowering gate. `prefer` lets supported tier-2 `rate` range selectors use ClickHouse TimeSeries grid functions; keep `off` unless compliance and benchmark evidence are acceptable for the target ClickHouse version. |
+| `PROM_SHIM_NATIVE_GRID_FUNCTIONS` | `prefer` | Native-grid lowering gate. `prefer` lets supported tier-2 range `rate(...)` selectors use ClickHouse TimeSeries grid functions; set `off` to roll back to promshim's SQL-level rate kernel. |
 | `PROM_SHIM_NATIVE_LOWERING_MODE` | `prefer` | Global lowering mode; see execution modes above. |
 | `PROM_SHIM_ROUTING_POLICY` | `strict` | Global cost-routing policy; see cost routing policies above. |
 | `PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES` | empty | Comma-separated family gates eligible for `cost_prefer` local overrides, e.g. `selector_instant,rate_instant`. |
@@ -566,8 +566,10 @@ matrices include CBE decision telemetry (`routingDecision`, `routingReason`,
 strict/served candidate IDs) and memory-side signals from
 `memory-summary-*.json`.
 
-The runs used the default `PROM_SHIM_NATIVE_GRID_FUNCTIONS=off`. The experimental
-native-grid gate was measured separately as a focused before/after check:
+The matrix artifacts below were captured before native-grid lowering became the
+default. They therefore reflect the explicit rollback behavior
+`PROM_SHIM_NATIVE_GRID_FUNCTIONS=off`. The native-grid default was measured
+separately as a focused before/after check:
 `harness/artifacts/sweeps/native-grid-focused-baseline` and
 `harness/artifacts/sweeps/native-grid-focused-candidate`.
 
@@ -635,12 +637,13 @@ control where `cost_prefer` should not flip serving.
 | `processing_avg_memory_1h_by_job_type_range_24h_7d` | in_band | native_sql/12122.48 | native_sql/11788.71 | `strict_over_cap` | `hard_cap` |
 | `processing_histogram_quantile_1h_range_24h_7d` | in_band | native_sql/5325.95 | native_sql/5290.24 | `strict_over_cap` | `hard_cap` |
 
-### Experimental native-grid gate check
+### Native-grid default check
 
-With `PROM_SHIM_NATIVE_GRID_FUNCTIONS=prefer`, focused 7d sparse range-rate rows
-showed large wins while staying on `native_sql` with one ClickHouse roundtrip:
+With the default `PROM_SHIM_NATIVE_GRID_FUNCTIONS=prefer`, focused 7d sparse
+range-rate rows showed large wins while staying on `native_sql` with one
+ClickHouse roundtrip:
 
-| Query | Default p50 | Native-grid p50 | Δ |
+| Query | Rollback/off p50 | Native-grid p50 | Δ |
 |---|---:|---:|---:|
 | `sum_rate_by_job_range_7d` prefer | 161.12 | 70.03 | -56.5% |
 | `sum_rate_by_job_range_7d` force_supported | 165.28 | 69.09 | -58.2% |
@@ -657,12 +660,13 @@ showed large wins while staying on `native_sql` with one ClickHouse roundtrip:
 - **Most other families stay strict by design:** `strict_over_cap`,
   `strict_low_confidence`, and disabled family gates dominate outside that
   narrow allowlist.
-- **Native SQL range-rate work has materially improved default strict behavior:**
-  sparse 7d range-rate category medians are now roughly `98–100 ms`, and
-  range-sum-rate medians are roughly `157–164 ms` in default gated mode.
-- **The native-grid path is promising but still experimental:** the focused gate
-  check cuts target range-rate p50s by about 48–58%, but the README matrices keep
-  the default-off behavior as the main status line.
+- **Native SQL range-rate work has materially improved strict behavior:** the
+  rollback SQL kernel has sparse 7d range-rate category medians around
+  `98–100 ms`, and range-sum-rate medians around `157–164 ms`; the native-grid
+  default is substantially faster for the focused range-rate rows above.
+- **Native-grid is the default rate-range kernel, with a simple rollback:** set
+  `PROM_SHIM_NATIVE_GRID_FUNCTIONS=off` to return supported range `rate(...)`
+  selectors to the SQL-level `deltaSumTimestamp` implementation.
 - **Dense range processing is still the main gap:** heavy 24h range processing
   rows remain multi-second and `processing_sum_rate_1h_by_job_range_7d` still
   times out in this harness.

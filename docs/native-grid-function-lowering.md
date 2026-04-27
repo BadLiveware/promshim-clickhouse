@@ -1,13 +1,13 @@
 # Native TimeSeries grid-function lowering
 
-This note captures the next tier-2/native optimization direction after the
-`tags_to_columns` schema-awareness work: using ClickHouse's TimeSeries C++ grid
-functions inside promshim's SQL lowering for rate-family operators.
+This note captures promshim's tier-2/native use of ClickHouse's TimeSeries C++
+grid functions inside SQL lowering for supported range `rate(...)` operators.
 
-This is intentionally an architecture note, not enabled behavior. It crosses a
-boundary between current tier-2 hand-written SQL and ClickHouse's native
-TimeSeries PromQL primitives, so it should land behind an explicit gate and with
-compliance/benchmark evidence.
+This path crosses a boundary between tier-2 hand-written SQL and ClickHouse's
+native TimeSeries PromQL primitives. It is enabled by default for the narrow
+validated rate-range shapes, but remains behind an explicit rollback gate:
+`PROM_SHIM_NATIVE_GRID_FUNCTIONS=off` returns those shapes to promshim's
+SQL-level `deltaSumTimestamp` kernel.
 
 ## Motivation
 
@@ -30,13 +30,16 @@ ClickHouse already ships native TimeSeries functions for some of this work:
 - `timeSeriesInstantDeltaToGrid`
 - `timeSeriesLastToGrid`
 
-Using them inside tier-2 SQL could keep SQL-level composability for outer
-aggregation while moving per-series rate/delta grid computation into vectorized
-engine code.
+Using them inside tier-2 SQL keeps SQL-level composability for outer
+aggregation while moving per-series rate grid computation into vectorized engine
+code.
 
-## Candidate shape
+## Implemented shape
 
-For range `rate(selector[lookback])`:
+For range `rate(selector[lookback])`, promshim groups matched samples per series,
+computes the full output grid with `timeSeriesRateToGrid`, zips that value array
+with the evaluation timestamps, drops null points, and projects Prometheus label
+sets. The row-producing shape is conceptually:
 
 ```sql
 WITH
@@ -77,8 +80,10 @@ GROUP BY final_tags
 ORDER BY final_tags
 ```
 
-For `sum by (job) (rate(...))`, keep the same inner per-series grid, then group
-outer rows by the requested label projection:
+For `sum by (job) (rate(...))`, promshim avoids materializing per-point rows
+where possible: it keeps each per-series grid as an array, groups by the
+requested label projection, and combines aligned arrays with `sumForEach` plus
+presence/NaN masks. Conceptually:
 
 ```sql
 SELECT
@@ -99,9 +104,10 @@ ORDER BY tags
 
 ## Required semantic checks
 
-Do not assume the native grid functions are Prometheus-identical just because
-ClickHouse exposes them. Before serving this path, compare against existing
-reference/native modes for:
+Do not assume additional native grid functions are Prometheus-identical just
+because ClickHouse exposes them. Before broadening the current served `rate(...)`
+path or adding new function families, compare against existing reference/native
+modes for:
 
 - short-window rate such as `rate(demo_cpu_usage_seconds_total[15s])`;
 - counter reset handling;
@@ -117,25 +123,25 @@ correct on the compliance corpus and targeted fixtures.
 
 ## Rollout gate
 
-Suggested runtime gate:
+Runtime gate:
 
-- disabled by default;
-- enabled by a new env/request setting, for example
-  `PROM_SHIM_NATIVE_GRID_FUNCTIONS=off|shadow|prefer`;
-- in `shadow`, execute the native-grid candidate in the background and compare
-  response values to the current tier-2 SQL path;
-- in `prefer`, serve only query families with clean shadow/compliance evidence.
+- `PROM_SHIM_NATIVE_GRID_FUNCTIONS=prefer` (default): use native-grid lowering
+  for supported tier-2 range `rate(...)` shapes that pass the existing guards.
+- `PROM_SHIM_NATIVE_GRID_FUNCTIONS=off`: rollback to promshim's SQL-level rate
+  kernel.
 
-This should be treated as a tier-2 implementation detail, not whole-query
-delegation: the outer SQL still handles aggregation, tag projection, transforms,
-and composition.
+This is a tier-2 implementation detail, not whole-query delegation: the outer
+SQL still handles aggregation, tag projection, transforms, and composition.
 
 ## Measurement plan
 
 Use the same artifacts as normal tier-2 optimization attempts:
 
-1. Baseline: latest accepted sweep for `range_rate` and `range_sum_rate` rows.
-2. Candidate: same corpus/profile/density/modes with native-grid gate enabled.
+1. Baseline: latest accepted sweep or focused run with
+   `PROM_SHIM_NATIVE_GRID_FUNCTIONS=off` for `range_rate` and `range_sum_rate`
+   rows.
+2. Candidate: same corpus/profile/density/modes with the default
+   `PROM_SHIM_NATIVE_GRID_FUNCTIONS=prefer`.
 3. Required comparisons:
    - `strategy` remains `native_sql`;
    - `chRoundtrips` stays at `1`;
@@ -151,10 +157,10 @@ Use the same artifacts as normal tier-2 optimization attempts:
 
 ## Why this should not be a peephole
 
-This path changes the execution kernel for rate-family functions. It may be a
-large win, but it also inherits ClickHouse function semantics and version
-behavior. Land it as a deliberate gated path with explain visibility, not as a
-silent replacement for the existing guarded `deltaSumTimestamp` SQL.
+This path changes the execution kernel for rate-family functions. It is a large
+win on validated fixture rows, but it also inherits ClickHouse function
+semantics and version behavior. Keep it as a deliberate gated path with explain
+visibility and an `off` rollback, not as an untracked peephole.
 
 ## Not covered
 

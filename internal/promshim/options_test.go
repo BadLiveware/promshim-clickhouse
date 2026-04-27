@@ -85,8 +85,26 @@ func TestLoadOptionsFromEnvCostRoutingLocalFamilies(t *testing.T) {
 }
 
 func TestLoadOptionsFromEnvNativeGridFunctions(t *testing.T) {
-	t.Setenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "prefer")
+	t.Setenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "")
 	opts, err := LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.NativeGridFunctions != "prefer" {
+		t.Fatalf("default NativeGridFunctions = %q, want prefer", opts.NativeGridFunctions)
+	}
+
+	t.Setenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "off")
+	opts, err = LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.NativeGridFunctions != "off" {
+		t.Fatalf("NativeGridFunctions = %q, want off", opts.NativeGridFunctions)
+	}
+
+	t.Setenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "prefer")
+	opts, err = LoadOptionsFromEnv()
 	if err != nil {
 		t.Fatal(err)
 	}

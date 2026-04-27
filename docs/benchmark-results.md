@@ -2,7 +2,9 @@
 
 This page preserves the current detailed benchmark snapshot. Use it as routing-calibration and regression-tripwire context, not as a general claim that promshim beats Prometheus.
 
-Benchmark matrices below were refreshed from live sweep artifacts on this branch:
+Benchmark matrices below were refreshed from live sweep artifacts on this branch.
+For the newer 7d/50k active-series comparison against Prometheus, see
+[`profile-50k-benchmark-matrix.md`](profile-50k-benchmark-matrix.md).
 
 - `harness/artifacts/bench/sweeps/readme-refresh-20260426-7d-sparse`
 - `harness/artifacts/bench/sweeps/readme-refresh-20260426-long-range-sparse`

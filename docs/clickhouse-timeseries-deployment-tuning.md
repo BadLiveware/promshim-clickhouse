@@ -183,10 +183,11 @@ prototype plan, and acceptance gates.
 ClickHouse's `timeSeriesRateToGrid`, `timeSeriesInstantRateToGrid`,
 `timeSeriesDeltaToGrid`, `timeSeriesInstantDeltaToGrid`, and
 `timeSeriesLastToGrid` are runtime kernels for rate/delta/last paths. Promshim
-uses `timeSeriesRateToGrid` by default for the narrow validated tier-2 range
-`rate(...)` shapes, with `PROM_SHIM_NATIVE_GRID_FUNCTIONS=off` as the rollback
-to the SQL-level rate kernel. See `docs/native-grid-function-lowering.md` for
-the SQL shape, semantic checks, rollout gate, and measurement plan.
+uses them by default for narrow validated tier-2 range selector shapes covering
+`rate`, `irate`, `delta`, `idelta`, and `last_over_time`, with
+`PROM_SHIM_NATIVE_GRID_FUNCTIONS=off` as the rollback to the SQL-level kernels.
+See `docs/native-grid-function-lowering.md` for the SQL shape, semantic checks,
+rollout gate, and measurement plan.
 
 ## Things not to pursue on current ClickHouse sources
 

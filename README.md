@@ -383,7 +383,7 @@ recorded in `docs/per-series-time-bound-pruning.md`.
 | `PROM_SHIM_CLICKHOUSE_MAX_RESULT_ROWS` | `0` | Optional `default_safe` per-query `max_result_rows` cap; `0` leaves it unset until a result-row contract is explicit. |
 | `PROM_SHIM_PROMOTED_TAG_COLUMNS` | empty | Comma-separated label names that are configured as ClickHouse `tags_to_columns` columns on the TimeSeries tags table. Native selector SQL uses these columns for label matchers and narrowed single-label projections while preserving `mapContains` label-presence semantics. |
 | `PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS` | `false` | When true, promshim describes `timeSeriesTags(database.table)` at startup and adds non-system columns to the promoted tag column set. Explicit `PROM_SHIM_PROMOTED_TAG_COLUMNS` entries are still honored. |
-| `PROM_SHIM_NATIVE_GRID_FUNCTIONS` | `prefer` | Native-grid lowering gate. `prefer` lets supported tier-2 range `rate(...)` selectors use ClickHouse TimeSeries grid functions; set `off` to roll back to promshim's SQL-level rate kernel. |
+| `PROM_SHIM_NATIVE_GRID_FUNCTIONS` | `prefer` | Native-grid lowering gate. `prefer` lets supported tier-2 range selectors for `rate`, `irate`, `delta`, `idelta`, and `last_over_time` use ClickHouse TimeSeries grid functions; set `off` to roll back to promshim's SQL-level kernels. |
 | `PROM_SHIM_NATIVE_LOWERING_MODE` | `prefer` | Global lowering mode; see execution modes above. |
 | `PROM_SHIM_ROUTING_POLICY` | `strict` | Global cost-routing policy; see cost routing policies above. |
 | `PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES` | empty | Comma-separated family gates eligible for `cost_prefer` local overrides, e.g. `selector_instant,rate_instant`. |
@@ -664,9 +664,10 @@ ClickHouse roundtrip:
   rollback SQL kernel has sparse 7d range-rate category medians around
   `98–100 ms`, and range-sum-rate medians around `157–164 ms`; the native-grid
   default is substantially faster for the focused range-rate rows above.
-- **Native-grid is the default rate-range kernel, with a simple rollback:** set
-  `PROM_SHIM_NATIVE_GRID_FUNCTIONS=off` to return supported range `rate(...)`
-  selectors to the SQL-level `deltaSumTimestamp` implementation.
+- **Native-grid is the default range-function kernel where validated, with a
+  simple rollback:** set `PROM_SHIM_NATIVE_GRID_FUNCTIONS=off` to return
+  supported `rate`, `irate`, `delta`, `idelta`, and `last_over_time` range
+  selectors to promshim's SQL-level implementations.
 - **Dense range processing is still the main gap:** heavy 24h range processing
   rows remain multi-second and `processing_sum_rate_1h_by_job_range_7d` still
   times out in this harness.

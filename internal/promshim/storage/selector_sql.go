@@ -150,12 +150,12 @@ func BuildRangeWindowSelectorDirectAggregateRowsQuerySQLWithFinalTags(cfg QueryC
 	return sql + schema.QuerySuffix, params, nil
 }
 
-func BuildRangeRateSelectorNativeGridQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, finalTagsSQL string) (string, map[string]string, error) {
-	inner, params, finalTagsExpr, err := buildRangeRateSelectorNativeGridInner(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, finalTagsSQL)
+func BuildRangeNativeGridSelectorQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, finalTagsSQL string) (string, map[string]string, error) {
+	inner, params, finalTagsExpr, err := buildRangeNativeGridSelectorInner(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, fn, finalTagsSQL)
 	if err != nil {
 		return "", nil, err
 	}
-	timeGridExpr := nativeGridRateTimestampValueZipExpr()
+	timeGridExpr := nativeGridTimestampValueZipExpr()
 	series := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
 			{Expr: finalTagsExpr, Alias: "tags"},
@@ -171,8 +171,12 @@ func BuildRangeRateSelectorNativeGridQuerySQLWithFinalTags(cfg QueryConfig, sele
 	return sql + schema.QuerySuffix, params, nil
 }
 
-func BuildRangeRateSelectorNativeGridSumAggregationQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, finalTagsSQL string, grouping []string, without bool) (string, map[string]string, error) {
-	inner, params, finalTagsExpr, err := buildRangeRateSelectorNativeGridInner(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, finalTagsSQL)
+func BuildRangeRateSelectorNativeGridQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, finalTagsSQL string) (string, map[string]string, error) {
+	return BuildRangeNativeGridSelectorQuerySQLWithFinalTags(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, "rate", finalTagsSQL)
+}
+
+func BuildRangeNativeGridSelectorSumAggregationQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, finalTagsSQL string, grouping []string, without bool) (string, map[string]string, error) {
+	inner, params, finalTagsExpr, err := buildRangeNativeGridSelectorInner(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, fn, finalTagsSQL)
 	if err != nil {
 		return "", nil, err
 	}
@@ -212,8 +216,12 @@ func BuildRangeRateSelectorNativeGridSumAggregationQuerySQLWithFinalTags(cfg Que
 	return sql + schema.QuerySuffix, params, nil
 }
 
-func BuildRangeRateSelectorNativeGridRowsQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, finalTagsSQL string) (string, map[string]string, error) {
-	inner, params, finalTagsExpr, err := buildRangeRateSelectorNativeGridInner(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, finalTagsSQL)
+func BuildRangeRateSelectorNativeGridSumAggregationQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, finalTagsSQL string, grouping []string, without bool) (string, map[string]string, error) {
+	return BuildRangeNativeGridSelectorSumAggregationQuerySQLWithFinalTags(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, "rate", finalTagsSQL, grouping, without)
+}
+
+func BuildRangeNativeGridSelectorRowsQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, finalTagsSQL string) (string, map[string]string, error) {
+	inner, params, finalTagsExpr, err := buildRangeNativeGridSelectorInner(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, fn, finalTagsSQL)
 	if err != nil {
 		return "", nil, err
 	}
@@ -225,7 +233,7 @@ func BuildRangeRateSelectorNativeGridRowsQuerySQLWithFinalTags(cfg QueryConfig, 
 		},
 		From: sqlb.ArrayJoin{
 			Base:  sqlb.SubSelect{S: inner},
-			Expr:  sqlb.RawLit{V: nativeGridRateTimestampValueZipExpr()},
+			Expr:  sqlb.RawLit{V: nativeGridTimestampValueZipExpr()},
 			Alias: "point",
 		},
 		Where: sqlb.RawLit{V: "isNotNull(point.2)"},
@@ -237,14 +245,22 @@ func BuildRangeRateSelectorNativeGridRowsQuerySQLWithFinalTags(cfg QueryConfig, 
 	return sql + schema.QuerySuffix, params, nil
 }
 
-func buildRangeRateSelectorNativeGridInner(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, finalTagsSQL string) (*sqlb.Select, map[string]string, sqlb.Expr, error) {
+func BuildRangeRateSelectorNativeGridRowsQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, finalTagsSQL string) (string, map[string]string, error) {
+	return BuildRangeNativeGridSelectorRowsQuerySQLWithFinalTags(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, "rate", finalTagsSQL)
+}
+
+func buildRangeNativeGridSelectorInner(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, finalTagsSQL string) (*sqlb.Select, map[string]string, sqlb.Expr, error) {
 	if selector.Kind != SelectorKindRangeVector {
-		return nil, nil, nil, fmt.Errorf("native-grid rate selector SQL requires a range-vector selector, got %q", selector.Kind)
+		return nil, nil, nil, fmt.Errorf("native-grid %s selector SQL requires a range-vector selector, got %q", fn, selector.Kind)
 	}
 	if stepMS <= 0 {
-		return nil, nil, nil, fmt.Errorf("native-grid rate selector SQL requires a positive step")
+		return nil, nil, nil, fmt.Errorf("native-grid %s selector SQL requires a positive step", fn)
 	}
-	matchedSeriesSQL, params, err := buildMatchedSeriesSQL(cfg, selector, "native_grid_rate", requiredStartMS, requiredEndMS, true)
+	chFunction, ok := nativeGridRangeFunctionName(fn)
+	if !ok {
+		return nil, nil, nil, fmt.Errorf("native-grid selector SQL does not support range function %q", fn)
+	}
+	matchedSeriesSQL, params, err := buildMatchedSeriesSQL(cfg, selector, "native_grid_"+fn, requiredStartMS, requiredEndMS, true)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -261,7 +277,7 @@ func buildRangeRateSelectorNativeGridInner(cfg QueryConfig, selector SelectorSou
 		Columns: []sqlb.ColExpr{
 			{Expr: sqlb.Ident("series.id"), Alias: "id"},
 			{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("series.tags")}}, Alias: "tags"},
-			{Expr: sqlb.RawLit{V: "timeSeriesRateToGrid(fromUnixTimestamp64Milli({start_ms:Int64}), fromUnixTimestamp64Milli({end_ms:Int64}), toDecimal64({step_ms:Int64}, 3) / 1000, toDecimal64({lookback_ms:Int64}, 3) / 1000)(d.timestamp, d.value)"}, Alias: "values"},
+			{Expr: sqlb.RawLit{V: chFunction + "(fromUnixTimestamp64Milli({start_ms:Int64}), fromUnixTimestamp64Milli({end_ms:Int64}), toDecimal64({step_ms:Int64}, 3) / 1000, toDecimal64({lookback_ms:Int64}, 3) / 1000)(d.timestamp, d.value)"}, Alias: "values"},
 		},
 		From: sqlb.Join{
 			Left:  sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"},
@@ -275,7 +291,24 @@ func buildRangeRateSelectorNativeGridInner(cfg QueryConfig, selector SelectorSou
 	return inner, params, resolvedFinalTagsExpr, nil
 }
 
-func nativeGridRateTimestampValueZipExpr() string {
+func nativeGridRangeFunctionName(fn string) (string, bool) {
+	switch fn {
+	case "rate":
+		return "timeSeriesRateToGrid", true
+	case "irate":
+		return "timeSeriesInstantRateToGrid", true
+	case "delta":
+		return "timeSeriesDeltaToGrid", true
+	case "idelta":
+		return "timeSeriesInstantDeltaToGrid", true
+	case "last_over_time":
+		return "timeSeriesLastToGrid", true
+	default:
+		return "", false
+	}
+}
+
+func nativeGridTimestampValueZipExpr() string {
 	return "arrayZip(arrayMap(i -> fromUnixTimestamp64Milli({start_ms:Int64}) + toIntervalMillisecond((i - 1) * {step_ms:Int64}), arrayEnumerate(values)), values)"
 }
 

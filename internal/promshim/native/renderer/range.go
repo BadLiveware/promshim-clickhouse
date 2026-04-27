@@ -198,6 +198,21 @@ func supportsDirectSelectorWindowAggregate(fn string, lookbackMS int64) bool {
 	}
 }
 
+func canUseNativeGridRangeFunction(fn string, lookbackMS, offsetMS int64) bool {
+	if lookbackMS <= 0 || offsetMS != 0 {
+		return false
+	}
+	switch fn {
+	case "rate", "irate", "delta", "idelta", "last_over_time":
+		// Very short windows have compliance-sensitive empty-window behavior in
+		// Prometheus. Keep them on promshim's SQL kernel until targeted fixtures
+		// prove ClickHouse's grid functions are identical there too.
+		return lookbackMS >= 60_000
+	default:
+		return false
+	}
+}
+
 func buildInstantRangeFunctionOverRowsSQL(sourceRowsSQL, fn, finalTagsExpr string, evaluationTimeMS int64) (string, error) {
 	valueExpr, err := rangeFunctionRowsFastPathValueExpr(fn, "value")
 	if err != nil {

@@ -1,24 +1,26 @@
 # Native TimeSeries grid-function lowering
 
 This note captures promshim's tier-2/native use of ClickHouse's TimeSeries C++
-grid functions inside SQL lowering for supported range `rate(...)` operators.
+grid functions inside SQL lowering for supported range-function operators:
+`rate`, `irate`, `delta`, `idelta`, and `last_over_time`.
 
 This path crosses a boundary between tier-2 hand-written SQL and ClickHouse's
-native TimeSeries PromQL primitives. It is enabled by default for the narrow
-validated rate-range shapes, but remains behind an explicit rollback gate:
+native TimeSeries PromQL primitives. It is enabled by default for narrow
+validated range-selector shapes, but remains behind an explicit rollback gate:
 `PROM_SHIM_NATIVE_GRID_FUNCTIONS=off` returns those shapes to promshim's
-SQL-level `deltaSumTimestamp` kernel.
+SQL-level kernels.
 
 ## Motivation
 
-Current tier-2 range-rate SQL computes rate windows manually with SQL joins,
-per-evaluation grouping, and `deltaSumTimestamp`. This preserves composability
-but leaves a lot of work in SQL expression execution:
+Current tier-2 SQL computes rate/delta/last windows manually with SQL joins,
+per-evaluation grouping, `deltaSumTimestamp`, array windowing, and pairwise array
+expressions. This preserves composability but leaves a lot of work in SQL
+expression execution:
 
 - build an evaluation grid;
 - join samples to each evaluation timestamp;
 - group by `(id, eval_ts)`;
-- compute counter deltas in SQL;
+- compute counter deltas, instant deltas, and last-sample selection in SQL;
 - reattach/project tags;
 - optionally aggregate by labels.
 
@@ -30,16 +32,16 @@ ClickHouse already ships native TimeSeries functions for some of this work:
 - `timeSeriesInstantDeltaToGrid`
 - `timeSeriesLastToGrid`
 
-Using them inside tier-2 SQL keeps SQL-level composability for outer
-aggregation while moving per-series rate grid computation into vectorized engine
-code.
+Using them inside tier-2 SQL keeps SQL-level composability for outer aggregation
+while moving per-series grid computation into vectorized engine code.
 
 ## Implemented shape
 
-For range `rate(selector[lookback])`, promshim groups matched samples per series,
-computes the full output grid with `timeSeriesRateToGrid`, zips that value array
-with the evaluation timestamps, drops null points, and projects Prometheus label
-sets. The row-producing shape is conceptually:
+For range `rate(selector[lookback])` and the other supported functions,
+promshim groups matched samples per series, computes the full output grid with
+the matching ClickHouse function, zips that value array with the evaluation
+timestamps, drops null points, and projects Prometheus label sets. The
+row-producing shape is conceptually:
 
 ```sql
 WITH
@@ -80,10 +82,10 @@ GROUP BY final_tags
 ORDER BY final_tags
 ```
 
-For `sum by (job) (rate(...))`, promshim avoids materializing per-point rows
-where possible: it keeps each per-series grid as an array, groups by the
-requested label projection, and combines aligned arrays with `sumForEach` plus
-presence/NaN masks. Conceptually:
+For `sum by (job) (rate(...))` and the other supported native-grid functions,
+promshim avoids materializing per-point rows where possible: it keeps each
+per-series grid as an array, groups by the requested label projection, and
+combines aligned arrays with `sumForEach` plus presence/NaN masks. Conceptually:
 
 ```sql
 SELECT
@@ -105,9 +107,9 @@ ORDER BY tags
 ## Required semantic checks
 
 Do not assume additional native grid functions are Prometheus-identical just
-because ClickHouse exposes them. Before broadening the current served `rate(...)`
-path or adding new function families, compare against existing reference/native
-modes for:
+because ClickHouse exposes them. Before broadening the current served paths or
+adding new function families, compare against existing reference/native modes
+for:
 
 - short-window rate such as `rate(demo_cpu_usage_seconds_total[15s])`;
 - counter reset handling;
@@ -126,9 +128,10 @@ correct on the compliance corpus and targeted fixtures.
 Runtime gate:
 
 - `PROM_SHIM_NATIVE_GRID_FUNCTIONS=prefer` (default): use native-grid lowering
-  for supported tier-2 range `rate(...)` shapes that pass the existing guards.
-- `PROM_SHIM_NATIVE_GRID_FUNCTIONS=off`: rollback to promshim's SQL-level rate
-  kernel.
+  for supported tier-2 `rate`, `irate`, `delta`, `idelta`, and
+  `last_over_time` range-selector shapes that pass the existing guards.
+- `PROM_SHIM_NATIVE_GRID_FUNCTIONS=off`: rollback to promshim's SQL-level
+  kernels.
 
 This is a tier-2 implementation detail, not whole-query delegation: the outer
 SQL still handles aggregation, tag projection, transforms, and composition.
@@ -138,8 +141,7 @@ SQL still handles aggregation, tag projection, transforms, and composition.
 Use the same artifacts as normal tier-2 optimization attempts:
 
 1. Baseline: latest accepted sweep or focused run with
-   `PROM_SHIM_NATIVE_GRID_FUNCTIONS=off` for `range_rate` and `range_sum_rate`
-   rows.
+   `PROM_SHIM_NATIVE_GRID_FUNCTIONS=off` for affected range-function rows.
 2. Candidate: same corpus/profile/density/modes with the default
    `PROM_SHIM_NATIVE_GRID_FUNCTIONS=prefer`.
 3. Required comparisons:
@@ -157,8 +159,8 @@ Use the same artifacts as normal tier-2 optimization attempts:
 
 ## Why this should not be a peephole
 
-This path changes the execution kernel for rate-family functions. It is a large
-win on validated fixture rows, but it also inherits ClickHouse function
+This path changes the execution kernel for supported range functions. It is a
+large win on validated fixture rows, but it also inherits ClickHouse function
 semantics and version behavior. Keep it as a deliberate gated path with explain
 visibility and an `off` rollback, not as an untracked peephole.
 

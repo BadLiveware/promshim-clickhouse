@@ -191,6 +191,56 @@ func TestAggregationByRateRangeUsesNativeGridArrayAggregationWhenEnabled(t *test
 	}
 }
 
+func TestAggregationByNativeGridRangeFunctionsWhenEnabled(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		query      string
+		chFunction string
+		arraySum   bool
+	}{
+		{name: "sum_irate", query: `sum by (job) (irate(demo_cpu_usage_seconds_total[5m]))`, chFunction: "timeSeriesInstantRateToGrid(", arraySum: true},
+		{name: "sum_delta", query: `sum by (job) (delta(demo_cpu_usage_seconds_total[10m]))`, chFunction: "timeSeriesDeltaToGrid(", arraySum: true},
+		{name: "sum_idelta", query: `sum by (job) (idelta(demo_cpu_usage_seconds_total[10m]))`, chFunction: "timeSeriesInstantDeltaToGrid(", arraySum: true},
+		{name: "sum_last_over_time", query: `sum by (job) (last_over_time(demo_cpu_usage_seconds_total[5m]))`, chFunction: "timeSeriesLastToGrid(", arraySum: true},
+		{name: "min_delta_rows", query: `min by (job) (delta(demo_cpu_usage_seconds_total[10m]))`, chFunction: "timeSeriesDeltaToGrid("},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, analysis, nativeAnalysis := buildLowerInputs(t, tc.query)
+			cfg := testRenderConfig()
+			cfg.EnableNativeGridFunctions = true
+			rq, err := Lower(LoweringCtx{
+				Config:         cfg,
+				Analysis:       analysis,
+				NativeAnalysis: nativeAnalysis,
+				Params: RenderParams{
+					Mode:    testRenderParamsRange().Mode,
+					StartMS: 1_700_000_000_000,
+					EndMS:   1_700_003_600_000,
+					StepMS:  30_000,
+				},
+			}, root)
+			if err != nil {
+				t.Fatalf("Lower: %v", err)
+			}
+			if !strings.Contains(rq.SQL, tc.chFunction) {
+				t.Fatalf("expected native-grid aggregation SQL to contain %q, got:\n%s", tc.chFunction, rq.SQL)
+			}
+			if tc.arraySum {
+				for _, expected := range []string{"arrayReduce('sumForEach'", "present_counts", "nan_counts"} {
+					if !strings.Contains(rq.SQL, expected) {
+						t.Fatalf("expected native-grid array aggregation SQL to contain %q, got:\n%s", expected, rq.SQL)
+					}
+				}
+				if strings.Contains(rq.SQL, "ARRAY JOIN") {
+					t.Fatalf("expected SUM native-grid aggregation to avoid ARRAY JOIN, got:\n%s", rq.SQL)
+				}
+			} else if !strings.Contains(rq.SQL, "ARRAY JOIN") {
+				t.Fatalf("expected non-SUM native-grid aggregation to aggregate row source, got:\n%s", rq.SQL)
+			}
+		})
+	}
+}
+
 func TestAggregationByKeepsFullLabelsForRangeFunctions(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (rate(http_requests_total[5m]))`)
 	rq, err := Lower(LoweringCtx{

@@ -157,6 +157,53 @@ func TestLowerLongStepRateRangeUsesNativeGridWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestLowerRangeFunctionsUseNativeGridWhenEnabled(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		query      string
+		chFunction string
+	}{
+		{name: "high_overlap_rate", query: `rate(demo_cpu_usage_seconds_total[5m])`, chFunction: "timeSeriesRateToGrid("},
+		{name: "irate", query: `irate(demo_cpu_usage_seconds_total[5m])`, chFunction: "timeSeriesInstantRateToGrid("},
+		{name: "delta", query: `delta(demo_cpu_usage_seconds_total[10m])`, chFunction: "timeSeriesDeltaToGrid("},
+		{name: "idelta", query: `idelta(demo_cpu_usage_seconds_total[10m])`, chFunction: "timeSeriesInstantDeltaToGrid("},
+		{name: "last_over_time", query: `last_over_time(demo_cpu_usage_seconds_total[5m])`, chFunction: "timeSeriesLastToGrid("},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, analysis, nativeAnalysis := buildLowerInputs(t, tc.query)
+			cfg := testRenderConfig()
+			cfg.EnableNativeGridFunctions = true
+			rq, err := Lower(LoweringCtx{
+				Config:         cfg,
+				Analysis:       analysis,
+				NativeAnalysis: nativeAnalysis,
+				Params: RenderParams{
+					Mode:    native.RenderModeRange,
+					StartMS: 1_700_000_000_000,
+					EndMS:   1_700_003_600_000,
+					StepMS:  30_000,
+				},
+			}, root)
+			if err != nil {
+				t.Fatalf("Lower: %v", err)
+			}
+			for _, expected := range []string{tc.chFunction, "arrayZip(arrayMap", "arrayFilter(point -> isNotNull(point.2)"} {
+				if !strings.Contains(rq.SQL, expected) {
+					t.Fatalf("expected native-grid SQL to contain %q, got %s", expected, rq.SQL)
+				}
+			}
+			for _, unexpected := range []string{"deltaSumTimestamp(", "arraySort(groupArray((d.timestamp, d.value))) AS window_series"} {
+				if strings.Contains(rq.SQL, unexpected) {
+					t.Fatalf("expected native-grid SQL to avoid %q, got %s", unexpected, rq.SQL)
+				}
+			}
+			if tc.name == "last_over_time" && strings.Contains(rq.SQL, "arrayFilter(tag -> tag.1 != '__name__'") {
+				t.Fatalf("last_over_time must preserve metric name before downstream operators, got %s", rq.SQL)
+			}
+		})
+	}
+}
+
 func TestLowerShortRateRangeUsesSortedWindowSeries(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[15s])`)
 	rq, err := Lower(LoweringCtx{

@@ -210,14 +210,14 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						}
 						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: rowParams}, nil
 					}
-					if isIdentity && cfg.EnableNativeGridFunctions && fn == "rate" && offsetMS == 0 && supportsDirectSelectorWindowAggregate(fn, lookbackMS) && preferDirectSelectorWindowJoin(lookbackMS, params.StepMS) {
+					if isIdentity && cfg.EnableNativeGridFunctions && canUseNativeGridRangeFunction(fn, lookbackMS, offsetMS) {
 						childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
 						source, err := renderAggregationSourceView(view, params)
 						if err != nil {
 							return renderedFragment{}, err
 						}
 						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
-						sql, queryParams, err := storage.BuildRangeRateSelectorNativeGridQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, tagsExpr)
+						sql, queryParams, err := storage.BuildRangeNativeGridSelectorQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, fn, tagsExpr)
 						if err != nil {
 							return renderedFragment{}, err
 						}

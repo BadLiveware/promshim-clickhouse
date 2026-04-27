@@ -235,6 +235,12 @@ func normalizeBenchConfig(cfg BenchConfig) BenchConfig {
 	if len(cfg.RoutingPolicies) == 0 {
 		cfg.RoutingPolicies = []string{"strict"}
 	}
+	if cfg.RunLabels == nil {
+		cfg.RunLabels = map[string]string{}
+	}
+	if strings.TrimSpace(cfg.RunLabels["run"]) == "" {
+		cfg.RunLabels["run"] = "bench-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	}
 	if !cfg.IncludePromSet {
 		cfg.IncludeProm = true
 	}
@@ -417,14 +423,14 @@ type requestTiming struct {
 
 func repeatWithHeaders(client *http.Client, cfg BenchConfig, baseURL string, spec QuerySpec, warmup, repeats int) ([]requestTiming, []headerSample, error) {
 	for i := 0; i < warmup; i++ {
-		if _, _, err := timedRequest(client, baseURL, cfg.Manifest, spec); err != nil {
+		if _, _, err := timedRequest(client, baseURL, cfg, spec); err != nil {
 			return nil, nil, fmt.Errorf("warmup %d: %w", i+1, err)
 		}
 	}
 	timings := make([]requestTiming, 0, repeats)
 	samples := make([]headerSample, 0, repeats)
 	for i := 0; i < repeats; i++ {
-		timing, hdr, err := timedRequest(client, baseURL, cfg.Manifest, spec)
+		timing, hdr, err := timedRequest(client, baseURL, cfg, spec)
 		if err != nil {
 			return nil, nil, fmt.Errorf("repeat %d: %w", i+1, err)
 		}
@@ -434,8 +440,8 @@ func repeatWithHeaders(client *http.Client, cfg BenchConfig, baseURL string, spe
 	return timings, samples, nil
 }
 
-func timedRequest(client *http.Client, baseURL string, manifest Manifest, spec QuerySpec) (requestTiming, http.Header, error) {
-	endpoint, err := buildQueryURL(baseURL, manifest, spec)
+func timedRequest(client *http.Client, baseURL string, cfg BenchConfig, spec QuerySpec) (requestTiming, http.Header, error) {
+	endpoint, err := buildQueryURL(baseURL, cfg.Manifest, spec)
 	if err != nil {
 		return requestTiming{}, nil, err
 	}
@@ -444,7 +450,7 @@ func timedRequest(client *http.Client, baseURL string, manifest Manifest, spec Q
 		return requestTiming{}, nil, err
 	}
 	if spec.Name != "" {
-		request.Header.Set("X-Promshim-Log-Comment", benchLogComment(spec))
+		request.Header.Set("X-Promshim-Log-Comment", benchLogComment(cfg, spec))
 	}
 	start := time.Now()
 	response, err := client.Do(request)
@@ -470,12 +476,16 @@ func timedRequest(client *http.Client, baseURL string, manifest Manifest, spec Q
 	}, response.Header, nil
 }
 
-func benchLogComment(spec QuerySpec) string {
+func benchLogComment(cfg BenchConfig, spec QuerySpec) string {
 	mode := spec.NativeLoweringMode
 	if mode == "" {
 		mode = "prom"
 	}
-	comment := "promshim-bench query=" + sanitizeLogCommentPart(spec.Name) + " mode=" + sanitizeLogCommentPart(mode)
+	comment := "promshim-bench"
+	if run := strings.TrimSpace(cfg.RunLabels["run"]); run != "" {
+		comment += " run=" + sanitizeLogCommentPart(run)
+	}
+	comment += " query=" + sanitizeLogCommentPart(spec.Name) + " mode=" + sanitizeLogCommentPart(mode)
 	if policy := strings.TrimSpace(spec.RoutingPolicy); policy != "" {
 		comment += " policy=" + sanitizeLogCommentPart(policy)
 	}

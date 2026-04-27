@@ -296,12 +296,13 @@ func TestSummarizeTimingsIncludesResponsePhases(t *testing.T) {
 	}
 }
 
-func TestBenchLogCommentIncludesQueryModeAndPolicy(t *testing.T) {
-	comment := benchLogComment(QuerySpec{Name: "sum rate/by job", NativeLoweringMode: "force_supported", RoutingPolicy: "cost_shadow"})
-	if comment != "promshim-bench query=sum_rate_by_job mode=force_supported policy=cost_shadow" {
+func TestBenchLogCommentIncludesRunQueryModeAndPolicy(t *testing.T) {
+	cfg := BenchConfig{RunLabels: map[string]string{"run": "test/run"}}
+	comment := benchLogComment(cfg, QuerySpec{Name: "sum rate/by job", NativeLoweringMode: "force_supported", RoutingPolicy: "cost_shadow"})
+	if comment != "promshim-bench run=test_run query=sum_rate_by_job mode=force_supported policy=cost_shadow" {
 		t.Fatalf("comment = %q", comment)
 	}
-	promComment := benchLogComment(QuerySpec{Name: "up"})
+	promComment := benchLogComment(BenchConfig{}, QuerySpec{Name: "up"})
 	if promComment != "promshim-bench query=up mode=prom" {
 		t.Fatalf("prom comment = %q", promComment)
 	}

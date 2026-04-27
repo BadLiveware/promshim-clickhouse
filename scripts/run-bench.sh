@@ -47,6 +47,11 @@ Options:
                      summary writes memory-summary*.json from ClickHouse query_log;
                      detailed also writes whole-run pprof snapshots when
                      PROM_SHIM_ENABLE_PPROF=1 on promshim.
+  --clickhouse-profile MODE
+                     ClickHouse per-query profile artifacts: off|summary|auto|processors.
+                     summary writes query-log/ProfileEvents and native SQL samples;
+                     auto also captures processor rollups for slow/heavy rows;
+                     processors captures processor rollups for every row.
   --legacy-report    Force legacy v1 report output.
   --repeats N        Timed repeats per (query, mode) (default: 10).
   --warmup N         Warmup repeats per (query, mode) (default: 2).
@@ -105,6 +110,7 @@ INCLUDE_PROM=""
 ARTIFACT_NAME=""
 RUN_LABELS=()
 MEMORY_MODE=""
+CLICKHOUSE_PROFILE_MODE="off"
 LEGACY_REPORT=0
 
 while [[ $# -gt 0 ]]; do
@@ -126,6 +132,7 @@ while [[ $# -gt 0 ]]; do
     --artifact-name)   ARTIFACT_NAME="$2"; shift 2 ;;
     --run-label)       RUN_LABELS+=("$2"); shift 2 ;;
     --memory)          MEMORY_MODE="$2"; shift 2 ;;
+    --clickhouse-profile) CLICKHOUSE_PROFILE_MODE="$2"; shift 2 ;;
     --legacy-report)   LEGACY_REPORT=1; shift ;;
     --repeats)         REPEATS="$2"; shift 2 ;;
     --warmup)          WARMUP="$2"; shift 2 ;;
@@ -167,6 +174,7 @@ if [[ -n "$LONG_RANGE" ]]; then
       if [[ -n "$INCLUDE_PROM" ]];  then PASSTHROUGH+=("--include-prom=${INCLUDE_PROM}"); fi
       if [[ -n "$ARTIFACT_NAME" ]]; then PASSTHROUGH+=(--artifact-name "$ARTIFACT_NAME"); fi
       if [[ -n "$MEMORY_MODE" ]];   then PASSTHROUGH+=(--memory "$MEMORY_MODE"); fi
+      if [[ "$CLICKHOUSE_PROFILE_MODE" != "off" ]]; then PASSTHROUGH+=(--clickhouse-profile "$CLICKHOUSE_PROFILE_MODE"); fi
       for label in "${RUN_LABELS[@]}"; do PASSTHROUGH+=(--run-label "$label"); done
       set +e
       "$SELF" "${PASSTHROUGH[@]}"
@@ -193,6 +201,11 @@ if [[ -n "$LONG_RANGE" ]]; then
     EVAL_TIME="$PROFILE_END_TIME"
   fi
 fi
+
+case "$CLICKHOUSE_PROFILE_MODE" in
+  off|summary|auto|processors) ;;
+  *) fatal "--clickhouse-profile must be off|summary|auto|processors (got: $CLICKHOUSE_PROFILE_MODE)" ;;
+esac
 
 ensure_command go
 ensure_command curl
@@ -290,6 +303,9 @@ REPORT_PATH="${REPO_ROOT}/${ARTIFACT_DIR}/${REPORT_NAME}"
 MEMORY_STEM="${REPORT_NAME%.json}"
 MEMORY_SUMMARY_PATH="${REPO_ROOT}/${ARTIFACT_DIR}/memory-summary-${MEMORY_STEM}.json"
 MEMORY_DETAIL_DIR="${REPO_ROOT}/${ARTIFACT_DIR}/memory-detail-${MEMORY_STEM}"
+CLICKHOUSE_PROFILE_SUMMARY_PATH="${REPO_ROOT}/${ARTIFACT_DIR}/clickhouse-profile-${MEMORY_STEM}.json"
+CLICKHOUSE_PROFILE_MD_PATH="${REPO_ROOT}/${ARTIFACT_DIR}/clickhouse-profile-${MEMORY_STEM}.md"
+CLICKHOUSE_PROFILE_DIR="${REPO_ROOT}/${ARTIFACT_DIR}/profiles"
 
 capture_pprof_snapshot() {
   local label="$1"
@@ -350,13 +366,17 @@ import json, pathlib, re, sys, urllib.parse, urllib.request
 ch_url, user, password, shim_url, report_path, output_path = sys.argv[1:7]
 report = json.loads(pathlib.Path(report_path).read_text())
 comments = []
+run_label = ((report.get("runLabels") or {}).get("run") or "").strip()
 def safe_part(value):
     return ''.join(c if c.isalnum() or c in '_.-' else '_' for c in str(value or '').strip()) or 'unknown'
 for row in report.get("rows", []):
     safe_name = safe_part(row.get("name") or "unknown")
     for mode_key, result in (row.get("shim") or {}).items():
         mode = result.get("nativeLoweringMode") or mode_key.split('@', 1)[0]
-        comment = f"promshim-bench query={safe_name} mode={safe_part(mode)}"
+        comment = "promshim-bench"
+        if run_label:
+            comment += f" run={safe_part(run_label)}"
+        comment += f" query={safe_name} mode={safe_part(mode)}"
         if result.get("routingPolicy"):
             comment += f" policy={safe_part(result.get('routingPolicy'))}"
         comments.append(comment)
@@ -432,6 +452,244 @@ print(f"Wrote {path}")
 PY
 }
 
+capture_clickhouse_profile() {
+  local report_path="$1" output_path="$2" markdown_path="$3" profiles_dir="$4"
+  if [[ "$CLICKHOUSE_PROFILE_MODE" == "off" ]]; then
+    return 0
+  fi
+  if [[ ! -f "$report_path" ]]; then
+    log "ClickHouse profile skipped; report not found: $report_path"
+    return 0
+  fi
+  python3 - "$CLICKHOUSE_PROFILE_MODE" "$CH_URL" "$CH_USER" "$CH_PASSWORD" "$SHIM_URL" "$report_path" "$output_path" "$markdown_path" "$profiles_dir" <<'PY'
+import base64, json, pathlib, re, sys, urllib.request
+
+mode, ch_url, user, password, shim_url, report_path, output_path, markdown_path, profiles_dir = sys.argv[1:10]
+report_path = pathlib.Path(report_path)
+profiles_dir = pathlib.Path(profiles_dir)
+report = json.loads(report_path.read_text())
+token = base64.b64encode(f"{user}:{password}".encode()).decode()
+
+def safe_part(value):
+    return ''.join(c if c.isalnum() or c in '_.-' else '_' for c in str(value or '').strip()) or 'unknown'
+
+def ch_query(sql, timeout=30):
+    req = urllib.request.Request(ch_url.rstrip('/') + '/', data=sql.encode())
+    req.add_header('Authorization', 'Basic ' + token)
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read().decode()
+
+def ch_json_each_row(sql, timeout=30):
+    body = ch_query(sql, timeout=timeout)
+    return [json.loads(line) for line in body.splitlines() if line.strip()]
+
+comments = []
+comment_meta = {}
+run_label = ((report.get('runLabels') or {}).get('run') or '').strip()
+for row in report.get('rows', []):
+    safe_name = safe_part(row.get('name') or 'unknown')
+    for mode_key, result in (row.get('shim') or {}).items():
+        native_mode = result.get('nativeLoweringMode') or mode_key.split('@', 1)[0]
+        comment = "promshim-bench"
+        if run_label:
+            comment += f" run={safe_part(run_label)}"
+        comment += f" query={safe_name} mode={safe_part(native_mode)}"
+        if result.get('routingPolicy'):
+            comment += f" policy={safe_part(result.get('routingPolicy'))}"
+        comments.append(comment)
+        comment_meta[comment] = {
+            'queryName': row.get('name'),
+            'query': row.get('query'),
+            'endpoint': row.get('endpoint'),
+            'mode': native_mode,
+            'routingPolicy': result.get('routingPolicy'),
+            'strategy': result.get('strategy'),
+            'shimP50Ms': result.get('p50Ms'),
+            'promP50Ms': (row.get('prom') or {}).get('p50Ms'),
+            'shimPromRatio': ((result.get('p50Ms') or 0) / (row.get('prom') or {}).get('p50Ms')) if (row.get('prom') or {}).get('p50Ms') else None,
+        }
+comments = sorted(set(comments))
+summary = {
+    'schemaVersion': 1,
+    'mode': mode,
+    'sourceReport': str(report_path),
+    'clickhouseURL': ch_url,
+    'promshimURL': shim_url,
+    'rows': [],
+    'errors': [],
+}
+if not comments:
+    pathlib.Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    pathlib.Path(output_path).write_text(json.dumps(summary, indent=2) + '\n')
+    raise SystemExit(0)
+try:
+    ch_query('SYSTEM FLUSH LOGS', timeout=10)
+except Exception as exc:
+    summary['errors'].append('flush logs: ' + str(exc))
+
+literals = ','.join("'" + c.replace("'", "''") + "'" for c in comments)
+sql = f"""
+SELECT
+  log_comment AS logComment,
+  count() AS queryCount,
+  quantile(0.5)(query_duration_ms) AS queryDurationP50Ms,
+  quantile(0.9)(query_duration_ms) AS queryDurationP90Ms,
+  max(query_duration_ms) AS queryDurationMaxMs,
+  quantile(0.5)(memory_usage) AS memoryP50Bytes,
+  quantile(0.95)(memory_usage) AS memoryP95Bytes,
+  max(memory_usage) AS memoryMaxBytes,
+  sum(read_rows) AS readRows,
+  sum(read_bytes) AS readBytes,
+  sum(result_rows) AS resultRows,
+  sum(ProfileEvents['SelectedRows']) AS selectedRows,
+  sum(ProfileEvents['SelectedBytes']) AS selectedBytes,
+  sum(ProfileEvents['ReadCompressedBytes']) AS readCompressedBytes,
+  sum(ProfileEvents['JoinBuildTableRowCount']) AS joinBuildTableRowCount,
+  sum(ProfileEvents['JoinProbeTableRowCount']) AS joinProbeTableRowCount,
+  sum(ProfileEvents['JoinResultRowCount']) AS joinResultRowCount,
+  sum(ProfileEvents['FilterTransformPassedRows']) AS filterTransformPassedRows,
+  sum(ProfileEvents['FunctionExecute']) AS functionExecute,
+  sum(ProfileEvents['RealTimeMicroseconds']) AS realTimeMicroseconds,
+  sum(ProfileEvents['UserTimeMicroseconds']) AS userTimeMicroseconds,
+  sum(ProfileEvents['SystemTimeMicroseconds']) AS systemTimeMicroseconds,
+  sum(ProfileEvents['DiskReadElapsedMicroseconds']) AS diskReadElapsedMicroseconds,
+  argMax(query_id, query_duration_ms) AS sampleQueryId,
+  argMax(query, query_duration_ms) AS sampleNativeSQL
+FROM system.query_log
+WHERE type = 'QueryFinish'
+  AND event_time >= now() - INTERVAL 6 HOUR
+  AND log_comment IN ({literals})
+GROUP BY log_comment
+ORDER BY log_comment
+FORMAT JSONEachRow
+"""
+try:
+    rows = ch_json_each_row(sql, timeout=30)
+except Exception as exc:
+    summary['errors'].append('query_log: ' + str(exc))
+    rows = []
+found = {r.get('logComment') for r in rows}
+summary['missingLogComments'] = [c for c in comments if c not in found]
+profiles_dir.mkdir(parents=True, exist_ok=True)
+
+def needs_processors(row, meta):
+    if mode == 'processors':
+        return True
+    if mode != 'auto':
+        return False
+    ratio = meta.get('shimPromRatio') or 0
+    return (
+        (row.get('queryDurationP50Ms') or 0) >= 500 or
+        (row.get('memoryP95Bytes') or 0) >= 1_000_000_000 or
+        (row.get('joinResultRowCount') or 0) >= 100_000_000 or
+        (row.get('filterTransformPassedRows') or 0) >= 100_000_000 or
+        (ratio >= 2 and (row.get('queryDurationP50Ms') or 0) >= 100)
+    )
+
+def write_tsv(path, rows, columns):
+    with open(path, 'w') as f:
+        f.write('\t'.join(columns) + '\n')
+        for row in rows:
+            f.write('\t'.join(str(row.get(c, '')) for c in columns) + '\n')
+
+for row in rows:
+    comment = row.get('logComment')
+    meta = comment_meta.get(comment, {})
+    query_dir = profiles_dir / safe_part((meta.get('queryName') or 'unknown') + '__' + (meta.get('mode') or 'unknown') + '__' + (meta.get('routingPolicy') or 'strict'))
+    query_dir.mkdir(parents=True, exist_ok=True)
+    native_path = query_dir / 'native.sql'
+    native_path.write_text((row.get('sampleNativeSQL') or '') + '\n')
+    query_sample = dict(row)
+    query_sample.pop('sampleNativeSQL', None)
+    (query_dir / 'query-log-summary.json').write_text(json.dumps(query_sample, indent=2) + '\n')
+    out = {**meta, **query_sample, 'nativeSQLPath': str(native_path)}
+    if needs_processors(row, meta) and row.get('sampleQueryId'):
+        proc_sql = f"""
+SELECT
+  name,
+  count() AS processors,
+  sum(elapsed_us) AS elapsedMicroseconds,
+  round(elapsedMicroseconds / 1000000, 6) AS elapsedSeconds,
+  sum(input_rows) AS inputRows,
+  sum(output_rows) AS outputRows,
+  sum(input_bytes) AS inputBytes,
+  sum(output_bytes) AS outputBytes
+FROM system.processors_profile_log
+WHERE query_id = '{str(row.get('sampleQueryId')).replace("'", "''")}'
+GROUP BY name
+ORDER BY elapsedMicroseconds DESC
+FORMAT JSONEachRow
+"""
+        step_sql = f"""
+SELECT
+  plan_step_name AS planStepName,
+  name,
+  count() AS processors,
+  sum(elapsed_us) AS elapsedMicroseconds,
+  round(elapsedMicroseconds / 1000000, 6) AS elapsedSeconds,
+  sum(input_rows) AS inputRows,
+  sum(output_rows) AS outputRows
+FROM system.processors_profile_log
+WHERE query_id = '{str(row.get('sampleQueryId')).replace("'", "''")}'
+GROUP BY plan_step_name, name
+ORDER BY elapsedMicroseconds DESC
+FORMAT JSONEachRow
+"""
+        try:
+            proc_rows = ch_json_each_row(proc_sql, timeout=30)
+            step_rows = ch_json_each_row(step_sql, timeout=30)
+            (query_dir / 'processors-by-name.json').write_text(json.dumps(proc_rows, indent=2) + '\n')
+            (query_dir / 'processors-by-step.json').write_text(json.dumps(step_rows, indent=2) + '\n')
+            write_tsv(query_dir / 'processors-by-name.tsv', proc_rows, ['name','processors','elapsedMicroseconds','elapsedSeconds','inputRows','outputRows','inputBytes','outputBytes'])
+            write_tsv(query_dir / 'processors-by-step.tsv', step_rows, ['planStepName','name','processors','elapsedMicroseconds','elapsedSeconds','inputRows','outputRows'])
+            out['processorsByNamePath'] = str(query_dir / 'processors-by-name.tsv')
+            out['topProcessors'] = proc_rows[:5]
+        except Exception as exc:
+            out['processorProfileError'] = str(exc)
+    summary['rows'].append(out)
+
+pathlib.Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+pathlib.Path(output_path).write_text(json.dumps(summary, indent=2) + '\n')
+
+hot = sorted(summary['rows'], key=lambda r: (r.get('queryDurationP50Ms') or 0, r.get('memoryP95Bytes') or 0), reverse=True)[:10]
+lines = ['# ClickHouse profile summary', '', f"Source report: `{report_path}`", '', '| Query | Mode | CH p50 | Mem p95 | Read rows | Join rows | Filter rows | Native SQL |', '|---|---|---:|---:|---:|---:|---:|---|']
+def human(n):
+    if n is None: return ''
+    try: n = float(n)
+    except Exception: return str(n)
+    for suffix in ['', 'K', 'M', 'B', 'T']:
+        if abs(n) < 1000:
+            return f"{n:.1f}{suffix}" if suffix else str(int(n))
+        n /= 1000
+    return f"{n:.1f}P"
+def human_bytes(n):
+    if n is None: return ''
+    try: n = float(n)
+    except Exception: return str(n)
+    for suffix in ['B', 'KiB', 'MiB', 'GiB', 'TiB']:
+        if abs(n) < 1024:
+            return f"{n:.1f}{suffix}"
+        n /= 1024
+    return f"{n:.1f}PiB"
+for r in hot:
+    lines.append(f"| `{r.get('queryName')}` | `{r.get('mode')}` | {r.get('queryDurationP50Ms', '')}ms | {human_bytes(r.get('memoryP95Bytes'))} | {human(r.get('readRows'))} | {human(r.get('joinResultRowCount'))} | {human(r.get('filterTransformPassedRows'))} | `{r.get('nativeSQLPath')}` |")
+lines.append('')
+if summary.get('errors'):
+    lines.append('## Errors')
+    lines.extend(f"- {e}" for e in summary['errors'])
+pathlib.Path(markdown_path).write_text('\n'.join(lines) + '\n')
+print(f"Wrote {output_path}")
+print(f"Wrote {markdown_path}")
+if hot:
+    print("ClickHouse profile highlights:")
+    for r in hot[:5]:
+        top = ''
+        if r.get('topProcessors'):
+            top = ' top=' + ', '.join(f"{p.get('name')} {p.get('elapsedSeconds')}s" for p in r['topProcessors'][:3])
+        print(f"  {r.get('queryName')} mode={r.get('mode')} ch_p50={r.get('queryDurationP50Ms')}ms mem_p95={human_bytes(r.get('memoryP95Bytes'))} read={human(r.get('readRows'))} join={human(r.get('joinResultRowCount'))} filter={human(r.get('filterTransformPassedRows'))}{top}")
+PY
+}
+
 capture_pprof_snapshot before
 
 log "Running promshim-bench ${ARGS[*]}"
@@ -452,6 +710,7 @@ fi
 # Preserve a per-profile copy so `--long-range all` leaves three reports
 # side-by-side and scripts/bench-matrix.sh can join across them.
 capture_memory_summary "$REPORT_PATH" "$MEMORY_SUMMARY_PATH"
+capture_clickhouse_profile "$REPORT_PATH" "$CLICKHOUSE_PROFILE_SUMMARY_PATH" "$CLICKHOUSE_PROFILE_MD_PATH" "$CLICKHOUSE_PROFILE_DIR"
 
 if [[ -n "$LONG_RANGE" ]]; then
   src="${REPO_ROOT}/${ARTIFACT_DIR}/bench-report.json"

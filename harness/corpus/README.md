@@ -48,6 +48,11 @@ candidate reasons in metadata rather than hiding them in expected-failure files.
 
 ### Benchmark corpora
 
+Family metadata lives in `bench-native-lowering.metadata.json`,
+`bench-processing.metadata.json`, and `bench-optimization-tuning.metadata.json`.
+Those files record default status, profile/eval-time assumptions, and suggested
+commands for the benchmark corpus families.
+
 | Corpus | Rows | Keep split? | Use when |
 | --- | ---: | --- | --- |
 | `bench-native-lowering.json` | 26 | Yes. It belongs to the frozen compliance-stack tripwire and baseline. | Running `run-bench.sh` standalone or the `bench` suite. |

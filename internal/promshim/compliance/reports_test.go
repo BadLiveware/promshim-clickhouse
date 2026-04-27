@@ -42,14 +42,15 @@ func TestFailureBuckets(t *testing.T) {
 }
 
 func TestNativeGapReport(t *testing.T) {
-	report := TesterReport{TotalResults: 4, Results: []TesterResult{
+	report := TesterReport{TotalResults: 5, Results: []TesterResult{
 		{},
 		{TestCase: TesterCase{Query: `sum(rate(demo_requests_total{job="api"}[5m]))`}, UnexpectedFailure: "requires a native_sql root plan"},
 		{Diff: "+ a\n- b"},
 		{UnexpectedFailure: "bad_data"},
+		{Diff: "+ x\n- y", UnexpectedFailure: "server error: 500"},
 	}}
 	summary := NativeGapReport(report)
-	if summary.Passed != 1 || summary.UnsupportedRoot != 1 || summary.DiffFailure != 1 || summary.UnexpectedFailureOther != 1 {
+	if summary.Passed != 1 || summary.UnsupportedRoot != 1 || summary.DiffFailure != 2 || summary.UnexpectedFailureOther != 2 {
 		t.Fatalf("summary = %#v", summary)
 	}
 	if len(summary.UnsupportedShapes) != 1 || summary.UnsupportedShapes[0].Shape != `sum(rate(<metric>[Nm]))` {

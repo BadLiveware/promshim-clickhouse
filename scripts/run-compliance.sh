@@ -59,9 +59,14 @@ ensure_command() {
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/run-lock.sh
 source "${REPO_ROOT}/scripts/lib/run-lock.sh"
+# shellcheck source=lib/artifacts.sh
+source "${REPO_ROOT}/scripts/lib/artifacts.sh"
 acquire_run_lock "stack"
 
 COMPLIANCE_DIR="${REPO_ROOT}/harness/compliance"
+COMPLIANCE_RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+COMPLIANCE_ARTIFACT_DIR="$(artifact_abs "compliance/${COMPLIANCE_RUN_ID}")"
+COMPLIANCE_LATEST_LINK="$(artifact_abs "compliance/latest")"
 
 BUILD_IMAGES=1
 KEEP_UP=0
@@ -97,6 +102,14 @@ ensure_command curl
 if [[ ! -d "$COMPLIANCE_DIR" ]] || [[ ! -f "$COMPLIANCE_DIR/docker-compose.yml" ]]; then
   fatal "Compliance harness directory not found: $COMPLIANCE_DIR"
 fi
+
+mkdir -p "$COMPLIANCE_ARTIFACT_DIR"
+if [[ -L "$COMPLIANCE_LATEST_LINK" || ! -e "$COMPLIANCE_LATEST_LINK" ]]; then
+  ln -sfn "$COMPLIANCE_RUN_ID" "$COMPLIANCE_LATEST_LINK"
+else
+  log "Not updating compliance/latest because it exists and is not a symlink: $COMPLIANCE_LATEST_LINK"
+fi
+log "Compliance artifacts: $COMPLIANCE_ARTIFACT_DIR"
 
 cleanup() {
   if (( KEEP_UP == 0 )); then
@@ -181,13 +194,13 @@ OVERALL_EXIT=0
 
 if (( SKIP_PREFER == 0 )); then
   log "Pass #1: prefer mode (allowlist-gated)."
-  if ! ./scripts/run-compliance.sh --mode prefer --suffix prefer; then
+  if ! PROM_SHIM_COMPLIANCE_ARTIFACT_DIR="$COMPLIANCE_ARTIFACT_DIR" ./scripts/run-compliance.sh --mode prefer --suffix prefer; then
     OVERALL_EXIT=1
   fi
 
   if (( SKIP_CLASSIFY == 0 )); then
     log "Classifying failures from latest prefer-mode report."
-    latest_prefer=$(ls -t artifacts/compliance-report-prefer-*.json 2>/dev/null | head -1 || true)
+    latest_prefer=$(ls -t "${COMPLIANCE_ARTIFACT_DIR}"/compliance-report-prefer-*.json 2>/dev/null | head -1 || true)
     if [[ -n "$latest_prefer" ]]; then
       ./scripts/classify-failures.sh "$latest_prefer" || true
     fi
@@ -215,10 +228,10 @@ if (( SKIP_NATIVE == 0 )); then
   log "Pass #2: native-only mode (informational gap report, no allowlist)."
   # Native pass intentionally does NOT fail the overall exit code — gaps
   # are tracked openly in the gap report, not as allowlistable failures.
-  ./scripts/run-compliance.sh --mode native --suffix native || true
+  PROM_SHIM_COMPLIANCE_ARTIFACT_DIR="$COMPLIANCE_ARTIFACT_DIR" ./scripts/run-compliance.sh --mode native --suffix native || true
 
   log "Native-mode gap report:"
-  ./scripts/native-gap-report.sh || true
+  ./scripts/native-gap-report.sh "${COMPLIANCE_ARTIFACT_DIR}"/compliance-report-native-*.json || true
 else
   log "Skipping native-only pass (--skip-native)."
 fi

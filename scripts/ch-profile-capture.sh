@@ -7,7 +7,7 @@
 # ProfileEvents, query_duration_ms, read_rows/bytes, memory — with near-zero
 # added runtime (~1–2s: a flush + one aggregation SELECT).
 #
-# Emits harness/artifacts/ch-profile.json alongside bench-report.json.
+# Emits harness/artifacts/bench/standalone/latest/ch-profile.json alongside bench-report.json by default.
 #
 # Usage:
 #   ./scripts/ch-profile-capture.sh [-- run-bench flags...]
@@ -19,12 +19,14 @@ set -euo pipefail
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/run-lock.sh
 source "${REPO_ROOT}/scripts/lib/run-lock.sh"
+# shellcheck source=lib/artifacts.sh
+source "${REPO_ROOT}/scripts/lib/artifacts.sh"
 acquire_run_lock "stack"
 
 CH_URL="${CH_URL:-http://localhost:28123}"
 CH_USER="${CH_USER:-default}"
 CH_PASS="${CH_PASS:-otel}"
-ARTIFACT_DIR="${ARTIFACT_DIR:-${REPO_ROOT}/harness/artifacts}"
+ARTIFACT_DIR="${ARTIFACT_DIR:-$(artifact_abs "bench/standalone/latest")}"
 PROFILE_OUT="${PROFILE_OUT:-${ARTIFACT_DIR}/ch-profile.json}"
 
 ch_query() {

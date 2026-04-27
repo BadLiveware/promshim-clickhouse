@@ -195,7 +195,7 @@ Current harness decision table:
 
 | Setting surface | Local benchmark decision | User/operator guidance | Evidence |
 |---|---|---|---|
-| Query logging and settings/ProfileEvents attribution | Adopted in the optional reference-profile override. | Enable for tuning windows or observability-sensitive deployments when overhead is acceptable. | `harness/artifacts/sweeps/ch-reference-profile-smoke/` manifest names `promshim-ch-timeseries-reference-v1`; memory summary has zero missing log comments. |
+| Query logging and settings/ProfileEvents attribution | Adopted in the optional reference-profile override. | Enable for tuning windows or observability-sensitive deployments when overhead is acceptable. | `harness/artifacts/bench/sweeps/ch-reference-profile-smoke/` manifest names `promshim-ch-timeseries-reference-v1`; memory summary has zero missing log comments. |
 | Result query cache | Rejected as a benchmark default. | Keep disabled for PromQL serving unless a separate freshness contract is designed. | Baseline artifacts rely on real execution and query-log counters, not cache-hit masking. |
 | Query condition cache | Not adopted as a server default. | Treat as a later repeated-selector experiment with version checks. | No before/after artifact currently proves a stable benefit for this corpus. |
 | Bounded `max_threads` / concurrency defaults | Not adopted as a server default yet. | Tune per deployment from dashboard concurrency and CPU saturation evidence. | Existing sparse baseline is single-run oriented; concurrent mixed-corpus evidence is still required. |

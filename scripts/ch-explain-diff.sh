@@ -22,6 +22,8 @@ set -euo pipefail
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/run-lock.sh
 source "${REPO_ROOT}/scripts/lib/run-lock.sh"
+# shellcheck source=lib/artifacts.sh
+source "${REPO_ROOT}/scripts/lib/artifacts.sh"
 acquire_run_lock "stack"
 
 if [[ $# -lt 3 ]]; then
@@ -35,7 +37,7 @@ PROMQL="$1"; shift
 EXTRA=("$@")
 
 STAMP=$(date +%Y%m%d-%H%M%S)
-OUT_ROOT="${REPO_ROOT}/harness/artifacts/ch-explain-diff/${STAMP}"
+OUT_ROOT="$(artifact_abs "explain-diff/${STAMP}")"
 mkdir -p "$OUT_ROOT"
 
 run_one() {

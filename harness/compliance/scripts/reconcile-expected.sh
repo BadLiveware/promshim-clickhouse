@@ -6,7 +6,8 @@ usage() {
 Usage: reconcile-expected.sh [REPORT] [--allowlist PATH] [--mode MODE]
 
 Reconcile a compliance report against expected-failures.json. If REPORT is
-omitted, the latest compliance report in artifacts/ is used.
+omitted, the latest report in PROM_SHIM_COMPLIANCE_ARTIFACT_DIR is used; when
+unset, the default is harness/artifacts/compliance/latest.
 
 Options:
   --allowlist PATH  Expected-failures allowlist path.
@@ -19,6 +20,8 @@ CALLER_PWD=$(pwd)
 
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
+REPO_ROOT=$(cd "$ROOT/../.." && pwd)
+DEFAULT_ARTIFACT_DIR="${PROM_SHIM_COMPLIANCE_ARTIFACT_DIR:-${REPO_ROOT}/harness/artifacts/compliance/latest}"
 allowlist="${ROOT}/expected-failures.json"
 report=""
 mode=""
@@ -34,9 +37,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$report" ]]; then
-  report=$(ls -t "$ROOT/artifacts"/compliance-report-*.json 2>/dev/null | head -1 || true)
+  report=$(ls -t "$DEFAULT_ARTIFACT_DIR"/compliance-report-*.json 2>/dev/null | head -1 || true)
   if [[ -z "$report" ]]; then
-    echo "no report found in $ROOT/artifacts/" >&2
+    echo "no report found in $DEFAULT_ARTIFACT_DIR/" >&2
     exit 2
   fi
 fi
@@ -49,7 +52,6 @@ if [[ -n "$report" && ! -f "$report" && -f "$CALLER_PWD/$report" ]]; then
   report="$CALLER_PWD/$report"
 fi
 
-REPO_ROOT=$(cd "$ROOT/../.." && pwd)
 BIN="$(mktemp -d)/promshim-compliance-report"
 (cd "$REPO_ROOT" && go build -o "$BIN" ./cmd/promshim-compliance-report)
 args=(--action reconcile --report "$report" --allowlist "$allowlist")

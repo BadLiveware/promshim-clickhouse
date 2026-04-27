@@ -28,8 +28,8 @@ Focused baseline vs candidate (`repeats=3`, `warmup=1`, native transport,
 
 Artifacts:
 
-- baseline: `harness/artifacts/sweeps/per-series-bounds-focused-baseline/`
-- candidate: `harness/artifacts/sweeps/per-series-bounds-focused-candidate/`
+- baseline: `harness/artifacts/bench/sweeps/per-series-bounds-focused-baseline/`
+- candidate: `harness/artifacts/bench/sweeps/per-series-bounds-focused-candidate/`
 
 ## Current promshim shape
 

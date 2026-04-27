@@ -147,9 +147,9 @@ Example command sequence:
 For each artifact, render the summary and per-query matrix:
 
 ```bash
-./scripts/bench-artifact-summary.sh harness/artifacts/sweeps/<run-name>
+./scripts/bench-artifact-summary.sh harness/artifacts/bench/sweeps/<run-name>
 ./scripts/bench-matrix.sh \
-  --sweep harness/artifacts/sweeps/<run-name>/manifest.json \
+  --sweep harness/artifacts/bench/sweeps/<run-name>/manifest.json \
   --per-query
 ```
 
@@ -170,7 +170,7 @@ an impression or a single p50 delta.
 
    ```bash
    go run ./cmd/promshim-routing-calibrate \
-     --sweep harness/artifacts/sweeps/<sweep>/manifest.json \
+     --sweep harness/artifacts/bench/sweeps/<sweep>/manifest.json \
      --out-json .pi/cost-routing-calibration.json \
      --out-md .pi/cost-routing-calibration.md
    ```
@@ -185,7 +185,7 @@ Calibration inputs must record or be recoverable from artifacts:
 | Input | Where to capture |
 |---|---|
 | Git revision / diff context | PR description or artifact notes. |
-| Sweep name and manifest path | `harness/artifacts/sweeps/<name>/manifest.json`. |
+| Sweep name and manifest path | `harness/artifacts/bench/sweeps/<name>/manifest.json`. |
 | Corpus set and query categories | Bench report `corpusPath`, rows, and categories. |
 | Profile, density, transport | Sweep manifest labels and run labels. |
 | ClickHouse version and reference deployment profile | README/artifact notes; reference profile name when applicable. |

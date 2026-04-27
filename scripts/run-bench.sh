@@ -31,7 +31,7 @@ Options:
   --prom-url URL     Prometheus base URL (default http://localhost:29090).
   --shim-url URL     promshim base URL (default http://localhost:29091).
   --ch-url URL       ClickHouse HTTP URL for --memory summary (default http://localhost:28123).
-  --artifact-dir DIR Directory for benchmark artifacts (default harness/artifacts).
+  --artifact-dir DIR Directory for benchmark artifacts (default harness/artifacts/bench/standalone/latest).
   --baseline PATH    Baseline bench report; exits non-zero on regressions
                      (default: harness/bench/baseline.json when present).
   --no-baseline      Disable baseline discovery/gating for this run.
@@ -58,7 +58,7 @@ Options:
   --ready-timeout N  Seconds to wait for endpoints (default: 60).
   --matrix           Print a Markdown native-SQL vs Prometheus matrix
                      (sorted by N/P ratio, descending) after the bench
-                     finishes. Reads harness/artifacts/bench-report.json.
+                     finishes. Reads the selected benchmark report.
   -h, --help         Show this help text.
 EOF
 }
@@ -82,6 +82,8 @@ ensure_command() {
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/run-lock.sh
 source "${REPO_ROOT}/scripts/lib/run-lock.sh"
+# shellcheck source=lib/artifacts.sh
+source "${REPO_ROOT}/scripts/lib/artifacts.sh"
 acquire_run_lock "stack"
 
 DEFAULT_CORPUS="harness/corpus/bench-native-lowering.json"
@@ -94,7 +96,7 @@ SHIM_URL="http://localhost:29091"
 CH_URL="http://localhost:28123"
 CH_USER="default"
 CH_PASSWORD="otel"
-ARTIFACT_DIR="harness/artifacts"
+ARTIFACT_DIR="$(artifact_rel "bench/standalone/latest")"
 BASELINE=""
 NO_BASELINE=0
 UPDATE_BASELINE=0

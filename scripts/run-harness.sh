@@ -31,7 +31,7 @@ Differential-only knobs (imply --suite differential when used alone):
   --theme <name>        Run one themed corpus from
                         draft-grafana-top-panel-shortlist.themes/.
   --all-themes          Run every theme corpus in sequence
-                        (per-theme reports at artifacts/compare-report-{theme}.json).
+                        (per-theme reports under harness/artifacts/compare/).
   --corpus <path>       Run one corpus JSON under harness/corpus/.
   --subjects <list>     Restrict compare subjects (e.g. shim or shim,promclick).
   --dataset-variants <list>
@@ -183,7 +183,7 @@ print_compare_summary() {
 
 run_compare() {
   local corpus_path="$1" report_dest="$2" label="$3" subjects_override="${4:-}"
-  local env_args=(-e "PROM_HARNESS_CORPUS_PATH=${corpus_path}")
+  local env_args=(-e "PROM_HARNESS_CORPUS_PATH=${corpus_path}" -e "PROM_HARNESS_ARTIFACT_DIR=/artifacts/compare")
   local subjects_effective="${subjects_override:-${SUBJECTS}}"
   if [[ -n "$subjects_effective" ]]; then
     env_args+=(-e "PROM_HARNESS_SUBJECTS=${subjects_effective}")
@@ -193,8 +193,8 @@ run_compare() {
   fi
   log "Running compare: ${label}"
   docker compose --profile jobs run --rm "${env_args[@]}" compare || true
-  if [[ "${report_dest}" != "${HARNESS_DIR}/artifacts/compare-report.json" ]]; then
-    cp "${HARNESS_DIR}/artifacts/compare-report.json" "${report_dest}"
+  if [[ "${report_dest}" != "${HARNESS_DIR}/artifacts/compare/compare-report.json" ]]; then
+    cp "${HARNESS_DIR}/artifacts/compare/compare-report.json" "${report_dest}"
   fi
   print_compare_summary "${report_dest}" "${label}"
 }
@@ -245,10 +245,10 @@ run_differential_suite() {
     for theme in "${themes[@]}"; do
       run_compare \
         "/app/harness/corpus/draft-grafana-top-panel-shortlist.themes/${theme}.json" \
-        "${HARNESS_DIR}/artifacts/compare-report-${theme}.json" \
+        "${HARNESS_DIR}/artifacts/compare/compare-report-${theme}.json" \
         "${theme}"
     done
-    log "All theme reports written to ${HARNESS_DIR}/artifacts/compare-report-{theme}.json"
+    log "All theme reports written to ${HARNESS_DIR}/artifacts/compare/compare-report-{theme}.json"
     return
   fi
 
@@ -264,7 +264,7 @@ run_differential_suite() {
     corpus="/app/harness/corpus/queries.json"
   fi
 
-  run_compare "$corpus" "${HARNESS_DIR}/artifacts/compare-report.json" "${THEME:-differential}"
+  run_compare "$corpus" "${HARNESS_DIR}/artifacts/compare/compare-report.json" "${THEME:-differential}"
 }
 
 run_dashboard_suite() {
@@ -273,7 +273,7 @@ run_dashboard_suite() {
   fi
   run_compare \
     "/app/harness/corpus/common-dashboard-subset.json" \
-    "${HARNESS_DIR}/artifacts/compare-report-dashboard.json" \
+    "${HARNESS_DIR}/artifacts/compare/compare-report-dashboard.json" \
     "dashboard" \
     "shim"
 }

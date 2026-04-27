@@ -6,12 +6,13 @@ usage() {
 Usage: ./scripts/bench-matrix.sh [options] [profile:path]...
 
 Render a cross-profile Markdown matrix from benchmark reports, or a sweep matrix
-from harness/artifacts/sweeps/<run-name>/manifest.json.
+from harness/artifacts/bench/sweeps/<run-name>/manifest.json.
 
-If no positional args are given, defaults to:
-  7d:harness/artifacts/bench-report-7d.json
-  30d:harness/artifacts/bench-report-30d.json
-  1y:harness/artifacts/bench-report-1y.json
+If no positional args are given, defaults to the latest standalone long-range
+benchmark reports:
+  7d:harness/artifacts/bench/standalone/latest/bench-report-7d.json
+  30d:harness/artifacts/bench/standalone/latest/bench-report-30d.json
+  1y:harness/artifacts/bench/standalone/latest/bench-report-1y.json
 
 Options:
   --sweep PATH    Read a sweep manifest and render a v2 sweep matrix across

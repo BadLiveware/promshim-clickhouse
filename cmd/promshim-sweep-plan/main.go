@@ -11,6 +11,7 @@ import (
 func main() {
 	var opts promharness.SweepPlanOptions
 	flag.StringVar(&opts.RunName, "run-name", "", "Sweep run name.")
+	flag.StringVar(&opts.ArtifactRoot, "artifact-root", getenv("PROM_SHIM_ARTIFACT_ROOT", "harness/artifacts"), "Artifact root relative to repo root.")
 	flag.StringVar(&opts.Profile, "profile", "7d", "Profile: 7d, 30d, 1y, all.")
 	flag.StringVar(&opts.Density, "density", "sparse", "Density: sparse, dense, stress-50k, stress-500k, all.")
 	flag.StringVar(&opts.Transport, "transport", "native", "Benchmark transport.")
@@ -34,4 +35,11 @@ func main() {
 		os.Exit(2)
 	}
 	fmt.Print(promharness.RenderSweepPlan(plan))
+}
+
+func getenv(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }

@@ -88,6 +88,46 @@ func TestApplyCachedSelectorEstimatesRequiresAllSelectors(t *testing.T) {
 	}
 }
 
+func TestSelectorStatsCacheEvictsOldestAtCapacity(t *testing.T) {
+	cache := newSelectorStatsCacheWithMax(time.Minute, 2)
+	now := time.Unix(300, 0).UTC()
+	sig1 := selectorSignature{Matchers: []string{`__name__="a"`}, StartMS: 0, EndMS: 60000}
+	sig2 := selectorSignature{Matchers: []string{`__name__="b"`}, StartMS: 0, EndMS: 60000}
+	sig3 := selectorSignature{Matchers: []string{`__name__="c"`}, StartMS: 0, EndMS: 60000}
+	cache.put(sig1, selectorStats{MatchedSeries: 1, ObservedAt: now})
+	cache.put(sig2, selectorStats{MatchedSeries: 2, ObservedAt: now.Add(time.Second)})
+	cache.put(sig3, selectorStats{MatchedSeries: 3, ObservedAt: now.Add(2 * time.Second)})
+
+	if cache.len() != 2 {
+		t.Fatalf("cache len = %d, want 2", cache.len())
+	}
+	if _, ok := cache.get(sig1, now.Add(3*time.Second)); ok {
+		t.Fatalf("oldest selector stats entry was not evicted")
+	}
+	if stats, ok := cache.get(sig2, now.Add(3*time.Second)); !ok || stats.MatchedSeries != 2 {
+		t.Fatalf("expected second selector stats to remain, got %+v ok=%t", stats, ok)
+	}
+	if stats, ok := cache.get(sig3, now.Add(3*time.Second)); !ok || stats.MatchedSeries != 3 {
+		t.Fatalf("expected newest selector stats to remain, got %+v ok=%t", stats, ok)
+	}
+}
+
+func TestSelectorStatsCacheDropsStaleEntries(t *testing.T) {
+	cache := newSelectorStatsCacheWithMax(time.Minute, 10)
+	now := time.Unix(300, 0).UTC()
+	stale := selectorSignature{Matchers: []string{`__name__="stale"`}, StartMS: 0, EndMS: 60000}
+	fresh := selectorSignature{Matchers: []string{`__name__="fresh"`}, StartMS: 0, EndMS: 60000}
+	cache.put(stale, selectorStats{MatchedSeries: 1, ObservedAt: now.Add(-2 * time.Minute)})
+	cache.put(fresh, selectorStats{MatchedSeries: 2, ObservedAt: now})
+
+	if cache.len() != 1 {
+		t.Fatalf("cache len = %d, want only fresh entry", cache.len())
+	}
+	if _, ok := cache.get(stale, now); ok {
+		t.Fatalf("stale selector stats entry should not remain readable")
+	}
+}
+
 func TestApplyCachedSelectorEstimatesMarksStaleSelectors(t *testing.T) {
 	cache := newSelectorStatsCache(time.Minute)
 	now := time.Now().UTC()

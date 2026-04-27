@@ -49,6 +49,7 @@ Options:
   --settings-profile NAME        promshim ClickHouse settings profile for benchmark containers (default default_safe).
   --corpus-set {native|processing|optimization|both}
                                   Benchmark corpus family (default: native; dense defaults to processing).
+                                  optimization currently supports only --profile 7d.
   --profile {7d|30d|1y|all}      Profile to inspect/seed (default for setup: all).
   --density {sparse|dense|stress-50k|stress-500k|all}
                                   Dataset density (default for setup: sparse).
@@ -436,6 +437,9 @@ corpus_paths_for() {
     echo "harness/corpus/bench-processing${suffix}.json"
   fi
   if [[ "$set" == "optimization" ]]; then
+    if [[ "$profile" != "7d" ]]; then
+      fatal "--corpus-set optimization currently supports only --profile 7d (got: ${profile})"
+    fi
     echo "harness/corpus/bench-optimization-tuning${suffix}.json"
   fi
 }

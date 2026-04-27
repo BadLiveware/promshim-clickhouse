@@ -41,6 +41,19 @@ func TestBuildSweepPlanExpandsAxesAndCorpora(t *testing.T) {
 	}
 }
 
+func TestCorpusPathsForOptimizationIs7DOnly(t *testing.T) {
+	paths, err := CorpusPathsFor("7d", "optimization")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 1 || paths[0] != "harness/corpus/bench-optimization-tuning-7d.json" {
+		t.Fatalf("optimization paths = %#v", paths)
+	}
+	if _, err := CorpusPathsFor("30d", "optimization"); err == nil || !strings.Contains(err.Error(), "only --profile 7d") {
+		t.Fatalf("expected 30d optimization rejection, got %v", err)
+	}
+}
+
 func TestEstimateSamplesStress(t *testing.T) {
 	got, err := EstimateSamples("7d", "stress-50k")
 	if err != nil {

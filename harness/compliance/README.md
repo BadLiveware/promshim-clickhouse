@@ -10,8 +10,8 @@ A full two-pass run (prefer + native-only) finishes in ~15 seconds on a warm doc
 - `docker-compose.native-only.yml` — override that forces promshim into `native_lowering_mode=force_supported`; unsupported shapes fail explicitly instead of falling back to local evaluation. Used for pass #2.
 - `prom-compliance/` — submodule; upstream `prometheus/compliance` tester.
 - `test-promshim.yml` — tester config (endpoints, query window, tweaks).
-- `scripts/run-compliance.sh` — runs one pass against whatever promshim is up; emits JSON report to `artifacts/` and reconciles against the allowlist (skipped in `--mode native`).
-- `scripts/patch-queries-for-prom3.py` — generates `artifacts/patched-queries.yml` from the upstream corpus, dropping `should_fail: true` markers on entries Prom 3.x now accepts (UTF-8 label names). Upstream's corpus was last refreshed for Prom 2.26, so the tester would otherwise hard-abort at `comparer.go:95` the moment such a query returns success.
+- `scripts/run-compliance.sh` — runs one pass against whatever promshim is up; emits JSON reports under `../../harness/artifacts/compliance/` and reconciles against the allowlist (skipped in `--mode native`). When no artifact directory is provided, low-level helper scripts read/write `../../harness/artifacts/compliance/latest`.
+- `scripts/patch-queries-for-prom3.py` — generates `patched-queries.yml` in the selected compliance artifact directory from the upstream corpus, dropping `should_fail: true` markers on entries Prom 3.x now accepts (UTF-8 label names). Upstream's corpus was last refreshed for Prom 2.26, so the tester would otherwise hard-abort at `comparer.go:95` the moment such a query returns success.
 - `scripts/reconcile-expected.sh` — matches the report against `expected-failures.json`; any drift fails.
 - `scripts/classify-failures.sh` — buckets failures by pattern (regex-matched).
 - `scripts/native-gap-report.sh` — categorized breakdown of a native-mode report (diff failures, unsupported-root shapes, other errors). Informational only; never gates.
@@ -25,7 +25,7 @@ Two-pass run from the repo root:
 scripts/run-compliance.sh
 ```
 
-That brings the stack up, runs pass #1 against the default `prefer` mode (reconciled against `expected-failures.json`), recreates promshim with the `native-only` override, runs pass #2 (informational gap report), and tears the stack down.
+That brings the stack up, writes reports to `../../harness/artifacts/compliance/<timestamp>/`, updates `../../harness/artifacts/compliance/latest` when possible, runs pass #1 against the default `prefer` mode (reconciled against `expected-failures.json`), recreates promshim with the `native-only` override, runs pass #2 (informational gap report), and tears the stack down.
 
 Single pass from this directory (stack must already be up):
 
@@ -33,7 +33,7 @@ Single pass from this directory (stack must already be up):
 cd harness/compliance
 docker compose up -d
 scripts/run-compliance.sh --mode prefer --suffix prefer
-scripts/classify-failures.sh artifacts/compliance-report-prefer-<stamp>.json
+scripts/classify-failures.sh ../../harness/artifacts/compliance/latest/compliance-report-prefer-<stamp>.json
 ```
 
 The tester hits `29090` (Prom reference) and `29091` (promshim) with a pinned `end_time` inside the scraped fixture window.

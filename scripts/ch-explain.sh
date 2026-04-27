@@ -17,7 +17,7 @@
 #   --range-seconds N             (default: 300, range mode only)
 #   --step N                      (default: 15, range mode only)
 #   --eval-time <RFC3339>         (default: compliance fixture end_time from baseline eval-time)
-#   --output DIR                  (default: harness/artifacts/ch-explain/<timestamp>)
+#   --output DIR                  (default: harness/artifacts/explain/<timestamp>)
 #   --shim-url URL                (default: http://localhost:29091)
 #   --ch-url URL                  (default: http://localhost:28123)
 #   --log-comment COMMENT         bounded query_log correlation comment
@@ -33,6 +33,8 @@ set -euo pipefail
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/run-lock.sh
 source "${REPO_ROOT}/scripts/lib/run-lock.sh"
+# shellcheck source=lib/artifacts.sh
+source "${REPO_ROOT}/scripts/lib/artifacts.sh"
 acquire_run_lock "stack"
 
 CH_URL="${CH_URL:-http://localhost:28123}"
@@ -82,7 +84,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$OUTPUT_DIR" ]] || OUTPUT_DIR="${REPO_ROOT}/harness/artifacts/ch-explain/$(date +%Y%m%d-%H%M%S)"
+[[ -n "$OUTPUT_DIR" ]] || OUTPUT_DIR="$(artifact_abs "explain/$(date +%Y%m%d-%H%M%S)")"
 mkdir -p "$OUTPUT_DIR"
 if [[ -z "$LOG_COMMENT" ]]; then
   LOG_COMMENT="ch-explain-$(date +%Y%m%d-%H%M%S)-$$"

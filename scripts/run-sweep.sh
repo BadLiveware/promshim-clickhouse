@@ -7,7 +7,7 @@ Usage: ./scripts/run-sweep.sh [options]
 
 One-command compliance/benchmark sweep helper. By default, runs compliance plus
 a 7d sparse benchmark against the isolated benchmark stack and writes named
-artifacts under harness/artifacts/sweeps/<run-name>/.
+artifacts under harness/artifacts/bench/sweeps/<run-name>/.
 
 Common examples:
   ./scripts/run-sweep.sh --dry-run --estimate
@@ -80,6 +80,8 @@ fatal() {
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/run-lock.sh
 source "${REPO_ROOT}/scripts/lib/run-lock.sh"
+# shellcheck source=lib/artifacts.sh
+source "${REPO_ROOT}/scripts/lib/artifacts.sh"
 
 BENCH_DIR="${REPO_ROOT}/harness/bench"
 BENCH_PROM_URL="http://localhost:29190"
@@ -474,6 +476,7 @@ print_sweep_plan() {
   go build -o "$bin" ./cmd/promshim-sweep-plan
   local args=(
     --run-name "$RUN_NAME"
+    --artifact-root "$(artifact_root_rel)"
     --profile "$PROFILE"
     --density "$DENSITY"
     --transport "$TRANSPORT"
@@ -526,7 +529,8 @@ generate_sweep_artifacts() {
 }
 
 run_sweep() {
-  local artifact_dir="harness/artifacts/sweeps/${RUN_NAME}"
+  local artifact_dir
+  artifact_dir="$(artifact_rel "bench/sweeps/${RUN_NAME}")"
   local compliance_status="skipped" bench_status="skipped"
   print_sweep_plan
   if (( DRY_RUN == 1 )); then

@@ -6,7 +6,8 @@ usage() {
 Usage: classify-failures.sh [REPORT] [--bucket NAME] [--limit N]
 
 Bucket compliance-report failures by shape. If REPORT is omitted, the latest
-compliance report in artifacts/ is used.
+report in PROM_SHIM_COMPLIANCE_ARTIFACT_DIR is used; when unset, the default is
+harness/artifacts/compliance/latest.
 
 Options:
   -b, --bucket NAME  Show only one bucket.
@@ -19,6 +20,8 @@ CALLER_PWD=$(pwd)
 
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
+REPO_ROOT=$(cd "$ROOT/../.." && pwd)
+DEFAULT_ARTIFACT_DIR="${PROM_SHIM_COMPLIANCE_ARTIFACT_DIR:-${REPO_ROOT}/harness/artifacts/compliance/latest}"
 bucket=""
 limit=0
 report=""
@@ -33,9 +36,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$report" ]]; then
-  report=$(ls -t "$ROOT/artifacts"/compliance-report-*.json 2>/dev/null | head -1 || true)
+  report=$(ls -t "$DEFAULT_ARTIFACT_DIR"/compliance-report-*.json 2>/dev/null | head -1 || true)
   if [[ -z "$report" ]]; then
-    echo "no report found in $ROOT/artifacts/" >&2
+    echo "no report found in $DEFAULT_ARTIFACT_DIR/" >&2
     exit 1
   fi
 fi
@@ -44,7 +47,6 @@ if [[ -n "$report" && ! -f "$report" && -f "$CALLER_PWD/$report" ]]; then
   report="$CALLER_PWD/$report"
 fi
 
-REPO_ROOT=$(cd "$ROOT/../.." && pwd)
 BIN="$(mktemp -d)/promshim-compliance-report"
 (cd "$REPO_ROOT" && go build -o "$BIN" ./cmd/promshim-compliance-report)
 args=(--action classify --report "$report")

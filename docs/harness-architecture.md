@@ -11,12 +11,12 @@ The public entrypoints remain shell scripts because they coordinate Docker Compo
 
 | Command | Primary responsibility | Stack / endpoints | Artifact outputs |
 |---|---|---|---|
-| `scripts/run-compliance.sh` | Start the frozen compliance stack, run prefer-mode compliance, optionally run native-only gap reporting, and tear down unless `--keep-up` is set. | Compliance stack: Prometheus `:29090`, promshim `:29091`, ClickHouse HTTP `:28123`, remote write `:29092/write`. | `harness/compliance/artifacts/compliance-report-{prefer,native}-*.json`; terminal reconciliation and gap summaries. |
-| `scripts/run-sweep.sh` | Run the combined compliance plus benchmark workflow, including benchmark stack setup/status, seed policy checks, benchmark execution, and sweep artifact assembly. | Benchmark stack: Prometheus `:29190`, promshim `:29191`, ClickHouse HTTP `:28124`, ClickHouse remote write `:29192/write`. Compliance pass delegates to the compliance stack above. | `harness/artifacts/sweeps/<run-name>/manifest.json`, `summary.json`, `summary.md`, benchmark reports, memory summaries, optional profile artifacts. |
+| `scripts/run-compliance.sh` | Start the frozen compliance stack, run prefer-mode compliance, optionally run native-only gap reporting, and tear down unless `--keep-up` is set. | Compliance stack: Prometheus `:29090`, promshim `:29091`, ClickHouse HTTP `:28123`, remote write `:29092/write`. | `harness/artifacts/compliance/<run-id>/compliance-report-{prefer,native}-*.json`; terminal reconciliation and gap summaries. |
+| `scripts/run-sweep.sh` | Run the combined compliance plus benchmark workflow, including benchmark stack setup/status, seed policy checks, benchmark execution, and sweep artifact assembly. | Benchmark stack: Prometheus `:29190`, promshim `:29191`, ClickHouse HTTP `:28124`, ClickHouse remote write `:29192/write`. Compliance pass delegates to the compliance stack above. | `harness/artifacts/bench/sweeps/<run-name>/manifest.json`, `summary.json`, `summary.md`, benchmark reports, memory summaries, optional profile artifacts. |
 | `scripts/run-bench.sh` | Run benchmark corpora against configured Prometheus/promshim endpoints and optionally collect memory and ClickHouse profile artifacts. | Defaults to the compliance stack for short fixture benchmarks; sweep passes benchmark-stack endpoints for long-range/dense data. | v2 benchmark reports, `memory-summary-*.json`, optional `memory-detail*/manifest.json`, `clickhouse-profile-*.json`, `clickhouse-profile-*.md`, and `profiles/...` per-query details. |
 | `scripts/seed-long-range.sh` | Seed long-range benchmark data into the benchmark stack via `cmd/ch-seed-long`. | Benchmark Prometheus and ClickHouse write endpoints. | Seed markers in both backends; command log output. |
 | `scripts/bench-matrix.sh` | Render Markdown matrix views from benchmark reports or sweep manifests. | No stack access. | Markdown to stdout. |
-| `scripts/ch-explain.sh` and profile helpers | Capture query-log and explain artifacts for focused SQL diagnosis. | Caller-selected ClickHouse and promshim endpoints, commonly compliance stack ports. | `harness/artifacts/ch-explain/...` and profile JSON/Markdown artifacts. |
+| `scripts/ch-explain.sh` and profile helpers | Capture query-log and explain artifacts for focused SQL diagnosis. | Caller-selected ClickHouse and promshim endpoints, commonly compliance stack ports. | `harness/artifacts/explain/...` and profile JSON/Markdown artifacts. |
 
 ## Stack isolation
 
@@ -62,6 +62,24 @@ This boundary keeps scripts readable while making validation policy reviewable t
 
 ## Public artifact contracts
 
+Generated artifacts are grouped under `harness/artifacts/` by workflow:
+
+```text
+harness/artifacts/
+  bench/standalone/latest/   # direct run-bench output
+  bench/sweeps/<run-name>/   # run-sweep output
+  compliance/<run-id>/       # top-level run-compliance output
+  compliance/latest          # symlink to the latest top-level compliance run when possible
+  compare/                   # differential harness seed and compare reports
+  explain/<run-id>/          # focused ch-explain captures
+  explain-diff/<run-id>/     # before/after explain captures
+  matrices/                  # generated support matrices
+```
+
+Scripts that use `scripts/lib/artifacts.sh` can relocate this root with the
+repo-relative `PROM_SHIM_ARTIFACT_ROOT` environment variable. Paths recorded in
+JSON and Markdown should stay relative to the repository root.
+
 These files are consumed by developers and review workflows and should be preserved or explicitly versioned when changed.
 
 ### Sweep artifacts
@@ -69,7 +87,7 @@ These files are consumed by developers and review workflows and should be preser
 Directory:
 
 ```text
-harness/artifacts/sweeps/<run-name>/
+harness/artifacts/bench/sweeps/<run-name>/
 ```
 
 Important files:
@@ -91,8 +109,13 @@ Important files:
 Directory:
 
 ```text
-harness/compliance/artifacts/
+harness/artifacts/compliance/<run-id>/
 ```
+
+The top-level compliance runner writes each run to a timestamped directory and
+updates `harness/artifacts/compliance/latest` when that path is absent or already
+a symlink. Low-level compliance helper scripts use `latest` when no report path
+is provided.
 
 Important files:
 

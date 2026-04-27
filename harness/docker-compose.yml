@@ -108,7 +108,7 @@ services:
       PROM_HARNESS_PROM_REMOTE_WRITE_URL: http://prometheus:9090/api/v1/write
       PROM_HARNESS_CLICKHOUSE_REMOTE_WRITE_URL: http://default:otel@clickhouse:9092/write
       PROM_HARNESS_PROMCLICK_REMOTE_WRITE_URL: http://promclick-writer:9091/api/v1/write
-      PROM_HARNESS_ARTIFACT_DIR: /artifacts
+      PROM_HARNESS_ARTIFACT_DIR: /artifacts/compare
       PROM_HARNESS_SEED: 12345
       PROM_HARNESS_STEP_SECONDS: 60
       PROM_HARNESS_POINTS: 10
@@ -131,7 +131,7 @@ services:
       PROM_HARNESS_SHIM_URL: http://promshim:9090
       PROM_HARNESS_PROMCLICK_URL: http://promclick-proxy:9099
       PROM_HARNESS_CORPUS_PATH: /app/harness/corpus/queries.json
-      PROM_HARNESS_ARTIFACT_DIR: /artifacts
+      PROM_HARNESS_ARTIFACT_DIR: /artifacts/compare
       PROM_HARNESS_TIMEOUT_SECONDS: 180
     volumes:
       - ./artifacts:/artifacts

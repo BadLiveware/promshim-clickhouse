@@ -10,7 +10,7 @@ import (
 
 func TestRenderBenchMatrixFromSweep(t *testing.T) {
 	root := t.TempDir()
-	reportPath := filepath.Join(root, "harness", "artifacts", "sweeps", "run", "bench-report.json")
+	reportPath := filepath.Join(root, "harness", "artifacts", "bench", "sweeps", "run", "bench-report.json")
 	writeReport(t, reportPath, BenchReportV2{
 		SchemaVersion: 2,
 		CorpusPath:    "harness/corpus/bench-native-lowering-7d.json",
@@ -26,8 +26,8 @@ func TestRenderBenchMatrixFromSweep(t *testing.T) {
 		}},
 		Summary: BenchSummary{StrategyHistogram: map[string]int{"native_sql": 1}},
 	})
-	manifest := SweepManifest{RunName: "run", Bench: SweepBench{Reports: []SweepBenchReport{{Path: "harness/artifacts/sweeps/run/bench-report.json"}}}}
-	manifestPath := filepath.Join(root, "harness", "artifacts", "sweeps", "run", "manifest.json")
+	manifest := SweepManifest{RunName: "run", Bench: SweepBench{Reports: []SweepBenchReport{{Path: "harness/artifacts/bench/sweeps/run/bench-report.json"}}}}
+	manifestPath := filepath.Join(root, "harness", "artifacts", "bench", "sweeps", "run", "manifest.json")
 	content, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)

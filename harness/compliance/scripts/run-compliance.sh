@@ -6,8 +6,8 @@ usage() {
 Usage: run-compliance.sh [--mode MODE] [--suffix NAME]
 
 Run the compliance tester against whatever promshim is currently up.
-Produces a tester report in artifacts/ and reconciles against the
-expected-failures allowlist.
+Produces a tester report under harness/artifacts/compliance/ and reconciles
+against the expected-failures allowlist.
 
 Options:
   --mode MODE      Mode name to record on the report; also passed to
@@ -15,7 +15,7 @@ Options:
                    entries apply correctly. Default: unset (applies
                    only entries with no `modes` field).
   --suffix NAME    Suffix for the report filename, used to keep two
-                   back-to-back passes in artifacts/ distinguishable.
+                   back-to-back passes distinguishable.
                    Default: "" (report named compliance-report-<stamp>.json).
   -h, --help       Show this help.
 EOF
@@ -23,6 +23,7 @@ EOF
 
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
+REPO_ROOT=$(cd "${ROOT}/../.." && pwd)
 SUBMODULE="${ROOT}/prom-compliance/promql"
 TESTER="${SUBMODULE}/promql-compliance-tester"
 
@@ -42,7 +43,7 @@ if [[ ! -x "$TESTER" ]]; then
   (cd "$SUBMODULE" && go build ./cmd/promql-compliance-tester)
 fi
 
-OUTPUT_DIR="${ROOT}/artifacts"
+OUTPUT_DIR="${PROM_SHIM_COMPLIANCE_ARTIFACT_DIR:-${REPO_ROOT}/harness/artifacts/compliance/latest}"
 mkdir -p "$OUTPUT_DIR"
 
 # The upstream corpus was last updated for Prom 2.26. A few `should_fail`

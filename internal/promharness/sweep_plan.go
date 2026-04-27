@@ -8,6 +8,7 @@ import (
 
 type SweepPlanOptions struct {
 	RunName                    string
+	ArtifactRoot               string
 	Profile                    string
 	Density                    string
 	Transport                  string
@@ -147,7 +148,11 @@ func BuildSweepPlan(opts SweepPlanOptions) (SweepPlan, error) {
 	if err != nil {
 		return SweepPlan{}, err
 	}
-	plan := SweepPlan{Options: opts, ArtifactDir: "harness/artifacts/sweeps/" + opts.RunName}
+	artifactRoot := strings.Trim(strings.TrimSpace(opts.ArtifactRoot), "/")
+	if artifactRoot == "" {
+		artifactRoot = "harness/artifacts"
+	}
+	plan := SweepPlan{Options: opts, ArtifactDir: artifactRoot + "/bench/sweeps/" + opts.RunName}
 	for _, p := range profiles {
 		for _, d := range densities {
 			eval, err := ProfileEndTime(p, d)

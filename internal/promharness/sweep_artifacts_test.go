@@ -23,7 +23,7 @@ func (r fakeSweepRunner) Run(cwd string, args ...string) SweepCommandResult {
 
 func TestBuildSweepArtifactsCollectsReportsAndRelativePaths(t *testing.T) {
 	root := t.TempDir()
-	outDir := filepath.Join(root, "harness", "artifacts", "sweeps", "run-a")
+	outDir := filepath.Join(root, "harness", "artifacts", "bench", "sweeps", "run-a")
 	if err := os.MkdirAll(filepath.Join(outDir, "memory-detail-a"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestBuildSweepArtifactsCollectsReportsAndRelativePaths(t *testing.T) {
 		"docker compose -f docker-compose.yml ps -q promshim": {OK: true, Stdout: "container123", ReturnCode: &zero},
 		"docker inspect container123":                         {OK: true, Stdout: `[{"Name":"/promshim","Created":"2026-01-02T03:04:05Z","Image":"sha256:abc","Config":{"Image":"promshim:latest"}}]`, ReturnCode: &zero},
 	}
-	opts := baseSweepOptions(root, "harness/artifacts/sweeps/run-a")
+	opts := baseSweepOptions(root, "harness/artifacts/bench/sweeps/run-a")
 	opts.CommandRunner = runner
 	opts.Now = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	if err := BuildSweepArtifacts(opts); err != nil {
@@ -68,10 +68,10 @@ func TestBuildSweepArtifactsCollectsReportsAndRelativePaths(t *testing.T) {
 	if manifest.GeneratedAt != "2026-01-02T03:04:05Z" {
 		t.Fatalf("generatedAt = %q", manifest.GeneratedAt)
 	}
-	if got, want := manifest.Bench.MemoryReports, []string{"harness/artifacts/sweeps/run-a/memory-summary-a.json"}; !reflect.DeepEqual(got, want) {
+	if got, want := manifest.Bench.MemoryReports, []string{"harness/artifacts/bench/sweeps/run-a/memory-summary-a.json"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("memory reports = %#v, want %#v", got, want)
 	}
-	if got := manifest.Bench.Reports; len(got) != 1 || got[0].Path != "harness/artifacts/sweeps/run-a/bench-report-a.json" || got[0].RowCount != 1 {
+	if got := manifest.Bench.Reports; len(got) != 1 || got[0].Path != "harness/artifacts/bench/sweeps/run-a/bench-report-a.json" || got[0].RowCount != 1 {
 		t.Fatalf("reports = %#v", got)
 	}
 	if got, want := manifest.Axes.RoutingPolicies, []string{"strict"}; !reflect.DeepEqual(got, want) {
@@ -104,7 +104,7 @@ func TestBuildSweepArtifactsCollectsReportsAndRelativePaths(t *testing.T) {
 
 func TestBuildSweepArtifactsRecordsUnavailableProvenance(t *testing.T) {
 	root := t.TempDir()
-	outDir := filepath.Join(root, "harness", "artifacts", "sweeps", "run-b")
+	outDir := filepath.Join(root, "harness", "artifacts", "bench", "sweeps", "run-b")
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestBuildSweepArtifactsRecordsUnavailableProvenance(t *testing.T) {
 		"git rev-parse HEAD":                                  {OK: true, Stdout: "abcdef"},
 		"docker compose -f docker-compose.yml ps -q promshim": {OK: false, Stderr: "docker down", ReturnCode: &code},
 	}
-	opts := baseSweepOptions(root, "harness/artifacts/sweeps/run-b")
+	opts := baseSweepOptions(root, "harness/artifacts/bench/sweeps/run-b")
 	opts.CommandRunner = runner
 	if err := BuildSweepArtifacts(opts); err != nil {
 		t.Fatalf("BuildSweepArtifacts: %v", err)
@@ -129,8 +129,8 @@ func TestBuildSweepArtifactsRecordsUnavailableProvenance(t *testing.T) {
 
 func TestBuildSweepArtifactsAllowsEmptyArtifactDir(t *testing.T) {
 	root := t.TempDir()
-	outDir := filepath.Join(root, "harness", "artifacts", "sweeps", "empty")
-	opts := baseSweepOptions(root, "harness/artifacts/sweeps/empty")
+	outDir := filepath.Join(root, "harness", "artifacts", "bench", "sweeps", "empty")
+	opts := baseSweepOptions(root, "harness/artifacts/bench/sweeps/empty")
 	opts.BenchStatus = "skipped"
 	opts.ComplianceStatus = "skipped"
 	opts.CommandRunner = fakeSweepRunner{

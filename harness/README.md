@@ -69,7 +69,7 @@ Common commands:
 # Seed missing benchmark-only data once, then reuse it in normal sweeps.
 ./scripts/run-sweep.sh --setup --profile all --density sparse --target both
 
-# Run a named sweep and write harness/artifacts/sweeps/<name>/.
+# Run a named sweep and write harness/artifacts/bench/sweeps/<name>/.
 ./scripts/run-sweep.sh --name local-default
 
 # Dense processing benchmark preview.
@@ -86,14 +86,14 @@ Seed policies:
 - `always` — deliberately write selected data again.
 - `never` — skip seed checks and writes.
 
-Artifacts live under `harness/artifacts/sweeps/<run-name>/` and include
+Artifacts live under `harness/artifacts/bench/sweeps/<run-name>/` and include
 `manifest.json`, `summary.md`, `summary.json`, v2 benchmark reports named by
 profile/density/corpus, `memory-summary-*.json`, and optional `memory-detail-*/`
 pprof snapshots for `--memory detailed`. Build matrix views with:
 
 ```bash
-./scripts/bench-matrix.sh --sweep harness/artifacts/sweeps/local-default/manifest.json
-./scripts/bench-matrix.sh --sweep harness/artifacts/sweeps/local-default/manifest.json --per-query
+./scripts/bench-matrix.sh --sweep harness/artifacts/bench/sweeps/local-default/manifest.json
+./scripts/bench-matrix.sh --sweep harness/artifacts/bench/sweeps/local-default/manifest.json --per-query
 ```
 
 If disk pressure appears, check `--estimate`, reduce density/profile selection,
@@ -134,7 +134,7 @@ Useful environment variables:
 - `PROM_HARNESS_SEED`
 - `PROM_HARNESS_STEP_SECONDS`
 - `PROM_HARNESS_POINTS`
-- `PROM_HARNESS_BASE_UNIX_SECONDS` (optional; if omitted the seed job picks a recent base time and writes it to `artifacts/seed-manifest.json`)
+- `PROM_HARNESS_BASE_UNIX_SECONDS` (optional; if omitted the seed job picks a recent base time and writes it to `harness/artifacts/compare/seed-manifest.json`)
 - `PROM_HARNESS_DATASET_VARIANTS` (optional comma-separated list such as `baseline,resets_gaps,churn_stale,histogram_burst`; when unset the harness keeps the legacy single dataset shape)
 
 Seeded dataset shapes currently include:
@@ -145,8 +145,8 @@ Seeded dataset shapes currently include:
 
 Comparator outputs:
 
-- `artifacts/seed-manifest.json`
-- `artifacts/compare-report.json`
+- `harness/artifacts/compare/seed-manifest.json`
+- `harness/artifacts/compare/compare-report.json`
 
 ## Query corpus
 
@@ -209,7 +209,7 @@ For broader exploratory dashboard coverage, run the themed shortlist with:
 ./scripts/run-harness.sh --all-themes --subjects shim
 ```
 
-That command runs the themed splits (`selector`, `aggregation`, `rate-family`, `range-selector`, `histogram`, `binary-arithmetic`, `comparison`, `set-operator`, `subquery`, `vector-matching`, `label-mutation`, `range-function`) and writes one compare report per theme into `harness/artifacts/`. The full shortlist is useful for promotion planning and gap discovery; the stable common-dashboard subset is the current gate.
+That command runs the themed splits (`selector`, `aggregation`, `rate-family`, `range-selector`, `histogram`, `binary-arithmetic`, `comparison`, `set-operator`, `subquery`, `vector-matching`, `label-mutation`, `range-function`) and writes one compare report per theme into `harness/artifacts/compare/`. The full shortlist is useful for promotion planning and gap discovery; the stable common-dashboard subset is the current gate.
 
 ### Native SQL lowering starter corpus
 
@@ -333,5 +333,5 @@ The broader dashboard-promotion corpora now also carry auto-annotated dataset-va
 These remain exploratory/promotion-oriented corpora rather than stable gates, but they now routinely exercise reset/gap, churn/staleness, and histogram-burst shapes where the shortlist metadata suggests those behaviors are relevant.
 
 Extend the corpus cautiously as new features land:
-- add new corpus rows only after parity is verified in `./artifacts/compare-report.json` and corresponding unit/integration coverage exists.
+- add new corpus rows only after parity is verified in `harness/artifacts/compare/compare-report.json` and corresponding unit/integration coverage exists.
 - if a row should only run against specific optional subjects, set `"subjects": ["shim"]` or `"subjects": ["promclick"]`; omitting `subjects` compares against all configured subjects.

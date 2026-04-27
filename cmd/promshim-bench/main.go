@@ -50,7 +50,7 @@ func (f runLabelFlags) Set(value string) error {
 func main() {
 	var (
 		corpusPath      = flag.String("corpus", "harness/corpus/bench-native-lowering.json", "Path to bench corpus JSON.")
-		artifactDir     = flag.String("artifact-dir", "harness/artifacts", "Directory to write bench report artifacts.")
+		artifactDir     = flag.String("artifact-dir", "harness/artifacts/bench/standalone/latest", "Directory to write bench report artifacts.")
 		artifactName    = flag.String("artifact-name", "bench-report.json", "Artifact file name for v2 reports (default bench-report.json when v2 is enabled).")
 		repeats         = flag.Int("repeats", 10, "Timed repeats per (query, mode).")
 		warmup          = flag.Int("warmup", 2, "Warmup repeats per (query, mode), discarded.")

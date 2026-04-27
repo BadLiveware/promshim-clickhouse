@@ -17,8 +17,8 @@ func TestBuildCalibrationFromSweepManifest(t *testing.T) {
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	reportRel := "harness/artifacts/sweeps/unit/bench-report.json"
-	memoryRel := "harness/artifacts/sweeps/unit/memory-summary-bench-report.json"
+	reportRel := "harness/artifacts/bench/sweeps/unit/bench-report.json"
+	memoryRel := "harness/artifacts/bench/sweeps/unit/memory-summary-bench-report.json"
 	writeFixtureJSON(t, filepath.Join(root, reportRel), map[string]any{
 		"schemaVersion": 2,
 		"corpusPath":    "harness/corpus/unit.json",
@@ -52,7 +52,7 @@ func TestBuildCalibrationFromSweepManifest(t *testing.T) {
 	writeFixtureJSON(t, manifestPath, map[string]any{
 		"schemaVersion": 1,
 		"runName":       "unit",
-		"artifactDir":   "harness/artifacts/sweeps/unit",
+		"artifactDir":   "harness/artifacts/bench/sweeps/unit",
 		"axes":          map[string]any{"profile": "7d", "density": "sparse", "transport": "native", "shimModes": []string{"prefer", "off"}, "memoryMode": "summary", "clickHouseReferenceProfile": "promshim-ch-timeseries-reference-v1", "promshimSettingsProfile": "default_safe", "corpusSet": "native"},
 		"endpoints":     map[string]string{"promshim": "http://localhost:29191"},
 		"compliance":    map[string]any{"status": "skipped"},

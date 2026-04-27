@@ -87,7 +87,7 @@ func renderSweepBenchMatrix(opts BenchMatrixOptions) (string, error) {
 	rows := []benchMatrixSweepRow{}
 	for _, meta := range manifest.Bench.Reports {
 		reportPath := filepath.Join(root, filepath.FromSlash(meta.Path))
-		report, err := loadBenchReportV2(reportPath)
+		report, err := readBenchReportV2(reportPath)
 		if err != nil {
 			continue
 		}
@@ -157,7 +157,7 @@ func renderSweepBenchMatrix(opts BenchMatrixOptions) (string, error) {
 func renderLegacyBenchMatrix(opts BenchMatrixOptions) (string, error) {
 	profiles := opts.Profiles
 	if len(profiles) == 0 {
-		profiles = []BenchMatrixProfileInput{{"7d", "harness/artifacts/bench-report-7d.json"}, {"30d", "harness/artifacts/bench-report-30d.json"}, {"1y", "harness/artifacts/bench-report-1y.json"}}
+		profiles = []BenchMatrixProfileInput{{"7d", "harness/artifacts/bench/standalone/latest/bench-report-7d.json"}, {"30d", "harness/artifacts/bench/standalone/latest/bench-report-30d.json"}, {"1y", "harness/artifacts/bench/standalone/latest/bench-report-1y.json"}}
 	}
 	rows := []legacyMatrixRow{}
 	for _, input := range profiles {
@@ -240,6 +240,17 @@ func readBenchReport(path string) (BenchReport, error) {
 	var r BenchReport
 	if err := json.Unmarshal(content, &r); err != nil {
 		return BenchReport{}, err
+	}
+	return r, nil
+}
+func readBenchReportV2(path string) (BenchReportV2, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return BenchReportV2{}, err
+	}
+	var r BenchReportV2
+	if err := json.Unmarshal(content, &r); err != nil || r.SchemaVersion != 2 {
+		return BenchReportV2{}, fmt.Errorf("not v2")
 	}
 	return r, nil
 }

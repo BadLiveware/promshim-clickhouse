@@ -1,0 +1,49 @@
+{
+  "name": "bench-processing",
+  "purpose": "Benchmark corpus family for dense or processing-heavy bounded-output workloads where local Prometheus timing bands are useful context.",
+  "defaultStatus": {
+    "denseSweep": "harness/corpus/bench-processing-7d.json via ./scripts/run-sweep.sh --density dense"
+  },
+  "stackAssumptions": {
+    "profiledSweep": "isolated benchmark stack seeded by scripts/seed-long-range.sh; dense data is preferred for processing latency signal"
+  },
+  "profileCorpora": [
+    {
+      "profile": "7d",
+      "path": "harness/corpus/bench-processing-7d.json",
+      "rows": 8,
+      "evalTime": "2026-03-22T21:45:42Z",
+      "use": "Default dense sweep corpus for processing-heavy instant and range queries."
+    },
+    {
+      "profile": "30d",
+      "path": "harness/corpus/bench-processing-30d.json",
+      "rows": 8,
+      "evalTime": "2026-02-22T21:45:42Z",
+      "use": "Longer-window processing workload."
+    },
+    {
+      "profile": "1y",
+      "path": "harness/corpus/bench-processing-1y.json",
+      "rows": 8,
+      "evalTime": "2025-03-22T21:45:42Z",
+      "use": "Year-window processing workload."
+    }
+  ],
+  "queryFamilies": [
+    "instant sum(rate(...)) aggregations",
+    "instant avg_over_time aggregations",
+    "instant histogram_quantile over rate-fed buckets",
+    "range sum(rate(...)) aggregations",
+    "range avg_over_time aggregations",
+    "range histogram_quantile over rate-fed buckets"
+  ],
+  "comparisonNotes": [
+    "Rows use structural comparison where Prometheus and ClickHouse legitimately differ in exact extrapolated values.",
+    "targetPromP50Ms bands are advisory and host-dependent; they help interpret processing-workload size, not correctness."
+  ],
+  "recommendedCommands": [
+    "./scripts/run-sweep.sh --name processing-dense --profile 7d --density dense --corpus-set processing --estimate",
+    "./scripts/run-sweep.sh --name processing-dense-live --profile 7d --density dense --seed missing --skip-compliance --corpus-set processing --memory summary"
+  ]
+}

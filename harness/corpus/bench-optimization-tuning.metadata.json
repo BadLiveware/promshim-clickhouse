@@ -1,0 +1,42 @@
+{
+  "name": "bench-optimization-tuning",
+  "purpose": "Opt-in benchmark corpus family for focused SQL-shape, optimizer, and routing tuning experiments.",
+  "defaultStatus": {
+    "default": "not selected by default",
+    "sweep": "selected only with ./scripts/run-sweep.sh --corpus-set optimization"
+  },
+  "stackAssumptions": {
+    "standaloneBench": "frozen compliance stack fixture for harness/corpus/bench-optimization-tuning.json",
+    "profiledSweep": "isolated benchmark stack for harness/corpus/bench-optimization-tuning-7d.json"
+  },
+  "profileCorpora": [
+    {
+      "profile": "compliance-fixture",
+      "path": "harness/corpus/bench-optimization-tuning.json",
+      "rows": 16,
+      "evalTime": "2026-04-21T21:45:42Z",
+      "use": "Small-fixture tuning and SQL-shape tripwire runs."
+    },
+    {
+      "profile": "7d",
+      "path": "harness/corpus/bench-optimization-tuning-7d.json",
+      "rows": 15,
+      "evalTime": "2026-03-22T21:45:42Z",
+      "use": "Focused 7d sparse optimization sweeps."
+    }
+  ],
+  "unsupportedProfiles": [
+    {
+      "profiles": ["30d", "1y"],
+      "reason": "Matching bench-optimization-tuning-30d.json and bench-optimization-tuning-1y.json corpora do not exist yet; run-sweep rejects these combinations."
+    }
+  ],
+  "comparisonNotes": [
+    "This corpus is for experiments and should not replace default native or processing sweep corpora.",
+    "Use named sweep artifacts and ProfileEvents evidence before making performance claims from this corpus."
+  ],
+  "recommendedCommands": [
+    "./scripts/run-bench.sh --corpus harness/corpus/bench-optimization-tuning.json --no-baseline",
+    "./scripts/run-sweep.sh --name optimization-7d --profile 7d --density sparse --corpus-set optimization --skip-compliance --estimate"
+  ]
+}

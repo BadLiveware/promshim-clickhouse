@@ -1,0 +1,50 @@
+{
+  "name": "bench-native-lowering",
+  "purpose": "Benchmark corpus family for native SQL lowering, routing, and CBE tripwire measurements.",
+  "defaultStatus": {
+    "standaloneBench": "harness/corpus/bench-native-lowering.json",
+    "sparseSweep": "harness/corpus/bench-native-lowering-7d.json via ./scripts/run-sweep.sh --corpus-set native"
+  },
+  "stackAssumptions": {
+    "standaloneBench": "frozen compliance stack fixture on Prometheus :29090 and promshim :29091",
+    "profiledSweep": "isolated benchmark stack seeded by scripts/seed-long-range.sh"
+  },
+  "profileCorpora": [
+    {
+      "profile": "compliance-fixture",
+      "path": "harness/corpus/bench-native-lowering.json",
+      "rows": 26,
+      "evalTime": "2026-04-21T21:45:42Z",
+      "use": "Short standalone tripwire with harness/bench/baseline.json regression gating."
+    },
+    {
+      "profile": "7d",
+      "path": "harness/corpus/bench-native-lowering-7d.json",
+      "rows": 34,
+      "evalTime": "2026-03-22T21:45:42Z",
+      "use": "Default sparse sweep corpus; includes the broadest routing/CBE benchmark shape coverage."
+    },
+    {
+      "profile": "30d",
+      "path": "harness/corpus/bench-native-lowering-30d.json",
+      "rows": 16,
+      "evalTime": "2026-02-22T21:45:42Z",
+      "use": "Longer-window sparse scaling check."
+    },
+    {
+      "profile": "1y",
+      "path": "harness/corpus/bench-native-lowering-1y.json",
+      "rows": 16,
+      "evalTime": "2025-03-22T21:45:42Z",
+      "use": "Year-window sparse scaling check."
+    }
+  ],
+  "comparisonNotes": [
+    "Rows that use rate-family or other ClickHouse-vs-Prometheus value-divergent primitives may set compareMode=structural.",
+    "Profile-specific corpora use pinned eval times; do not move them between profiles without adjusting seeded data assumptions."
+  ],
+  "recommendedCommands": [
+    "./scripts/run-bench.sh --corpus harness/corpus/bench-native-lowering.json",
+    "./scripts/run-sweep.sh --name native-sparse --profile 7d --density sparse --corpus-set native"
+  ]
+}

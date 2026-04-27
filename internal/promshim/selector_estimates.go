@@ -28,17 +28,27 @@ type selectorStats struct {
 	ObservedAt       time.Time
 }
 
+const defaultSelectorStatsMaxEntries = 4096
+
 type selectorStatsCache struct {
-	mu      sync.Mutex
-	ttl     time.Duration
-	entries map[string]selectorStats
+	mu         sync.Mutex
+	ttl        time.Duration
+	maxEntries int
+	entries    map[string]selectorStats
 }
 
 func newSelectorStatsCache(ttl time.Duration) *selectorStatsCache {
+	return newSelectorStatsCacheWithMax(ttl, defaultSelectorStatsMaxEntries)
+}
+
+func newSelectorStatsCacheWithMax(ttl time.Duration, maxEntries int) *selectorStatsCache {
 	if ttl <= 0 {
 		ttl = 5 * time.Minute
 	}
-	return &selectorStatsCache{ttl: ttl, entries: map[string]selectorStats{}}
+	if maxEntries <= 0 {
+		maxEntries = defaultSelectorStatsMaxEntries
+	}
+	return &selectorStatsCache{ttl: ttl, maxEntries: maxEntries, entries: map[string]selectorStats{}}
 }
 
 func (c *selectorStatsCache) get(sig selectorSignature, now time.Time) (selectorStats, bool) {
@@ -52,11 +62,13 @@ func (c *selectorStatsCache) getWithState(sig selectorSignature, now time.Time) 
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	stats, ok := c.entries[sig.key()]
+	key := sig.key()
+	stats, ok := c.entries[key]
 	if !ok || stats.ObservedAt.IsZero() {
 		return selectorStats{}, "missing"
 	}
 	if now.Sub(stats.ObservedAt) > c.ttl {
+		delete(c.entries, key)
 		return stats, "stale"
 	}
 	return stats, "hit"
@@ -71,7 +83,50 @@ func (c *selectorStatsCache) put(sig selectorSignature, stats selectorStats) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.entries[sig.key()] = stats
+	now := stats.ObservedAt
+	c.pruneLocked(now)
+	key := sig.key()
+	if _, exists := c.entries[key]; !exists {
+		c.evictToCapacityLocked(c.maxEntries - 1)
+	}
+	c.entries[key] = stats
+}
+
+func (c *selectorStatsCache) len() int {
+	if c == nil {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.entries)
+}
+
+func (c *selectorStatsCache) pruneLocked(now time.Time) {
+	if c.ttl <= 0 {
+		return
+	}
+	for key, stats := range c.entries {
+		if stats.ObservedAt.IsZero() || now.Sub(stats.ObservedAt) > c.ttl {
+			delete(c.entries, key)
+		}
+	}
+}
+
+func (c *selectorStatsCache) evictToCapacityLocked(target int) {
+	for len(c.entries) > target {
+		oldestKey := ""
+		var oldest time.Time
+		for key, stats := range c.entries {
+			if oldestKey == "" || stats.ObservedAt.Before(oldest) {
+				oldestKey = key
+				oldest = stats.ObservedAt
+			}
+		}
+		if oldestKey == "" {
+			return
+		}
+		delete(c.entries, oldestKey)
+	}
 }
 
 func (sig selectorSignature) key() string {

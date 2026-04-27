@@ -42,6 +42,8 @@ Options:
   --include-prom BOOL            Include Prometheus timing in v2 bench reports (default true).
   --memory {off|summary|detailed}
                                   Capture memory trade-off artifacts (default summary).
+  --clickhouse-profile {off|summary|auto|processors}
+                                  Capture per-query ClickHouse profile output from bench runs (default off).
   --clickhouse-reference-profile NAME
                                   Reference profile label recorded in sweep artifacts (default default-benchmark-compose).
   --settings-profile NAME        promshim ClickHouse settings profile for benchmark containers (default default_safe).
@@ -104,6 +106,7 @@ WARMUP_ROUTING_POLICIES=""
 COST_ROUTING_LOCAL_FAMILIES=""
 INCLUDE_PROM="true"
 MEMORY_MODE="summary"
+CLICKHOUSE_PROFILE_MODE="off"
 CLICKHOUSE_REFERENCE_PROFILE="${PROM_SHIM_BENCH_CLICKHOUSE_REFERENCE_PROFILE:-default-benchmark-compose}"
 SETTINGS_PROFILE="${PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE:-default_safe}"
 CORPUS_SET=""
@@ -127,6 +130,7 @@ while [[ $# -gt 0 ]]; do
     --cost-routing-local-families) COST_ROUTING_LOCAL_FAMILIES="$2"; shift 2 ;;
     --include-prom) INCLUDE_PROM="$2"; shift 2 ;;
     --memory)       MEMORY_MODE="$2"; shift 2 ;;
+    --clickhouse-profile) CLICKHOUSE_PROFILE_MODE="$2"; shift 2 ;;
     --clickhouse-reference-profile) CLICKHOUSE_REFERENCE_PROFILE="$2"; shift 2 ;;
     --settings-profile) SETTINGS_PROFILE="$2"; shift 2 ;;
     --corpus-set)   CORPUS_SET="$2"; shift 2 ;;
@@ -477,6 +481,7 @@ print_sweep_plan() {
   echo "Warmup routing policies: ${WARMUP_ROUTING_POLICIES:-none}"
   echo "Cost routing local families: ${COST_ROUTING_LOCAL_FAMILIES:-none}"
   echo "Memory mode: ${MEMORY_MODE}"
+  echo "ClickHouse profile mode: ${CLICKHOUSE_PROFILE_MODE}"
   echo "ClickHouse reference profile: ${CLICKHOUSE_REFERENCE_PROFILE}"
   echo "promshim settings profile: ${SETTINGS_PROFILE}"
   echo
@@ -503,18 +508,19 @@ print_sweep_plan() {
 
 generate_sweep_artifacts() {
   local artifact_dir="$1" compliance_status="$2" bench_status="$3"
-  python3 - "$REPO_ROOT" "$artifact_dir" "$RUN_NAME" "$PROFILE" "$DENSITY" "$TRANSPORT" "$SEED_POLICY" "$SHIM_MODES" "$ROUTING_POLICIES" "$WARMUP_ROUTING_POLICIES" "$COST_ROUTING_LOCAL_FAMILIES" "$INCLUDE_PROM" "$CORPUS_SET" "$compliance_status" "$bench_status" "$BENCH_PROM_URL" "$BENCH_SHIM_URL" "$BENCH_CH_URL" "$MEMORY_MODE" "$CLICKHOUSE_REFERENCE_PROFILE" "$SETTINGS_PROFILE" <<'PY'
+  python3 - "$REPO_ROOT" "$artifact_dir" "$RUN_NAME" "$PROFILE" "$DENSITY" "$TRANSPORT" "$SEED_POLICY" "$SHIM_MODES" "$ROUTING_POLICIES" "$WARMUP_ROUTING_POLICIES" "$COST_ROUTING_LOCAL_FAMILIES" "$INCLUDE_PROM" "$CORPUS_SET" "$compliance_status" "$bench_status" "$BENCH_PROM_URL" "$BENCH_SHIM_URL" "$BENCH_CH_URL" "$MEMORY_MODE" "$CLICKHOUSE_PROFILE_MODE" "$CLICKHOUSE_REFERENCE_PROFILE" "$SETTINGS_PROFILE" <<'PY'
 import json, pathlib, subprocess, sys
 from datetime import datetime, timezone
 
 (repo, artifact_dir, run_name, profile, density, transport, seed_policy,
  shim_modes, routing_policies, warmup_routing_policies, cost_routing_local_families, include_prom, corpus_set, compliance_status, bench_status,
- prom_url, shim_url, ch_url, memory_mode, clickhouse_reference_profile, settings_profile) = sys.argv[1:22]
+ prom_url, shim_url, ch_url, memory_mode, clickhouse_profile_mode, clickhouse_reference_profile, settings_profile) = sys.argv[1:23]
 root = pathlib.Path(repo)
 out_dir = root / artifact_dir
 reports = []
 memory_reports = []
 memory_details = []
+clickhouse_profiles = []
 strategy_hist = {}
 routing_policy_hist = {}
 target_bands = {}
@@ -523,6 +529,8 @@ for mem_path in sorted(out_dir.glob("memory-summary*.json")):
     memory_reports.append(str(mem_path.relative_to(root)))
 for detail_path in sorted(out_dir.glob("memory-detail*/manifest.json")):
     memory_details.append(str(detail_path.relative_to(root)))
+for profile_path in sorted(out_dir.glob("clickhouse-profile-*.json")):
+    clickhouse_profiles.append(str(profile_path.relative_to(root)))
 for path in sorted(out_dir.glob("bench-report*.json")):
     try:
         data = json.loads(path.read_text())
@@ -657,6 +665,7 @@ manifest = {
         "costRoutingLocalFamilies": [f for f in cost_routing_local_families.split(",") if f],
         "includeProm": include_prom,
         "memoryMode": memory_mode,
+        "clickHouseProfileMode": clickhouse_profile_mode,
         "clickHouseReferenceProfile": clickhouse_reference_profile,
         "promshimSettingsProfile": settings_profile,
         "corpusSet": corpus_set,
@@ -664,7 +673,7 @@ manifest = {
     "endpoints": {"prometheus": prom_url, "promshim": shim_url, "clickhouse": ch_url},
     "benchmarkStack": benchmark_stack_provenance(),
     "compliance": {"status": compliance_status, "log": f"{artifact_dir}/compliance.log" if compliance_status != "skipped" else None},
-    "bench": {"status": bench_status, "reports": reports, "memoryReports": memory_reports, "memoryDetailManifests": memory_details},
+    "bench": {"status": bench_status, "reports": reports, "memoryReports": memory_reports, "memoryDetailManifests": memory_details, "clickHouseProfiles": clickhouse_profiles},
     "summaries": {"markdown": f"{artifact_dir}/summary.md", "json": f"{artifact_dir}/summary.json"},
 }
 summary = {
@@ -675,6 +684,7 @@ summary = {
     "reportCount": len(reports),
     "memoryReportCount": len(memory_reports),
     "memoryDetailCount": len(memory_details),
+    "clickHouseProfileCount": len(clickhouse_profiles),
     "strategyHistogram": strategy_hist,
     "routingPolicyHistogram": routing_policy_hist,
     "targetBands": target_bands,
@@ -700,10 +710,12 @@ lines = [
     f"- Warmup routing policies: `{warmup_routing_policies or 'none'}`",
     f"- Cost routing local families: `{cost_routing_local_families or 'none'}`",
     f"- Memory mode: `{memory_mode}`",
+    f"- ClickHouse profile mode: `{clickhouse_profile_mode}`",
     f"- ClickHouse reference profile: `{clickhouse_reference_profile}`",
     f"- promshim settings profile: `{settings_profile}`",
     f"- Memory summaries: `{len(memory_reports)}`",
     f"- Memory detail manifests: `{len(memory_details)}`",
+    f"- ClickHouse profile summaries: `{len(clickhouse_profiles)}`",
     "",
     "## Strategy histogram",
     "",
@@ -815,6 +827,7 @@ run_sweep() {
             --include-prom "$INCLUDE_PROM" \
             --ch-url "$BENCH_CH_URL" \
             --memory "$MEMORY_MODE" \
+            --clickhouse-profile "$CLICKHOUSE_PROFILE_MODE" \
             --run-label "run=${RUN_NAME}" \
             --run-label "profile=${p}" \
             --run-label "density=${d}" \

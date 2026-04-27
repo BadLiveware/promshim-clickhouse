@@ -10,7 +10,7 @@
   "buckets": [
     {
       "name": "selectors",
-      "targetPhases": ["phase-1-analysis-scaffolding", "phase-3-selector-lowering"],
+      "targetCapabilities": ["analysis-and-planning", "selector-lowering"],
       "queryNames": [
         "native_lowering_selector_instant",
         "native_lowering_selector_matcher_instant",
@@ -20,7 +20,7 @@
     },
     {
       "name": "aggregations",
-      "targetPhases": ["phase-1-analysis-scaffolding", "phase-2-native-subtree-and-renderer", "phase-4-sql-optimizer-passes"],
+      "targetCapabilities": ["analysis-and-planning", "native-subtree-rendering", "sql-optimizer-passes"],
       "queryNames": [
         "native_lowering_sum_by_job_instant",
         "native_lowering_sum_by_job_range",
@@ -30,7 +30,7 @@
     },
     {
       "name": "joins",
-      "targetPhases": ["phase-5-join-and-vector-matching-lowering"],
+      "targetCapabilities": ["join-and-vector-matching-lowering"],
       "queryNames": [
         "native_lowering_vector_vector_instant",
         "native_lowering_vector_match_group_left_instant"
@@ -38,7 +38,7 @@
     },
     {
       "name": "range-functions",
-      "targetPhases": ["phase-6-range-functions-and-subqueries"],
+      "targetCapabilities": ["range-functions-and-subqueries"],
       "queryNames": [
         "native_lowering_sum_over_time_selector_range",
         "native_lowering_count_over_time_selector_range",
@@ -48,7 +48,7 @@
     },
     {
       "name": "counters",
-      "targetPhases": ["phase-6-range-functions-and-subqueries"],
+      "targetCapabilities": ["range-functions-and-subqueries"],
       "queryNames": [
         "native_lowering_rate_selector_instant",
         "native_lowering_sum_rate_by_job_instant",
@@ -61,7 +61,7 @@
     },
     {
       "name": "subqueries",
-      "targetPhases": ["phase-1-analysis-scaffolding", "phase-6-range-functions-and-subqueries"],
+      "targetCapabilities": ["analysis-and-planning", "range-functions-and-subqueries"],
       "queryNames": [
         "native_lowering_subquery_matrix_root_selector_instant",
         "native_lowering_subquery_local_child_instant"

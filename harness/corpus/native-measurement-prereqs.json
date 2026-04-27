@@ -224,7 +224,7 @@
     ]
   },
   {
-    "name": "path2_error_query_range_matrix_root_rejected",
+    "name": "native_error_query_range_matrix_root_rejected",
     "endpoint": "query_range",
     "query": "(harness_up * 100)[5m:60s]",
     "startOffsetSeconds": 300,
@@ -238,7 +238,7 @@
     ]
   },
   {
-    "name": "path2_error_parse_failure_query",
+    "name": "native_error_parse_failure_query",
     "endpoint": "query",
     "query": "sum(",
     "expectedStatus": "error",
@@ -248,7 +248,7 @@
     ]
   },
   {
-    "name": "path2_error_vector_matching_many_to_one",
+    "name": "native_error_vector_matching_many_to_one",
     "endpoint": "query",
     "query": "harness_up * on(job) sum by (job) (harness_up)",
     "expectedStatus": "error",
@@ -258,7 +258,7 @@
     ]
   },
   {
-    "name": "path2_variant_selector_instant_offsets",
+    "name": "native_variant_selector_instant_offsets",
     "endpoint": "query",
     "query": "harness_up{job=\"api\"}",
     "timeOffsets": [
@@ -276,7 +276,7 @@
     ]
   },
   {
-    "name": "path2_variant_selector_range_step_matrix",
+    "name": "native_variant_selector_range_step_matrix",
     "endpoint": "query_range",
     "query": "harness_up{job=\"api\"}",
     "stepSeconds": 60,
@@ -298,7 +298,7 @@
     ]
   },
   {
-    "name": "path2_dataset_variant_selector_churn_stale",
+    "name": "native_dataset_variant_selector_churn_stale",
     "endpoint": "query",
     "query": "harness_up{job=\"api\",instance=\"a\"}",
     "timeOffsetSeconds": 540,
@@ -314,7 +314,7 @@
     ]
   },
   {
-    "name": "path2_dataset_variant_rate_resets_gaps",
+    "name": "native_dataset_variant_rate_resets_gaps",
     "endpoint": "query",
     "query": "rate(harness_requests_total{job=\"api\",instance=\"a\"}[5m])",
     "timeOffsetSeconds": 540,
@@ -331,7 +331,7 @@
     ]
   },
   {
-    "name": "path2_dataset_variant_histogram_burst_bucket_rate",
+    "name": "native_dataset_variant_histogram_burst_bucket_rate",
     "endpoint": "query",
     "query": "rate(harness_request_duration_seconds_bucket{job=\"api\",instance=\"a\",le=\"+Inf\"}[5m])",
     "timeOffsetSeconds": 540,

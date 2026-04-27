@@ -248,6 +248,34 @@ func TestBuildLabelValuesQueryUsesSQLBuilderContract(t *testing.T) {
 	}
 }
 
+func TestBuildMetadataQueriesApplyOverflowLimits(t *testing.T) {
+	request := httptest.NewRequest("GET", "/api/v1/series?match[]=up", nil)
+
+	labelsSQL, _, err := BuildLabelsQuery(QueryConfig{Database: "observability", Table: "prometheus", MaxMetadataItems: 10}, request)
+	if err != nil {
+		t.Fatalf("BuildLabelsQuery: %v", err)
+	}
+	if !strings.Contains(sqlb.NormalizeSQL(labelsSQL), "LIMIT 11 FORMAT JSONEachRow") {
+		t.Fatalf("expected labels SQL to fetch limit+1 rows, got %s", sqlb.NormalizeSQL(labelsSQL))
+	}
+
+	valuesSQL, _, err := BuildLabelValuesQuery(QueryConfig{Database: "observability", Table: "prometheus", MaxMetadataItems: 20}, request, "job")
+	if err != nil {
+		t.Fatalf("BuildLabelValuesQuery: %v", err)
+	}
+	if !strings.Contains(sqlb.NormalizeSQL(valuesSQL), "LIMIT 21 FORMAT JSONEachRow") {
+		t.Fatalf("expected label values SQL to fetch limit+1 rows, got %s", sqlb.NormalizeSQL(valuesSQL))
+	}
+
+	seriesSQL, _, err := BuildSeriesQuery(QueryConfig{Database: "observability", Table: "prometheus", MaxMetadataSeries: 30}, request)
+	if err != nil {
+		t.Fatalf("BuildSeriesQuery: %v", err)
+	}
+	if !strings.Contains(sqlb.NormalizeSQL(seriesSQL), "LIMIT 31 FORMAT JSONEachRow") {
+		t.Fatalf("expected series SQL to fetch limit+1 rows, got %s", sqlb.NormalizeSQL(seriesSQL))
+	}
+}
+
 func TestBuildSeriesQueryUsesSQLBuilderContract(t *testing.T) {
 	request := httptest.NewRequest("GET", "/api/v1/series?match[]=up", nil)
 	sql, params, err := BuildSeriesQuery(QueryConfig{Database: "observability", Table: "prometheus"}, request)

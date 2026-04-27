@@ -15,6 +15,7 @@ import (
 const (
 	defaultMaxResponseSeries int64 = 5000
 	defaultMaxResponsePoints int64 = 500000
+	defaultMaxMetadataItems  int64 = 50000
 )
 
 type Options struct {
@@ -42,6 +43,7 @@ type Options struct {
 	RangeChunkPointsPerSeries     int64
 	MaxResponseSeries             int64
 	MaxResponsePoints             int64
+	MaxMetadataItems              int64
 	PromotedTagColumns            []string
 	DiscoverPromotedTagColumns    bool
 	NativeGridFunctions           string
@@ -76,6 +78,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		RangeChunkPointsPerSeries:     getenvInt64("PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES", local.DefaultRangeChunkPointsPerSeries),
 		MaxResponseSeries:             getenvInt64("PROM_SHIM_MAX_RESPONSE_SERIES", defaultMaxResponseSeries),
 		MaxResponsePoints:             getenvInt64("PROM_SHIM_MAX_RESPONSE_POINTS", defaultMaxResponsePoints),
+		MaxMetadataItems:              getenvInt64("PROM_SHIM_MAX_METADATA_ITEMS", defaultMaxMetadataItems),
 		PromotedTagColumns:            splitCSVEnv(getenv("PROM_SHIM_PROMOTED_TAG_COLUMNS", "")),
 		DiscoverPromotedTagColumns:    getenvBool("PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS", false),
 		NativeGridFunctions:           getenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "prefer"),
@@ -223,6 +226,9 @@ func normalizeOptions(opts Options) Options {
 	}
 	if opts.MaxResponsePoints <= 0 {
 		opts.MaxResponsePoints = defaultMaxResponsePoints
+	}
+	if opts.MaxMetadataItems <= 0 {
+		opts.MaxMetadataItems = defaultMaxMetadataItems
 	}
 	return opts
 }

@@ -35,6 +35,12 @@ type QueryConfig struct {
 	// to use cumulative per-series state and ASOF boundary lookups instead of
 	// a grid-to-data fanout join.
 	EnableCumulativeAvgOverTime bool
+
+	// MaxMetadataSeries and MaxMetadataItems add LIMIT cap+1 to metadata
+	// endpoints so callers can detect overflow without materializing unbounded
+	// ClickHouse results in the shim process.
+	MaxMetadataSeries int64
+	MaxMetadataItems  int64
 }
 
 type AggregationSource struct {
@@ -216,6 +222,7 @@ func BuildLabelsQuery(cfg QueryConfig, request *http.Request) (string, map[strin
 		From:    sqlb.SubSelect{S: inner},
 		GroupBy: []sqlb.Expr{sqlb.Ident("label")},
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("label")}},
+		Limit:   metadataLimit(cfg.MaxMetadataItems),
 	}
 	sql, _, err := outer.Build()
 	if err != nil {
@@ -240,6 +247,7 @@ func BuildLabelValuesQuery(cfg QueryConfig, request *http.Request, labelName str
 		Where:   sqlb.RawLit{V: "tag.1 = {label_name:String}"},
 		GroupBy: []sqlb.Expr{sqlb.RawLit{V: "tag.2"}},
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("value")}},
+		Limit:   metadataLimit(cfg.MaxMetadataItems),
 	}
 	sql, _, err := outer.Build()
 	if err != nil {
@@ -257,12 +265,23 @@ func BuildSeriesQuery(cfg QueryConfig, request *http.Request) (string, map[strin
 		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("series_tags"), Alias: "tags"}},
 		From:    sqlb.RawSource{SQL: rawSubquerySQL(sourceSQL)},
 		GroupBy: []sqlb.Expr{sqlb.Ident("series_tags")},
+		Limit:   metadataLimit(cfg.MaxMetadataSeries),
 	}
 	sql, _, err := query.Build()
 	if err != nil {
 		return "", nil, err
 	}
 	return sql + schema.FormatSuffix, params, nil
+}
+
+func metadataLimit(limit int64) *sqlb.Limit {
+	if limit <= 0 {
+		return nil
+	}
+	if limit >= int64(^uint(0)>>1) {
+		return &sqlb.Limit{Count: int(^uint(0) >> 1)}
+	}
+	return &sqlb.Limit{Count: int(limit + 1)}
 }
 
 func baseParams(cfg QueryConfig) map[string]string {

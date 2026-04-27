@@ -228,6 +228,15 @@ func TestQueryExplainRejectsMissingQuery(t *testing.T) {
 	}
 }
 
+func TestMetadataResponseLimitErrors(t *testing.T) {
+	if err := enforceMetadataItemLimit("label names", 3, 2); err == nil || !local.IsBadDataError(err) || !strings.Contains(err.Error(), "more than 2 label names") {
+		t.Fatalf("expected label-name limit bad_data error, got %v", err)
+	}
+	if err := enforceMetadataItemLimit("series", 2, 2); err != nil {
+		t.Fatalf("expected equal-to-limit metadata result to pass, got %v", err)
+	}
+}
+
 func TestQueryRangeRejectsNonPositiveStep(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {

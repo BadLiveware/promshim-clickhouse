@@ -211,6 +211,16 @@ For broader exploratory dashboard coverage, run the themed shortlist with:
 
 That command runs the themed splits (`selector`, `aggregation`, `rate-family`, `range-selector`, `histogram`, `binary-arithmetic`, `comparison`, `set-operator`, `subquery`, `vector-matching`, `label-mutation`, `range-function`) and writes one compare report per theme into `harness/artifacts/compare/`. The full shortlist is useful for promotion planning and gap discovery; the stable common-dashboard subset is the current gate.
 
+To collect PromQL candidates from a live Grafana instance, use the cookie-based extractor:
+
+```bash
+GRAFANA_URL=https://grafana.example.com \
+GRAFANA_COOKIE="$(pbpaste)" \
+  ./scripts/dump-grafana-promql.py --out harness/artifacts/grafana/promql-dump
+```
+
+The extractor writes raw dashboard JSON plus `queries.jsonl` and `queries.csv` under the selected output directory. Treat the output as exploratory input for corpus curation, not as a stable gate until queries are reviewed and promoted into a harness corpus.
+
 ### Native SQL lowering starter corpus
 
 For the native SQL lowering roadmap there are also smaller focused corpora:

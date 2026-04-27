@@ -29,9 +29,11 @@ optimization experiments.
 | `queries.json` | 152 | Yes. It is the broad main-harness default and includes many first-party PromQL shapes. | Checking general shim parity on the main fixture. |
 | `common-dashboard-subset.json` | 92 | Yes. It is a promoted dashboard-shaped subset with documented exclusions. | Running the default dashboard suite or checking user-facing dashboard compatibility. |
 | `native-lowering-starter.json` | 22 | Yes. It is smaller and roadmap-focused, with metadata buckets. | Iterating on native lowering coverage without the full default corpus. |
-| `path2-measurement-prereqs.json` | 30 | Yes. It is native-only and includes expected-error, offset, step, and dataset-variant rows. | Measuring native-only readiness and public error envelopes. |
+| `native-measurement-prereqs.json` | 30 | Yes. It is native-only and includes expected-error, offset, step, and dataset-variant rows. | Measuring native-only readiness and public error envelopes. |
+| `native-rollout-modes.json` | 10 | Yes. It is a shim-only rollout-mode parity probe. | Reproducing rollout-control checks for `off`, `prefer`, `explain`, `shadow`, and explicit explain requests. |
+| `staleness-probes.json` | 6 | Yes. It isolates staleness behavior. | Reproducing staleness-sensitive instant and range checks. |
+| `harness-variant-probes.json`, `dataset-variant-probes.json` | 2-4 each | Yes. They isolate harness expansion and seeded dataset-variant behavior. | Reproducing variant expansion or dataset-shape checks without the broader native measurement corpus. |
 | `histogram-native-support.json` | 2 | Yes. It is a focused native-only histogram quantile gate. | Checking grouped/rate-fed classic histogram support. |
-| `phase7-rollout.json`, `phase10-staleness-probes.json`, `phase12-harness-variants.json`, `phase12-dataset-variants.json` | 2-10 each | Keep for now, but treat as legacy focused probes. Prefer new names that describe behavior when replacing them. | Reproducing the specific rollout, staleness, harness-variant, or dataset-variant checks they encode. |
 
 ### Dashboard promotion corpora
 

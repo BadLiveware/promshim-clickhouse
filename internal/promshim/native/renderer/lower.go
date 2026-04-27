@@ -1,15 +1,18 @@
 package renderer
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage/schema"
+	"github.com/prometheus/prometheus/promql/parser"
 )
 
 // errUnsupportedLowerNode is returned by Lower when the node kind is
@@ -37,12 +40,15 @@ type LoweringCtx struct {
 func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 	root := false
 	if ctx.cse == nil {
-		ctx.cse = newRenderCSEState()
+		ctx.cse = newRenderCSEState(node)
 		root = true
 	}
 	ctx.cse.depth++
 	rq, err := lowerInner(ctx, node)
 	ctx.cse.depth--
+	if err == nil && !root {
+		rq, err = ctx.cse.subtreeReference(ctx, node, rq)
+	}
 	if err != nil || !root {
 		return rq, err
 	}
@@ -119,9 +125,10 @@ func lowerInner(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 }
 
 type renderCSEState struct {
-	depth int
-	ctes  map[string]renderCSEEntry
-	order []string
+	depth         int
+	ctes          map[string]renderCSEEntry
+	order         []string
+	subtreeCounts map[string]int
 }
 
 type renderCSEEntry struct {
@@ -129,8 +136,10 @@ type renderCSEEntry struct {
 	Params map[string]string
 }
 
-func newRenderCSEState() *renderCSEState {
-	return &renderCSEState{ctes: map[string]renderCSEEntry{}}
+func newRenderCSEState(root logicalpkg.Node) *renderCSEState {
+	counts := map[string]int{}
+	countCSESubtrees(root, counts)
+	return &renderCSEState{ctes: map[string]renderCSEEntry{}, subtreeCounts: counts}
 }
 
 var cseNameSanitizer = regexp.MustCompile(`[^A-Za-z0-9_]`)
@@ -142,6 +151,105 @@ func selectorReuseCTEName(group string) string {
 		name = "selector"
 	}
 	return "cse_" + name
+}
+
+func subtreeReuseCTEName(key string) string {
+	sum := sha1.Sum([]byte(key))
+	return "cse_subtree_" + hex.EncodeToString(sum[:])[:12]
+}
+
+func cseSubtreeKey(node logicalpkg.Node) (string, bool) {
+	if node == nil || !isCSESubtreeCandidate(node) {
+		return "", false
+	}
+	described, ok := node.(interface {
+		ExprString() string
+		ValueType() parser.ValueType
+	})
+	if !ok || described.ExprString() == "" {
+		return "", false
+	}
+	return "subtree|" + described.ExprString() + "|" + string(described.ValueType()), true
+}
+
+func isCSESubtreeCandidate(node logicalpkg.Node) bool {
+	if nativeRepeatedSubexpressionReuseDisabled() {
+		return false
+	}
+	switch node.(type) {
+	case *logicalpkg.RangeFunctionPlan, *logicalpkg.RatePlan, *logicalpkg.IncreasePlan, *logicalpkg.DeltaPlan, *logicalpkg.ChangesPlan, *logicalpkg.DerivPlan, *logicalpkg.QuantileOverTimePlan:
+		return true
+	default:
+		return false
+	}
+}
+
+func countCSESubtrees(node logicalpkg.Node, counts map[string]int) {
+	if key, ok := cseSubtreeKey(node); ok {
+		counts[key]++
+	}
+	for _, child := range logicalChildren(node) {
+		countCSESubtrees(child, counts)
+	}
+}
+
+func logicalChildren(node logicalpkg.Node) []logicalpkg.Node {
+	switch n := node.(type) {
+	case *logicalpkg.UnaryPlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.BinaryPlan:
+		return []logicalpkg.Node{n.LHS, n.RHS}
+	case *logicalpkg.AggregationPlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.HistogramQuantilePlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.HistogramFractionPlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.HistogramProjectionPlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.HistogramQuantilesPlan:
+		children := append([]logicalpkg.Node{}, n.ParamChildren...)
+		return append(children, n.Child)
+	case *logicalpkg.RangeFunctionPlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.VectorPlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.RoundPlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.SortPlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.ScalarConvertPlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.InfoPlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.PointwiseFunctionPlan:
+		children := append([]logicalpkg.Node{}, n.ParamChildren...)
+		return append(children, n.Child)
+	case *logicalpkg.RatePlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.IncreasePlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.DeltaPlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.ChangesPlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.DerivPlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.QuantileOverTimePlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.AbsentPlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.AbsentOverTimePlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.SubqueryPlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.LabelReplacePlan:
+		return []logicalpkg.Node{n.Child}
+	case *logicalpkg.LabelJoinPlan:
+		return []logicalpkg.Node{n.Child}
+	default:
+		return nil
+	}
 }
 
 func (s *renderCSEState) leafReference(ctx LoweringCtx, leaf *logicalpkg.LeafExprPlan, rf renderedFragment) (renderedFragment, bool, error) {
@@ -168,6 +276,30 @@ func (s *renderCSEState) leafReference(ctx LoweringCtx, leaf *logicalpkg.LeafExp
 	return renderedFragment{RawSQL: "SELECT " + columns + " FROM " + name}, true, nil
 }
 
+func (s *renderCSEState) subtreeReference(ctx LoweringCtx, node logicalpkg.Node, rq RenderedQuery) (RenderedQuery, error) {
+	if s == nil || rq.SQL == "" {
+		return rq, nil
+	}
+	key, ok := cseSubtreeKey(node)
+	if !ok || s.subtreeCounts[key] <= 1 {
+		return rq, nil
+	}
+	name := subtreeReuseCTEName(key)
+	if _, ok := s.ctes[name]; !ok {
+		sql, params, err := namespaceRenderedQuery(trimRenderedQuerySQL(rq.SQL), rq.QueryParams, name)
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		s.ctes[name] = renderCSEEntry{SQL: sql, Params: params}
+		s.order = append(s.order, name)
+	}
+	columns := "tags AS tags, timestamp AS timestamp, value AS value"
+	if ctx.Params.Mode == native.RenderModeRange {
+		columns = "tags AS tags, time_series AS time_series"
+	}
+	return RenderedQuery{SQL: "SELECT " + columns + " FROM " + name + schema.QuerySuffix, QueryParams: map[string]string{}}, nil
+}
+
 func (s *renderCSEState) apply(rq RenderedQuery) (RenderedQuery, error) {
 	if s == nil || len(s.order) == 0 {
 		return rq, nil
@@ -184,7 +316,6 @@ func (s *renderCSEState) apply(rq RenderedQuery) (RenderedQuery, error) {
 			params[key] = value
 		}
 	}
-	sort.Strings(parts)
 	sql := "WITH " + strings.Join(parts, ",\n") + "\n" + rq.SQL
 	sql = strings.Replace(sql, "SETTINGS allow_experimental_time_series_table = 1", "SETTINGS allow_experimental_time_series_table = 1, enable_global_with_statement = 1, enable_materialized_cte = 1", 1)
 	return RenderedQuery{SQL: sql, QueryParams: params}, nil

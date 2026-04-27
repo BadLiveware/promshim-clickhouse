@@ -167,28 +167,7 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 	}
 	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
 	routing := h.routingInfoForInstant(query, evaluationTime, mode, policy, explain.Strategy)
-	selectedPlan, selectedAnalysis := plan, analysis
-	selectedExplain := explain
-	if routing.Decision == "local_override" {
-		selectedMode, ok := selectedCandidateMode(routing)
-		if !ok {
-			routing.Decision = "strict_low_confidence"
-			routing.Reason = "selected_candidate_not_executable"
-			routing.SelectedStrategy = routing.StrictStrategy
-		} else {
-			candidateReq := req
-			candidateReq.NativeLoweringMode = selectedMode
-			_, _, candidatePlan, candidateAnalysis, candidateErr := h.buildInstantPlan(candidateReq)
-			if candidateErr != nil {
-				routing.Decision = "strict_low_confidence"
-				routing.Reason = "local_plan_error"
-				routing.SelectedStrategy = routing.StrictStrategy
-			} else {
-				selectedPlan, selectedAnalysis = candidatePlan, candidateAnalysis
-				selectedExplain = local.ExplainPlanWithLowering(selectedPlan, selectedAnalysis.Root)
-			}
-		}
-	}
+	selectedPlan, _, selectedExplain, routing := h.selectInstantPlanForRouting(req, plan, analysis, routing)
 	settingsProfile := h.applySettingsProfileProvenance(&routing, &selectedExplain)
 	evalStart := time.Now()
 	value, err := h.evaluator.Evaluate(ctx, selectedPlan, local.EvalParams{Mode: local.EvalModeInstant, EvaluationTime: evaluationTime})
@@ -241,28 +220,7 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 	}
 	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
 	routing := h.routingInfoForRange(query, start, end, step, mode, policy, explain.Strategy)
-	selectedPlan, selectedAnalysis := plan, analysis
-	selectedExplain := explain
-	if routing.Decision == "local_override" {
-		selectedMode, ok := selectedCandidateMode(routing)
-		if !ok {
-			routing.Decision = "strict_low_confidence"
-			routing.Reason = "selected_candidate_not_executable"
-			routing.SelectedStrategy = routing.StrictStrategy
-		} else {
-			candidateReq := req
-			candidateReq.NativeLoweringMode = selectedMode
-			_, _, _, _, candidatePlan, candidateAnalysis, candidateErr := h.buildRangePlan(candidateReq)
-			if candidateErr != nil {
-				routing.Decision = "strict_low_confidence"
-				routing.Reason = "local_plan_error"
-				routing.SelectedStrategy = routing.StrictStrategy
-			} else {
-				selectedPlan, selectedAnalysis = candidatePlan, candidateAnalysis
-				selectedExplain = local.ExplainPlanWithLowering(selectedPlan, selectedAnalysis.Root)
-			}
-		}
-	}
+	selectedPlan, _, selectedExplain, routing := h.selectRangePlanForRouting(req, plan, analysis, routing)
 	settingsProfile := h.applySettingsProfileProvenance(&routing, &selectedExplain)
 	evalStart := time.Now()
 	value, err := h.evaluator.Evaluate(ctx, selectedPlan, local.EvalParams{Mode: local.EvalModeRange, Start: start, End: end, Step: step})
@@ -396,12 +354,17 @@ func (h *queryService) ExplainInstant(_ context.Context, req httpapi.InstantQuer
 	if apiErr != nil {
 		return nil, apiErr
 	}
-	query, evaluationTime, plan, analysis, apiErr := h.buildInstantPlan(req)
+	planReq := req
+	if mode == local.NativeLoweringModeShadow {
+		planReq.NativeLoweringMode = string(local.NativeLoweringModeOff)
+	}
+	query, evaluationTime, plan, analysis, apiErr := h.buildInstantPlan(planReq)
 	if apiErr != nil {
 		return nil, apiErr
 	}
 	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
 	routing := h.routingInfoForInstant(query, evaluationTime, mode, policy, explain.Strategy)
+	_, _, explain, routing = h.selectInstantPlanForRouting(req, plan, analysis, routing)
 	settingsProfile := h.applySettingsProfileProvenance(&routing, &explain)
 	return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Body: map[string]any{
 		"status": "success",
@@ -428,12 +391,17 @@ func (h *queryService) ExplainRange(_ context.Context, req httpapi.RangeQueryReq
 	if apiErr != nil {
 		return nil, apiErr
 	}
-	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(req)
+	planReq := req
+	if mode == local.NativeLoweringModeShadow {
+		planReq.NativeLoweringMode = string(local.NativeLoweringModeOff)
+	}
+	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(planReq)
 	if apiErr != nil {
 		return nil, apiErr
 	}
 	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
 	routing := h.routingInfoForRange(query, start, end, step, mode, policy, explain.Strategy)
+	_, _, explain, routing = h.selectRangePlanForRouting(req, plan, analysis, routing)
 	settingsProfile := h.applySettingsProfileProvenance(&routing, &explain)
 	return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Body: map[string]any{
 		"status": "success",
@@ -609,6 +577,60 @@ func selectedCandidateMode(routing httpapi.RoutingInfo) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func (h *queryService) selectInstantPlanForRouting(req httpapi.InstantQueryRequest, plan local.Plan, analysis *nativeplan.Analysis, routing httpapi.RoutingInfo) (local.Plan, *nativeplan.Analysis, local.ExplainNode, httpapi.RoutingInfo) {
+	selectedPlan, selectedAnalysis := plan, analysis
+	selectedExplain := local.ExplainPlanWithLowering(selectedPlan, selectedAnalysis.Root)
+	if routing.Decision != "local_override" {
+		return selectedPlan, selectedAnalysis, selectedExplain, routing
+	}
+	selectedMode, ok := selectedCandidateMode(routing)
+	if !ok {
+		routing.Decision = "strict_low_confidence"
+		routing.Reason = "selected_candidate_not_executable"
+		routing.SelectedStrategy = routing.StrictStrategy
+		return selectedPlan, selectedAnalysis, selectedExplain, routing
+	}
+	candidateReq := req
+	candidateReq.NativeLoweringMode = selectedMode
+	_, _, candidatePlan, candidateAnalysis, candidateErr := h.buildInstantPlan(candidateReq)
+	if candidateErr != nil {
+		routing.Decision = "strict_low_confidence"
+		routing.Reason = "local_plan_error"
+		routing.SelectedStrategy = routing.StrictStrategy
+		return selectedPlan, selectedAnalysis, selectedExplain, routing
+	}
+	selectedPlan, selectedAnalysis = candidatePlan, candidateAnalysis
+	selectedExplain = local.ExplainPlanWithLowering(selectedPlan, selectedAnalysis.Root)
+	return selectedPlan, selectedAnalysis, selectedExplain, routing
+}
+
+func (h *queryService) selectRangePlanForRouting(req httpapi.RangeQueryRequest, plan local.Plan, analysis *nativeplan.Analysis, routing httpapi.RoutingInfo) (local.Plan, *nativeplan.Analysis, local.ExplainNode, httpapi.RoutingInfo) {
+	selectedPlan, selectedAnalysis := plan, analysis
+	selectedExplain := local.ExplainPlanWithLowering(selectedPlan, selectedAnalysis.Root)
+	if routing.Decision != "local_override" {
+		return selectedPlan, selectedAnalysis, selectedExplain, routing
+	}
+	selectedMode, ok := selectedCandidateMode(routing)
+	if !ok {
+		routing.Decision = "strict_low_confidence"
+		routing.Reason = "selected_candidate_not_executable"
+		routing.SelectedStrategy = routing.StrictStrategy
+		return selectedPlan, selectedAnalysis, selectedExplain, routing
+	}
+	candidateReq := req
+	candidateReq.NativeLoweringMode = selectedMode
+	_, _, _, _, candidatePlan, candidateAnalysis, candidateErr := h.buildRangePlan(candidateReq)
+	if candidateErr != nil {
+		routing.Decision = "strict_low_confidence"
+		routing.Reason = "local_plan_error"
+		routing.SelectedStrategy = routing.StrictStrategy
+		return selectedPlan, selectedAnalysis, selectedExplain, routing
+	}
+	selectedPlan, selectedAnalysis = candidatePlan, candidateAnalysis
+	selectedExplain = local.ExplainPlanWithLowering(selectedPlan, selectedAnalysis.Root)
+	return selectedPlan, selectedAnalysis, selectedExplain, routing
 }
 
 func (h *queryService) routingInfoForInstant(query string, evaluationTime time.Time, mode local.NativeLoweringMode, policy RoutingPolicy, strictStrategy string) httpapi.RoutingInfo {

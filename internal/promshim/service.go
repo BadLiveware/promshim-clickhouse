@@ -33,7 +33,7 @@ func (h *queryService) ClickHouseTransport() string {
 }
 
 func (h *queryService) queryConfig() storage.QueryConfig {
-	return storage.QueryConfig{Database: h.opts.Database, Table: h.opts.Table, PromotedTagColumns: h.promotedTagColumns, EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer"}
+	return storage.QueryConfig{Database: h.opts.Database, Table: h.opts.Table, PromotedTagColumns: h.promotedTagColumns, EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxMetadataSeries: h.opts.MaxResponseSeries, MaxMetadataItems: h.opts.MaxMetadataItems}
 }
 
 func mergePromotedTagColumns(base, extra map[string]struct{}) map[string]struct{} {
@@ -480,6 +480,9 @@ func (h *queryService) Labels(ctx context.Context, req httpapi.MetadataRequest) 
 			return nil, local.ApiErrorPtr(local.ToHTTPAPIError(*decErr))
 		}
 	}
+	if err := enforceMetadataItemLimit("label names", int64(len(labels)), h.opts.MaxMetadataItems); err != nil {
+		return nil, local.ApiErrorToHTTP(err)
+	}
 	return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{"status": "success", "data": labels}}, nil
 }
 
@@ -509,6 +512,9 @@ func (h *queryService) LabelValues(ctx context.Context, req httpapi.LabelValuesR
 		if decErr != nil {
 			return nil, local.ApiErrorPtr(local.ToHTTPAPIError(*decErr))
 		}
+	}
+	if err := enforceMetadataItemLimit("label values", int64(len(values)), h.opts.MaxMetadataItems); err != nil {
+		return nil, local.ApiErrorToHTTP(err)
 	}
 	return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{"status": "success", "data": values}}, nil
 }
@@ -540,6 +546,9 @@ func (h *queryService) Series(ctx context.Context, req httpapi.MetadataRequest) 
 			return nil, local.ApiErrorPtr(local.ToHTTPAPIError(*decErr))
 		}
 	}
+	if err := enforceMetadataItemLimit("series", int64(len(rows)), h.opts.MaxResponseSeries); err != nil {
+		return nil, local.ApiErrorToHTTP(err)
+	}
 	return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{"status": "success", "data": rows}}, nil
 }
 
@@ -553,6 +562,13 @@ func enforceResponseLimits(value model.RuntimeValue, opts Options) error {
 	}
 	if opts.MaxResponsePoints > 0 && stats.Points > opts.MaxResponsePoints {
 		return local.NewBadDataErrorf("query result would return %d points, exceeding configured limit %d", stats.Points, opts.MaxResponsePoints)
+	}
+	return nil
+}
+
+func enforceMetadataItemLimit(kind string, got, limit int64) error {
+	if limit > 0 && got > limit {
+		return local.NewBadDataErrorf("metadata result would return more than %d %s", limit, kind)
 	}
 	return nil
 }

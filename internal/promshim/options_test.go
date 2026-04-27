@@ -152,6 +152,26 @@ func TestLoadOptionsFromEnvCumulativeAvgOverTime(t *testing.T) {
 	}
 }
 
+func TestLoadOptionsFromEnvMetadataLimit(t *testing.T) {
+	t.Setenv("PROM_SHIM_MAX_METADATA_ITEMS", "123")
+	opts, err := LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.MaxMetadataItems != 123 {
+		t.Fatalf("MaxMetadataItems = %d, want 123", opts.MaxMetadataItems)
+	}
+
+	t.Setenv("PROM_SHIM_MAX_METADATA_ITEMS", "0")
+	opts, err = LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.MaxMetadataItems != defaultMaxMetadataItems {
+		t.Fatalf("MaxMetadataItems = %d, want default %d", opts.MaxMetadataItems, defaultMaxMetadataItems)
+	}
+}
+
 func TestLoadOptionsFromEnvPromotedTagColumns(t *testing.T) {
 	t.Setenv("PROM_SHIM_PROMOTED_TAG_COLUMNS", "instance, pod ,node")
 	t.Setenv("PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS", "true")

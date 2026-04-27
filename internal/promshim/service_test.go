@@ -228,6 +228,36 @@ func TestQueryExplainRejectsMissingQuery(t *testing.T) {
 	}
 }
 
+func TestQueryRangeRejectsNonPositiveStep(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, step := range []string{"0", "-30"} {
+		t.Run(step, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query=up&start=0&end=300&step="+step, nil)
+			res := httptest.NewRecorder()
+			handler.ServeHTTP(res, req)
+
+			if res.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", res.Code, res.Body.String())
+			}
+			var body struct {
+				Status    string `json:"status"`
+				ErrorType string `json:"errorType"`
+				Error     string `json:"error"`
+			}
+			if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body.Status != "error" || body.ErrorType != "bad_data" || !strings.Contains(body.Error, "step must be greater than zero") {
+				t.Fatalf("unexpected error payload: %#v", body)
+			}
+		})
+	}
+}
+
 func TestQueryRangeExplainBuildsIncreasePlan(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {

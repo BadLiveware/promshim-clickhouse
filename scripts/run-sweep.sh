@@ -48,7 +48,9 @@ Options:
   --corpus-set {native|processing|optimization|both}
                                   Benchmark corpus family (default: native; dense defaults to processing).
   --profile {7d|30d|1y|all}      Profile to inspect/seed (default for setup: all).
-  --density {sparse|dense|all}   Dataset density (default for setup: sparse).
+  --density {sparse|dense|stress-50k|stress-500k|all}
+                                  Dataset density (default for setup: sparse).
+                                  stress-50k targets ~50,000 active series; stress-500k ~500,000.
   --target {both|ch|prom}        Seed/check target (default: both).
   --seed {reuse|missing|always|never}
                                   Seed policy (normal default: reuse; --setup default: missing).
@@ -197,8 +199,8 @@ profiles_for() {
 densities_for() {
   case "$1" in
     all) printf '%s\n' sparse dense ;;
-    sparse|dense) printf '%s\n' "$1" ;;
-    *) fatal "--density must be sparse|dense|all (got: $1)" ;;
+    sparse|dense|stress-50k|stress-500k) printf '%s\n' "$1" ;;
+    *) fatal "--density must be sparse|dense|stress-50k|stress-500k|all (got: $1)" ;;
   esac
 }
 
@@ -222,8 +224,10 @@ profiles = {
 }
 end, duration = profiles[profile]
 dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
-if density == "dense":
-    dt = dt - duration - timedelta(days=1)
+slots = {"sparse": 0, "dense": 1, "stress-50k": 2, "stress-500k": 3}
+slot = slots.get(density, 0)
+if slot > 0:
+    dt = dt - slot * duration - slot * timedelta(days=1)
 print(dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
 PY
 }
@@ -442,7 +446,16 @@ profiles = {
 }
 duration_seconds, step_seconds = profiles[profile]
 points = duration_seconds // step_seconds
-instances_per_job = 5 if density == "sparse" else (50 if profile == "1y" else 100)
+if density == "sparse":
+    instances_per_job = 5
+elif density == "dense":
+    instances_per_job = 50 if profile == "1y" else 100
+elif density == "stress-50k":
+    instances_per_job = 1924
+elif density == "stress-500k":
+    instances_per_job = 19231
+else:
+    raise SystemExit(f"unknown density {density!r}")
 jobs = 2
 series_per_instance = 13
 series = jobs * instances_per_job * series_per_instance

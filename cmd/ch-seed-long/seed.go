@@ -119,14 +119,26 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 	maxN.Store(target.Load())
 	minN.Store(target.Load())
 
+	// Workers gate on the limiter BEFORE dequeuing. Doing it after
+	// dequeuing strands batches in over-target workers when the regulator
+	// throttles; doing it before means at-most `target` workers are
+	// concurrently dequeue+POSTing. The `draining` flag releases parked
+	// workers when the generator closes the channel.
+	draining := atomic.Bool{}
+	limiter := newConcurrencyLimiter(&target, &draining)
+
 	start := time.Now()
 
 	// Generator goroutine: produces *prompb.WriteRequest values into the
 	// buffered channel. Owns all series state. Closes the channel on EOF
-	// or context cancellation.
+	// or context cancellation. Sets draining=true before closing so any
+	// parked workers can exit cleanly.
 	var generatorErr atomic.Pointer[error]
 	go func() {
-		defer close(requests)
+		defer func() {
+			draining.Store(true)
+			close(requests)
+		}()
 		batchStart := cfg.StartTime
 		for batchStart.Before(cfg.EndTime) {
 			select {
@@ -165,14 +177,6 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 		}
 	}()
 
-	// Worker goroutines: spawn MaxConcurrency of them. Each holds a
-	// concurrency-token (workerSlot) and yields back to a parking lot
-	// when its slot exceeds the regulator's current target.
-	//
-	// For phase 1 (NoAdaptive=true OR target==MaxConcurrency at start),
-	// this mechanism is no-op: every worker always holds a slot.
-	tokens := newTokenBucket(cfg.MaxConcurrency, &target)
-
 	var workerWG sync.WaitGroup
 	workerWG.Add(cfg.MaxConcurrency)
 	for w := 0; w < cfg.MaxConcurrency; w++ {
@@ -189,14 +193,19 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 					DisableCompression:  true, // payload is already snappy-encoded
 				},
 			}
-			for b := range requests {
-				if !tokens.acquire(ctx, workerID) {
-					return // ctx cancelled
+			for {
+				// Gate on the limiter BEFORE dequeuing, so over-target workers
+				// don't strand batches in their local b variable while parked.
+				if !limiter.waitForSlot(ctx, workerID) {
+					return // ctx cancelled OR generator drained
+				}
+				b, ok := <-requests
+				if !ok {
+					return // channel closed and drained
 				}
 				postStart := time.Now()
 				err := promharness.WriteToRemoteWriteEndpoint(ctx, client, cfg.Endpoint, b.req)
 				elapsed := time.Since(postStart)
-				tokens.release()
 				if err != nil {
 					errCount.Add(1)
 					rtt.observe(elapsed, true)
@@ -220,7 +229,7 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 	if !cfg.NoAdaptive {
 		regCtx, regCancel := context.WithCancel(ctx)
 		defer regCancel()
-		go runRegulator(regCtx, &target, rtt, defaultRegulatorConfig(int32(cfg.MaxConcurrency)), tokens)
+		go runRegulator(regCtx, &target, rtt, defaultRegulatorConfig(int32(cfg.MaxConcurrency)), limiter)
 
 		// Health probe: kill-switch on explicit CH/Prom pressure signals.
 		// Independent of the regulator — a kill-switch fire writes target
@@ -228,7 +237,7 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 		if cfg.ProbeInterval > 0 && (cfg.CHURL != "" || cfg.PromURL != "") {
 			go runHealthProbe(regCtx, &target, &rampUpFreeze,
 				defaultProbeConfig(cfg.CHURL, cfg.CHUsername, cfg.CHPassword, cfg.PromURL, cfg.ProbeInterval),
-				tokens)
+				limiter)
 		}
 	}
 

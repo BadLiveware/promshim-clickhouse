@@ -70,7 +70,7 @@ func (rb *regulatorBaseline) get() time.Duration {
 //   - p99/p50 > TailDecreasePct   → additive decrease:        N = max(MinN, N-1)
 //   - p50 ≤ baseline×IncreaseAtPct → additive increase:        N = min(MaxN, N+1)
 //   - else                         → hold
-func runRegulator(ctx context.Context, target *atomic.Int32, ring *rttRing, cfg regulatorConfig, tokens *tokenBucket) {
+func runRegulator(ctx context.Context, target *atomic.Int32, ring *rttRing, cfg regulatorConfig, _ *concurrencyLimiter) {
 	if cfg.Tick <= 0 {
 		cfg.Tick = 2 * time.Second
 	}
@@ -149,9 +149,6 @@ func runRegulator(ctx context.Context, target *atomic.Int32, ring *rttRing, cfg 
 
 		if newN != oldN {
 			target.Store(newN)
-			if tokens != nil {
-				tokens.notify()
-			}
 			if cfg.OnChange != nil {
 				cfg.OnChange(oldN, newN, reason)
 			} else {

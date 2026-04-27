@@ -54,7 +54,7 @@ func defaultProbeConfig(chURL, chUser, chPass, promURL string, interval time.Dur
 // time.Now() and skip ramp-up if rampUpFreeze > now. Phase-2 regulator does
 // not yet honor this — wiring is deferred to a future commit since the
 // kill-switch's hard divide is already a strong enough signal in practice.
-func runHealthProbe(ctx context.Context, target *atomic.Int32, rampUpFreeze *atomic.Int64, cfg probeConfig, tokens *tokenBucket) {
+func runHealthProbe(ctx context.Context, target *atomic.Int32, rampUpFreeze *atomic.Int64, cfg probeConfig, _ *concurrencyLimiter) {
 	if cfg.Interval <= 0 {
 		return // disabled
 	}
@@ -78,9 +78,6 @@ func runHealthProbe(ctx context.Context, target *atomic.Int32, rampUpFreeze *ato
 		if newN < oldN {
 			target.Store(newN)
 			rampUpFreeze.Store(time.Now().Add(cfg.ThrottleHoldOff).UnixNano())
-			if tokens != nil {
-				tokens.notify()
-			}
 			if cfg.OnFire != nil {
 				cfg.OnFire(reason, oldN, newN)
 			} else {

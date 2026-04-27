@@ -2,86 +2,60 @@ package main
 
 import (
 	"context"
-	"sync"
 	"sync/atomic"
 	"time"
 )
 
-// tokenBucket is a concurrency limiter whose capacity is read from an
-// atomic.Int32 on every acquire. This lets the regulator change the
-// effective concurrency without restarting workers.
+// concurrencyLimiter gates how many workers may proceed at any moment, with
+// the cap controlled externally by an atomic.Int32 (the regulator's target).
 //
-// Semantics:
-//   * Workers call acquire() before sending a batch and release() after.
-//   * A worker whose ID is >= current target waits in a parking loop
-//     until either: (a) its slot becomes valid (target rises), or
-//     (b) the context is cancelled.
-//   * Always-valid acquisition (current target == max) is the fast path
-//     and incurs no atomic dance beyond the read.
+// Design: poll-based, not cond-var-based. A previous design used sync.Cond
+// with broadcast wake-ups; under sustained over-target conditions that
+// produced a self-perpetuating broadcast storm (every parked worker spawned
+// a per-iteration sleeper goroutine, each sleeper woke all parked workers,
+// each then spawned its own sleeper — quadratic scheduling churn).
 //
-// We use worker-ID-based slotting instead of a counter-based semaphore
-// because a counter doesn't fairly drain "extra" workers when the
-// regulator decreases target — the workers that happen to be holding
-// tokens at decrease-time would keep them while new arrivals wait, but
-// what we want is for the highest-ID workers to be the ones that pause.
-type tokenBucket struct {
-	max    int
-	target *atomic.Int32
-
-	mu   sync.Mutex
-	cond *sync.Cond
+// Slot semantics: a worker with workerID < target is permitted; otherwise
+// it polls every PollInterval until either (a) the target rises above its
+// ID, (b) the context is cancelled, or (c) the draining flag is set
+// (signaling the generator has closed the channel and parked workers
+// should exit cleanly without consuming further batches).
+type concurrencyLimiter struct {
+	target       *atomic.Int32
+	draining     *atomic.Bool
+	pollInterval time.Duration
 }
 
-func newTokenBucket(max int, target *atomic.Int32) *tokenBucket {
-	tb := &tokenBucket{
-		max:    max,
-		target: target,
+func newConcurrencyLimiter(target *atomic.Int32, draining *atomic.Bool) *concurrencyLimiter {
+	return &concurrencyLimiter{
+		target:       target,
+		draining:     draining,
+		pollInterval: 50 * time.Millisecond,
 	}
-	tb.cond = sync.NewCond(&tb.mu)
-	return tb
 }
 
-// acquire blocks until the worker with workerID is permitted to run
-// (i.e., workerID < current target) or the context is cancelled.
-// Returns true on permission granted, false on cancellation.
-func (tb *tokenBucket) acquire(ctx context.Context, workerID int) bool {
-	// Fast path: worker is below target, no need to take the lock or
-	// even read the atomic twice.
-	if int(tb.target.Load()) > workerID {
+// waitForSlot blocks until workerID < current target. Returns true on
+// permission granted, false on cancellation or drain. Should be called
+// BEFORE dequeuing a batch — calling it after means a parked worker is
+// holding a stranded batch the regulator wants to suppress.
+func (cl *concurrencyLimiter) waitForSlot(ctx context.Context, workerID int) bool {
+	// Fast path: usually the worker is below target.
+	if int(cl.target.Load()) > workerID {
 		return true
 	}
-
-	// Slow path: park on the condition variable. To respect ctx
-	// cancellation while parking, we run a short polling loop with a
-	// timeout via cond.Broadcast wake-ups from a separate context-watch
-	// goroutine. The simple approach here uses a periodic re-check.
-	tb.mu.Lock()
-	defer tb.mu.Unlock()
-	for int(tb.target.Load()) <= workerID {
+	// Slow path: poll. Cheap (one atomic read per tick) and bounded
+	// (no goroutine spawning, no broadcast cascades).
+	for {
 		select {
 		case <-ctx.Done():
 			return false
-		default:
+		case <-time.After(cl.pollInterval):
 		}
-		// Wait briefly then re-check. We don't wake on every regulator
-		// change — that's noisy — but we re-check at most every 100ms.
-		// Regulator typically ticks at 1-2s anyway.
-		go func() {
-			time.Sleep(100 * time.Millisecond)
-			tb.cond.Broadcast()
-		}()
-		tb.cond.Wait()
+		if cl.draining != nil && cl.draining.Load() {
+			return false
+		}
+		if int(cl.target.Load()) > workerID {
+			return true
+		}
 	}
-	return true
-}
-
-// release is a no-op in the slot-based design. It exists for API symmetry
-// and to leave room for future bookkeeping (e.g., per-worker fairness
-// metrics).
-func (tb *tokenBucket) release() {}
-
-// notify wakes parked workers. The regulator should call this after
-// changing target to let workers re-evaluate.
-func (tb *tokenBucket) notify() {
-	tb.cond.Broadcast()
 }

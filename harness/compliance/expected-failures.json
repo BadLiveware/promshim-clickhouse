@@ -1,9 +1,9 @@
 {
-  "comment": "Known compliance failures tracked as EXPECTED (not bugs in the shim). Each entry must match exactly; any drift (different query, different diff shape, or allowlist entry that no longer matches anything) fails reconciliation so regressions surface.",
+  "comment": "Known compliance deviations tracked as EXPECTED (not bugs in the shim). Entries must match exactly; tolerances must be query-specific and bounded. Any drift (different query, different diff shape, over-margin values, or unused allowlist entry) fails reconciliation so regressions surface.",
   "tolerances": [
     {
       "id": "native-modulo-small-float-drift",
-      "query_regex": "%",
+      "query": "demo_memory_usage_bytes % 1.2345",
       "margin": 0.000001,
       "reason": "ClickHouse native modulo uses x - trunc(x / y) * y instead of Go/Prometheus math.Mod, which causes tiny float drift on large operands. Accept only when the rerun against both APIs stays within a 1e-6 absolute margin and labels/timestamps still match exactly."
     }

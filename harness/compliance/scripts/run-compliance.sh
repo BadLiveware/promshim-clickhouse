@@ -82,7 +82,8 @@ python3 "${ROOT}/scripts/apply-query-tolerances.py" \
 echo ">> Summary${mode_banner}:"
 jq '{
   total: .totalResults,
-  passed: [.results[] | select(.diff == "" and (.unexpectedFailure // "") == "" and (.unexpectedSuccess // false) == false and (.unsupported // false) == false)] | length,
+  passed: [.results[] | select((.toleranceApplied // null) == null and .diff == "" and (.unexpectedFailure // "") == "" and (.unexpectedSuccess // false) == false and (.unsupported // false) == false)] | length,
+  accepted_tolerance: [.results[] | select((.toleranceApplied // null) != null)] | length,
   diff_failure: [.results[] | select(.diff != "")] | length,
   unexpected_failure: [.results[] | select((.unexpectedFailure // "") != "")] | length,
   unexpected_success: [.results[] | select(.unexpectedSuccess == true)] | length,

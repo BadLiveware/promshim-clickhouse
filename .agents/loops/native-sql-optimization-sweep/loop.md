@@ -22,7 +22,8 @@ In scope:
 - Native SQL lowering, native physical strategy selection, renderer/storage SQL shapes, typed SQL-builder evolution where touched by an optimization, local/subtree execution when it competes with native SQL, and future CBE candidate instrumentation.
 - Query-shape families across PromQL operators, range functions, aggregations, subqueries, histograms, label manipulation, joins/binops, selector matchers, and common dashboard-style expressions.
 - General optimizations first, query-specific optimizations when they have strong expected value or unblock a common dashboard pattern.
-- Measurement and tooling improvements when they reduce future optimization risk or cost.
+- **Primary priority: measurable runtime improvements** (latency/CPU/memory/scan reductions with corroborating evidence).
+- Measurement/tooling/diagnostic work only when it is required to execute or evaluate an active measurable optimization attempt.
 
 Out of scope unless explicitly approved in a later attempt:
 
@@ -42,6 +43,7 @@ Out of scope unless explicitly approved in a later attempt:
 - Do not trust small wall-clock deltas alone; require ClickHouse `ProfileEvents`, query log, `EXPLAIN`, strategy histograms, or other low-variance evidence appropriate to the claim.
 - Preserve generated/artifact hygiene: named benchmark/explain artifacts under `harness/artifacts/...`; durable loop context under `.pi/loops/native-sql-optimization-sweep/`; Ralph runtime state under `.ralph/` only.
 - Avoid destructive operations unless predeclared safe. Benchmark-stack resets are allowed only when the attempt explicitly needs fresh benchmark data; compliance volume resets require explicit approval unless the user pre-approves during loop startup.
+- **Infrastructure/diagnostic work budget:** do not spend an iteration primarily on infra/tooling unless it directly unblocks a currently selected measurable optimization candidate and includes explicit unblock evidence.
 
 ## Evaluation protocol
 
@@ -124,7 +126,7 @@ Keep an attempt only when all applicable conditions hold:
 
 - Correctness validation passes, or any remaining gap is explicitly non-user-facing instrumentation with no runtime behavior change.
 - Strategy selection is preserved or intentionally improved with evidence; no silent fallback regression.
-- The claimed runtime signal moves in the expected direction:
+- For behavior changes, the claimed runtime signal moves in the expected direction:
   - CSE/dedup/row-source reuse: `FunctionExecute`, `ArrayMap`/array counters, join rows, pipeline stages, or duplicated source work drops.
   - Pushdown/pruning: `SelectedRows`, `SelectedBytes`, `ReadCompressedBytes`, or `EXPLAIN PLAN indexes=1` improves with unchanged result rows.
   - CPU reduction: `UserTimeMicroseconds`, `RealTimeMicroseconds`, and relevant thread/settings evidence improve without unacceptable latency regression.
@@ -132,6 +134,7 @@ Keep an attempt only when all applicable conditions hold:
   - SQL-builder migration: no runtime claim unless `EXPLAIN`/ProfileEvents change; otherwise accept only for maintainability with stable SQL/goldens.
 - Broad optimizations should pass a focused corpus around the affected shape and at least smoke-test adjacent shapes.
 - Query-specific optimizations require either high observed cost, common dashboard relevance, or a strong path toward generalization.
+- Instrumentation/diagnostic-only attempts are acceptable only when they directly unblock or de-risk a concrete measurable optimization attempt selected in the same active tranche.
 
 ## Rejection, deferral, and split rules
 
@@ -142,6 +145,7 @@ Reject or revert when:
 - The required ProfileEvents/EXPLAIN/query-log signal does not move and the commit's purpose is runtime improvement.
 - The change is only cosmetic SQL churn with identical `EXPLAIN SYNTAX` and ProfileEvents.
 - It adds broad complexity for one low-value query without durable generalization.
+- An iteration drifts into infra/tooling work that does not materially unblock an active measurable optimization candidate.
 
 Defer when:
 
@@ -199,6 +203,8 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-loop-scope-guardrail-measurable-first` — **keep (policy update, no code change)**. Updated canonical loop scope/guardrails to prioritize measurable runtime improvements and explicitly restrict infra/diagnostic-only work to direct unblock value for active measurable candidates. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-loop-scope-guardrail-measurable-first.md`.
+- `20260428-cbe-shadow-scorecard` — **keep (measurement/evidence)**. Produced bounded pre/post warm-up decision-quality scorecard across representative families/policies. Missing-estimate rate dropped to zero and shadow-local candidate rate increased after warm-up, confirming coherent state-dependent behavior for the first controlled branch. Artifacts: `harness/artifacts/explain/20260428-iter72-shadow-scorecard/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-shadow-scorecard.md`.
 - `20260428-reflection71-shadow-branch-status` — **keep (reflection, no code change)**. Reflection checkpoint confirms first controlled shadow branch is stable and transparent, and shifts next priority to a bounded decision-quality scorecard across a fixed mini-corpus before any further branch expansion. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-reflection71-shadow-branch-status.md`.
 - `20260428-cbe-subquery-shadow-runtime-branch-evidence` — **keep**. Captured rebuilt-runtime before/after warm-up evidence for subquery `cost_shadow` behavior showing transition from `strict_missing_estimate` (with `missing_estimates` advisory) to `shadow_only` + `wouldSelect=local` (with `shadow_subquery_cap_bypass=subquery` advisory). Confirms controlled branch behavior under runtime state changes while preserving served strategy neutrality. Artifacts: `harness/artifacts/explain/20260428-iter70-subquery-shadow-blocked.json`, `harness/artifacts/explain/20260428-iter70-subquery-shadow-bypass.json`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-subquery-shadow-runtime-branch-evidence.md`.
 - `20260428-cbe-subquery-bypass-blocked-advisory` — **keep**. Extended controlled subquery shadow branch explainability with explicit blocked-path advisory (`shadow_subquery_cap_bypass_blocked=<reason>`) when cap bypass guardrails fail. Added focused regression coverage for both activation and blocked branches; strategy behavior unchanged. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-subquery-bypass-blocked-advisory.md`.

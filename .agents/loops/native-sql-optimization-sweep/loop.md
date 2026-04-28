@@ -199,6 +199,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-reflection56-advisory-consumption-status` — **keep (reflection, no code change)**. Reflection checkpoint confirms instrumentation-to-advisory transition is complete enough to shift next work from field expansion to a bounded decision-quality evaluation of advisory usefulness/consistency across representative query families. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-reflection56-advisory-consumption-status.md`.
 - `20260428-cbe-advisory-missing-estimate-hint` — **keep**. Extended advisory/shadow diagnostics so strict-missing-estimate decisions include an explicit advisory hint (`missing_estimates=<fields>`), improving explainability without changing selected/served strategy behavior. Added regression assertion in routing policy tests. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-advisory-missing-estimate-hint.md`.
 - `20260428-cbe-subquery-advisory-strategy-neutral-guard` — **keep**. Added API-level regression guard that advisory subquery complexity hints remain strategy-neutral by asserting strict/selected strategies stay `native_sql` while `routing.advisory` is present. No routing behavior changes. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-subquery-advisory-strategy-neutral-guard.md`.
 - `20260428-cbe-subquery-advisory-api-guard` — **keep**. Added API-level explain regression guard asserting `routing.advisory` contains `subquery_complexity=light` for subquery explain shape, reinforcing advisory-surface stability without changing routing decisions. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-subquery-advisory-api-guard.md`.
@@ -277,6 +278,26 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 5. **Next priorities**
    - Add typed eligibility/rejection row-source-reuse decision metadata that is consistently visible in explain output for repeated candidate shapes (applied and not-applied cases where relevant).
    - Then move to subquery preference propagation / estimate plumbing once reuse decision observability is solid.
+
+### Reflection checkpoint (iteration 56)
+
+1. **What has been accomplished so far?**
+   - Completed subquery estimate instrumentation and derived diagnostics.
+   - Landed advisory/shadow consumption with explicit strategy-neutral guards.
+
+2. **What's working well?**
+   - Strong test-backed metadata contracts across classifier/routing/API layers.
+   - Tranche sequencing is controlling risk and keeping progress coherent.
+
+3. **What's not working or blocking progress?**
+   - Advisory diagnostics utility is not yet empirically evaluated across query families.
+
+4. **Should the approach be adjusted?**
+   - Yes: run a bounded decision-quality advisory evaluation before further metadata expansion.
+
+5. **What are the next priorities?**
+   - Build/verify an advisory behavior matrix over representative queries and cost policies.
+   - Use that evidence to define the first safe controlled behavior-experiment boundary.
 
 ### Reflection checkpoint (iteration 51)
 

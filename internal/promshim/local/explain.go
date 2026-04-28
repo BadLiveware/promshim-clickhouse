@@ -10,7 +10,6 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 )
 
-const explainSubqueryNoThreadCapReason = "subquery_step_grid_prefers_no_thread_cap"
 
 type LogicalOptimizationExplain struct {
 	Disabled  bool                     `json:"disabled,omitempty"`
@@ -197,7 +196,7 @@ func annotateSubqueryPreferenceDecision(node *ExplainNode) {
 	node.PhysicalDecisions = append(node.PhysicalDecisions, physical.Decision{
 		Kind:     "query_settings",
 		Strategy: "no_thread_cap",
-		Reason:   explainSubqueryNoThreadCapReason,
+		Reason:   physical.ThreadPreferenceReasonSubqueryRateRows,
 		Guards:   []string{"needs_subquery_step_grid", "preserve_no_cap"},
 		Rejected: []physical.Alternative{{
 			Strategy: "set_max_threads",

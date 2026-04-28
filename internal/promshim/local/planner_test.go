@@ -1606,8 +1606,8 @@ func TestExplainPlanIncludesSubqueryNodeNoThreadCapDecision(t *testing.T) {
 	if decision.Strategy != "no_thread_cap" {
 		t.Fatalf("subquery query_settings strategy = %q, want no_thread_cap; decisions=%#v", decision.Strategy, subquery.PhysicalDecisions)
 	}
-	if decision.Reason != explainSubqueryNoThreadCapReason {
-		t.Fatalf("subquery query_settings reason = %q, want %q", decision.Reason, explainSubqueryNoThreadCapReason)
+	if decision.Reason != physical.ThreadPreferenceReasonSubqueryRateRows {
+		t.Fatalf("subquery query_settings reason = %q, want %q", decision.Reason, physical.ThreadPreferenceReasonSubqueryRateRows)
 	}
 }
 

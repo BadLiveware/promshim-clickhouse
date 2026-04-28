@@ -35,6 +35,12 @@ const (
 	ThreadCapPolicyManualMeasurement ThreadCapPolicy = "manual_measurement"
 )
 
+const (
+	ThreadPreferenceReasonDirectRangeAggregation = "direct_range_aggregation_cpu_guardrail"
+	ThreadPreferenceReasonFusedRateAggregation   = "fused_rate_aggregation_cpu_guardrail"
+	ThreadPreferenceReasonSubqueryRateRows       = "subquery_rate_over_aggregate_regresses_with_thread_cap"
+)
+
 type ThreadPreference struct {
 	Mode       ThreadPreferenceMode
 	Policy     ThreadCapPolicy

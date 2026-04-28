@@ -8,17 +8,11 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-const (
-	threadCapReasonDirectRangeAggregation = "direct_range_aggregation_cpu_guardrail"
-	threadCapReasonFusedRateAggregation   = "fused_rate_aggregation_cpu_guardrail"
-	threadCapReasonSubqueryRateRows       = "subquery_rate_over_aggregate_regresses_with_thread_cap"
-)
-
 func directRangeAggregationThreadSettings(params RenderParams, source storage.AggregationSource) (map[string]any, []physical.Decision) {
 	if params.Mode != native.RenderModeRange || source.Selector == nil {
 		return nil, nil
 	}
-	prefs := preferASOFThreadGuardrail(params.Physical, threadCapReasonDirectRangeAggregation)
+	prefs := preferASOFThreadGuardrail(params.Physical, physical.ThreadPreferenceReasonDirectRangeAggregation)
 	return physicalSettings(prefs), threadPreferenceDecisionsForPrefs(prefs)
 }
 
@@ -33,7 +27,7 @@ func fusedRateAggregationThreadSettings(params RenderParams, agg *logicalpkg.Agg
 	if !isMatrixSelectorLeaf(child) {
 		return nil, nil
 	}
-	prefs := preferASOFThreadGuardrail(params.Physical, threadCapReasonFusedRateAggregation)
+	prefs := preferASOFThreadGuardrail(params.Physical, physical.ThreadPreferenceReasonFusedRateAggregation)
 	return physicalSettings(prefs), threadPreferenceDecisionsForPrefs(prefs)
 }
 
@@ -51,13 +45,13 @@ func suppressThreadCapForSubqueryRangeFunction(params RenderParams, child *logic
 	if _, ok := child.Child.(*logicalpkg.AggregationPlan); !ok {
 		return params
 	}
-	params.Physical = preferNoThreadCap(params.Physical, threadCapReasonSubqueryRateRows)
+	params.Physical = preferNoThreadCap(params.Physical, physical.ThreadPreferenceReasonSubqueryRateRows)
 	return params
 }
 
 func suppressThreadCapForPlan(params RenderParams, node logicalpkg.Node) RenderParams {
 	if containsSubqueryRateOverAggregation(node) {
-		params.Physical = preferNoThreadCap(params.Physical, threadCapReasonSubqueryRateRows)
+		params.Physical = preferNoThreadCap(params.Physical, physical.ThreadPreferenceReasonSubqueryRateRows)
 	}
 	return params
 }

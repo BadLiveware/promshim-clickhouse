@@ -34,7 +34,7 @@ func TestNoThreadCapSuppressesLaterThreadCapPolicy(t *testing.T) {
 }
 
 func TestThreadPreferenceDecisionNoCapIncludesRejectedAlternative(t *testing.T) {
-	decision, ok := ThreadPreferenceDecision(ThreadPreference{Mode: ThreadPreferenceNoCap, ReasonCode: "subquery_rate_over_aggregate_regresses_with_thread_cap"})
+	decision, ok := ThreadPreferenceDecision(ThreadPreference{Mode: ThreadPreferenceNoCap, ReasonCode: ThreadPreferenceReasonSubqueryRateRows})
 	if !ok {
 		t.Fatal("expected no-cap decision")
 	}

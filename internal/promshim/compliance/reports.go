@@ -15,11 +15,21 @@ type TesterReport struct {
 }
 
 type TesterResult struct {
-	TestCase          TesterCase `json:"testCase"`
-	Diff              string     `json:"diff"`
-	UnexpectedFailure string     `json:"unexpectedFailure"`
-	UnexpectedSuccess bool       `json:"unexpectedSuccess"`
-	Unsupported       bool       `json:"unsupported"`
+	TestCase          TesterCase        `json:"testCase"`
+	Diff              string            `json:"diff"`
+	UnexpectedFailure string            `json:"unexpectedFailure"`
+	UnexpectedSuccess bool              `json:"unexpectedSuccess"`
+	Unsupported       bool              `json:"unsupported"`
+	ToleranceApplied  *AppliedTolerance `json:"toleranceApplied,omitempty"`
+}
+
+type AppliedTolerance struct {
+	ID         string  `json:"id"`
+	Query      string  `json:"query"`
+	QueryRegex string  `json:"queryRegex"`
+	Fraction   float64 `json:"fraction"`
+	Margin     float64 `json:"margin"`
+	Reason     string  `json:"reason"`
 }
 
 type TesterCase struct {
@@ -174,6 +184,8 @@ func ComplianceSummary(report TesterReport) map[string]int {
 	out := map[string]int{"total": report.TotalResults}
 	for _, r := range report.Results {
 		switch {
+		case r.ToleranceApplied != nil:
+			out["accepted_tolerance"]++
 		case !ResultFailed(r):
 			out["passed"]++
 		case r.Diff != "":
@@ -197,6 +209,8 @@ type FailureBucketSummary struct {
 
 func ClassifyFailureBucket(r TesterResult) string {
 	switch {
+	case r.ToleranceApplied != nil:
+		return "accepted_tolerance"
 	case r.Unsupported:
 		return "unsupported_501"
 	case r.UnexpectedFailure != "":
@@ -275,6 +289,7 @@ func changedDiffLines(diff string) int {
 type NativeGapSummary struct {
 	Total                  int
 	Passed                 int
+	AcceptedTolerance      int
 	DiffFailure            int
 	UnsupportedRoot        int
 	UnexpectedFailureOther int
@@ -289,7 +304,9 @@ func NativeGapReport(report TesterReport) NativeGapSummary {
 	s := NativeGapSummary{Total: report.TotalResults}
 	shapes := map[string]int{}
 	for _, r := range report.Results {
-		if r.Diff == "" && r.UnexpectedFailure == "" && !r.UnexpectedSuccess {
+		if r.ToleranceApplied != nil {
+			s.AcceptedTolerance++
+		} else if r.Diff == "" && r.UnexpectedFailure == "" && !r.UnexpectedSuccess {
 			s.Passed++
 		}
 		if r.Diff != "" {

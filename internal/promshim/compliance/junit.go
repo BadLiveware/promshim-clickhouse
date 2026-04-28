@@ -58,6 +58,13 @@ func JUnitXML(report TesterReport, policy JUnitPolicy) ([]byte, error) {
 			ClassName: "promshim.compliance." + mode,
 			Name:      result.TestCase.Query,
 		}
+		if result.ToleranceApplied != nil {
+			caseResult.Skipped = &junitSkipped{Message: "accepted tolerance: " + result.ToleranceApplied.ID, Text: acceptedToleranceDetail(result.ToleranceApplied)}
+			caseResult.SystemOut = result.ToleranceApplied.Reason
+			suite.Skipped++
+			suite.TestCases = append(suite.TestCases, caseResult)
+			continue
+		}
 		if !ResultFailed(result) {
 			suite.TestCases = append(suite.TestCases, caseResult)
 			continue
@@ -99,29 +106,43 @@ func ComplianceMarkdown(report TesterReport, policy JUnitPolicy, reportPath stri
 	}
 	summary := ComplianceSummary(report)
 	passed := summary["passed"]
-	failed := report.TotalResults - passed
+	acceptedTolerance := summary["accepted_tolerance"]
+	failed := report.TotalResults - passed - acceptedTolerance
 	var b strings.Builder
 	fmt.Fprintf(&b, "## PromQL compliance (%s)\n\n", mode)
 	if reportPath != "" {
 		fmt.Fprintf(&b, "Report: `%s`\n\n", reportPath)
 	}
-	fmt.Fprintf(&b, "| Total | Passed | Failed or visible gaps | Diff failures | Unexpected failures | Unexpected successes | Unsupported |\n")
-	fmt.Fprintf(&b, "|---:|---:|---:|---:|---:|---:|---:|\n")
-	fmt.Fprintf(&b, "| %d | %d | %d | %d | %d | %d | %d |\n\n",
+	fmt.Fprintf(&b, "| Total | Passed | Accepted tolerances | Failed or visible gaps | Diff failures | Unexpected failures | Unexpected successes | Unsupported |\n")
+	fmt.Fprintf(&b, "|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	fmt.Fprintf(&b, "| %d | %d | %d | %d | %d | %d | %d | %d |\n\n",
 		report.TotalResults,
 		passed,
+		acceptedTolerance,
 		failed,
 		summary["diff_failure"],
 		summary["unexpected_failure"],
 		summary["unexpected_success"],
 		summary["unsupported"],
 	)
+	if acceptedTolerance > 0 {
+		fmt.Fprintf(&b, "### Accepted tolerances\n\n")
+		fmt.Fprintf(&b, "| Query | Tolerance | Reason |\n")
+		fmt.Fprintf(&b, "|---|---|---|\n")
+		for _, result := range report.Results {
+			if result.ToleranceApplied == nil {
+				continue
+			}
+			fmt.Fprintf(&b, "| `%s` | `%s` | %s |\n", escapeMarkdownPipes(result.TestCase.Query), result.ToleranceApplied.ID, escapeMarkdownPipes(result.ToleranceApplied.Reason))
+		}
+		b.WriteString("\n")
+	}
 	if mode == "native" || policy.NativeIsInform {
 		gap := NativeGapReport(report)
 		fmt.Fprintf(&b, "Native mode is informational: gaps are reported but do not fail CI.\n\n")
-		fmt.Fprintf(&b, "| Passing on native | Diff failures | Unsupported root | Other errors |\n")
-		fmt.Fprintf(&b, "|---:|---:|---:|---:|\n")
-		fmt.Fprintf(&b, "| %d | %d | %d | %d |\n\n", gap.Passed, gap.DiffFailure, gap.UnsupportedRoot, gap.UnexpectedFailureOther)
+		fmt.Fprintf(&b, "| Passing on native | Accepted tolerances | Diff failures | Unsupported root | Other errors |\n")
+		fmt.Fprintf(&b, "|---:|---:|---:|---:|---:|\n")
+		fmt.Fprintf(&b, "| %d | %d | %d | %d | %d |\n\n", gap.Passed, gap.AcceptedTolerance, gap.DiffFailure, gap.UnsupportedRoot, gap.UnexpectedFailureOther)
 	} else {
 		reconcile := ReconcileExpectedFailures(report, policy.Allowlist, policy.Mode)
 		status := "REGRESSION"
@@ -151,6 +172,26 @@ func matchingExpectedFailure(allow ExpectedFailures, mode string, result TesterR
 	return nil
 }
 
+func acceptedToleranceDetail(tolerance *AppliedTolerance) string {
+	if tolerance == nil {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "id: %s\n", tolerance.ID)
+	if tolerance.Query != "" {
+		fmt.Fprintf(&b, "query: %s\n", tolerance.Query)
+	}
+	if tolerance.QueryRegex != "" {
+		fmt.Fprintf(&b, "query_regex: %s\n", tolerance.QueryRegex)
+	}
+	fmt.Fprintf(&b, "fraction: %g\n", tolerance.Fraction)
+	fmt.Fprintf(&b, "margin: %g\n", tolerance.Margin)
+	if tolerance.Reason != "" {
+		fmt.Fprintf(&b, "reason: %s\n", tolerance.Reason)
+	}
+	return b.String()
+}
+
 func resultFailureDetail(result TesterResult) (string, string) {
 	switch {
 	case result.Diff != "":
@@ -164,6 +205,10 @@ func resultFailureDetail(result TesterResult) (string, string) {
 	default:
 		return "passed", ""
 	}
+}
+
+func escapeMarkdownPipes(value string) string {
+	return strings.ReplaceAll(value, "|", "\\|")
 }
 
 func markdownSamples(samples []string) string {

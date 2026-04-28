@@ -61,20 +61,23 @@ func printBuckets(report compliance.TesterReport, reportPath string) {
 	fmt.Println()
 	fmt.Println("  COUNT  BUCKET                      SAMPLE QUERIES")
 	fmt.Println("  -----  ------                      --------------")
-	passed, failed := 0, 0
+	passed, accepted, failed := 0, 0, 0
 	for _, b := range compliance.FailureBuckets(report) {
 		fmt.Printf("  %-5d  %-26s  %s\n", b.Count, b.Bucket, sample(b.Samples, 0))
 		for i := 1; i < len(b.Samples); i++ {
 			fmt.Printf("  %-33s%s\n", "", sample(b.Samples, i))
 		}
-		if b.Bucket == "passed" {
+		switch b.Bucket {
+		case "passed":
 			passed = b.Count
-		} else {
+		case "accepted_tolerance":
+			accepted += b.Count
+		default:
 			failed += b.Count
 		}
 	}
 	fmt.Println()
-	fmt.Printf("  total %d / passed %d / failed %d\n", report.TotalResults, passed, failed)
+	fmt.Printf("  total %d / passed %d / accepted %d / failed %d\n", report.TotalResults, passed, accepted, failed)
 }
 
 func printBucketDetails(report compliance.TesterReport, bucket string, limit int) {
@@ -112,6 +115,7 @@ func printNativeGap(report compliance.TesterReport, reportPath string) {
 	}
 	fmt.Printf("total queries      : %d\n", s.Total)
 	fmt.Printf("passing on native  : %d (%.1f%%)\n", s.Passed, pct)
+	fmt.Printf("accepted tolerances: %d  (specific bounded deviations accepted by policy)\n", s.AcceptedTolerance)
 	fmt.Printf("diff failures      : %d  (native lowered but returned wrong values — real bugs)\n", s.DiffFailure)
 	fmt.Printf("unsupported root   : %d  (planner refuses to lower — coverage gaps)\n", s.UnsupportedRoot)
 	fmt.Printf("other errors       : %d\n\n", s.UnexpectedFailureOther)

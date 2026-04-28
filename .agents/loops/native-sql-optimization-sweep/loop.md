@@ -197,6 +197,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-reflection41-pivot-scope` — **keep (reflection pivot, no code change)**. Reflection checkpoint concludes recent hotspot work is over-indexed on low-signal micro-variants; next execution should tighten to one explicit high-EV branch with predeclared accept/reject thresholds, or declare this hotspot tranche exhausted and pivot families. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-reflection41-pivot-scope.md`.
 - `20260428-subquery-avg-over-time-rows-path-rejected` — **reject/defer (reverted)**. Tried routing subquery-child `avg_over_time` through range rows fast path to reduce `draft_cand_0416...` hotspot cost. Correctness tests passed, but focused benchmark/profile comparison against iteration-33 baseline showed no meaningful memory reduction (still ~81.3MiB p95) and no consistent latency win, so prototype was reverted. Artifacts: `harness/artifacts/bench/standalone/20260428-iter40-subquery-hotspots-after-avgrows/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-subquery-avg-over-time-rows-path-rejected.md`.
 - `20260428-rate-sum-windowed-rows-collapsed-tags-rejected` — **reject/defer (reverted)**. Tested a collapsed-tag-set specialization on the actual windowed-rows path used by `rate(sum(...)[5m:])`. Prototype validated but focused bench/profile signals did not improve (slight shim/CH regressions within noise, no corroborating memory gain), so it was reverted. Artifacts: `harness/artifacts/bench/standalone/20260428-iter39-cand0242-after-shape/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-rate-sum-windowed-rows-collapsed-tags-rejected.md`.
 - `20260428-rate-sum-collapsed-tags-guard-rejected` — **reject/defer (reverted)**. Tried a collapsed-tag-set specialization prototype, but SQL/explain triage confirmed the target `rate(sum(...)[5m:])` hotspot does not run through the touched rows-fast-path function. Reverted as low-EV/no-op for target path. Artifacts: `harness/artifacts/explain/20260428-iter38-cand0242-after/`, `harness/artifacts/bench/standalone/20260428-iter38-cand0242-after/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-rate-sum-collapsed-tags-guard-rejected.md`.
@@ -260,6 +261,28 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 5. **Next priorities**
    - Add typed eligibility/rejection row-source-reuse decision metadata that is consistently visible in explain output for repeated candidate shapes (applied and not-applied cases where relevant).
    - Then move to subquery preference propagation / estimate plumbing once reuse decision observability is solid.
+
+### Reflection checkpoint (iteration 41)
+
+1. **What has been accomplished so far?**
+   - Shipped binary-root thread-policy scoping with explain/service guard coverage.
+   - Stabilized focused benchmarking and captured reproducible hotspot evidence.
+   - Executed and rejected several bounded runtime prototypes using corroborated measurements.
+
+2. **What's working well?**
+   - The loop reliably prevents low-confidence changes from landing.
+   - Measurement and explain artifacts are now decision-grade and repeatable.
+
+3. **What's not working or blocking progress?**
+   - Incremental SQL micro-variants in the current hotspot family are not yielding strong signal.
+   - Runtime-win throughput has dropped as experiment rejection rate increased.
+
+4. **Should the approach be adjusted?**
+   - Yes: narrow to one stronger expected-value branch with explicit thresholds, and avoid parallel micro-variant probing.
+
+5. **What are the next priorities?**
+   - Choose one branch with predeclared accept/reject criteria.
+   - If no viable branch remains, explicitly close this hotspot tranche and pivot to another family with clearer headroom.
 
 ### Reflection checkpoint (iteration 36)
 

@@ -275,6 +275,25 @@ func TestBuildRangeWindowSelectorDirectAggregateRowsQuerySQLUsesGroupedRateAlias
 	}
 }
 
+func TestBuildRangeWindowSelectorDirectAggregateRowsQuerySQLUsesGroupedMaxAliases(t *testing.T) {
+	selector := selectorSourceFromMatchers("demo_memory_usage_bytes", nil, time.Hour, 0, SelectorKindRangeVector)
+
+	sql, _, err := BuildRangeWindowSelectorDirectAggregateRowsQuerySQLWithFinalTags(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -3600000, 3600000, 0, 3600000, 3600000, "max_over_time", "", 0)
+	if err != nil {
+		t.Fatalf("expected direct aggregate rows SQL for max_over_time, got error: %v", err)
+	}
+	for _, expected := range []string{"count() AS sample_count", "countIf(isNaN(ifNull(toFloat64(d.value), nan))) AS nan_count", "countIf(NOT isNaN(ifNull(toFloat64(d.value), nan))) AS finite_count", "maxIf(ifNull(toFloat64(d.value), nan), NOT isNaN(ifNull(toFloat64(d.value), nan))) AS max_value", "if(nan_count > 0 OR finite_count = 0, nan, max_value) AS value", "windowed.id = series.id", "ARRAY JOIN", "positiveModulo(", "GROUP BY d.id, eval_ms", "fromUnixTimestamp64Milli(eval_ms) AS timestamp"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected %q in SQL, got %q", expected, sql)
+		}
+	}
+	for _, unwanted := range []string{"window_series", "window_values", "arrayPopBack(", "arrayPopFront(", "GROUP BY grid.id, grid.tags, grid.eval_ts", "GROUP BY grid.id, grid.eval_ts"} {
+		if strings.Contains(sql, unwanted) {
+			t.Fatalf("expected direct aggregate rows SQL to avoid %q, got %q", unwanted, sql)
+		}
+	}
+}
+
 func TestBuildRangeSelectorQuerySQLUsesStepGridLookbackAndOffset(t *testing.T) {
 	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, time.Minute, SelectorKindInstantVector)
 

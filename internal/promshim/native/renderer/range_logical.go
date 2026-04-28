@@ -225,51 +225,47 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						}
 						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 					}
-					// avg_over_time can be computed from cumulative per-series sums/counts and
-					// ASOF boundary lookups. This avoids the id-only grid→data join fanout that
-					// is expensive for dense, high-overlap windows.
-					if isIdentity && cfg.EnableCumulativeAvgOverTime && fn == "avg_over_time" && !preferDirectSelectorWindowJoin(lookbackMS, params.StepMS) {
-						childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
-						source, err := renderAggregationSourceView(view, params)
-						if err != nil {
-							return renderedFragment{}, err
+					if isIdentity {
+						strategy := resolveRangeWindowAggregateStrategy(fn, cfg, lookbackMS, params.StepMS, params.Physical)
+						switch strategy {
+						case RangeWindowAggregateStrategyCumulativeAvg:
+							childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
+							source, err := renderAggregationSourceView(view, params)
+							if err != nil {
+								return renderedFragment{}, err
+							}
+							tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
+							sql, queryParams, err := storage.BuildRangeWindowSelectorCumulativeAvgQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
+							if err != nil {
+								return renderedFragment{}, err
+							}
+							return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
+						case RangeWindowAggregateStrategyDirectAggregate:
+							childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
+							source, err := renderAggregationSourceView(view, params)
+							if err != nil {
+								return renderedFragment{}, err
+							}
+							tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
+							sql, queryParams, err := storage.BuildRangeWindowSelectorDirectAggregateQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, fn, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
+							if err != nil {
+								return renderedFragment{}, err
+							}
+							return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
+						case RangeWindowAggregateStrategyWindowJoin:
+							childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
+							source, err := renderAggregationSourceView(view, params)
+							if err != nil {
+								return renderedFragment{}, err
+							}
+							windowValueExpr := rangeFunctionValueExpr(fn, "window_series", "window_values", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", lookbackMS)
+							tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
+							sql, queryParams, err := storage.BuildRangeWindowSelectorQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, fn, windowValueExpr, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
+							if err != nil {
+								return renderedFragment{}, err
+							}
+							return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 						}
-						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
-						sql, queryParams, err := storage.BuildRangeWindowSelectorCumulativeAvgQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
-						if err != nil {
-							return renderedFragment{}, err
-						}
-						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
-					}
-					// Keep the selector-scoped grid→data join that benchmarks well on long-range
-					// windows, but skip per-step window_series/window_values materialization for
-					// direct range selectors that are safe to aggregate inside that grouped join.
-					if isIdentity && supportsDirectSelectorWindowAggregate(fn, lookbackMS) && preferDirectSelectorWindowAggregate(fn, lookbackMS, params.StepMS) {
-						childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
-						source, err := renderAggregationSourceView(view, params)
-						if err != nil {
-							return renderedFragment{}, err
-						}
-						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
-						sql, queryParams, err := storage.BuildRangeWindowSelectorDirectAggregateQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, fn, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
-						if err != nil {
-							return renderedFragment{}, err
-						}
-						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
-					}
-					if isIdentity && preferDirectSelectorWindowJoin(lookbackMS, params.StepMS) {
-						childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
-						source, err := renderAggregationSourceView(view, params)
-						if err != nil {
-							return renderedFragment{}, err
-						}
-						windowValueExpr := rangeFunctionValueExpr(fn, "window_series", "window_values", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", lookbackMS)
-						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
-						sql, queryParams, err := storage.BuildRangeWindowSelectorQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, fn, windowValueExpr, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
-						if err != nil {
-							return renderedFragment{}, err
-						}
-						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 					}
 					// Range-mode leaf catch-all: Lower the logical leaf
 					// directly with a RangeMode child context widened by

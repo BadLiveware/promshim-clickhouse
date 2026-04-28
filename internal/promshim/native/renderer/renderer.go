@@ -12,6 +12,7 @@ import (
 
 type PhysicalPlanPreferences struct {
 	RangeInstantSelector RangeInstantSelectorPreference
+	RangeWindowAggregate RangeWindowAggregatePreference
 	Execution            ExecutionPreference
 }
 
@@ -55,6 +56,21 @@ type RangeInstantSelectorPreference struct {
 	Strategy storage.RangeInstantSelectorStrategy
 }
 
+type RangeWindowAggregateStrategy string
+
+const (
+	RangeWindowAggregateStrategyDefault         RangeWindowAggregateStrategy = ""
+	RangeWindowAggregateStrategyWindowJoin      RangeWindowAggregateStrategy = "window_join"
+	RangeWindowAggregateStrategyDirectAggregate RangeWindowAggregateStrategy = "direct_aggregate"
+	RangeWindowAggregateStrategyCumulativeAvg   RangeWindowAggregateStrategy = "cumulative_avg"
+)
+
+type RangeWindowAggregatePreference struct {
+	// Strategy lets parent renderers request the physical shape for range-window
+	// aggregate evaluation over selector-backed range functions.
+	Strategy RangeWindowAggregateStrategy
+}
+
 type RenderParams struct {
 	Mode                native.RenderMode
 	EvaluationTimeMS    int64
@@ -88,6 +104,11 @@ func physicalPreferencesForRangeInstantSelectorStrategy(strategy storage.RangeIn
 
 func preferRangeInstantSelectorStrategy(prefs PhysicalPlanPreferences, strategy storage.RangeInstantSelectorStrategy) PhysicalPlanPreferences {
 	prefs.RangeInstantSelector = RangeInstantSelectorPreference{Strategy: strategy}
+	return prefs
+}
+
+func preferRangeWindowAggregateStrategy(prefs PhysicalPlanPreferences, strategy RangeWindowAggregateStrategy) PhysicalPlanPreferences {
+	prefs.RangeWindowAggregate = RangeWindowAggregatePreference{Strategy: strategy}
 	return prefs
 }
 

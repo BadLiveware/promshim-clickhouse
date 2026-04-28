@@ -150,7 +150,9 @@ EOF
 }
 
 if [[ $# -eq 0 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  usage $([[ $# -eq 0 ]] && echo 64 || echo 0)
+  usage_exit=0
+  [[ $# -eq 0 ]] && usage_exit=64
+  usage "$usage_exit"
 fi
 QUERY_TEXT="$1"; shift
 

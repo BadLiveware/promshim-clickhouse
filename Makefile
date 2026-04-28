@@ -1,11 +1,30 @@
-.PHONY: test vet race fmt fmt-check tidy tidy-check lint pre-commit check hooks-install hooks-uninstall harness compliance bench sweep sweep-smoke sweep-estimate-heavy bench-status release-check release-snapshot
+.PHONY: build test vet race fmt fmt-check tidy tidy-check lint script-check config-check pre-commit check hooks-install hooks-uninstall harness compliance bench sweep sweep-smoke sweep-estimate-heavy bench-status release-check release-snapshot
 
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
+GOTESTSUM ?= gotestsum
+PYTHON ?= python3
+SHELLCHECK ?= shellcheck
+YAMLLINT ?= yamllint
 GOFILES := $(shell find . \( -path './.git' -o -path './harness/compliance/prom-compliance' \) -prune -o -name '*.go' -print)
+SHELLFILES := $(shell git ls-files '*.sh' ':(exclude)harness/compliance/prom-compliance/**')
+PYFILES := $(shell git ls-files '*.py' ':(exclude)harness/compliance/prom-compliance/**')
+YAMLFILES := $(shell git ls-files '*.yml' '*.yaml' ':(exclude)harness/compliance/prom-compliance/**')
+JSONFILES := $(shell git ls-files '*.json' ':(exclude).agents/**' ':(exclude)harness/compliance/prom-compliance/**')
+
+build:
+	$(GO) build ./...
 
 test:
 	$(GO) test ./...
+
+test-report:
+	@command -v $(GOTESTSUM) >/dev/null 2>&1 || { \
+		echo "gotestsum is required; install it from https://github.com/gotestyourself/gotestsum" >&2; \
+		exit 127; \
+	}
+	mkdir -p harness/artifacts/unit
+	$(GOTESTSUM) --junitfile harness/artifacts/unit/junit-go.xml -- ./...
 
 vet:
 	$(GO) vet ./...
@@ -32,9 +51,41 @@ lint:
 	}
 	$(GOLANGCI_LINT) run ./...
 
-pre-commit: fmt-check tidy-check lint test
+script-check:
+	@command -v $(SHELLCHECK) >/dev/null 2>&1 || { \
+		echo "shellcheck is required; install it from https://www.shellcheck.net/" >&2; \
+		exit 127; \
+	}
+	@command -v $(PYTHON) >/dev/null 2>&1 || { \
+		echo "python3 is required for Python syntax checks" >&2; \
+		exit 127; \
+	}
+	$(SHELLCHECK) -x --severity=warning $(SHELLFILES)
+	$(PYTHON) -m py_compile $(PYFILES)
 
-check: fmt-check tidy-check lint test vet
+config-check:
+	@command -v $(PYTHON) >/dev/null 2>&1 || { \
+		echo "python3 is required for JSON validation" >&2; \
+		exit 127; \
+	}
+	@command -v $(YAMLLINT) >/dev/null 2>&1 || { \
+		echo "yamllint is required; install it from https://yamllint.readthedocs.io/" >&2; \
+		exit 127; \
+	}
+	@command -v docker >/dev/null 2>&1 || { \
+		echo "docker is required for docker compose config validation" >&2; \
+		exit 127; \
+	}
+	$(PYTHON) -c 'import json, sys; [json.load(open(path, encoding="utf-8")) for path in sys.argv[1:]]' $(JSONFILES)
+	$(YAMLLINT) -d '{extends: relaxed, rules: {truthy: disable, line-length: disable}}' $(YAMLFILES)
+	docker compose -f harness/docker-compose.yml config >/dev/null
+	docker compose -f harness/compliance/docker-compose.yml -f harness/compliance/docker-compose.native-only.yml config >/dev/null
+	docker compose -f harness/bench/docker-compose.yml config >/dev/null
+	docker compose -f harness/bench/docker-compose.yml -f harness/bench/docker-compose.reference.yml config >/dev/null
+
+pre-commit: fmt-check tidy-check lint script-check config-check build test
+
+check: fmt-check tidy-check lint script-check config-check build test vet
 
 hooks-install:
 	git config core.hooksPath .githooks

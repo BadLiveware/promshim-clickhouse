@@ -49,6 +49,7 @@ func classifyQueryCost(expr parser.Expr, timing queryCostTiming, strictStrategy 
 			temporalSlices = 1
 		}
 		class.SubqueryTemporalFanout = class.SubqueryPointsPerEval * temporalSlices
+		class.SubqueryComplexityBand = classifySubqueryComplexityBand(class.SubqueryWorkUnits, class.SubqueryTemporalFanout)
 	}
 	if class.SelectorCount > 0 {
 		class.LocalRoundTrips = class.SelectorCount
@@ -217,6 +218,25 @@ func isRangeFunction(name string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func classifySubqueryComplexityBand(workUnits, temporalFanout int64) string {
+	score := workUnits
+	if temporalFanout > score {
+		score = temporalFanout
+	}
+	switch {
+	case score >= 1000:
+		return "heavy"
+	case score >= 200:
+		return "elevated"
+	case score >= 50:
+		return "moderate"
+	case score > 0:
+		return "light"
+	default:
+		return ""
 	}
 }
 

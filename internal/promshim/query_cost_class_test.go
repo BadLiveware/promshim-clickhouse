@@ -206,6 +206,9 @@ func TestClassifyQueryCostFamilies(t *testing.T) {
 				if got.SubqueryTemporalFanout != 31 {
 					t.Fatalf("subquery temporal fanout = %d, want 31", got.SubqueryTemporalFanout)
 				}
+				if got.SubqueryComplexityBand != "light" {
+					t.Fatalf("subquery complexity band = %q, want light", got.SubqueryComplexityBand)
+				}
 			},
 		},
 	}

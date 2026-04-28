@@ -1711,6 +1711,7 @@ func TestQueryExplainIncludesSubqueryEstimateInputs(t *testing.T) {
 					SubqueryOverlapSlots  float64 `json:"subqueryOverlapSlots"`
 					SubqueryWorkUnits      int64   `json:"subqueryWorkUnits"`
 					SubqueryTemporalFanout int64   `json:"subqueryTemporalFanout"`
+					SubqueryComplexityBand string  `json:"subqueryComplexityBand"`
 				} `json:"class"`
 			} `json:"routing"`
 		} `json:"data"`
@@ -1742,6 +1743,9 @@ func TestQueryExplainIncludesSubqueryEstimateInputs(t *testing.T) {
 	}
 	if class.SubqueryTemporalFanout != 31 {
 		t.Fatalf("subqueryTemporalFanout = %d, want 31", class.SubqueryTemporalFanout)
+	}
+	if class.SubqueryComplexityBand != "light" {
+		t.Fatalf("subqueryComplexityBand = %q, want light", class.SubqueryComplexityBand)
 	}
 }
 

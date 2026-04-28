@@ -110,6 +110,23 @@ func TestCostPreferAddsCandidateServingDisabledAdvisory(t *testing.T) {
 	}
 }
 
+func TestCostShadowAllowsLightFreshSubqueryAsShadowCandidate(t *testing.T) {
+	class := httpapi.QueryCostClass{
+		Endpoint: "query", Family: "subquery", SelectorCount: 1,
+		EstimatedSeries: 10, EstimatedInputSamples: 100, EstimatedOutputPoints: 10,
+		LocalRoundTrips: 1, NativeRoundTrips: 1,
+		HasSubquery: true, SubqueryComplexityBand: "light",
+		EstimateState: httpapi.EstimateState{Source: "cache", Fresh: true, SelectorCount: 1},
+	}
+	info := routingDecisionForStrict(RoutingPolicyCostShadow, local.NativeLoweringModePrefer, class, "native_sql", nil)
+	if info.Decision != "shadow_only" || info.WouldSelect != "local" {
+		t.Fatalf("decision = %+v, want shadow local candidate", info)
+	}
+	if len(info.CapHits) != 1 || info.CapHits[0] != "subquery" {
+		t.Fatalf("cap hits = %+v, want subquery cap bypass evidence", info.CapHits)
+	}
+}
+
 func TestCostPreferSelectsLocalWhenRateFamilyGateEnabled(t *testing.T) {
 	class := httpapi.QueryCostClass{Endpoint: "query", Family: "rate", SelectorCount: 1, EstimatedSeries: 10, EstimatedInputSamples: 100, EstimatedOutputPoints: 10, LocalRoundTrips: 1, NativeRoundTrips: 1}
 	info := routingDecisionForStrict(RoutingPolicyCostPrefer, local.NativeLoweringModePrefer, class, "native_sql", []string{"rate_instant"})

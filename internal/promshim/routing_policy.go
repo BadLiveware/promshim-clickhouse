@@ -119,9 +119,11 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 		routingmetrics.ObserveOverCap(class.Family, capEval.Name)
 	}
 	if len(info.CapHits) > 0 {
-		info.Decision = "strict_over_cap"
-		info.Reason = "hard_cap"
-		return info
+		if !(policy == RoutingPolicyCostShadow && allowSubqueryShadowCapBypass(class, info.CapHits)) {
+			info.Decision = "strict_over_cap"
+			info.Reason = "hard_cap"
+			return info
+		}
 	}
 	if !localCandidateFamily(class) {
 		info.Decision = "strict_low_confidence"
@@ -313,6 +315,8 @@ func familyBases(family string) (native, local float64) {
 		return 150, 35
 	case "aggregation":
 		return 40, 25
+	case "subquery":
+		return 55, 24
 	default:
 		return 0, 0
 	}
@@ -377,6 +381,22 @@ func familyGate(class httpapi.QueryCostClass) string {
 	}
 }
 
+func allowSubqueryShadowCapBypass(class httpapi.QueryCostClass, capHits []string) bool {
+	if class.Family != "subquery" || !class.HasSubquery {
+		return false
+	}
+	if !class.EstimateState.Fresh || class.EstimateState.Missing > 0 || class.EstimateState.Stale > 0 {
+		return false
+	}
+	if class.SubqueryComplexityBand != "light" {
+		return false
+	}
+	if len(capHits) != 1 || capHits[0] != "subquery" {
+		return false
+	}
+	return true
+}
+
 func localCandidateFamily(class httpapi.QueryCostClass) bool {
 	switch class.Family {
 	case "selector":
@@ -397,6 +417,8 @@ func localCandidateFamily(class httpapi.QueryCostClass) bool {
 		return false
 	case "range_selector":
 		return class.RangePointsPerSeries > 0 && class.RangePointsPerSeries <= 60
+	case "subquery":
+		return class.Endpoint == "query" && class.HasSubquery && class.SelectorCount == 1 && !class.HasVectorJoin
 	default:
 		return false
 	}

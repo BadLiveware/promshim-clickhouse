@@ -7,9 +7,8 @@ import (
 )
 
 type JUnitPolicy struct {
-	Mode           string
-	Allowlist      ExpectedFailures
-	NativeIsInform bool
+	Mode      string
+	Allowlist ExpectedFailures
 }
 
 type junitTestSuites struct {
@@ -71,7 +70,7 @@ func JUnitXML(report TesterReport, policy JUnitPolicy) ([]byte, error) {
 		kind, detail := resultFailureDetail(result)
 		if expected := matchingExpectedFailure(policy.Allowlist, policy.Mode, result); expected != nil {
 			caseResult.SystemOut = "accepted deviation: " + expected.ID + "\n" + detail + "\n" + expected.Reason
-		} else if policy.NativeIsInform || policy.Mode == "native" {
+		} else if policy.Mode == "native" {
 			caseResult.Skipped = &junitSkipped{Message: "native informational gap: " + kind, Text: detail}
 			caseResult.SystemOut = "Native-mode compliance is informational; gaps stay visible but do not gate CI."
 			suite.Skipped++
@@ -143,7 +142,7 @@ func ComplianceMarkdown(report TesterReport, policy JUnitPolicy, reportPath stri
 		}
 		b.WriteString("\n")
 	}
-	if mode == "native" || policy.NativeIsInform {
+	if mode == "native" {
 		gap := NativeGapReport(report)
 		fmt.Fprintf(&b, "Native mode is informational: gaps are reported but do not fail CI.\n\n")
 		fmt.Fprintf(&b, "| Passing on native | Accepted tolerances | Diff failures | Unsupported root | Other errors |\n")

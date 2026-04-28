@@ -125,6 +125,16 @@ func TestCostShadowAllowsLightFreshSubqueryAsShadowCandidate(t *testing.T) {
 	if len(info.CapHits) != 1 || info.CapHits[0] != "subquery" {
 		t.Fatalf("cap hits = %+v, want subquery cap bypass evidence", info.CapHits)
 	}
+	found := false
+	for _, a := range info.Advisory {
+		if a == "shadow_subquery_cap_bypass=subquery" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("advisory = %+v, want shadow bypass advisory", info.Advisory)
+	}
 }
 
 func TestCostPreferSelectsLocalWhenRateFamilyGateEnabled(t *testing.T) {

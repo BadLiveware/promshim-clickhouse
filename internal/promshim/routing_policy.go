@@ -119,7 +119,9 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 		routingmetrics.ObserveOverCap(class.Family, capEval.Name)
 	}
 	if len(info.CapHits) > 0 {
-		if !(policy == RoutingPolicyCostShadow && allowSubqueryShadowCapBypass(class, info.CapHits)) {
+		if policy == RoutingPolicyCostShadow && allowSubqueryShadowCapBypass(class, info.CapHits) {
+			info.Advisory = append(info.Advisory, "shadow_subquery_cap_bypass=subquery")
+		} else {
 			info.Decision = "strict_over_cap"
 			info.Reason = "hard_cap"
 			return info

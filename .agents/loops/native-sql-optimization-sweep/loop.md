@@ -203,6 +203,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-reflection76-branch-outcome-and-pivot` — **keep (reflection, no code change)**. Reflection checkpoint concludes the bounded subquery shadow branch is complete and should be retained as-is; measurable evidence rejects served-local expansion for this family, so next optimization effort should pivot to a different high-headroom family. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-reflection76-branch-outcome-and-pivot.md`.
 - `20260428-subquery-cost-prefer-expansion-rejected` — **reject/defer (no code change)**. Evaluated potential expansion from bounded subquery `cost_shadow` branch to `cost_prefer` served local override and rejected it using iteration-74 measurable gate evidence: local serving is ~10x slower with far higher CH round-trips for representative subquery shape. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-subquery-cost-prefer-expansion-rejected.md`.
 - `20260428-subquery-serving-measurement-gate` — **keep (measurement gate)**. Ran a focused measurable comparison for subquery shape `rate(up[5m])[30m:1m]` across native vs local modes. Native (`prefer/force_supported`) is ~10x faster than local (`off`) and uses far fewer CH round-trips (1 vs 30), so serving expansion toward local for this family is currently unjustified. Artifacts: `harness/artifacts/bench/standalone/20260428-iter74-subquery-serving-candidate/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-subquery-serving-measurement-gate.md`.
 - `20260428-loop-guardrail-clarification-balance` — **keep (policy clarification, no code change)**. Clarified canonical loop language: infrastructure/diagnostic work is allowed as enabling work, but measurable execution-resource improvements remain the primary priority, and repeated infra-only drift without near-term measurable path is discouraged. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-loop-guardrail-clarification-balance.md`.
@@ -301,6 +302,27 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 5. **Next priorities**
    - Add typed eligibility/rejection row-source-reuse decision metadata that is consistently visible in explain output for repeated candidate shapes (applied and not-applied cases where relevant).
    - Then move to subquery preference propagation / estimate plumbing once reuse decision observability is solid.
+
+### Reflection checkpoint (iteration 76)
+
+1. **What has been accomplished so far?**
+   - Finished advisory + controlled shadow-candidate branch for subquery family.
+   - Verified runtime branch behavior and blocked/activation transparency.
+   - Rejected served-local expansion using hard measurable evidence.
+
+2. **What's working well?**
+   - Measurable gates now effectively govern branch expansion decisions.
+   - Observability for behavior rationale is strong and test-backed.
+
+3. **What's not working or blocking progress?**
+   - The current subquery served-local direction lacks measurable headroom under tested conditions.
+
+4. **Should the approach be adjusted?**
+   - Yes: freeze this branch at current bounded state and pivot active measurable optimization to another family.
+
+5. **What are the next priorities?**
+   - Select next high-cost family from existing artifact evidence.
+   - Run one bounded measurable experiment with explicit win thresholds.
 
 ### Reflection checkpoint (iteration 71)
 

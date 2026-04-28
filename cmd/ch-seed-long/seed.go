@@ -272,7 +272,7 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		var lastSamples int64
-		var lastTime time.Time = start
+		lastTime := start
 		for {
 			select {
 			case <-progressCtx.Done():

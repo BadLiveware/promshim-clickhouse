@@ -1,6 +1,7 @@
-.PHONY: test vet race fmt fmt-check tidy tidy-check check harness compliance bench sweep sweep-smoke sweep-estimate-heavy bench-status release-check release-snapshot
+.PHONY: test vet race fmt fmt-check tidy tidy-check lint pre-commit check hooks-install hooks-uninstall harness compliance bench sweep sweep-smoke sweep-estimate-heavy bench-status release-check release-snapshot
 
 GO ?= go
+GOLANGCI_LINT ?= golangci-lint
 GOFILES := $(shell find . \( -path './.git' -o -path './harness/compliance/prom-compliance' \) -prune -o -name '*.go' -print)
 
 test:
@@ -22,14 +23,30 @@ tidy:
 	$(GO) mod tidy
 
 tidy-check:
-	@cp go.mod go.mod.check
-	@cp go.sum go.sum.check
-	@$(GO) mod tidy
-	@diff -u go.mod.check go.mod
-	@diff -u go.sum.check go.sum
-	@rm -f go.mod.check go.sum.check
+	$(GO) mod tidy -diff
 
-check: fmt-check tidy-check test vet
+lint:
+	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { \
+		echo "golangci-lint is required; install it from https://golangci-lint.run/usage/install/" >&2; \
+		exit 127; \
+	}
+	$(GOLANGCI_LINT) run ./...
+
+pre-commit: fmt-check tidy-check lint test
+
+check: fmt-check tidy-check lint test vet
+
+hooks-install:
+	git config core.hooksPath .githooks
+	@echo "Installed repository hooks from .githooks"
+
+hooks-uninstall:
+	@if [ "$$(git config --get core.hooksPath)" = ".githooks" ]; then \
+		git config --unset core.hooksPath; \
+		echo "Removed repository hooksPath"; \
+	else \
+		echo "core.hooksPath is not .githooks; leaving it unchanged"; \
+	fi
 
 harness:
 	./scripts/run-harness.sh

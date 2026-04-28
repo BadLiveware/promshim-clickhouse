@@ -199,6 +199,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-reflection66-first-behavior-experiment-status` — **keep (reflection, no code change)**. Reflection checkpoint confirms successful entry into the first controlled behavior experiment and sets next priority to evidence capture on decision-quality impact before any further behavior expansion. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-reflection66-first-behavior-experiment-status.md`.
 - `20260428-cbe-controlled-subquery-shadow-candidate` — **keep**. Entered the first bounded behavior experiment by allowing a shadow-only local candidate interpretation for light/fresh subquery shapes in `cost_shadow` (served strategy unchanged). Added focused regression coverage for this branch and cap-bypass guard conditions. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-controlled-subquery-shadow-candidate.md`.
 - `20260428-cbe-first-behavior-boundary-scope` — **keep (scope decision, no code change)**. Defined the first controlled behavior-experiment boundary to include only `cost_prefer` + confirmed-fresh estimate combinations, while explicitly excluding `cost_shadow` subquery rows until freshness parity is resolved. This enables a clean next-step experiment without confounded missing-estimate noise. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-first-behavior-boundary-scope.md`.
 - `20260428-cbe-estimate-freshness-prep-check` — **split/defer (no code change)**. Ran estimate-freshness prep (query warm-up + rebuilt-runtime advisory matrix rerun). Fresh cache state improved for cost_prefer rows, but subquery cost_shadow still reports `strict_missing_estimate`/`selector_stats` missing. Behavior-experiment entry remains deferred until scoped boundary or targeted fix is chosen. Artifacts: `harness/artifacts/explain/20260428-iter63-advisory-matrix-warmed/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-estimate-freshness-prep-check.md`.
@@ -287,6 +288,26 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 5. **Next priorities**
    - Add typed eligibility/rejection row-source-reuse decision metadata that is consistently visible in explain output for repeated candidate shapes (applied and not-applied cases where relevant).
    - Then move to subquery preference propagation / estimate plumbing once reuse decision observability is solid.
+
+### Reflection checkpoint (iteration 66)
+
+1. **What has been accomplished so far?**
+   - Completed diagnostic/advisory groundwork and landed the first bounded behavior branch.
+   - Preserved served-strategy neutrality while evolving shadow candidate interpretation.
+
+2. **What's working well?**
+   - Guarded, incremental behavior changes with targeted tests are containing risk effectively.
+
+3. **What's not working or blocking progress?**
+   - Decision-quality impact evidence for the new behavior branch is not yet fully documented.
+
+4. **Should the approach be adjusted?**
+   - Yes: pause further branching and gather focused before/after behavior evidence first.
+
+5. **What are the next priorities?**
+   - Produce a compact routing-matrix evidence pass for the new branch.
+   - Verify no collateral effects on non-target families.
+   - Decide expansion vs. tighten/revert based on that evidence.
 
 ### Reflection checkpoint (iteration 61)
 

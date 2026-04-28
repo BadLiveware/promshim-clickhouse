@@ -321,7 +321,9 @@ At every accepted attempt boundary:
 - Commit accepted coherent changes before calling `ralph_done`.
 - Include the loop/attempt notes, plan updates, tests, corpus changes, implementation, and validation-facing tooling changes that belong to the accepted attempt.
 - Keep instrumentation-only, keying-only, and behavior-changing SQL-shape work in separate commits when that improves review and rollback.
-- Include validation and artifact pointers in non-trivial commit bodies.
+- Commit messages must be self-contained: reviewers should be able to evaluate the optimization from the commit alone.
+- Do not reference ephemeral artifacts (`/tmp`, transient local paths, ad-hoc scratch files) in commit messages.
+- Include the key metrics needed to judge the optimization independently (before/after signals and what moved), plus the validation commands and their outcomes in non-trivial commit bodies.
 - Do not push unless explicitly asked.
 
 If commit permission is later revoked:

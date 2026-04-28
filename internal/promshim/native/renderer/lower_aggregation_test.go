@@ -297,6 +297,54 @@ func TestAggregationByNativeGridRangeFunctionsWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestRangeAggregationSelectorRequestsThreadGuardrail(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (up)`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsRange(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if got := rq.QuerySettings["max_threads"]; got != 4 {
+		t.Fatalf("max_threads = %#v, want 4", got)
+	}
+}
+
+func TestFusedRateAggregationRequestsThreadGuardrail(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (rate(http_requests_total[5m]))`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsRange(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if got := rq.QuerySettings["max_threads"]; got != 4 {
+		t.Fatalf("max_threads = %#v, want 4", got)
+	}
+}
+
+func TestSubqueryRateOverAggregationSuppressesThreadGuardrail(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(sum by (job) (up)[5m:1m])`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if _, ok := rq.QuerySettings["max_threads"]; ok {
+		t.Fatalf("subquery rate over aggregation should suppress max_threads, got settings %#v", rq.QuerySettings)
+	}
+}
+
 func TestAggregationByKeepsFullLabelsForRangeFunctions(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (rate(http_requests_total[5m]))`)
 	rq, err := Lower(LoweringCtx{

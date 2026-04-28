@@ -1522,6 +1522,12 @@ func TestExplainPlanIncludesSparseRateAndNoCapPhysicalDecisions(t *testing.T) {
 			wantStrategy: "set_max_threads",
 		},
 		{
+			name:         "direct range aggregation applies thread-cap guardrail setting",
+			query:        "sum by (job) (up)",
+			wantKind:     "query_settings",
+			wantStrategy: "set_max_threads",
+		},
+		{
 			name:         "subquery rate over aggregation preserves no thread cap",
 			query:        "rate(sum by (job) (up)[5m:1m])",
 			wantKind:     "query_settings",

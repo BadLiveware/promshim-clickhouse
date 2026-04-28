@@ -6,6 +6,7 @@ import (
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	logicalopt "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical/opt"
 	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 )
 
@@ -101,6 +102,7 @@ type ExplainNode struct {
 	RequiredColumns      []string                        `json:"requiredColumns,omitempty"`
 	MaterializedColumns  []string                        `json:"materializedColumns,omitempty"`
 	SemanticBarriers     []string                        `json:"semanticBarriers,omitempty"`
+	PhysicalDecisions    []physical.Decision             `json:"physicalDecisions,omitempty"`
 	RequiredInputStartMS int64                           `json:"requiredInputStartMs,omitempty"`
 	RequiredInputEndMS   int64                           `json:"requiredInputEndMs,omitempty"`
 	RenderedSQL          string                          `json:"renderedSQL,omitempty"`

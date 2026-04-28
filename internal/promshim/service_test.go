@@ -11,6 +11,7 @@ import (
 	httpapi "github.com/BadLiveware/promshim-clickhouse/internal/promshim/httpapi"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/local"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 )
 
 func TestPromotedTagColumnHelpersMergeExplicitAndDiscovered(t *testing.T) {
@@ -116,6 +117,52 @@ func TestQueryRangeExplainReturnsNativeAggregationForLabelMutation(t *testing.T)
 	if len(body.Data.Plan.Children) != 1 || body.Data.Plan.Children[0].Strategy != "native_sql_expression" {
 		t.Fatalf("expected native label-mutation child explain, got %#v", body.Data.Plan)
 	}
+}
+
+func TestQueryRangeExplainIncludesPhysicalDecisions(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	url := "/api/v1/query_range_explain?query=avg_over_time(up%5B1h%5D)&start=0&end=10800&step=3600&native_lowering_mode=force_supported"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Mode string            `json:"mode"`
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Mode != "range" || body.Data.Plan.Strategy != "native_sql" {
+		t.Fatalf("expected native range explain, got %#v", body.Data)
+	}
+	decision, ok := findExplainPhysicalDecision(body.Data.Plan.PhysicalDecisions, "range_window_aggregate")
+	if !ok {
+		t.Fatalf("expected range-window physical decision in API response, got %#v", body.Data.Plan.PhysicalDecisions)
+	}
+	if decision.Strategy != string(physical.RangeWindowAggregateStrategySparseDirectAggregate) {
+		t.Fatalf("physical strategy = %q, want %q; decisions=%#v", decision.Strategy, physical.RangeWindowAggregateStrategySparseDirectAggregate, body.Data.Plan.PhysicalDecisions)
+	}
+}
+
+func findExplainPhysicalDecision(decisions []physical.Decision, kind string) (physical.Decision, bool) {
+	for _, decision := range decisions {
+		if decision.Kind == kind {
+			return decision, true
+		}
+	}
+	return physical.Decision{}, false
 }
 
 func TestQueryRangeExplainBuildsClampPlan(t *testing.T) {

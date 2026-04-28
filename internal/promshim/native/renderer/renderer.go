@@ -4,72 +4,38 @@ import (
 	"strings"
 
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage/schema"
 
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-type PhysicalPlanPreferences struct {
-	RangeInstantSelector RangeInstantSelectorPreference
-	RangeWindowAggregate RangeWindowAggregatePreference
-	Execution            ExecutionPreference
-}
-
-// ExecutionPreference carries whole-query ClickHouse execution preferences.
-// Unlike selector strategy preferences, these settings apply to the entire
-// rendered SQL statement, so composite parent shapes can explicitly suppress a
-// child preference that would be harmful for the final query.
-type ExecutionPreference struct {
-	Threads ThreadPreference
-}
-
-type ThreadPreferenceMode string
+type PhysicalPlanPreferences = physical.PlanPreferences
+type ExecutionPreference = physical.ExecutionPreference
+type ThreadPreferenceMode = physical.ThreadPreferenceMode
+type ThreadCapPolicy = physical.ThreadCapPolicy
+type ThreadPreference = physical.ThreadPreference
+type RangeInstantSelectorPreference = physical.RangeInstantSelectorPreference
+type RangeWindowAggregateStrategy = physical.RangeWindowAggregateStrategy
+type RangeWindowAggregatePreference = physical.RangeWindowAggregatePreference
 
 const (
-	ThreadPreferenceDefault ThreadPreferenceMode = ""
-	ThreadPreferenceSet     ThreadPreferenceMode = "set"
-	ThreadPreferenceNoCap   ThreadPreferenceMode = "no_cap"
+	ThreadPreferenceDefault = physical.ThreadPreferenceDefault
+	ThreadPreferenceSet     = physical.ThreadPreferenceSet
+	ThreadPreferenceNoCap   = physical.ThreadPreferenceNoCap
+
+	ThreadCapPolicyDefault           = physical.ThreadCapPolicyDefault
+	ThreadCapPolicyASOFGuardrail     = physical.ThreadCapPolicyASOFGuardrail
+	ThreadCapPolicyBenchmarkControl  = physical.ThreadCapPolicyBenchmarkControl
+	ThreadCapPolicyManualMeasurement = physical.ThreadCapPolicyManualMeasurement
+
+	RangeWindowAggregateStrategyDefault               = physical.RangeWindowAggregateStrategyDefault
+	RangeWindowAggregateStrategyWindowJoin            = physical.RangeWindowAggregateStrategyWindowJoin
+	RangeWindowAggregateStrategyDirectAggregate       = physical.RangeWindowAggregateStrategyDirectAggregate
+	RangeWindowAggregateStrategySparseDirectAggregate = physical.RangeWindowAggregateStrategySparseDirectAggregate
+	RangeWindowAggregateStrategyCumulativeAvg         = physical.RangeWindowAggregateStrategyCumulativeAvg
 )
-
-type ThreadCapPolicy string
-
-const (
-	ThreadCapPolicyDefault           ThreadCapPolicy = ""
-	ThreadCapPolicyASOFGuardrail     ThreadCapPolicy = "asof_guardrail"
-	ThreadCapPolicyBenchmarkControl  ThreadCapPolicy = "benchmark_control"
-	ThreadCapPolicyManualMeasurement ThreadCapPolicy = "manual_measurement"
-)
-
-type ThreadPreference struct {
-	Mode       ThreadPreferenceMode
-	Policy     ThreadCapPolicy
-	MaxThreads int
-	ReasonCode string
-}
-
-type RangeInstantSelectorPreference struct {
-	// Strategy lets parent renderers request a ClickHouse physical shape for
-	// range queries over instant selectors. The storage layer validates
-	// eligibility and falls back to ASOF when the requested shape is not safe for
-	// the selector timing.
-	Strategy storage.RangeInstantSelectorStrategy
-}
-
-type RangeWindowAggregateStrategy string
-
-const (
-	RangeWindowAggregateStrategyDefault         RangeWindowAggregateStrategy = ""
-	RangeWindowAggregateStrategyWindowJoin      RangeWindowAggregateStrategy = "window_join"
-	RangeWindowAggregateStrategyDirectAggregate RangeWindowAggregateStrategy = "direct_aggregate"
-	RangeWindowAggregateStrategyCumulativeAvg   RangeWindowAggregateStrategy = "cumulative_avg"
-)
-
-type RangeWindowAggregatePreference struct {
-	// Strategy lets parent renderers request the physical shape for range-window
-	// aggregate evaluation over selector-backed range functions.
-	Strategy RangeWindowAggregateStrategy
-}
 
 type RenderParams struct {
 	Mode                native.RenderMode
@@ -99,19 +65,18 @@ type RenderParams struct {
 }
 
 func preferRangeInstantSelectorStrategy(prefs PhysicalPlanPreferences, strategy storage.RangeInstantSelectorStrategy) PhysicalPlanPreferences {
-	prefs.RangeInstantSelector = RangeInstantSelectorPreference{Strategy: strategy}
-	return prefs
+	return physical.PreferRangeInstantSelectorStrategy(prefs, strategy)
 }
 
 func preferRangeWindowAggregateStrategy(prefs PhysicalPlanPreferences, strategy RangeWindowAggregateStrategy) PhysicalPlanPreferences {
-	prefs.RangeWindowAggregate = RangeWindowAggregatePreference{Strategy: strategy}
-	return prefs
+	return physical.PreferRangeWindowAggregateStrategy(prefs, strategy)
 }
 
 type RenderedQuery struct {
-	SQL           string
-	QueryParams   map[string]string
-	QuerySettings map[string]any
+	SQL               string
+	QueryParams       map[string]string
+	QuerySettings     map[string]any
+	PhysicalDecisions []physical.Decision
 }
 
 func mergeRenderedQueryParams(dst, src map[string]string) {
@@ -126,45 +91,36 @@ func mergeRenderedQuerySettings(dst, src map[string]any) {
 	}
 }
 
+func appendRenderedQueryPhysicalDecisions(dst []physical.Decision, src ...physical.Decision) []physical.Decision {
+	for _, decision := range src {
+		if decision.Kind == "" || decision.Strategy == "" {
+			continue
+		}
+		dst = append(dst, decision)
+	}
+	return dst
+}
+
 func preferASOFThreadGuardrail(prefs PhysicalPlanPreferences, reasonCode string) PhysicalPlanPreferences {
-	return preferThreadCapPolicy(prefs, ThreadCapPolicyASOFGuardrail, reasonCode)
+	return physical.PreferASOFThreadGuardrail(prefs, reasonCode)
 }
 
 func preferThreadCapPolicy(prefs PhysicalPlanPreferences, policy ThreadCapPolicy, reasonCode string) PhysicalPlanPreferences {
-	if prefs.Execution.Threads.Mode == ThreadPreferenceNoCap {
-		return prefs
-	}
-	maxThreads, ok := threadCapPolicyMaxThreads(policy)
-	if !ok {
-		return prefs
-	}
-	prefs.Execution.Threads = ThreadPreference{Mode: ThreadPreferenceSet, Policy: policy, MaxThreads: maxThreads, ReasonCode: reasonCode}
-	return prefs
+	return physical.PreferThreadCapPolicy(prefs, policy, reasonCode)
 }
 
 func preferNoThreadCap(prefs PhysicalPlanPreferences, reasonCode string) PhysicalPlanPreferences {
-	prefs.Execution.Threads = ThreadPreference{Mode: ThreadPreferenceNoCap, ReasonCode: reasonCode}
-	return prefs
-}
-
-func threadCapPolicyMaxThreads(policy ThreadCapPolicy) (int, bool) {
-	switch policy {
-	case ThreadCapPolicyASOFGuardrail, ThreadCapPolicyBenchmarkControl, ThreadCapPolicyManualMeasurement:
-		return 4, true
-	default:
-		return 0, false
-	}
+	return physical.PreferNoThreadCap(prefs, reasonCode)
 }
 
 func physicalSettings(prefs PhysicalPlanPreferences) map[string]any {
-	threads := prefs.Execution.Threads
-	if threads.Mode != ThreadPreferenceSet || threads.MaxThreads <= 0 {
-		return nil
-	}
-	return map[string]any{"max_threads": threads.MaxThreads}
+	return physical.Settings(prefs)
 }
 
 func withPhysicalSettings(rq RenderedQuery, prefs PhysicalPlanPreferences) RenderedQuery {
+	if decision, ok := physical.ThreadPreferenceDecision(prefs.Execution.Threads); ok {
+		rq.PhysicalDecisions = appendRenderedQueryPhysicalDecisions(rq.PhysicalDecisions, decision)
+	}
 	settings := physicalSettings(prefs)
 	if len(settings) == 0 {
 		return rq

@@ -398,7 +398,7 @@ func tryRenderHistogramChildRowsSQLLogical(cfg storage.QueryConfig, childNode lo
 			return "", nil, false, nil
 		}
 		if histogramChildUsesOnlyLETagsLogical(agg) {
-			childRowsSQL, childRowParams, childErr := renderRangeFunctionRowsLogicalSQL(ctx, agg.Child)
+			childRowsSQL, childRowParams, _, childErr := renderRangeFunctionRowsLogicalSQL(ctx, agg.Child)
 			if childErr != nil {
 				return "", nil, false, childErr
 			}
@@ -406,7 +406,7 @@ func tryRenderHistogramChildRowsSQLLogical(cfg storage.QueryConfig, childNode lo
 		} else {
 			childCtx := ctx
 			childCtx.Params = aggregationChildRenderParams(agg, params)
-			rowsSQL, rowParams, err = renderFusedRangeAggregationLogicalRowsSQL(childCtx, agg)
+			rowsSQL, rowParams, _, err = renderFusedRangeAggregationLogicalRowsSQL(childCtx, agg)
 		}
 	case native.RenderModeInstant:
 		if agg.Op != parser.SUM {

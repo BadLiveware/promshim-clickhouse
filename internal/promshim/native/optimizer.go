@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 	"github.com/prometheus/prometheus/model/labels"
 )
 
@@ -51,6 +52,7 @@ type OptimizationReport struct {
 	RequiredColumns      []string
 	MaterializedColumns  []string
 	SemanticBarriers     []string
+	PhysicalDecisions    []physical.Decision
 	RenderedSQL          string
 	RequiredInputStartMS int64
 	RequiredInputEndMS   int64
@@ -143,6 +145,18 @@ func ApplyRenderedSQLMetadata(report *OptimizationReport, mode RenderMode, sql s
 	report.RenderedSQL = sql
 	report.MaterializedColumns = mergeUniqueStrings(report.MaterializedColumns, renderedColumnsForMode(mode)...)
 	return nil
+}
+
+func ApplyPhysicalDecisionMetadata(report *OptimizationReport, decisions []physical.Decision) {
+	if report == nil || len(decisions) == 0 {
+		return
+	}
+	for _, decision := range decisions {
+		if decision.Kind == "" || decision.Strategy == "" {
+			continue
+		}
+		report.PhysicalDecisions = append(report.PhysicalDecisions, decision)
+	}
 }
 
 type optimizerState struct {

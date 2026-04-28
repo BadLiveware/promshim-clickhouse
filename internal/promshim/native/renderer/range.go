@@ -10,62 +10,6 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 )
 
-func preferDirectSelectorWindowJoin(lookbackMS, stepMS int64) bool {
-	if lookbackMS <= 0 || stepMS <= 0 {
-		return false
-	}
-	// The direct window-join path duplicates raw points into every overlapping
-	// step bucket. That is a good trade when overlap is shallow (for example
-	// 1m windows on a 30s step), but once each point fan-outs across many step
-	// buckets the older materialize-then-window path is cheaper. Keep the generic
-	// fast path for low-overlap windows only; aggregate-specific helpers can opt
-	// into direct grouped aggregates when they avoid per-step array materialization.
-	overlapSlots := ((lookbackMS + stepMS - 1) / stepMS) + 1
-	return overlapSlots <= 4
-}
-
-func preferDirectSelectorWindowAggregate(fn string, lookbackMS, stepMS int64) bool {
-	if lookbackMS <= 0 || stepMS <= 0 {
-		return false
-	}
-	// avg_over_time has measured wins on direct grouped aggregation paths.
-	if fn == "avg_over_time" {
-		return true
-	}
-	// max_over_time uses a sparse direct-aggregate shape when windows do not
-	// overlap (lookback <= step). This avoids materializing a full series×grid
-	// range join for the high-cardinality 7d/1h gauge shape.
-	if fn == "max_over_time" {
-		return lookbackMS <= stepMS
-	}
-	return preferDirectSelectorWindowJoin(lookbackMS, stepMS)
-}
-
-func resolveRangeWindowAggregateStrategy(fn string, cfg storage.QueryConfig, lookbackMS, stepMS int64, prefs PhysicalPlanPreferences) RangeWindowAggregateStrategy {
-	switch prefs.RangeWindowAggregate.Strategy {
-	case RangeWindowAggregateStrategyWindowJoin:
-		return RangeWindowAggregateStrategyWindowJoin
-	case RangeWindowAggregateStrategyDirectAggregate:
-		if supportsDirectSelectorWindowAggregate(fn) {
-			return RangeWindowAggregateStrategyDirectAggregate
-		}
-	case RangeWindowAggregateStrategyCumulativeAvg:
-		if cfg.EnableCumulativeAvgOverTime && fn == "avg_over_time" {
-			return RangeWindowAggregateStrategyCumulativeAvg
-		}
-	}
-	if cfg.EnableCumulativeAvgOverTime && fn == "avg_over_time" && !preferDirectSelectorWindowJoin(lookbackMS, stepMS) {
-		return RangeWindowAggregateStrategyCumulativeAvg
-	}
-	if supportsDirectSelectorWindowAggregate(fn) && preferDirectSelectorWindowAggregate(fn, lookbackMS, stepMS) {
-		return RangeWindowAggregateStrategyDirectAggregate
-	}
-	if preferDirectSelectorWindowJoin(lookbackMS, stepMS) {
-		return RangeWindowAggregateStrategyWindowJoin
-	}
-	return RangeWindowAggregateStrategyDefault
-}
-
 func buildWindowedArraysSourceSQL(sourceSQL, fn string, startMS, endMS, stepMS, rangeMS, offsetMS int64) (string, error) {
 	grid := &sqlb.Select{Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: emit.GridEvalTSLiteral(startMS, endMS, stepMS)}, Alias: "eval_ts"}}}
 	windowColumns := []sqlb.ColExpr{
@@ -225,34 +169,6 @@ func canUseRangeFunctionRowsFastPath(fn string) bool {
 	switch fn {
 	case "sum_over_time", "max_over_time":
 		return true
-	default:
-		return false
-	}
-}
-
-func supportsDirectSelectorWindowAggregate(fn string) bool {
-	switch fn {
-	case "avg_over_time", "max_over_time":
-		return true
-	default:
-		return false
-	}
-}
-
-func canUseSparseDirectRateBuckets(fn string, lookbackMS, offsetMS, stepMS int64) bool {
-	return fn == "rate" && lookbackMS > 0 && stepMS > 0 && offsetMS == 0 && lookbackMS <= stepMS
-}
-
-func canUseNativeGridRangeFunction(fn string, lookbackMS, offsetMS int64) bool {
-	if lookbackMS <= 0 || offsetMS != 0 {
-		return false
-	}
-	switch fn {
-	case "rate", "irate", "delta", "idelta", "last_over_time":
-		// Very short windows have compliance-sensitive empty-window behavior in
-		// Prometheus. Keep them on promshim's SQL kernel until targeted fixtures
-		// prove ClickHouse's grid functions are identical there too.
-		return lookbackMS >= 60_000
 	default:
 		return false
 	}

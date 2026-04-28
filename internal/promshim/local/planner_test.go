@@ -12,6 +12,7 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -1473,6 +1474,91 @@ func TestExplainPlanDescribesNativeAggregationStrategy(t *testing.T) {
 	if !strings.Contains(explain.RenderedSQL, "src.tags['job']") || strings.Contains(explain.RenderedSQL, "mapKeys(src.tags)") {
 		t.Fatalf("expected aggregation child selector to project only job label, got %q", explain.RenderedSQL)
 	}
+}
+
+func TestExplainPlanIncludesSparseRangeWindowPhysicalDecision(t *testing.T) {
+	expr, err := logical.ParseExpression("avg_over_time(up[1h])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, analysis, err := BuildPlanWithContextAndAnalysis(expr, PlanContext{
+		Mode:               EvalModeRange,
+		Start:              time.Unix(0, 0).UTC(),
+		End:                time.Unix(3*3600, 0).UTC(),
+		Step:               time.Hour,
+		NativeLoweringMode: NativeLoweringModeForceSupported,
+	})
+	if err != nil {
+		t.Fatalf("expected native range-function plan, got error: %v", err)
+	}
+	explain := ExplainPlanWithLowering(plan, analysis.Root)
+	decision, ok := findPhysicalDecision(explain.PhysicalDecisions, "range_window_aggregate")
+	if !ok {
+		t.Fatalf("expected range-window physical decision, got %#v", explain.PhysicalDecisions)
+	}
+	if decision.Strategy != string(physical.RangeWindowAggregateStrategySparseDirectAggregate) {
+		t.Fatalf("physical strategy = %q, want sparse direct aggregate; decisions=%#v", decision.Strategy, explain.PhysicalDecisions)
+	}
+}
+
+func TestExplainPlanIncludesSparseRateAndNoCapPhysicalDecisions(t *testing.T) {
+	tests := []struct {
+		name         string
+		query        string
+		wantKind     string
+		wantStrategy string
+	}{
+		{
+			name:         "sparse direct rate aggregation",
+			query:        "sum by (job) (rate(up[1h]))",
+			wantKind:     "range_function_rows",
+			wantStrategy: string(physical.RangeFunctionRowsStrategySparseDirectRateAggregation),
+		},
+		{
+			name:         "subquery rate over aggregation preserves no thread cap",
+			query:        "rate(sum by (job) (up)[5m:1m])",
+			wantKind:     "query_settings",
+			wantStrategy: "no_thread_cap",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expr, err := logical.ParseExpression(tt.query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, analysis, err := BuildPlanWithContextAndAnalysis(expr, PlanContext{
+				Mode:                            EvalModeRange,
+				Start:                           time.Unix(0, 0).UTC(),
+				End:                             time.Unix(3*3600, 0).UTC(),
+				Step:                            time.Hour,
+				NativeLoweringMode:              NativeLoweringModeForceSupported,
+				PreferNativeAggregationPushdown: true,
+			})
+			if err != nil {
+				t.Fatalf("expected native plan, got error: %v", err)
+			}
+			explain := ExplainPlanWithLowering(plan, analysis.Root)
+			decision, ok := findPhysicalDecision(explain.PhysicalDecisions, tt.wantKind)
+			if !ok {
+				t.Fatalf("expected %q physical decision, got %#v", tt.wantKind, explain.PhysicalDecisions)
+			}
+			if decision.Strategy != tt.wantStrategy {
+				t.Fatalf("physical strategy = %q, want %q; decisions=%#v", decision.Strategy, tt.wantStrategy, explain.PhysicalDecisions)
+			}
+		})
+	}
+}
+
+func findPhysicalDecision(decisions []physical.Decision, kind string) (physical.Decision, bool) {
+	for _, decision := range decisions {
+		if decision.Kind == kind {
+			return decision, true
+		}
+	}
+	return physical.Decision{}, false
 }
 
 func TestExplainPlanDescribesNativeTransformedAggregationStrategy(t *testing.T) {

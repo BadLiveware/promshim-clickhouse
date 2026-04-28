@@ -455,10 +455,11 @@ func buildRangeWindowSelectorDirectAggregatePerStepQuery(cfg QueryConfig, select
 	}
 
 	// For non-overlapping range windows (lookback <= step) and zero offset, avoid
-	// materializing a full series×grid join for max_over_time. Instead, map each
-	// sample directly to its candidate eval bucket(s) and aggregate by eval_ms.
-	if fn == "max_over_time" && selector.OffsetMS == 0 && selector.LookbackMS > 0 && selector.LookbackMS <= stepMS {
-		return buildRangeWindowSelectorDirectAggregateSparseMaxPerStepQuery(cfg, selector, matchedSeriesSQL, params, aggregateColumns, aggregateValueExpr, resolvedFinalTagsExpr, orderBy, minimumSeriesLength)
+	// materializing a full series×grid join for simple selector-window aggregates.
+	// Instead, map each sample directly to its candidate eval bucket(s) and
+	// aggregate by eval_ms.
+	if directRangeWindowAggregateCanUseSparseBuckets(fn) && selector.OffsetMS == 0 && selector.LookbackMS > 0 && selector.LookbackMS <= stepMS {
+		return buildRangeWindowSelectorDirectAggregateSparsePerStepQuery(cfg, selector, matchedSeriesSQL, params, aggregateColumns, aggregateValueExpr, resolvedFinalTagsExpr, orderBy, minimumSeriesLength)
 	}
 
 	grid := &sqlb.Select{
@@ -507,7 +508,7 @@ func buildRangeWindowSelectorDirectAggregatePerStepQuery(cfg QueryConfig, select
 	return perStep, params, orderBy, nil
 }
 
-func buildRangeWindowSelectorDirectAggregateSparseMaxPerStepQuery(cfg QueryConfig, selector SelectorSource, matchedSeriesSQL string, params map[string]string, aggregateColumns []sqlb.ColExpr, aggregateValueExpr string, resolvedFinalTagsExpr sqlb.Expr, orderBy []sqlb.OrderExpr, minimumSeriesLength int) (*sqlb.Select, map[string]string, []sqlb.OrderExpr, error) {
+func buildRangeWindowSelectorDirectAggregateSparsePerStepQuery(cfg QueryConfig, selector SelectorSource, matchedSeriesSQL string, params map[string]string, aggregateColumns []sqlb.ColExpr, aggregateValueExpr string, resolvedFinalTagsExpr sqlb.Expr, orderBy []sqlb.OrderExpr, minimumSeriesLength int) (*sqlb.Select, map[string]string, []sqlb.OrderExpr, error) {
 	evalUpperExpr := "{start_ms:Int64} + intDiv(greatest(toUnixTimestamp64Milli(d.timestamp) - {start_ms:Int64}, 0) + {step_ms:Int64} - 1, {step_ms:Int64}) * {step_ms:Int64}"
 	candidateEvalExpr := "if({lookback_ms:Int64} = {step_ms:Int64} AND toUnixTimestamp64Milli(d.timestamp) >= {start_ms:Int64} AND positiveModulo(toUnixTimestamp64Milli(d.timestamp) - {start_ms:Int64}, {step_ms:Int64}) = 0, [" + evalUpperExpr + ", " + evalUpperExpr + " + {step_ms:Int64}], [" + evalUpperExpr + "])"
 	windowColumns := []sqlb.ColExpr{
@@ -623,6 +624,15 @@ func buildRangeWindowSelectorCumulativeAvgPerStepSQL(cfg QueryConfig, selector S
 	}
 	perStepSQL := "SELECT " + resolvedFinalTagsExpr + " AS final_tags, eval_ts AS timestamp, if(nan_count > 0 OR finite_count = 0, nan, finite_sum / finite_count) AS value FROM " + rawSubquerySQL(windowedSQL) + " WHERE finite_count + nan_count > " + strconv.Itoa(minimumSeriesLength)
 	return perStepSQL, params, orderBy, nil
+}
+
+func directRangeWindowAggregateCanUseSparseBuckets(fn string) bool {
+	switch fn {
+	case "avg_over_time", "max_over_time":
+		return true
+	default:
+		return false
+	}
 }
 
 func directRangeWindowAggregateSpec(fn string) ([]sqlb.ColExpr, string, error) {

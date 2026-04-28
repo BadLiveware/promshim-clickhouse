@@ -217,6 +217,34 @@ func TestAggregationByAvgOverTimeRangeUsesDirectAggregateRowsWhenCumulativeDisab
 	}
 }
 
+func TestAggregationByAvgOverTimeRangeUsesSparseDirectAggregateWhenNonOverlapping(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `avg by (instance, job, type) (avg_over_time(demo_memory_usage_bytes[1h]))`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params: RenderParams{
+			Mode:    testRenderParamsRange().Mode,
+			StartMS: 1_700_000_000_000,
+			EndMS:   1_700_086_400_000,
+			StepMS:  3_600_000,
+		},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	for _, expected := range []string{"avgIf(ifNull(toFloat64(d.value), nan), NOT isNaN(ifNull(toFloat64(d.value), nan))) AS avg_value", "GROUP BY d.id, eval_ms", "ARRAY JOIN", "positiveModulo("} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected avg_over_time non-overlap SQL to contain %q, got:\n%s", expected, rq.SQL)
+		}
+	}
+	for _, unexpected := range []string{"window_series", "window_values", "ASOF LEFT JOIN", "GROUP BY grid.id, grid.eval_ts"} {
+		if strings.Contains(rq.SQL, unexpected) {
+			t.Fatalf("expected avg_over_time non-overlap SQL to avoid %q, got:\n%s", unexpected, rq.SQL)
+		}
+	}
+}
+
 func TestAggregationByAvgOverTimeRangeHonorsDirectAggregatePreference(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job, type) (avg_over_time(demo_memory_usage_bytes[1h]))`)
 	cfg := testRenderConfig()

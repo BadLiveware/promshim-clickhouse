@@ -103,6 +103,9 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 		return info
 	}
 	if len(info.MissingEstimates) > 0 {
+		if advisory := missingEstimatesAdvisory(info.MissingEstimates); advisory != "" {
+			info.Advisory = append(info.Advisory, advisory)
+		}
 		info.Decision = "strict_missing_estimate"
 		info.Reason = "missing_estimate"
 		return info
@@ -305,6 +308,13 @@ func subqueryComplexityAdvisory(class httpapi.QueryCostClass) string {
 		return ""
 	}
 	return "subquery_complexity=" + class.SubqueryComplexityBand
+}
+
+func missingEstimatesAdvisory(fields []string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	return "missing_estimates=" + strings.Join(fields, ",")
 }
 
 func familyEnabled(class httpapi.QueryCostClass, enabled []string) bool {

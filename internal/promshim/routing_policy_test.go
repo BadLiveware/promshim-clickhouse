@@ -38,6 +38,9 @@ func TestCostShadowDecisionStaysStrictOnMissingEstimate(t *testing.T) {
 	if len(info.MissingEstimates) != 1 || info.MissingEstimates[0] != "selector_stats" {
 		t.Fatalf("missing estimates = %+v", info.MissingEstimates)
 	}
+	if len(info.Advisory) == 0 || info.Advisory[0] != "missing_estimates=selector_stats" {
+		t.Fatalf("advisory = %+v, want missing estimate advisory", info.Advisory)
+	}
 }
 
 func TestCostShadowAddsSubqueryComplexityAdvisory(t *testing.T) {

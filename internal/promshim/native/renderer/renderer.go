@@ -98,10 +98,6 @@ type RenderParams struct {
 	Physical          PhysicalPlanPreferences
 }
 
-func physicalPreferencesForRangeInstantSelectorStrategy(strategy storage.RangeInstantSelectorStrategy) PhysicalPlanPreferences {
-	return preferRangeInstantSelectorStrategy(PhysicalPlanPreferences{}, strategy)
-}
-
 func preferRangeInstantSelectorStrategy(prefs PhysicalPlanPreferences, strategy storage.RangeInstantSelectorStrategy) PhysicalPlanPreferences {
 	prefs.RangeInstantSelector = RangeInstantSelectorPreference{Strategy: strategy}
 	return prefs

@@ -56,7 +56,8 @@ func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 	if err != nil {
 		return RenderedQuery{}, err
 	}
-	return withPhysicalSettings(rq, ctx.Params.Physical), nil
+	effectiveParams := suppressThreadCapForPlan(ctx.Params, node)
+	return withPhysicalSettings(rq, effectiveParams.Physical), nil
 }
 
 func lowerInner(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {

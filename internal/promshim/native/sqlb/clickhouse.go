@@ -119,10 +119,6 @@ func Func(name string, args ...Expr) Call { return Call{Name: name, Args: args} 
 
 func Int64Placeholder(name string) Placeholder { return Placeholder{Name: name, Type: "Int64"} }
 
-func UInt64Placeholder(name string) Placeholder { return Placeholder{Name: name, Type: "UInt64"} }
-
-func StringPlaceholder(name string) Placeholder { return Placeholder{Name: name, Type: "String"} }
-
 func Num(v int64) Number { return Number(fmt.Sprintf("%d", v)) }
 
 func Add(l, r Expr) Infix { return Infix{Op: "+", L: l, R: r} }
@@ -136,10 +132,6 @@ func Eq(l, r Expr) Compare { return Compare{Op: "=", L: l, R: r} }
 func GTE(l, r Expr) Compare { return Compare{Op: ">=", L: l, R: r} }
 
 func LTE(l, r Expr) Compare { return Compare{Op: "<=", L: l, R: r} }
-
-func GT(l, r Expr) Compare { return Compare{Op: ">", L: l, R: r} }
-
-func LT(l, r Expr) Compare { return Compare{Op: "<", L: l, R: r} }
 
 func And(predicates ...Predicate) AndList { return AndList{Parts: predicates} }
 

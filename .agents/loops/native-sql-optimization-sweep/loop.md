@@ -179,24 +179,23 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Active hypotheses
 
-1. **Native row-source reuse for repeated range sources**
-   - Plan: `.agents/plans/native-row-source-reuse-optimizer.md`
-   - Current target family: non-cancelled repeated range-function arithmetic and comparisons, including bool comparisons where semantics are preserved by existing comparison SQL behavior (e.g., `rate(...) + rate(...)`, `rate(...) * rate(...)`, `rate(...) >= rate(...)`, `rate(...) >= bool rate(...)`) in one native query.
-   - Expected signal: duplicated source work drops in ProfileEvents/query log; strategy remains `native_sql`.
-   - Next action: add typed eligibility/rejection metadata and keying for less-trivial repeated sources beyond direct one-to-one repeated subtrees.
-
-2. **Subquery physical preference propagation**
-   - Target: nested range/subquery shapes where an inner source is eligible for sparse/native-grid strategy but parent context suppresses or fails to propagate the best preference.
-   - Expected signal: physical-decision metadata shows intended strategy inside nested shape; benchmark rows keep native SQL and reduce CPU/memory or avoid fallback.
-   - First action after row-source reuse: map representative subquery corpus rows and compare physical decisions at root vs child nodes.
-
-3. **Estimate inputs for later CBE**
+1. **Estimate inputs for later CBE**
    - Target: add explicit cardinality/window/step/lookback estimate plumbing without changing routing.
    - Expected signal: explain reports candidate estimates, and no strategy changes occur until a later CBE plan.
-   - First action after subquery mapping: identify existing analysis fields and benchmark corpus metadata that can seed estimates safely.
+   - Next action: identify existing analysis fields and benchmark corpus metadata that can seed estimates safely, then expose one bounded estimate payload in explain.
+
+2. **Subquery physical preference propagation (follow-up only after new evidence)**
+   - Target: nested range/subquery shapes where an inner source is eligible for sparse/native-grid strategy but parent context suppresses or fails to propagate the best preference.
+   - Status: current `rate(sum(...)[5m:])` hotspot tranche is paused after repeated low-signal runtime trials.
+   - Re-entry condition: a new design-backed branch with clearer expected runtime headroom and corroborating metrics beyond noise.
+
+3. **Native row-source reuse for repeated range sources (maintenance only)**
+   - Plan: `.agents/plans/native-row-source-reuse-optimizer.md`
+   - Status: major wins already landed; treat as maintenance unless a new high-impact repeated-source shape appears.
 
 ### Recent attempt summaries
 
+- `20260428-subquery-hotspot-tranche-closure` — **keep (scope decision, no code change)**. Applied the iteration-41 decision rule and explicitly closed the current `rate(sum(...)[5m:])` hotspot tranche after repeated low-signal runtime trials. Pivoted next execution focus to estimate-input plumbing for later CBE (instrumentation-first, no routing change). Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-subquery-hotspot-tranche-closure.md`.
 - `20260428-reflection41-pivot-scope` — **keep (reflection pivot, no code change)**. Reflection checkpoint concludes recent hotspot work is over-indexed on low-signal micro-variants; next execution should tighten to one explicit high-EV branch with predeclared accept/reject thresholds, or declare this hotspot tranche exhausted and pivot families. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-reflection41-pivot-scope.md`.
 - `20260428-subquery-avg-over-time-rows-path-rejected` — **reject/defer (reverted)**. Tried routing subquery-child `avg_over_time` through range rows fast path to reduce `draft_cand_0416...` hotspot cost. Correctness tests passed, but focused benchmark/profile comparison against iteration-33 baseline showed no meaningful memory reduction (still ~81.3MiB p95) and no consistent latency win, so prototype was reverted. Artifacts: `harness/artifacts/bench/standalone/20260428-iter40-subquery-hotspots-after-avgrows/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-subquery-avg-over-time-rows-path-rejected.md`.
 - `20260428-rate-sum-windowed-rows-collapsed-tags-rejected` — **reject/defer (reverted)**. Tested a collapsed-tag-set specialization on the actual windowed-rows path used by `rate(sum(...)[5m:])`. Prototype validated but focused bench/profile signals did not improve (slight shim/CH regressions within noise, no corroborating memory gain), so it was reverted. Artifacts: `harness/artifacts/bench/standalone/20260428-iter39-cand0242-after-shape/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-rate-sum-windowed-rows-collapsed-tags-rejected.md`.

@@ -2,7 +2,7 @@
 
 ## Objective
 
-Continuously improve promshim's PromQL → logical IR → native SQL and fallback execution surface by repeatedly finding high-expected-value optimization opportunities, implementing the safest useful candidate, measuring correctness and runtime signals, and keeping or rejecting each attempt based on evidence.
+Continuously improve promshim's PromQL → logical IR → native SQL and fallback execution surface by repeatedly finding high-expected-value optimization opportunities, implementing the safest useful candidate, measuring correctness and runtime signals, and keeping or rejecting each attempt based on evidence. The overarching objective is to make promshim look like a better solution by being a better solution. We do this by being fast and efficient, and producing fast and efficient sql, and choosing local execution when that is superior.
 
 Primary metric directions:
 
@@ -195,6 +195,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-cbe-estimate-input-subquery-overlap` — **keep**. Added derived estimate metadata `subqueryOverlapSlots` to routing cost class (`subqueryRangeMs/subqueryStepMs`) and validated classifier/API explain surfacing with subquery regression tests. No routing/strategy behavior changes. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-estimate-input-subquery-overlap.md`.
 - `20260428-cbe-estimate-input-subquery-points` — **keep**. Added derived estimate metadata `subqueryPointsPerEval` to routing cost class (`subqueryRangeMs/subqueryStepMs + 1`) and validated classifier/API explain surfacing with subquery regression tests. No routing/strategy behavior changes. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-estimate-input-subquery-points.md`.
 - `20260428-cbe-estimate-input-subquery-fields` — **keep**. Added instrumentation-first estimate metadata for later CBE by surfacing `subqueryRangeMs` and `subqueryStepMs` in routing cost class, populated from parsed subquery nodes. Added classifier and API explain regression tests; no routing/strategy behavior changes. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-estimate-input-subquery-fields.md`.
 - `20260428-subquery-hotspot-tranche-closure` — **keep (scope decision, no code change)**. Applied the iteration-41 decision rule and explicitly closed the current `rate(sum(...)[5m:])` hotspot tranche after repeated low-signal runtime trials. Pivoted next execution focus to estimate-input plumbing for later CBE (instrumentation-first, no routing change). Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-subquery-hotspot-tranche-closure.md`.

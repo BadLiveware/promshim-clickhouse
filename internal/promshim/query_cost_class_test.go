@@ -197,6 +197,9 @@ func TestClassifyQueryCostFamilies(t *testing.T) {
 				if got.SubqueryPointsPerEval != 31 {
 					t.Fatalf("subquery points per eval = %d, want 31", got.SubqueryPointsPerEval)
 				}
+				if got.SubqueryOverlapSlots != 30 {
+					t.Fatalf("subquery overlap slots = %v, want 30", got.SubqueryOverlapSlots)
+				}
 			},
 		},
 	}

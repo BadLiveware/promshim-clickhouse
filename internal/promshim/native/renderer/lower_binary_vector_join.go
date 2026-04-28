@@ -130,7 +130,10 @@ func lowerBinaryVectorJoin(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQ
 // so the rendered SQL is embeddable as a FROM source inside the join
 // body.
 func binaryVectorSelfReuseEligible(n *logicalpkg.BinaryPlan, joinShape string) bool {
-	if n == nil || nativeRepeatedSubexpressionReuseDisabled() || n.ReturnBool || !isSelfReuseSupportedOp(n.Op) || joinShape != "one_to_one" {
+	if n == nil || nativeRepeatedSubexpressionReuseDisabled() || !isSelfReuseSupportedOp(n.Op) || joinShape != "one_to_one" {
+		return false
+	}
+	if n.ReturnBool && !isSelfReuseComparisonOp(n.Op) {
 		return false
 	}
 	if n.VectorMatching != nil && (n.VectorMatching.On || len(n.VectorMatching.MatchingLabels) > 0 || len(n.VectorMatching.Include) > 0) {
@@ -164,6 +167,15 @@ func isSelfReuseSupportedOp(op parser.ItemType) bool {
 	switch op {
 	case parser.ADD, parser.SUB, parser.MUL, parser.DIV, parser.MOD, parser.POW,
 		parser.EQLC, parser.NEQ, parser.GTR, parser.LSS, parser.GTE, parser.LTE:
+		return true
+	default:
+		return false
+	}
+}
+
+func isSelfReuseComparisonOp(op parser.ItemType) bool {
+	switch op {
+	case parser.EQLC, parser.NEQ, parser.GTR, parser.LSS, parser.GTE, parser.LTE:
 		return true
 	default:
 		return false

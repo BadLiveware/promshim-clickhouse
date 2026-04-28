@@ -181,7 +181,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 1. **Native row-source reuse for repeated range sources**
    - Plan: `.agents/plans/native-row-source-reuse-optimizer.md`
-   - Current target family: non-cancelled repeated range-function arithmetic and non-bool comparisons (e.g., `rate(...) + rate(...)`, `rate(...) * rate(...)`, `rate(...) >= rate(...)`) in one native query.
+   - Current target family: non-cancelled repeated range-function arithmetic and comparisons, including bool comparisons where semantics are preserved by existing comparison SQL behavior (e.g., `rate(...) + rate(...)`, `rate(...) * rate(...)`, `rate(...) >= rate(...)`, `rate(...) >= bool rate(...)`) in one native query.
    - Expected signal: duplicated source work drops in ProfileEvents/query log; strategy remains `native_sql`.
    - Next action: add typed eligibility/rejection metadata and keying for less-trivial repeated sources beyond direct one-to-one repeated subtrees.
 
@@ -197,16 +197,17 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
-- `20260428-range-self-join-comparison` — **keep**. Extended range self-reuse from repeated arithmetic to repeated non-bool comparisons under the same conservative gates (default one-to-one, identical operands, repeated subtree candidate key, bool blocked). Evidence: `harness/artifacts/explain/20260428-range-self-join-compare-before/` → `...-compare-after/`; `join_build_rows` dropped `3347760 → 11544`, memory `4034302245 → 3023742564`, `real_time_us` `292427191 → 239284230`; compliance passed; focused benchmark artifact `harness/artifacts/bench/standalone/20260428-range-self-join-compare/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-range-self-join-comparison.md`.
-- `20260428-range-self-join-arithmetic` — **keep**. Generalized range self-reuse from `A + A` to identical one-to-one arithmetic repeated range-function operands (`+ - * / % ^`) with a repeated-subtree gate (`cseSubtreeKey`) so leaf arithmetic (`up * up`) is not rewritten. Evidence: `harness/artifacts/explain/20260428-range-self-join-mul-before/` → `...-mul-after/`; `join_build_rows` dropped `3347760 → 11544`, memory `4055860420 → 3027569371`, `real_time_us` `293298166 → 233424519`; compliance passed; focused benchmark artifact `harness/artifacts/bench/standalone/20260428-range-self-join-arithmetic/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-range-self-join-arithmetic.md`.
-- `20260428-range-self-join` — **keep**. Added range-mode binary self-join rendering for identical default one-to-one `A + A` operands. Baseline showed `(A + A) / 2` targets are already cancelled by logical optimization, so the runtime target shifted to `rate(...) + rate(...)`. Evidence: `harness/artifacts/explain/20260428-row-source-reuse-rate-plus-baseline/` → `harness/artifacts/explain/20260428-row-source-reuse-rate-plus-after/`; `join_build_rows` dropped `3347760 → 11544`, memory `4056171689 → 3299962607`, `real_time_us` `290023641 → 248337765`; compliance passed; focused benchmark artifacts under `harness/artifacts/bench/standalone/20260428-row-source-reuse-self-join/` and `...-prom-check/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-range-self-join.md`.
+- `20260428-range-self-join-bool-comparison` — **keep**. Extended range self-reuse to repeated bool comparisons under conservative gates (supported comparison op, default one-to-one matching, identical operand expression and repeated subtree key). For `rate(...) >= bool rate(...)`: `query_duration_ms` `8707 → 7206`, `memory_usage` `4045586437 → 3044895581`, `real_time_us` `293214755 → 242960764`, `join_build_rows` `3347760 → 11544`. Compliance passed; focused benchmark kept `native_sql` for all rows. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-range-self-join-bool-comparison.md`.
+- `20260428-range-self-join-comparison` — **keep**. Extended range self-reuse from repeated arithmetic to repeated non-bool comparisons under the same conservative gates. For `rate(...) >= rate(...)`: `join_build_rows` `3347760 → 11544`, `memory_usage` `4034302245 → 3023742564`, `real_time_us` `292427191 → 239284230`. Compliance passed; focused benchmark kept `native_sql` in prefer/force_supported. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-range-self-join-comparison.md`.
+- `20260428-range-self-join-arithmetic` — **keep**. Generalized range self-reuse from `A + A` to identical one-to-one arithmetic repeated range-function operands (`+ - * / % ^`) with a repeated-subtree gate (`cseSubtreeKey`) so leaf arithmetic (`up * up`) is not rewritten. For `rate(...) * rate(...)`: `join_build_rows` `3347760 → 11544`, `memory_usage` `4055860420 → 3027569371`, `real_time_us` `293298166 → 233424519`. Compliance passed; focused benchmark stayed `native_sql`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-range-self-join-arithmetic.md`.
+- `20260428-range-self-join` — **keep**. Added range-mode binary self-join rendering for identical default one-to-one `A + A` operands. Baseline showed `(A + A) / 2` targets are already cancelled by logical optimization, so the runtime target shifted to `rate(...) + rate(...)`. For `rate(...) + rate(...)`: `join_build_rows` `3347760 → 11544`, `memory_usage` `4056171689 → 3299962607`, `real_time_us` `290023641 → 248337765`. Compliance passed. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-range-self-join.md`.
 
 ## Attempt notes policy
 
 Each Ralph iteration should be one complete evaluated attempt. Use attempt IDs like:
 
 ```text
-YYYYMMDD-short-shape-name
+YYYYMMDD-<iteration number>-short-shape-name
 ```
 
 For each attempt, create:
@@ -311,8 +312,9 @@ At every accepted attempt boundary:
 - Keep instrumentation-only, keying-only, and behavior-changing SQL-shape work in separate commits when that improves review and rollback.
 - Commit messages must be self-contained: reviewers should be able to evaluate the optimization from the commit alone.
 - Do not reference ephemeral artifacts (`/tmp`, transient local paths, ad-hoc scratch files, harness artifacts) in commit messages.
-- Include the key metrics needed to judge the optimization independently (before/after signals and what moved), plus the validation commands and their outcomes in non-trivial commit bodies.
+- Include the key metrics needed to judge the optimization independently (before/after signals and what moved), plus the validation commands and their outcomes in non-trivial commit bodies. Include % change
 - Do not push unless explicitly asked.
+- Make sure `\n` are evaluated as newlines and not litral characters in the commit message
 
 ## Runtime decision policy
 

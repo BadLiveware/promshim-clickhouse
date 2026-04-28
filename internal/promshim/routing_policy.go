@@ -122,6 +122,11 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 		if policy == RoutingPolicyCostShadow && allowSubqueryShadowCapBypass(class, info.CapHits) {
 			info.Advisory = append(info.Advisory, "shadow_subquery_cap_bypass=subquery")
 		} else {
+			if policy == RoutingPolicyCostShadow {
+				if advisory := subqueryShadowCapBypassBlockedAdvisory(class, info.CapHits); advisory != "" {
+					info.Advisory = append(info.Advisory, advisory)
+				}
+			}
 			info.Decision = "strict_over_cap"
 			info.Reason = "hard_cap"
 			return info
@@ -384,19 +389,31 @@ func familyGate(class httpapi.QueryCostClass) string {
 }
 
 func allowSubqueryShadowCapBypass(class httpapi.QueryCostClass, capHits []string) bool {
+	return subqueryShadowCapBypassBlockedReason(class, capHits) == ""
+}
+
+func subqueryShadowCapBypassBlockedAdvisory(class httpapi.QueryCostClass, capHits []string) string {
+	reason := subqueryShadowCapBypassBlockedReason(class, capHits)
+	if reason == "" {
+		return ""
+	}
+	return "shadow_subquery_cap_bypass_blocked=" + reason
+}
+
+func subqueryShadowCapBypassBlockedReason(class httpapi.QueryCostClass, capHits []string) string {
 	if class.Family != "subquery" || !class.HasSubquery {
-		return false
+		return "not_subquery_family"
 	}
 	if !class.EstimateState.Fresh || class.EstimateState.Missing > 0 || class.EstimateState.Stale > 0 {
-		return false
+		return "estimates_not_fresh"
 	}
 	if class.SubqueryComplexityBand != "light" {
-		return false
+		return "complexity_not_light"
 	}
 	if len(capHits) != 1 || capHits[0] != "subquery" {
-		return false
+		return "cap_hits_not_subquery_only"
 	}
-	return true
+	return ""
 }
 
 func localCandidateFamily(class httpapi.QueryCostClass) bool {

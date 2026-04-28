@@ -330,18 +330,28 @@ func TestFusedRateAggregationRequestsThreadGuardrail(t *testing.T) {
 }
 
 func TestSubqueryRateOverAggregationSuppressesThreadGuardrail(t *testing.T) {
-	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(sum by (job) (up)[5m:1m])`)
-	rq, err := Lower(LoweringCtx{
-		Config:         testRenderConfig(),
-		Analysis:       analysis,
-		NativeAnalysis: nativeAnalysis,
-		Params:         testRenderParamsInstant(),
-	}, root)
-	if err != nil {
-		t.Fatalf("Lower: %v", err)
-	}
-	if _, ok := rq.QuerySettings["max_threads"]; ok {
-		t.Fatalf("subquery rate over aggregation should suppress max_threads, got settings %#v", rq.QuerySettings)
+	for _, tc := range []struct {
+		name   string
+		params RenderParams
+	}{
+		{name: "instant", params: testRenderParamsInstant()},
+		{name: "range", params: testRenderParamsRange()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(sum by (job) (up)[5m:1m])`)
+			rq, err := Lower(LoweringCtx{
+				Config:         testRenderConfig(),
+				Analysis:       analysis,
+				NativeAnalysis: nativeAnalysis,
+				Params:         tc.params,
+			}, root)
+			if err != nil {
+				t.Fatalf("Lower: %v", err)
+			}
+			if _, ok := rq.QuerySettings["max_threads"]; ok {
+				t.Fatalf("subquery rate over aggregation should suppress max_threads, got settings %#v", rq.QuerySettings)
+			}
+		})
 	}
 }
 

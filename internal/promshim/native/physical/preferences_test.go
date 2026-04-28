@@ -32,3 +32,16 @@ func TestNoThreadCapSuppressesLaterThreadCapPolicy(t *testing.T) {
 		t.Fatalf("reason = %q", prefs.Execution.Threads.ReasonCode)
 	}
 }
+
+func TestThreadPreferenceDecisionNoCapIncludesRejectedAlternative(t *testing.T) {
+	decision, ok := ThreadPreferenceDecision(ThreadPreference{Mode: ThreadPreferenceNoCap, ReasonCode: "subquery_rate_over_aggregate_regresses_with_thread_cap"})
+	if !ok {
+		t.Fatal("expected no-cap decision")
+	}
+	if decision.Kind != "query_settings" || decision.Strategy != "no_thread_cap" {
+		t.Fatalf("unexpected decision: %#v", decision)
+	}
+	if len(decision.Rejected) != 1 || decision.Rejected[0].Strategy != "set_max_threads" {
+		t.Fatalf("expected rejected set_max_threads alternative, got %#v", decision.Rejected)
+	}
+}

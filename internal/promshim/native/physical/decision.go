@@ -70,11 +70,19 @@ func ThreadPreferenceDecision(threads ThreadPreference) (Decision, bool) {
 			Guards:   []string{string(threads.Policy)},
 		}, true
 	case ThreadPreferenceNoCap:
+		reason := threads.ReasonCode
+		if reason == "" {
+			reason = "preserve_no_cap"
+		}
 		return Decision{
 			Kind:     "query_settings",
 			Strategy: "no_thread_cap",
-			Reason:   threads.ReasonCode,
+			Reason:   reason,
 			Guards:   []string{"preserve_no_cap"},
+			Rejected: []Alternative{{
+				Strategy: "set_max_threads",
+				Reason:   "suppressed by no-thread-cap preference",
+			}},
 		}, true
 	default:
 		return Decision{}, false

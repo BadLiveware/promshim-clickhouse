@@ -197,6 +197,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-subquery-no-thread-cap-nested-guard` — **keep**. Added a planner/explain regression guard for nested `rate(subquery-over-aggregation)` under a binary root so `query_settings=no_thread_cap` remains visible in `physicalDecisions`. No runtime behavior change; this protects subquery preference behavior ahead of deeper subquery propagation work. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-subquery-no-thread-cap-nested-guard.md`.
 - `20260428-row-source-reuse-mismatch-range-test` — **keep**. Added a range-mode renderer regression test that locks `row_source_reuse=not_reused` mismatch metadata for repeated-candidate unequal operands (`rate[1h] + rate[6h]`). No runtime behavior change; this prevents instant/range explainability drift. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-row-source-reuse-mismatch-range-test.md`.
 - `20260428-row-source-reuse-mismatch-decision` — **keep**. Added instant-mode `row_source_reuse=not_reused` metadata for repeated-candidate operand mismatches (e.g., `rate[1h] + rate[6h]`) with explicit guard/rejected-alternative diagnostics. Explain now reports mismatch reason; runtime shape remains effectively unchanged. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-row-source-reuse-mismatch-decision.md`.
 - `20260428-instant-reuse-followup-noop` — **defer/no-op**. Re-ran instant self-reuse exploration and confirmed the targeted instant decision coverage had already landed; no additional high-value code delta was justified in that narrow area. Validation remained clean and instant strategy selection stayed stable. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-instant-reuse-followup-noop.md`.
@@ -230,6 +231,29 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 5. **Next priorities**
    - Add typed eligibility/rejection row-source-reuse decision metadata that is consistently visible in explain output for repeated candidate shapes (applied and not-applied cases where relevant).
    - Then move to subquery preference propagation / estimate plumbing once reuse decision observability is solid.
+
+### Reflection checkpoint (iteration 11)
+
+1. **What has been accomplished so far?**
+   - Landed conservative row-source reuse improvements (range arithmetic/comparison/bool, instant reuse) with consistent explain metadata for applied and rejected paths.
+   - Added mismatch diagnostics (`not_reused` reasons/guards/rejected alternatives) and mode-alignment regression tests.
+   - Added subquery no-thread-cap nested regression coverage to preserve known-safe execution preference behavior.
+
+2. **What is working well?**
+   - The loop discipline (baseline explain artifact → small change → package tests → commit) keeps risk low and review quality high.
+   - Explain artifacts and `physicalDecisions` make decisions auditable and reduce blind optimization edits.
+
+3. **What is not working / blockers?**
+   - Recent wins are mostly observability/regression guards, not new runtime speedups.
+   - We are nearing diminishing returns in the current repeated-binary family without widening scope.
+
+4. **Should the approach be adjusted?**
+   - Yes: pivot from reuse-observability polish to a bounded first subquery-preference propagation slice with measurable runtime signal.
+   - Keep semantics conservative; prefer additive decision plumbing and guardrails before any routing behavior shifts.
+
+5. **Next priorities**
+   - Implement a narrow subquery preference propagation candidate (single shape, single preference path) with before/after explain and query-log evidence.
+   - Follow with estimate-plumbing scaffolding that reports candidate estimates without changing strategy selection.
 
 ## Attempt notes policy
 

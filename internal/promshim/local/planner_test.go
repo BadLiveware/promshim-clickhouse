@@ -1521,6 +1521,12 @@ func TestExplainPlanIncludesSparseRateAndNoCapPhysicalDecisions(t *testing.T) {
 			wantKind:     "query_settings",
 			wantStrategy: "no_thread_cap",
 		},
+		{
+			name:         "nested subquery rate over aggregation still preserves no thread cap",
+			query:        "rate(sum by (job) (up)[5m:1m]) + on(job) up",
+			wantKind:     "query_settings",
+			wantStrategy: "no_thread_cap",
+		},
 	}
 
 	for _, tt := range tests {

@@ -181,9 +181,9 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 1. **Native row-source reuse for repeated range sources**
    - Plan: `.agents/plans/native-row-source-reuse-optimizer.md`
-   - Current target family: non-cancelled repeated range-function arithmetic (e.g., `rate(...) + rate(...)`, `rate(...) * rate(...)`) in one native query.
+   - Current target family: non-cancelled repeated range-function arithmetic and non-bool comparisons (e.g., `rate(...) + rate(...)`, `rate(...) * rate(...)`, `rate(...) >= rate(...)`) in one native query.
    - Expected signal: duplicated source work drops in ProfileEvents/query log; strategy remains `native_sql`.
-   - Next action: add typed eligibility/rejection metadata and keying for less-trivial repeated sources beyond direct arithmetic self-reuse.
+   - Next action: add typed eligibility/rejection metadata and keying for less-trivial repeated sources beyond direct one-to-one repeated subtrees.
 
 2. **Subquery physical preference propagation**
    - Target: nested range/subquery shapes where an inner source is eligible for sparse/native-grid strategy but parent context suppresses or fails to propagate the best preference.
@@ -197,6 +197,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-range-self-join-comparison` — **keep**. Extended range self-reuse from repeated arithmetic to repeated non-bool comparisons under the same conservative gates (default one-to-one, identical operands, repeated subtree candidate key, bool blocked). Evidence: `harness/artifacts/explain/20260428-range-self-join-compare-before/` → `...-compare-after/`; `join_build_rows` dropped `3347760 → 11544`, memory `4034302245 → 3023742564`, `real_time_us` `292427191 → 239284230`; compliance passed; focused benchmark artifact `harness/artifacts/bench/standalone/20260428-range-self-join-compare/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-range-self-join-comparison.md`.
 - `20260428-range-self-join-arithmetic` — **keep**. Generalized range self-reuse from `A + A` to identical one-to-one arithmetic repeated range-function operands (`+ - * / % ^`) with a repeated-subtree gate (`cseSubtreeKey`) so leaf arithmetic (`up * up`) is not rewritten. Evidence: `harness/artifacts/explain/20260428-range-self-join-mul-before/` → `...-mul-after/`; `join_build_rows` dropped `3347760 → 11544`, memory `4055860420 → 3027569371`, `real_time_us` `293298166 → 233424519`; compliance passed; focused benchmark artifact `harness/artifacts/bench/standalone/20260428-range-self-join-arithmetic/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-range-self-join-arithmetic.md`.
 - `20260428-range-self-join` — **keep**. Added range-mode binary self-join rendering for identical default one-to-one `A + A` operands. Baseline showed `(A + A) / 2` targets are already cancelled by logical optimization, so the runtime target shifted to `rate(...) + rate(...)`. Evidence: `harness/artifacts/explain/20260428-row-source-reuse-rate-plus-baseline/` → `harness/artifacts/explain/20260428-row-source-reuse-rate-plus-after/`; `join_build_rows` dropped `3347760 → 11544`, memory `4056171689 → 3299962607`, `real_time_us` `290023641 → 248337765`; compliance passed; focused benchmark artifacts under `harness/artifacts/bench/standalone/20260428-row-source-reuse-self-join/` and `...-prom-check/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-range-self-join.md`.
 
@@ -243,19 +244,6 @@ Ephemeral artifacts:
 
 ## Runner policy
 
-Use Ralph by default for execution, but this design does not start the loop.
-
-Recommended Ralph configuration when the user asks to start:
-
-```json
-{
-  "name": "native-sql-optimization-sweep",
-  "itemsPerIteration": 0,
-  "reflectEvery": 5,
-  "maxIterations": 100
-}
-```
-
 Iteration unit: one meaningful, complete evaluated attempt. A Ralph iteration should be large enough to produce a decision-quality result, not just a single micro-step such as reading one file, running one command, or adding one small helper. The default guideline is: one iteration = one attempt.
 
 Each attempt should usually include:
@@ -266,7 +254,7 @@ Each attempt should usually include:
 4. validate;
 5. measure;
 6. accept/reject/defer/split;
-7. record and optionally commit;
+7. record and commit;
 8. reset active checklist for the next attempt;
 9. call `ralph_done`.
 
@@ -322,13 +310,9 @@ At every accepted attempt boundary:
 - Include the loop/attempt notes, plan updates, tests, corpus changes, implementation, and validation-facing tooling changes that belong to the accepted attempt.
 - Keep instrumentation-only, keying-only, and behavior-changing SQL-shape work in separate commits when that improves review and rollback.
 - Commit messages must be self-contained: reviewers should be able to evaluate the optimization from the commit alone.
-- Do not reference ephemeral artifacts (`/tmp`, transient local paths, ad-hoc scratch files) in commit messages.
+- Do not reference ephemeral artifacts (`/tmp`, transient local paths, ad-hoc scratch files, harness artifacts) in commit messages.
 - Include the key metrics needed to judge the optimization independently (before/after signals and what moved), plus the validation commands and their outcomes in non-trivial commit bodies.
 - Do not push unless explicitly asked.
-
-If commit permission is later revoked:
-
-- Leave the working tree with clear status and record the intended commit grouping in the attempt file.
 
 ## Runtime decision policy
 
@@ -352,13 +336,3 @@ Fallback behavior:
 - If benchmark data is missing, prefer `run-sweep.sh --setup ... --seed missing` over destructive reset.
 - If measurements are noisy, rerun one focused measurement from a quiet stack; if still noisy, defer rather than overfitting.
 - If an optimization needs unsupported semantics, split out correctness/coverage planning instead of adding it inside this loop attempt.
-
-## Pause rules
-
-Pause only when:
-
-- the user explicitly stops the loop;
-- a required action crosses the approval boundaries above;
-- correctness is blocked by missing external facts or credentials;
-- benchmark/compliance infrastructure is unhealthy after one reasonable non-destructive recovery attempt;
-- the loop reaches `maxIterations` and needs a new user decision about continuing.

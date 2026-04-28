@@ -98,8 +98,8 @@ func lowerBinaryVectorJoin(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQ
 			rq.PhysicalDecisions = appendRenderedQueryPhysicalDecisions(rq.PhysicalDecisions, physical.Decision{
 				Kind:     "row_source_reuse",
 				Strategy: "range_self_join",
-				Reason:   "identical one-to-one arithmetic operands share one flattened range source",
-				Guards:   []string{"identical_operands", "one_to_one_matching", "arithmetic_operator", "range_mode"},
+				Reason:   "identical one-to-one repeated range-function operands share one flattened range source",
+				Guards:   []string{"identical_operands", "one_to_one_matching", "supported_operator", "range_mode", "repeated_subtree_candidate"},
 			})
 			return rq, nil
 		}
@@ -130,7 +130,7 @@ func lowerBinaryVectorJoin(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQ
 // so the rendered SQL is embeddable as a FROM source inside the join
 // body.
 func binaryVectorSelfReuseEligible(n *logicalpkg.BinaryPlan, joinShape string) bool {
-	if n == nil || nativeRepeatedSubexpressionReuseDisabled() || n.ReturnBool || !isSelfReuseArithmeticOp(n.Op) || joinShape != "one_to_one" {
+	if n == nil || nativeRepeatedSubexpressionReuseDisabled() || n.ReturnBool || !isSelfReuseSupportedOp(n.Op) || joinShape != "one_to_one" {
 		return false
 	}
 	if n.VectorMatching != nil && (n.VectorMatching.On || len(n.VectorMatching.MatchingLabels) > 0 || len(n.VectorMatching.Include) > 0) {
@@ -160,9 +160,10 @@ func nodeExprString(n logicalpkg.Node) string {
 	return exprNode.ExprString()
 }
 
-func isSelfReuseArithmeticOp(op parser.ItemType) bool {
+func isSelfReuseSupportedOp(op parser.ItemType) bool {
 	switch op {
-	case parser.ADD, parser.SUB, parser.MUL, parser.DIV, parser.MOD, parser.POW:
+	case parser.ADD, parser.SUB, parser.MUL, parser.DIV, parser.MOD, parser.POW,
+		parser.EQLC, parser.NEQ, parser.GTR, parser.LSS, parser.GTE, parser.LTE:
 		return true
 	default:
 		return false

@@ -92,6 +92,24 @@ func TestCostPreferRequiresFamilyGate(t *testing.T) {
 	}
 }
 
+func TestCostPreferAddsCandidateServingDisabledAdvisory(t *testing.T) {
+	class := httpapi.QueryCostClass{Endpoint: "query", Family: "selector", SelectorCount: 1, EstimatedSeries: 10, EstimatedInputSamples: 100, EstimatedOutputPoints: 10, LocalRoundTrips: 1, NativeRoundTrips: 1}
+	info := routingDecisionForStrict(RoutingPolicyCostPrefer, local.NativeLoweringModePrefer, class, "native_sql", []string{"selector_instant"})
+	if info.Decision != "strict_low_confidence" || info.Reason != "candidate_serving_disabled" {
+		t.Fatalf("decision = %+v, want strict_low_confidence candidate_serving_disabled", info)
+	}
+	found := false
+	for _, a := range info.Advisory {
+		if a == "low_confidence_reason=candidate_serving_disabled" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("advisory = %+v, want candidate serving disabled advisory", info.Advisory)
+	}
+}
+
 func TestCostPreferSelectsLocalWhenRateFamilyGateEnabled(t *testing.T) {
 	class := httpapi.QueryCostClass{Endpoint: "query", Family: "rate", SelectorCount: 1, EstimatedSeries: 10, EstimatedInputSamples: 100, EstimatedOutputPoints: 10, LocalRoundTrips: 1, NativeRoundTrips: 1}
 	info := routingDecisionForStrict(RoutingPolicyCostPrefer, local.NativeLoweringModePrefer, class, "native_sql", []string{"rate_instant"})

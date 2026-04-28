@@ -1705,8 +1705,9 @@ func TestQueryExplainIncludesSubqueryEstimateInputs(t *testing.T) {
 					Family          string `json:"family"`
 					HasSubquery     bool   `json:"hasSubquery"`
 					LookbackMS      int64  `json:"lookbackMs"`
-					SubqueryRangeMS int64  `json:"subqueryRangeMs"`
-					SubqueryStepMS  int64  `json:"subqueryStepMs"`
+					SubqueryRangeMS       int64  `json:"subqueryRangeMs"`
+					SubqueryStepMS        int64  `json:"subqueryStepMs"`
+					SubqueryPointsPerEval int64  `json:"subqueryPointsPerEval"`
 				} `json:"class"`
 			} `json:"routing"`
 		} `json:"data"`
@@ -1726,6 +1727,9 @@ func TestQueryExplainIncludesSubqueryEstimateInputs(t *testing.T) {
 	}
 	if class.LookbackMS != int64((30 * time.Minute).Milliseconds()) {
 		t.Fatalf("lookbackMs = %d, want %d", class.LookbackMS, int64((30*time.Minute).Milliseconds()))
+	}
+	if class.SubqueryPointsPerEval != 31 {
+		t.Fatalf("subqueryPointsPerEval = %d, want 31", class.SubqueryPointsPerEval)
 	}
 }
 

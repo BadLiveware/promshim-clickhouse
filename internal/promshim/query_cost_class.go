@@ -36,6 +36,9 @@ func classifyQueryCost(expr parser.Expr, timing queryCostTiming, strictStrategy 
 	if class.HasRangeFunction && class.LookbackMS > 0 && timing.Step > 0 {
 		class.OverlapSlots = float64(time.Duration(class.LookbackMS)*time.Millisecond) / float64(timing.Step)
 	}
+	if class.SubqueryRangeMS > 0 && class.SubqueryStepMS > 0 {
+		class.SubqueryPointsPerEval = (class.SubqueryRangeMS / class.SubqueryStepMS) + 1
+	}
 	if class.SelectorCount > 0 {
 		class.LocalRoundTrips = class.SelectorCount
 	}

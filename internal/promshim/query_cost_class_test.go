@@ -194,6 +194,9 @@ func TestClassifyQueryCostFamilies(t *testing.T) {
 				if got.SubqueryStepMS != int64(time.Minute.Milliseconds()) {
 					t.Fatalf("subquery step ms = %d, want %d", got.SubqueryStepMS, int64(time.Minute.Milliseconds()))
 				}
+				if got.SubqueryPointsPerEval != 31 {
+					t.Fatalf("subquery points per eval = %d, want 31", got.SubqueryPointsPerEval)
+				}
 			},
 		},
 	}

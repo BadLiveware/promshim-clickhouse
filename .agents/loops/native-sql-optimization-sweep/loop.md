@@ -197,6 +197,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-reflection26-harness-debug-priority` — **keep (reflection pivot, no code change)**. Reflection checkpoint confirms behavior/guardrail progress is solid, but runtime validation for the binary-subquery family is blocked by `run-bench` HTTP 400 failures. Next priority is a bounded harness-debug slice to unblock reliable measurement before additional behavior tuning. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-reflection26-harness-debug-priority.md`.
 - `20260428-subquery-binary-bench-harness-400` — **defer/split**. Attempted focused benchmark smoke for mixed/nested binary subquery thread-policy shapes using `run-bench` on isolated benchmark endpoints, but all rows returned HTTP 400 in both `prefer` and `force_supported`, yielding no runtime comparison signal. Captured artifacts and a repro corpus for follow-up harness debugging. Artifacts: `harness/artifacts/bench/standalone/20260428-iter25-binary-thread-policy-smoke/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-subquery-binary-bench-harness-400.md`.
 - `20260428-binary-root-thread-policy-service-guard` — **keep**. Added API-level regression coverage for root-vs-branch thread-policy surfacing after binary-root scoping: pure subquery-rate explain keeps root `query_settings`, while mixed binary root omits root `query_settings` and preserves subquery-node `query_settings=no_thread_cap` with canonical reason. Runtime behavior unchanged; guard-only follow-up. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-binary-root-thread-policy-service-guard.md`.
 - `20260428-binary-root-thread-policy-scoping` — **keep**. Scoped global no-thread-cap suppression away from binary roots in `suppressThreadCapForPlan`, preserving non-binary-root behavior while relying on branch-local subquery suppression for binary shapes. After rebuilding bench promshim, mixed-root and nested-binary explain artifacts show `query_settings=no_thread_cap` attached to subquery branch nodes instead of root. Validation stayed green on local/native packages. Artifacts: `harness/artifacts/explain/20260428-mixed-root-thread-policy-after-rebuild/`, `harness/artifacts/explain/20260428-nested-binary-thread-policy-after-rebuild/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-binary-root-thread-policy-scoping.md`.
@@ -245,6 +246,30 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 5. **Next priorities**
    - Add typed eligibility/rejection row-source-reuse decision metadata that is consistently visible in explain output for repeated candidate shapes (applied and not-applied cases where relevant).
    - Then move to subquery preference propagation / estimate plumbing once reuse decision observability is solid.
+
+### Reflection checkpoint (iteration 26)
+
+1. **What has been accomplished so far?**
+   - Delivered the first bounded behavior change in this subquery phase: binary-root thread-policy scoping.
+   - Added planner + service guards that lock root-vs-branch query-settings explain behavior.
+   - Preserved package-level correctness signals after the behavior shift.
+
+2. **What's working well?**
+   - Iteration structure remains disciplined: baseline evidence, minimal change, guard tests, commit.
+   - Explain visibility is now robust enough to diagnose policy placement precisely.
+
+3. **What's not working or blocking progress?**
+   - Focused benchmark rows for this shape family currently fail with HTTP 400 in `run-bench`, preventing runtime comparisons.
+   - This creates a temporary measurement bottleneck for judging further behavior tweaks.
+
+4. **Should the approach be adjusted?**
+   - Yes: prioritize a bounded harness-debug attempt next to unblock measurement for this query family.
+   - Avoid additional behavior tuning until measurement reliability is restored.
+
+5. **What are the next priorities?**
+   - Capture exact failing request/response details for one bench row.
+   - Fix corpus/encoding or bench request construction so the row executes.
+   - Re-run focused bench smoke and only then continue subquery behavior optimization.
 
 ### Reflection checkpoint (iteration 21)
 

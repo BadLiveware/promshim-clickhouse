@@ -1701,8 +1701,10 @@ func TestQueryExplainIncludesSubqueryEstimateInputs(t *testing.T) {
 	var body struct {
 		Data struct {
 			Routing struct {
-				Advisory []string `json:"advisory"`
-				Class    struct {
+				SelectedStrategy string   `json:"selectedStrategy"`
+				StrictStrategy   string   `json:"strictStrategy"`
+				Advisory         []string `json:"advisory"`
+				Class            struct {
 					Family                string  `json:"family"`
 					HasSubquery           bool    `json:"hasSubquery"`
 					LookbackMS            int64   `json:"lookbackMs"`
@@ -1750,6 +1752,9 @@ func TestQueryExplainIncludesSubqueryEstimateInputs(t *testing.T) {
 	}
 	if len(body.Data.Routing.Advisory) == 0 || body.Data.Routing.Advisory[0] != "subquery_complexity=light" {
 		t.Fatalf("routing advisory = %#v, want subquery complexity advisory", body.Data.Routing.Advisory)
+	}
+	if body.Data.Routing.StrictStrategy != "native_sql" || body.Data.Routing.SelectedStrategy != "native_sql" {
+		t.Fatalf("advisory path must not change strategy selection, got strict=%q selected=%q", body.Data.Routing.StrictStrategy, body.Data.Routing.SelectedStrategy)
 	}
 }
 

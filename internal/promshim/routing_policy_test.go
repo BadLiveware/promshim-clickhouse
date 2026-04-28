@@ -87,6 +87,9 @@ func TestCostPreferRequiresFamilyGate(t *testing.T) {
 	if info.Decision != "strict_low_confidence" || info.Reason != "family_gate_disabled" {
 		t.Fatalf("decision = %+v, want disabled family gate", info)
 	}
+	if len(info.Advisory) == 0 || info.Advisory[0] != "low_confidence_reason=family_gate_disabled" {
+		t.Fatalf("advisory = %+v, want low confidence reason advisory", info.Advisory)
+	}
 }
 
 func TestCostPreferSelectsLocalWhenRateFamilyGateEnabled(t *testing.T) {

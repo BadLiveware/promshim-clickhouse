@@ -136,6 +136,9 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 	if info.Cost.Local > m.MinRelativeLocalRatio*info.Cost.Native || info.Cost.Native-info.Cost.Local < m.MinAbsoluteWinMS {
 		info.Decision = "strict_low_confidence"
 		info.Reason = "predicted_win_below_margin"
+		if advisory := lowConfidenceAdvisory(info.Reason); advisory != "" {
+			info.Advisory = append(info.Advisory, advisory)
+		}
 		return info
 	}
 	info.WouldSelect = "local"
@@ -145,12 +148,18 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 			info.WouldSelect = strictStrategy
 			info.Decision = "strict_low_confidence"
 			info.Reason = "family_gate_disabled"
+			if advisory := lowConfidenceAdvisory(info.Reason); advisory != "" {
+				info.Advisory = append(info.Advisory, advisory)
+			}
 			return info
 		}
 		if !costPreferServingCandidateAllowed(class) {
 			info.WouldSelect = strictStrategy
 			info.Decision = "strict_low_confidence"
 			info.Reason = "candidate_serving_disabled"
+			if advisory := lowConfidenceAdvisory(info.Reason); advisory != "" {
+				info.Advisory = append(info.Advisory, advisory)
+			}
 			return info
 		}
 		if strictStrategy == "local" {
@@ -160,12 +169,18 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 			info.WouldSelect = strictStrategy
 			info.Decision = "strict_low_confidence"
 			info.Reason = "strict_reference_already_local"
+			if advisory := lowConfidenceAdvisory(info.Reason); advisory != "" {
+				info.Advisory = append(info.Advisory, advisory)
+			}
 			return info
 		}
 		if hasKnownCostPreferDivergence(class) {
 			info.WouldSelect = strictStrategy
 			info.Decision = "strict_low_confidence"
 			info.Reason = "known_divergence"
+			if advisory := lowConfidenceAdvisory(info.Reason); advisory != "" {
+				info.Advisory = append(info.Advisory, advisory)
+			}
 			return info
 		}
 		info.Decision = "local_override"
@@ -315,6 +330,13 @@ func missingEstimatesAdvisory(fields []string) string {
 		return ""
 	}
 	return "missing_estimates=" + strings.Join(fields, ",")
+}
+
+func lowConfidenceAdvisory(reason string) string {
+	if strings.TrimSpace(reason) == "" {
+		return ""
+	}
+	return "low_confidence_reason=" + reason
 }
 
 func familyEnabled(class httpapi.QueryCostClass, enabled []string) bool {

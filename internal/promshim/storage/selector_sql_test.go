@@ -275,6 +275,25 @@ func TestBuildRangeWindowSelectorDirectAggregateRowsQuerySQLUsesGroupedRateAlias
 	}
 }
 
+func TestBuildRangeWindowSelectorDirectAggregateRowsQuerySQLUsesSparseAvgBucketsWhenNonOverlapping(t *testing.T) {
+	selector := selectorSourceFromMatchers("demo_memory_usage_bytes", nil, time.Hour, 0, SelectorKindRangeVector)
+
+	sql, _, err := BuildRangeWindowSelectorDirectAggregateRowsQuerySQLWithFinalTags(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -3600000, 3600000, 0, 3600000, 3600000, "avg_over_time", "", 0)
+	if err != nil {
+		t.Fatalf("expected direct aggregate rows SQL for avg_over_time, got error: %v", err)
+	}
+	for _, expected := range []string{"avgIf(ifNull(toFloat64(d.value), nan), NOT isNaN(ifNull(toFloat64(d.value), nan))) AS avg_value", "if(nan_count > 0 OR finite_count = 0, nan, avg_value) AS value", "ARRAY JOIN", "positiveModulo(", "GROUP BY d.id, eval_ms", "fromUnixTimestamp64Milli(eval_ms) AS timestamp"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected %q in SQL, got %q", expected, sql)
+		}
+	}
+	for _, unwanted := range []string{"window_series", "window_values", "GROUP BY grid.id, grid.eval_ts"} {
+		if strings.Contains(sql, unwanted) {
+			t.Fatalf("expected sparse direct aggregate rows SQL to avoid %q, got %q", unwanted, sql)
+		}
+	}
+}
+
 func TestBuildRangeWindowSelectorDirectAggregateRowsQuerySQLUsesGroupedMaxAliases(t *testing.T) {
 	selector := selectorSourceFromMatchers("demo_memory_usage_bytes", nil, time.Hour, 0, SelectorKindRangeVector)
 

@@ -99,9 +99,12 @@ func fixtureWriteRequest(start, end time.Time, step time.Duration) *prompb.Write
 
 func buildFixtureSeries(end time.Time) []seriesDesc {
 	instances := []string{"demo.promlabs.com:10000", "demo.promlabs.com:10001", "demo.promlabs.com:10002"}
-	memTypes := []string{"free", "cached", "used"}
-	cpuModes := []string{"idle", "user", "system"}
-	bucketLE := []string{"0.1", "0.2", "0.5", "1", "+Inf"}
+	memTypes := []string{"buffers", "cached", "free", "used"}
+	cpuModes := []string{"idle", "system", "user"}
+	bucketLE := []string{"0.0001", "0.00015000000000000001", "0.00022500000000000002", "0.0003375", "0.00050625", "0.000759375", "0.0011390624999999999", "0.0017085937499999998", "0.0025628906249999996", "0.0038443359374999994", "0.00576650390625", "0.008649755859375", "0.0129746337890625", "0.01946195068359375", "0.029192926025390625", "0.04378938903808594", "0.06568408355712891", "0.09852612533569336", "0.14778918800354004", "0.22168378200531006", "0.3325256730079651", "0.49878850951194763", "0.7481827642679214", "1.122274146401882", "1.683411219602823", "+Inf"}
+	methods := []string{"GET", "POST", "PUT"}
+	paths := []string{"/api/foo", "/api/bar", "/api/nonexistent"}
+	statuses := []string{"200", "404", "500"}
 
 	var out []seriesDesc
 	add := func(metric string, labels map[string]string, value func(ts time.Time, idx int) float64) {
@@ -134,10 +137,16 @@ func buildFixtureSeries(end time.Time) []seriesDesc {
 			return 1 + float64(instIdx)
 		})
 
-		for _, typ := range memTypes {
+		for typeIdx, typ := range memTypes {
 			labels := cloneLabels(common)
 			labels["type"] = typ
-			add("demo_memory_usage_bytes", labels, constant(173_015_040))
+			base := []float64{240_000_000, 3_100_000_000, 3_750_000_000, 1_550_000_000}[typeIdx]
+			amp := []float64{40_000_000, 420_000_000, 260_000_000, 330_000_000}[typeIdx]
+			typePhase := float64(typeIdx) * 0.7
+			add("demo_memory_usage_bytes", labels, func(ts time.Time, idx int) float64 {
+				phase := float64(idx)/3.0 + typePhase + float64(instIdx)*0.4
+				return math.Round(base + instanceShift*5_000_000 + amp*(0.5+0.5*math.Sin(phase)))
+			})
 		}
 		for modeIdx, mode := range cpuModes {
 			labels := cloneLabels(common)
@@ -147,20 +156,27 @@ func buildFixtureSeries(end time.Time) []seriesDesc {
 				return 100 + float64(idx)*(0.5+modeScale) + instanceShift
 			})
 		}
-		for leIdx, le := range bucketLE {
+		for comboIdx := 0; comboIdx < len(methods)*len(paths); comboIdx++ {
 			labels := cloneLabels(common)
-			labels["le"] = le
-			bucketScale := float64(leIdx + 1)
-			add("demo_api_request_duration_seconds_bucket", labels, func(ts time.Time, idx int) float64 {
-				return 10 + float64(idx)*bucketScale + instanceShift
+			labels["method"] = methods[comboIdx%len(methods)]
+			labels["path"] = paths[(comboIdx/len(methods))%len(paths)]
+			labels["status"] = statuses[(instIdx+comboIdx)%len(statuses)]
+			comboScale := float64(comboIdx + 1)
+			add("demo_api_request_duration_seconds_count", labels, func(ts time.Time, idx int) float64 {
+				return 100 + float64(idx)*(1+comboScale/10) + instanceShift
 			})
+			add("demo_api_request_duration_seconds_sum", labels, func(ts time.Time, idx int) float64 {
+				return 10 + float64(idx)*(0.001+comboScale/1000) + instanceShift/1000
+			})
+			for leIdx, le := range bucketLE {
+				bucketLabels := cloneLabels(labels)
+				bucketLabels["le"] = le
+				bucketScale := float64(leIdx+1) * (1 + comboScale/20)
+				add("demo_api_request_duration_seconds_bucket", bucketLabels, func(ts time.Time, idx int) float64 {
+					return 100 + float64(idx)*bucketScale + instanceShift
+				})
+			}
 		}
-		add("demo_api_request_duration_seconds_count", common, func(ts time.Time, idx int) float64 {
-			return 10 + float64(idx)*float64(len(bucketLE)) + instanceShift
-		})
-		add("demo_api_request_duration_seconds_sum", common, func(ts time.Time, idx int) float64 {
-			return 3 + float64(idx)*1.25 + instanceShift
-		})
 	}
 
 	markerLabels := map[string]string{

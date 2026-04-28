@@ -200,9 +200,9 @@ PY
 fixture_present_for() {
   local base_url="$1"
   scalar_equals "$base_url" 'count(promshim_compliance_fixture_info{fixture="promql-demo", generator="promshim-compliance-seed"})' "$COMPLIANCE_EVAL_TIME" 1 &&
-    scalar_equals "$base_url" 'count(demo_memory_usage_bytes{job="demo"})' "$COMPLIANCE_EVAL_TIME" 9 &&
+    scalar_equals "$base_url" 'count(demo_memory_usage_bytes{job="demo"})' "$COMPLIANCE_EVAL_TIME" 12 &&
     scalar_equals "$base_url" 'count(demo_num_cpus{job="demo"})' "$COMPLIANCE_EVAL_TIME" 3 &&
-    scalar_equals "$base_url" 'count(demo_api_request_duration_seconds_bucket{job="demo"})' "$COMPLIANCE_EVAL_TIME" 15
+    scalar_equals "$base_url" 'count(demo_api_request_duration_seconds_bucket{job="demo"})' "$COMPLIANCE_EVAL_TIME" 702
 }
 
 fixture_empty_for() {

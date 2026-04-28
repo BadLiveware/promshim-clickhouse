@@ -50,6 +50,14 @@ func suppressThreadCapForSubqueryRangeFunction(params RenderParams, child *logic
 }
 
 func suppressThreadCapForPlan(params RenderParams, node logicalpkg.Node) RenderParams {
+	// Query settings are whole-query in ClickHouse; when a binary root mixes
+	// subquery-rate and non-subquery branches, forcing a global no-thread-cap
+	// preference can suppress useful guardrails for the other branch. Keep the
+	// no-cap override for non-binary roots and rely on branch-local propagation
+	// inside range-lowering for nested subquery/rate paths.
+	if _, mixedRoot := node.(*logicalpkg.BinaryPlan); mixedRoot {
+		return params
+	}
 	if containsSubqueryRateOverAggregation(node) {
 		params.Physical = preferNoThreadCap(params.Physical, physical.ThreadPreferenceReasonSubqueryRateRows)
 	}

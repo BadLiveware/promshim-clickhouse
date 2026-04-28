@@ -1504,46 +1504,51 @@ func TestExplainPlanIncludesSparseRangeWindowPhysicalDecision(t *testing.T) {
 
 func TestExplainPlanIncludesSparseRateAndNoCapPhysicalDecisions(t *testing.T) {
 	tests := []struct {
-		name         string
-		query        string
-		wantKind     string
-		wantStrategy string
+		name          string
+		query         string
+		wantKind      string
+		wantStrategy  string
+		wantDecision  bool
 	}{
 		{
 			name:         "sparse direct rate aggregation",
 			query:        "sum by (job) (rate(up[1h]))",
 			wantKind:     "range_function_rows",
 			wantStrategy: string(physical.RangeFunctionRowsStrategySparseDirectRateAggregation),
+			wantDecision: true,
 		},
 		{
 			name:         "fused rate aggregation applies thread-cap guardrail setting",
 			query:        "sum by (job) (rate(up[1h]))",
 			wantKind:     "query_settings",
 			wantStrategy: "set_max_threads",
+			wantDecision: true,
 		},
 		{
 			name:         "direct range aggregation applies thread-cap guardrail setting",
 			query:        "sum by (job) (up)",
 			wantKind:     "query_settings",
 			wantStrategy: "set_max_threads",
+			wantDecision: true,
 		},
 		{
 			name:         "subquery rate over aggregation preserves no thread cap",
 			query:        "rate(sum by (job) (up)[5m:1m])",
 			wantKind:     "query_settings",
 			wantStrategy: "no_thread_cap",
+			wantDecision: true,
 		},
 		{
-			name:         "nested subquery rate over aggregation still preserves no thread cap",
+			name:         "nested subquery rate over aggregation leaves root query settings unset",
 			query:        "rate(sum by (job) (up)[5m:1m]) + on(job) up",
 			wantKind:     "query_settings",
-			wantStrategy: "no_thread_cap",
+			wantDecision: false,
 		},
 		{
-			name:         "subquery no-cap suppresses thread-cap candidates in mixed root",
+			name:         "mixed root leaves query settings unset",
 			query:        "sum(avg_over_time(up[1h])) + sum(rate((sum by (job) (up))[5m:1m]))",
 			wantKind:     "query_settings",
-			wantStrategy: "no_thread_cap",
+			wantDecision: false,
 		},
 	}
 
@@ -1566,6 +1571,12 @@ func TestExplainPlanIncludesSparseRateAndNoCapPhysicalDecisions(t *testing.T) {
 			}
 			explain := ExplainPlanWithLowering(plan, analysis.Root)
 			decision, ok := findPhysicalDecision(explain.PhysicalDecisions, tt.wantKind)
+			if !tt.wantDecision {
+				if ok {
+					t.Fatalf("expected no %q physical decision, got %#v", tt.wantKind, explain.PhysicalDecisions)
+				}
+				return
+			}
 			if !ok {
 				t.Fatalf("expected %q physical decision, got %#v", tt.wantKind, explain.PhysicalDecisions)
 			}

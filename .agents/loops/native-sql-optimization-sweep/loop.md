@@ -197,6 +197,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-reflection21-subquery-propagation-pivot` — **keep (planning pivot, no code change)**. Reflection checkpoint concluded that subquery decision observability prerequisites are now largely complete (node surfacing, canonicalization, service guard), so expected value has shifted to a bounded behavior-oriented subquery preference propagation slice with runtime evidence rather than more metadata-only hardening. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-reflection21-subquery-propagation-pivot.md`.
 - `20260428-subquery-node-decision-service-guard` — **keep**. Added service-level explain regression coverage to lock nested subquery `query_settings=no_thread_cap` visibility in API responses (`query_range_explain`), including canonical reason-code assertion. This guards against root-only decision regressions and stack/build drift confusion. Runtime strategy/SQL unchanged. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-subquery-node-decision-service-guard.md`.
 - `20260428-subquery-node-decision-canonicalization` — **keep**. Switched subquery-node explain annotation to reuse canonical `ThreadPreferenceDecision(no_cap)` and only prepend the subquery-specific guard (`needs_subquery_step_grid`). Added regression assertions for canonical rejected alternative text/shape (`set_max_threads`, `suppressed by no-thread-cap preference`). Runtime strategy/SQL unchanged. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-subquery-node-decision-canonicalization.md`.
 - `20260428-subquery-thread-preference-reason-alignment` — **keep**. Unified thread-preference reason codes across renderer policy and explain-only subquery-node annotation by introducing shared constants in `physical` and switching all call sites/tests. This removes root/child reason drift in diagnostics while keeping runtime strategy/SQL behavior unchanged. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-subquery-thread-preference-reason-alignment.md`.
@@ -240,6 +241,29 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 5. **Next priorities**
    - Add typed eligibility/rejection row-source-reuse decision metadata that is consistently visible in explain output for repeated candidate shapes (applied and not-applied cases where relevant).
    - Then move to subquery preference propagation / estimate plumbing once reuse decision observability is solid.
+
+### Reflection checkpoint (iteration 21)
+
+1. **What has been accomplished so far?**
+   - Landed conservative repeated-source reuse wins with strong runtime evidence and clean compliance history.
+   - Completed a focused subquery explainability hardening arc: nested node surfacing, reason-code and rejected-alternative canonicalization, and API-level regression coverage.
+
+2. **What is working well?**
+   - The loop’s evidence-first structure keeps risk low and avoids speculative edits.
+   - Decision metadata is now materially easier to audit across planner and service explain surfaces.
+
+3. **What is not working / blockers?**
+   - Recent accepted iterations have mostly been observability/testing improvements, not runtime wins.
+   - External `ch-explain` artifact visibility can lag local commits when benchmark stack binaries are stale, creating interpretation noise.
+
+4. **Should the approach be adjusted?**
+   - Yes. Shift from metadata-only safeguards to a bounded behavior slice for subquery preference propagation, with explicit runtime measurement requirements.
+   - Keep scope tight: one query family, one preference path, one decision-quality before/after comparison.
+
+5. **What are the next priorities?**
+   - Implement one minimal subquery propagation behavior candidate (not just metadata), preserving correctness and native strategy selection.
+   - Capture before/after explain + query-log/ProfileEvents evidence from a rebuilt benchmark stack.
+   - Retain the newly added explain/service guards to prevent observability regression while behavior changes land.
 
 ### Reflection checkpoint (iteration 16)
 

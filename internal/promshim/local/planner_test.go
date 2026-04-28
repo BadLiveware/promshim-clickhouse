@@ -1527,6 +1527,12 @@ func TestExplainPlanIncludesSparseRateAndNoCapPhysicalDecisions(t *testing.T) {
 			wantKind:     "query_settings",
 			wantStrategy: "no_thread_cap",
 		},
+		{
+			name:         "subquery no-cap suppresses thread-cap candidates in mixed root",
+			query:        "sum(avg_over_time(up[1h])) + sum(rate((sum by (job) (up))[5m:1m]))",
+			wantKind:     "query_settings",
+			wantStrategy: "no_thread_cap",
+		},
 	}
 
 	for _, tt := range tests {

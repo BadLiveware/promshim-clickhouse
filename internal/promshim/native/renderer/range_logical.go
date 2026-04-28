@@ -286,7 +286,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						ResolveSourcePromQL: params.ResolveSourcePromQL,
 						RequireFullTags:     params.RequireFullTags,
 						RequiredTagLabels:   params.RequiredTagLabels,
-						Physical:            physicalPreferencesForRangeInstantSelectorStrategy(storage.RangeInstantSelectorStrategyBucketedArgMax),
+						Physical:            preferRangeInstantSelectorStrategy(params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
 					}
 					childRendered, err := Lower(childCtx, child)
 					if err != nil {
@@ -301,6 +301,8 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 				}
 			}
 		case *logicalpkg.SubqueryPlan:
+			ctx = LoweringCtx{Config: ctx.Config, Analysis: ctx.Analysis, NativeAnalysis: ctx.NativeAnalysis, Params: suppressThreadCapForSubqueryRangeFunction(ctx.Params, child, fn), cse: ctx.cse}
+			params = ctx.Params
 			if child != nil && child.Child != nil {
 				// Subquery-child fast path first:
 				// tryRenderSubqueryRowsSourceLogical inspects the
@@ -335,7 +337,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 					ResolveSourcePromQL: params.ResolveSourcePromQL,
 					RequireFullTags:     params.RequireFullTags,
 					RequiredTagLabels:   params.RequiredTagLabels,
-					Physical:            physicalPreferencesForRangeInstantSelectorStrategy(storage.RangeInstantSelectorStrategyBucketedArgMax),
+					Physical:            preferRangeInstantSelectorStrategy(params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
 				}
 				childRendered, err := Lower(childCtx, child)
 				if err != nil {
@@ -474,7 +476,7 @@ func tryRenderSubqueryRowsSourceLogical(ctx LoweringCtx, n *logicalpkg.SubqueryP
 		RequiredStartMS:     childRequiredStartMS,
 		RequiredEndMS:       childRequiredEndMS,
 		ResolveSourcePromQL: ctx.Params.ResolveSourcePromQL,
-		Physical:            physicalPreferencesForRangeInstantSelectorStrategy(storage.RangeInstantSelectorStrategyBucketedArgMax),
+		Physical:            preferRangeInstantSelectorStrategy(ctx.Params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
 	})
 	childCtx := LoweringCtx{
 		Config:         ctx.Config,

@@ -226,7 +226,7 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 			ResolveSourcePromQL: ctx.Params.ResolveSourcePromQL,
 			RequireFullTags:     ctx.Params.RequireFullTags,
 			RequiredTagLabels:   ctx.Params.RequiredTagLabels,
-			Physical:            physicalPreferencesForRangeInstantSelectorStrategy(storage.RangeInstantSelectorStrategyBucketedArgMax),
+			Physical:            preferRangeInstantSelectorStrategy(ctx.Params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
 		}
 		childRendered, err := Lower(childCtx, child)
 		if err != nil {
@@ -255,7 +255,7 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 			ResolveSourcePromQL: ctx.Params.ResolveSourcePromQL,
 			RequireFullTags:     ctx.Params.RequireFullTags,
 			RequiredTagLabels:   ctx.Params.RequiredTagLabels,
-			Physical:            physicalPreferencesForRangeInstantSelectorStrategy(storage.RangeInstantSelectorStrategyBucketedArgMax),
+			Physical:            preferRangeInstantSelectorStrategy(ctx.Params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
 		}
 		childRendered, err := Lower(childCtx, child)
 		if err != nil {

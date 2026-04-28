@@ -179,12 +179,16 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Active hypotheses
 
-1. **Estimate inputs for later CBE**
-   - Target: add explicit cardinality/window/step/lookback estimate plumbing without changing routing.
-   - Expected signal: explain reports candidate estimates, and no strategy changes occur until a later CBE plan.
-   - Next action: identify existing analysis fields and benchmark corpus metadata that can seed estimates safely, then expose one bounded estimate payload in explain.
+1. **Controlled CBE behavior experiments (consume diagnostics)**
+   - Target: use the now-available subquery estimate diagnostics in controlled, behavior-safe experiments (e.g., shadow/advisory interpretation first) before any routing flips.
+   - Expected signal: clearer candidate rationale and measurable decision-quality signals without correctness regressions.
+   - Next action: design one bounded advisory/shadow slice that references current complexity diagnostics and keeps served strategy unchanged.
 
-2. **Subquery physical preference propagation (follow-up only after new evidence)**
+2. **Estimate inputs for later CBE (maintenance only)**
+   - Status: instrumentation tranche complete for current subquery scope (`subqueryRangeMs`, `subqueryStepMs`, `subqueryPointsPerEval`, `subqueryOverlapSlots`, `subqueryWorkUnits`, `subqueryComplexityBand`).
+   - Re-entry condition: missing estimate dimension identified by a concrete behavior experiment.
+
+3. **Subquery physical preference propagation (follow-up only after new evidence)**
    - Target: nested range/subquery shapes where an inner source is eligible for sparse/native-grid strategy but parent context suppresses or fails to propagate the best preference.
    - Status: current `rate(sum(...)[5m:])` hotspot tranche is paused after repeated low-signal runtime trials.
    - Re-entry condition: a new design-backed branch with clearer expected runtime headroom and corroborating metrics beyond noise.
@@ -195,6 +199,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-cbe-estimate-tranche-closure` — **keep (scope decision, no code change)**. Closed the current estimate-input instrumentation tranche after landing and validating the full subquery diagnostic set. Next execution focus shifts to controlled CBE behavior experiments that consume existing diagnostics rather than adding more fields. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-estimate-tranche-closure.md`.
 - `20260428-cbe-estimate-input-subquery-complexity-band` — **keep**. Added qualitative derived diagnostic `subqueryComplexityBand` (`light|moderate|elevated|heavy`) from existing subquery complexity inputs, with classifier and API explain regression coverage. No routing/strategy behavior changes. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-estimate-input-subquery-complexity-band.md`.
 - `20260428-cbe-estimate-input-subquery-temporal-fanout` — **keep**. Added derived subquery complexity indicator `subqueryTemporalFanout` to routing cost class (`subqueryPointsPerEval * max(rangePointsPerSeries,1)`), with classifier and API explain regression coverage. No routing/strategy behavior changes. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-estimate-input-subquery-temporal-fanout.md`.
 - `20260428-cbe-estimate-input-subquery-work-units` — **keep**. Added derived subquery complexity indicator `subqueryWorkUnits` to routing cost class (`subqueryPointsPerEval * max(selectorCount,1)`), with classifier and API explain regression coverage. No routing/strategy behavior changes. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-estimate-input-subquery-work-units.md`.

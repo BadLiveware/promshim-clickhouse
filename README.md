@@ -30,15 +30,16 @@ The current correctness gate is not a hand-written smoke test. Promshim passes,
 within the narrow accepted-deviation policy below:
 
 - the full upstream `prometheus/compliance` PromQL suite, run against reference
-  Prometheus and promshim on the same frozen fixture;
+  Prometheus and promshim on the same deterministic remote-write fixture;
 - promshim's own deterministic differential harness and dashboard-focused
   corpora; and
 - native-only coverage runs that keep tier-2 gaps visible instead of silently
   hiding them behind fallback execution.
 
-The only accepted deviations are narrow, documented cases where exact
-Prometheus behavior depends on storage-engine internals or tiny primitive-level
-floating-point differences. Everything else is treated as a bug or visible
+Accepted deviations, when present, are limited to narrow, documented cases
+where exact Prometheus behavior depends on storage-engine internals or tiny
+primitive-level floating-point differences. The current deterministic fixture
+has no accepted deviations; everything else is treated as a bug or visible
 coverage gap.
 
 ## Where it fits

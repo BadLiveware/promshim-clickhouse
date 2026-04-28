@@ -73,7 +73,7 @@ if latency dropped for an unrelated reason.
 | "Fused A+B", "eliminated ARRAY JOIN", "row-source fast path" | `EXPLAIN PIPELINE` shows fewer stages; specific operator (e.g. `ArrayJoin`) absent in `EXPLAIN SYNTAX` | `ch-explain.sh` |
 | "Skipped stale NaNs", "pruned series" | `SelectedRows` drops; `result_rows` unchanged | `ch-profile-diff.sh` |
 | "Reduced memory" | `MemoryTrackerUsage` drops | `ch-profile-diff.sh` |
-| "Bounded runaway CPU", "capped threads", "reduced noisy-neighbor risk" | `UserTimeMicroseconds` / `RealTimeMicroseconds` or thread-time drops without unacceptable p50/p95 regression | targeted max_threads comparison plus ProfileEvents |
+| "Bounded runaway CPU", "capped threads", "reduced noisy-neighbor risk" | `UserTimeMicroseconds` / `RealTimeMicroseconds` or thread-time drops without unacceptable p50/p95 regression | `ch-explain.sh` query-log summary/settings plus targeted max_threads comparison |
 | "Fewer network roundtrips" | `X-Promshim-CH-Roundtrips` response header drops | matrix bench report |
 | Any claim + `strategy_used` changed | **Hard regression signal.** Verify the claimed path still ran. | matrix bench `strategy` column |
 
@@ -125,21 +125,45 @@ preferences only after shape-specific evidence.
 
 Prefer `./scripts/run-sweep.sh` for benchmark/compliance sweeps and
 cross-axis comparisons. It uses isolated benchmark ports/volumes so long-range
-or dense data does not contaminate the compliance fixture. Reach for the lower
-level scripts only for focused debugging or one-off captures.
+or higher-cardinality active-series data does not contaminate the compliance
+fixture. Reach for lower-level scripts only for focused debugging, one-off
+captures, or cases where `run-sweep.sh` cannot express the experiment.
 
-All scripts live in `scripts/`. Run with `--help` for full flags.
+All scripts live in `scripts/`. Run each script with `--help` for exact flags
+and benchmark-stack examples instead of copying long invocations from this
+skill.
 
-| Script | Added cost | Use when |
-|---|---:|---|
-| `run-sweep.sh --name <run> --profile 7d --density sparse --shim-modes prefer,force_supported,off --memory summary` | setup once, then query time | Primary benchmark/compliance workflow. Writes `harness/artifacts/sweeps/<run>/manifest.json`, v2 reports, matrix inputs, and memory summaries from isolated benchmark data. Use `--dry-run --estimate` before heavy/dense runs. |
-| `ch-profile-capture.sh --matrix` | ~1–2 s | Every bench run. Emits `harness/artifacts/ch-profile.json`: p50 `query_duration_ms`, `read_rows`, `read_bytes`, per-query `profile_events_sum`/`_avg` over repeats. Put it in the bench path unconditionally. **Overwritten each run** — preserve a baseline before re-capturing: `cp harness/artifacts/ch-profile.json harness/artifacts/ch-profile-<sha>.json`. |
-| `ch-profile-diff.sh before.json after.json` | <1 s | After two preserved captures. Markdown table sorted by Δp50_ms plus per-query ProfileEvents deltas. Flags: `--min-delta-ms`, `--events`, `--format json`. Joins preferentially on `log_comment` (stable across SQL-shape rewrites — set via the `X-Promshim-Log-Comment` header, which `promshim-bench` passes as `bench:<query-name>`) and falls back to `normalized_query` for older captures. |
-| `ch-explain.sh '<promql>' --mode instant` | ~2 s | One-PromQL deep dive. Runs through shim, pulls the lowered SQL from `system.query_log`, dumps `EXPLAIN SYNTAX/PLAN/PIPELINE/ESTIMATE` to `harness/artifacts/ch-explain/<ts>/`. Skip flags available. |
-| `ch-explain-diff.sh <ref-a> <ref-b> '<promql>'` | 30–180 s | Commit-to-commit verdict on a single PromQL. Builds/restarts the shim per ref; not for the inner loop. Prints "`EXPLAIN SYNTAX` is byte-identical" or "differs". |
-| `seed-long-range.sh --profile {7d\|30d\|1y} [--target ch\|prom\|both]` | 2–15 s | Low-level/debug seeding helper. For normal benchmark data setup, use `run-sweep.sh --setup --profile ... --density ... --target both`, which points at the isolated benchmark stack by default. |
-| `run-bench.sh --long-range {7d\|30d\|1y\|all}` | 90 / 360 / 120 / ~570 s | Low-level benchmark helper. Prefer `run-sweep.sh` for long-range comparisons so artifacts include run labels, named paths, memory summaries, and sweep manifests. |
-| `bench-matrix.sh --sweep harness/artifacts/sweeps/<run>/manifest.json` | <1 s | Renders sweep matrices from v2 reports across category/query/profile/density/transport/mode. Use `--per-query` for query-level rows. Legacy `profile:path` inputs still work for old reports. |
+### Single-query workbench: use `ch-explain.sh` first
+
+For one-query investigation, prefer `./scripts/ch-explain.sh` over ad-hoc
+`curl` plus `system.query_log` snippets. It handles both PromQL and concrete
+ClickHouse SQL (`--sql`) and writes one artifact bundle with shim explain,
+query-log rows, settings, ProfileEvents, clean SQL, and EXPLAIN variants.
+
+Run `./scripts/ch-explain.sh --help` for full examples. After a capture, inspect
+only the highest-signal files first:
+
+- `README.md` — inline summary and artifact index.
+- `query-log-summary.tsv` — duration, read rows/bytes, memory, `max_threads`,
+  CPU time, `FunctionExecute`, and join row counters.
+- `promshim-explain-summary.tsv` — routing/strategy/settings-profile summary
+  for PromQL inputs.
+- `qN/settings.tsv` and `qN/profile-events-top.tsv` — effective settings and
+  the largest ProfileEvents.
+- `qN/query-clean.sql` — SQL used for EXPLAIN/diffing.
+
+If `ch-explain.sh` lacks a reusable field needed for query diagnosis, add it to
+the script's artifact output instead of reintroducing one-off query-log snippets.
+
+| Script | Use when |
+|---|---|
+| `run-sweep.sh` | Primary benchmark/compliance workflow and active-series/profile setup. Use named runs; artifacts live under `harness/artifacts/bench/sweeps/<run>/`. Run `--dry-run --estimate` before profile-50k/profile-500k, multi-profile, or broad corpus runs. |
+| `ch-explain.sh` | First stop for a single-query deep dive. Supports PromQL and `--sql`; artifacts default to `harness/artifacts/explain/<ts>/`. |
+| `run-bench.sh` | Focused benchmark-only run when a full sweep is unnecessary. Use explicit endpoints and named `--artifact-dir`; add `--clickhouse-profile summary|auto|processors` when batch ProfileEvents/processors matter. |
+| `ch-profile-capture.sh` / `ch-profile-diff.sh` | Legacy/manual before-after ProfileEvents comparison. Preserve both sides under unique paths before diffing. |
+| `ch-explain-diff.sh` | Commit-to-commit `EXPLAIN SYNTAX` verdict for a single PromQL when a claim is suspect. |
+| `seed-long-range.sh` / `run-bench.sh --long-range` | Low-level debugging or unusual manual setups only; normal long-range setup/comparison should go through `run-sweep.sh`. |
+| `bench-matrix.sh` | Render matrices from `harness/artifacts/bench/sweeps/<run>/manifest.json`; use `--per-query` for query-level rows. |
 
 ## Serialize measurement runs via the named-lock library
 
@@ -152,7 +176,7 @@ don't have to remember which tools conflict.
 
 Locks are keyed by name:
 
-- **`stack`** — exclusive access to the compliance stack. Taken by
+- **`stack`** — exclusive access to stack-backed query windows. Taken by
   `run-bench.sh`, `run-compliance.sh`, `seed-long-range.sh`,
   `ch-explain.sh`, `ch-explain-diff.sh`, and `ch-profile-capture.sh`.
   Two runs with the same name refuse to race; the second exits 3 and
@@ -162,15 +186,13 @@ Locks are keyed by name:
   only while they're running, so external stack-users can grab the
   stack between phases.
 
-Inheritance is per-name via `CHO_RUN_LOCK_HELD_<NAME>=1`, so nested
-calls (`run-bench --bring-up` → `run-compliance`, `ch-profile-capture`
-→ `run-bench`, `run-harness` → `run-compliance`/`run-bench`) compose
-without deadlock.
+Inheritance is per-name via `CHO_RUN_LOCK_HELD_<NAME>=1`, so nested scripted
+calls compose without deadlock.
 
 **What the lock does not cover:**
 
 - Direct interactive work against the stack (`curl :29091/...`,
-  `docker exec`, ad-hoc ClickHouse queries). You are the serializer.
+  `curl :29191/...`, `docker exec`, ad-hoc ClickHouse queries). You are the serializer.
 - File-system races on `harness/artifacts/` from hand-written tools
   not routed through the scripts. `run-sweep.sh` also takes named locks for
   sweep/benchmark-stack operations, but manual interactive access can still
@@ -195,21 +217,24 @@ rather than trying to subtract the noise.
 | `strategy_used` flipped (`native_sql` → fallback) | **Hard regression.** Matrix-bench green hides silent breakage. |
 | Query present in one capture, not the other | Shape changed entirely. Investigate — could be win, could be wrong-strategy fallback. |
 
-## Long-range profiles
+## Long-range profiles and active-series targets
 
-Three profiles live in the same CH table in non-overlapping windows. Data is
-additive and persists until `docker volume rm`.
+Long-range profiles (`7d`, `30d`, `1y`) live in non-overlapping time windows.
+Sample volume scales with the active-series target; do not quote fixed sample
+counts without naming the preset or target.
 
-| Profile | End-time | Window / step | ~Samples | Uncovers |
-|---|---|---|---:|---|
-| `7d` | `2026-03-22T21:45:42Z` | 7 d @ 15 s | ~5 M | Baseline scan-work; realistic PK-range shapes. |
-| `30d` | `2026-02-22T21:45:42Z` | 30 d @ 60 s | ~5 M | Crosses `PARTITION BY toYYYYMM` (2 monthly partitions) — part-pruning regressions. |
-| `1y` | `2025-03-22T21:45:42Z` | 365 d @ 300 s | ~14 M | 12 partitions — PK range scans, codec decode across many parts, planner per-part overhead. |
+Use explicit active-series selectors in new commands:
 
-```bash
-./scripts/seed-long-range.sh --profile 7d          # one-time per volume
-./scripts/run-bench.sh       --long-range 7d       # query time only
-```
+- `--active-series-preset fast` — default fast target, about 5k active series.
+- `--active-series-preset profile-50k` — profiling target, about 50k active series.
+- `--active-series-preset profile-500k` — stress profiling target, about 500k active series.
+- `--active-series N` — custom target.
+- `--density ...` — deprecated compatibility alias only; avoid in new guidance.
+
+Use `run-sweep.sh --dry-run --estimate` before broad, multi-profile, or higher
+active-series runs. For exact setup/benchmark flags, run `./scripts/run-sweep.sh
+--help`; keep low-level `seed-long-range.sh` / `run-bench.sh --long-range` for
+script debugging or unusual manual setups.
 
 ## Manual fallbacks (not worth scripting)
 
@@ -220,13 +245,15 @@ additive and persists until `docker volume rm`.
   query_id = '<id>'`. Pipe through `flamegraph.pl` for folded form.
 - **Inline planner/executor trace** — re-run SQL with
   `?send_logs_level=trace` on the HTTP endpoint; streams index ranges,
-  pipeline decisions, memory high-water-marks before results.
+  pipeline decisions, memory high-water-marks before results. If useful more
+  than once, add it to `ch-explain.sh` instead of keeping a one-off command.
 - **`system.processors_profile_log`** — per-processor timing inside the
   pipeline. Where to look when `EXPLAIN PIPELINE` and `ProfileEvents`
   disagree.
-- **Direct pruning sanity check** — `SELECT avg(read_rows), avg(read_bytes),
-  avg(query_duration_ms) FROM system.query_log WHERE query LIKE
-  '%<marker>%'` before/after the commit.
+- **Direct pruning sanity check** — prefer `ch-explain.sh` or preserved
+  benchmark profile artifacts. If you must query `system.query_log` directly,
+  keep it a throwaway hypothesis check and move reusable fields into
+  `ch-explain.sh`.
 
 ## Common rationalizations
 
@@ -236,8 +263,8 @@ additive and persists until `docker volume rm`.
 | "p50 dropped 3%, ship it." | 3% is inside noise on the 10 m fixture. Check `EXPLAIN SYNTAX` diff and ProfileEvents. |
 | "The SQL is clearly shorter, that's the win." | CH's own rewriter folds most text-level changes. Byte-identical `EXPLAIN SYNTAX` = cosmetic. |
 | "`FunctionExecute` dropped 2×, ship it." | If latency is flat, you optimized a cold path. Still a correctness-of-claim signal; not a latency win. |
-| "Running long-range is expensive, I'll skip it." | Data is pre-seeded; cost is query time only. 7 d is ~90 s — same budget as a single CI lint step. |
-| "`ch-explain-diff.sh` takes minutes." | Reserve it for commits whose *claim* is suspect. Use `EXPLAIN SYNTAX` via `ch-explain.sh` (~2 s) for everything else. |
+| "Running long-range is expensive, I'll skip it." | Use `run-sweep.sh --dry-run --estimate`, choose the smallest active-series/corpus that tests the claim, and record the gap if a broader profile is deferred. |
+| "`ch-explain-diff.sh` takes minutes." | Reserve it for commits whose *claim* is suspect. Use `ch-explain.sh` (~2 s + query time) for single-query SQL/settings/ProfileEvents/EXPLAIN evidence first. |
 | "Wall-clock latency is what users see." | True — but optimization attribution requires ProfileEvents. Ship on latency; accept/reject *claims* on counters. |
 | "The message says CSE; I'll just check the counters." | Check the *diff* first. If the patch doesn't actually do a CSE, no counter movement attributes to a CSE. Reject for the mismatch. |
 | "I ran `ch-profile-capture.sh` once, I have my before/after." | Single capture = no before. The file is overwritten each run; `cp` the baseline under a `-<sha>.json` name before re-capturing or the diff is meaningless. |
@@ -252,8 +279,8 @@ additive and persists until `docker volume rm`.
 - Matrix bench green + latency flat + no EXPLAIN diff checked.
 - `strategy_used` change not investigated.
 - Claim of "pushdown" without a `SelectedRows` or `SelectedBytes` drop.
-- Long-range/dense profile skipped for a commit that claims storage-side work.
-- Running long-range/dense benchmarks against compliance ports instead of the
+- Long-range or higher-active-series profile skipped for a commit that claims storage-side work.
+- Running long-range or higher-active-series benchmarks against compliance ports instead of the
   isolated benchmark stack.
 - Commit message describes a different change than the diff (even if the
   diff looks good — the message is part of the review contract).

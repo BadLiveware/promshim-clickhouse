@@ -55,7 +55,8 @@ func lowerBinaryVectorJoin(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQ
 	}
 	switch ctx.Params.Mode {
 	case native.RenderModeInstant:
-		if binaryVectorSelfReuseEligible(n, joinShape) {
+		reuseDecision, annotateReuse := buildSelfReuseDecision(n, joinShape, native.RenderModeInstant)
+		if reuseDecision.Strategy == "instant_self_join" {
 			childSQL, childParams, err := lowerBinaryVectorJoinSide(ctx, n.LHS, "lhs")
 			if err != nil {
 				return RenderedQuery{}, err
@@ -64,7 +65,14 @@ func lowerBinaryVectorJoin(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQ
 			if err != nil {
 				return RenderedQuery{}, err
 			}
-			return finalizeRenderedFragment(renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams})
+			rq, err := finalizeRenderedFragment(renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams})
+			if err != nil {
+				return RenderedQuery{}, err
+			}
+			if annotateReuse {
+				rq.PhysicalDecisions = appendRenderedQueryPhysicalDecisions(rq.PhysicalDecisions, reuseDecision)
+			}
+			return rq, nil
 		}
 		lhsSQL, lhsParams, err := lowerBinaryVectorJoinSide(ctx, n.LHS, "lhs")
 		if err != nil {
@@ -78,9 +86,16 @@ func lowerBinaryVectorJoin(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQ
 		if err != nil {
 			return RenderedQuery{}, err
 		}
-		return finalizeRenderedFragment(renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams})
+		rq, err := finalizeRenderedFragment(renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams})
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		if annotateReuse {
+			rq.PhysicalDecisions = appendRenderedQueryPhysicalDecisions(rq.PhysicalDecisions, reuseDecision)
+		}
+		return rq, nil
 	case native.RenderModeRange:
-		reuseDecision, annotateReuse := buildRangeSelfReuseDecision(n, joinShape)
+		reuseDecision, annotateReuse := buildSelfReuseDecision(n, joinShape, native.RenderModeRange)
 		if reuseDecision.Strategy == "range_self_join" {
 			childCtx := ctx
 			childCtx.Params = rangeSideParams(ctx.Params, n.LHS)
@@ -157,13 +172,21 @@ func binaryVectorSelfReuseEligible(n *logicalpkg.BinaryPlan, joinShape string) b
 	return true
 }
 
-func buildRangeSelfReuseDecision(n *logicalpkg.BinaryPlan, joinShape string) (physical.Decision, bool) {
+func buildSelfReuseDecision(n *logicalpkg.BinaryPlan, joinShape string, mode native.RenderMode) (physical.Decision, bool) {
 	lhsExpr := nodeExprString(n.LHS)
 	rhsExpr := nodeExprString(n.RHS)
 	if lhsExpr == "" || lhsExpr != rhsExpr {
 		return physical.Decision{}, false
 	}
 	decision := physical.Decision{Kind: "row_source_reuse", Strategy: "not_reused"}
+	selectedStrategy := "range_self_join"
+	modeGuard := "range_mode"
+	reuseReason := "identical one-to-one repeated range-function operands share one flattened range source"
+	if mode == native.RenderModeInstant {
+		selectedStrategy = "instant_self_join"
+		modeGuard = "instant_mode"
+		reuseReason = "identical one-to-one repeated range-function operands share one instant source"
+	}
 	switch {
 	case nativeRepeatedSubexpressionReuseDisabled():
 		decision.Reason = "native repeated subexpression reuse is disabled by environment"
@@ -188,12 +211,12 @@ func buildRangeSelfReuseDecision(n *logicalpkg.BinaryPlan, joinShape string) (ph
 			decision.Guards = []string{"repeated_subtree_candidate_mismatch"}
 			break
 		}
-		decision.Strategy = "range_self_join"
-		decision.Reason = "identical one-to-one repeated range-function operands share one flattened range source"
-		decision.Guards = []string{"identical_operands", "one_to_one_matching", "supported_operator", "range_mode", "repeated_subtree_candidate"}
+		decision.Strategy = selectedStrategy
+		decision.Reason = reuseReason
+		decision.Guards = []string{"identical_operands", "one_to_one_matching", "supported_operator", modeGuard, "repeated_subtree_candidate"}
 	}
-	decision.Rejected = []physical.Alternative{{Strategy: "range_self_join", Reason: decision.Reason}}
-	if decision.Strategy == "range_self_join" {
+	decision.Rejected = []physical.Alternative{{Strategy: selectedStrategy, Reason: decision.Reason}}
+	if decision.Strategy == selectedStrategy {
 		decision.Rejected = nil
 	}
 	return decision, true

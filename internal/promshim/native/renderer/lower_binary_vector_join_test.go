@@ -103,7 +103,7 @@ func TestLowerBinaryVectorJoinGolden(t *testing.T) {
 }
 
 func TestLowerBinaryVectorJoinReusesIdenticalInstantAddSubexpression(t *testing.T) {
-	root, analysis, nativeAnalysis := buildLowerInputs(t, `(rate(demo_cpu_usage_seconds_total[1h]) + rate(demo_cpu_usage_seconds_total[1h])) / 2`)
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[1h]) + rate(demo_cpu_usage_seconds_total[1h])`)
 	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
@@ -116,6 +116,10 @@ func TestLowerBinaryVectorJoinReusesIdenticalInstantAddSubexpression(t *testing.
 	}
 	if !strings.Contains(rq.SQL, "lhs.value + lhs.value") {
 		t.Fatalf("expected self-reuse value expression, got SQL:\n%s", rq.SQL)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "row_source_reuse")
+	if !ok || decision.Strategy != "instant_self_join" {
+		t.Fatalf("expected row_source_reuse=instant_self_join decision, got %#v", rq.PhysicalDecisions)
 	}
 }
 
@@ -198,6 +202,18 @@ func TestLowerBinaryVectorJoinDoesNotReuseLeafArithmetic(t *testing.T) {
 	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "row_source_reuse")
 	if !ok || decision.Strategy != "not_reused" {
 		t.Fatalf("expected row_source_reuse=not_reused decision, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerBinaryVectorJoinMarksInstantNotReusedForOnMatching(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[1h]) + on(job) rate(demo_cpu_usage_seconds_total[1h])`)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "row_source_reuse")
+	if !ok || decision.Strategy != "not_reused" || !strings.Contains(decision.Reason, "default one-to-one matching labels") {
+		t.Fatalf("expected row_source_reuse=not_reused with matching reason, got %#v", rq.PhysicalDecisions)
 	}
 }
 

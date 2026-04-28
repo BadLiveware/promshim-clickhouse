@@ -209,7 +209,7 @@ T0=$(ch_query "SELECT toUnixTimestamp64Micro(now64(6))")
 
 curl_shim() {
   local endpoint="$1"; shift
-  local args=(-sfS -G "${SHIM_URL}${endpoint}" -H "X-Promshim-Log-Comment: ${LOG_COMMENT}")
+  local args=(-sS -G "${SHIM_URL}${endpoint}" -H "X-Promshim-Log-Comment: ${LOG_COMMENT}")
   if [[ -n "$NATIVE_MODE" ]]; then
     args+=(--data-urlencode "native_lowering_mode=${NATIVE_MODE}")
   fi
@@ -285,25 +285,41 @@ if [[ "$INPUT_MODE" == "sql" ]]; then
   echo "[ch-explain] clickhouse sql: direct query log_comment=${LOG_COMMENT}"
   ch_query "$QUERY_TEXT" "log_comment=${LOG_COMMENT}" >"${OUTPUT_DIR}/clickhouse-response.txt"
 else
+  SHIM_CURL_EXIT=0
   case "$MODE" in
     instant)
       echo "[ch-explain] shim: instant query at eval_time=${EVAL_TIME} log_comment=${LOG_COMMENT}"
+      set +e
       SHIM_BODY=$(curl_shim "/api/v1/query" \
         --data-urlencode "query=${QUERY_TEXT}" \
         --data-urlencode "time=${EVAL_UNIX}")
+      SHIM_CURL_EXIT=$?
+      set -e
       ;;
     range)
       echo "[ch-explain] shim: range query ${START_UNIX}→${END_UNIX} step=${STEP}s log_comment=${LOG_COMMENT}"
+      set +e
       SHIM_BODY=$(curl_shim "/api/v1/query_range" \
         --data-urlencode "query=${QUERY_TEXT}" \
         --data-urlencode "start=${START_UNIX}" \
         --data-urlencode "end=${END_UNIX}" \
         --data-urlencode "step=${STEP}")
+      SHIM_CURL_EXIT=$?
+      set -e
       ;;
     *) echo "unknown --mode: $MODE" >&2; exit 64 ;;
   esac
   echo "$SHIM_BODY" >"${OUTPUT_DIR}/shim-response.txt"
   write_shim_summary "${OUTPUT_DIR}/shim-response.txt"
+
+  SHIM_HTTP_STATUS=$(jq -r '.http_status // 0' "${OUTPUT_DIR}/shim-http-status.json" 2>/dev/null || echo 0)
+  if [[ "$SHIM_CURL_EXIT" -ne 0 ]]; then
+    echo "[ch-explain] shim request transport failed (exit=${SHIM_CURL_EXIT}); continuing with available diagnostics" >&2
+  fi
+  if [[ "$SHIM_HTTP_STATUS" =~ ^[0-9]+$ ]] && (( SHIM_HTTP_STATUS >= 400 )); then
+    echo "[ch-explain] shim returned HTTP ${SHIM_HTTP_STATUS}; continuing to capture query-log diagnostics" >&2
+  fi
+
   case "$MODE" in
     instant)
       write_promshim_explain "/api/v1/query_explain" \
@@ -325,6 +341,7 @@ ch_query "SYSTEM FLUSH LOGS" >/dev/null
 QUERY_LOG_SQL=$(cat <<SQL
 SELECT
   event_time_microseconds,
+  type,
   query_id,
   query_duration_ms,
   read_rows,
@@ -336,7 +353,7 @@ SELECT
   query
 FROM system.query_log
 WHERE event_time_microseconds >= fromUnixTimestamp64Micro(${T0})
-  AND type = 'QueryFinish'
+  AND type IN ('QueryFinish', 'ExceptionWhileProcessing')
   AND is_initial_query
   AND query_kind = 'Select'
   AND Settings['log_comment'] = '${LOG_COMMENT}'
@@ -352,6 +369,7 @@ ch_query "$QUERY_LOG_SQL" >"${OUTPUT_DIR}/query-log.jsonl"
 jq -sr '
   [
     "statement",
+    "type",
     "query_id",
     "query_duration_ms",
     "read_rows",
@@ -372,6 +390,7 @@ jq -sr '
   ],
   (to_entries[] | [
     (.key + 1),
+    (.value.type // ""),
     (.value.query_id // ""),
     (.value.query_duration_ms // 0),
     (.value.read_rows // 0),
@@ -396,11 +415,10 @@ SQL_COUNT=$(jq -sr 'length' "${OUTPUT_DIR}/query-log.jsonl")
 
 if [[ "$SQL_COUNT" -eq 0 ]]; then
   echo "[ch-explain] no matching SQL found in system.query_log" >&2
-  echo "  check: is the compliance stack up? did the shim answer the request?" >&2
-  exit 3
+  echo "  continuing to preserve shim/explain artifacts" >&2
+else
+  echo "[ch-explain] captured ${SQL_COUNT} lowered SQL statement(s)"
 fi
-
-echo "[ch-explain] captured ${SQL_COUNT} lowered SQL statement(s)"
 
 # 4. For each captured SQL, dump EXPLAIN variants and the raw SQL.
 #
@@ -415,47 +433,49 @@ strip_suffix() {
   printf '%s' "$sql"
 }
 
-for INDEX in $(seq 1 "$SQL_COUNT"); do
-  ROW_INDEX=$((INDEX-1))
-  SQL=$(jq -sr --argjson idx "$ROW_INDEX" -r '.[$idx].query' "${OUTPUT_DIR}/query-log.jsonl")
-  QDIR="${OUTPUT_DIR}/q${INDEX}"
-  mkdir -p "$QDIR"
-  printf '%s\n' "$SQL" >"${QDIR}/query.sql"
+if (( SQL_COUNT > 0 )); then
+  for INDEX in $(seq 1 "$SQL_COUNT"); do
+    ROW_INDEX=$((INDEX-1))
+    SQL=$(jq -sr --argjson idx "$ROW_INDEX" -r '.[$idx].query' "${OUTPUT_DIR}/query-log.jsonl")
+    QDIR="${OUTPUT_DIR}/q${INDEX}"
+    mkdir -p "$QDIR"
+    printf '%s\n' "$SQL" >"${QDIR}/query.sql"
 
-  CLEAN_SQL=$(strip_suffix "$SQL")
-  printf '%s
+    CLEAN_SQL=$(strip_suffix "$SQL")
+    printf '%s
 ' "$CLEAN_SQL" >"${QDIR}/query-clean.sql"
-  jq -sr --argjson idx "$ROW_INDEX" '
-    ["setting", "value"],
-    ((.[$idx].Settings // {}) | to_entries | sort_by(.key)[] | [.key, (.value | tostring)])
-    | @tsv
-  ' "${OUTPUT_DIR}/query-log.jsonl" >"${QDIR}/settings.tsv"
-  jq -sr --argjson idx "$ROW_INDEX" '
-    ["event", "value"],
-    ((.[$idx].ProfileEvents // {}) | to_entries | sort_by(.key)[] | [.key, (.value | tostring)])
-    | @tsv
-  ' "${OUTPUT_DIR}/query-log.jsonl" >"${QDIR}/profile-events.tsv"
-  jq -sr --argjson idx "$ROW_INDEX" '
-    ["event", "value"],
-    ((.[$idx].ProfileEvents // {}) | to_entries | sort_by(.value | tonumber? // 0) | reverse[] | [.key, (.value | tostring)])
-    | @tsv
-  ' "${OUTPUT_DIR}/query-log.jsonl" >"${QDIR}/profile-events-top.tsv"
+    jq -sr --argjson idx "$ROW_INDEX" '
+      ["setting", "value"],
+      ((.[$idx].Settings // {}) | to_entries | sort_by(.key)[] | [.key, (.value | tostring)])
+      | @tsv
+    ' "${OUTPUT_DIR}/query-log.jsonl" >"${QDIR}/settings.tsv"
+    jq -sr --argjson idx "$ROW_INDEX" '
+      ["event", "value"],
+      ((.[$idx].ProfileEvents // {}) | to_entries | sort_by(.key)[] | [.key, (.value | tostring)])
+      | @tsv
+    ' "${OUTPUT_DIR}/query-log.jsonl" >"${QDIR}/profile-events.tsv"
+    jq -sr --argjson idx "$ROW_INDEX" '
+      ["event", "value"],
+      ((.[$idx].ProfileEvents // {}) | to_entries | sort_by(.value | tonumber? // 0) | reverse[] | [.key, (.value | tostring)])
+      | @tsv
+    ' "${OUTPUT_DIR}/query-log.jsonl" >"${QDIR}/profile-events-top.tsv"
 
-  if (( DO_SYNTAX == 1 )); then
-    ch_query "EXPLAIN SYNTAX ${CLEAN_SQL} FORMAT TSVRaw" >"${QDIR}/explain-syntax.sql" || echo "SYNTAX failed" >"${QDIR}/explain-syntax.sql"
-  fi
-  if (( DO_PLAN == 1 )); then
-    ch_query "EXPLAIN PLAN indexes=1, actions=1, optimize=1 ${CLEAN_SQL} FORMAT TSVRaw" >"${QDIR}/explain-plan.txt" || echo "PLAN failed" >"${QDIR}/explain-plan.txt"
-  fi
-  if (( DO_PIPELINE == 1 )); then
-    ch_query "EXPLAIN PIPELINE ${CLEAN_SQL} FORMAT TSVRaw" >"${QDIR}/explain-pipeline.txt" || echo "PIPELINE failed" >"${QDIR}/explain-pipeline.txt"
-  fi
-  if (( DO_ESTIMATE == 1 )); then
-    ch_query "EXPLAIN ESTIMATE ${CLEAN_SQL} FORMAT JSONEachRow" >"${QDIR}/explain-estimate.json" || echo "{}" >"${QDIR}/explain-estimate.json"
-  fi
+    if (( DO_SYNTAX == 1 )); then
+      ch_query "EXPLAIN SYNTAX ${CLEAN_SQL} FORMAT TSVRaw" >"${QDIR}/explain-syntax.sql" || echo "SYNTAX failed" >"${QDIR}/explain-syntax.sql"
+    fi
+    if (( DO_PLAN == 1 )); then
+      ch_query "EXPLAIN PLAN indexes=1, actions=1, optimize=1 ${CLEAN_SQL} FORMAT TSVRaw" >"${QDIR}/explain-plan.txt" || echo "PLAN failed" >"${QDIR}/explain-plan.txt"
+    fi
+    if (( DO_PIPELINE == 1 )); then
+      ch_query "EXPLAIN PIPELINE ${CLEAN_SQL} FORMAT TSVRaw" >"${QDIR}/explain-pipeline.txt" || echo "PIPELINE failed" >"${QDIR}/explain-pipeline.txt"
+    fi
+    if (( DO_ESTIMATE == 1 )); then
+      ch_query "EXPLAIN ESTIMATE ${CLEAN_SQL} FORMAT JSONEachRow" >"${QDIR}/explain-estimate.json" || echo "{}" >"${QDIR}/explain-estimate.json"
+    fi
 
-  echo "[ch-explain] q${INDEX}: $(wc -l <"${QDIR}/query.sql") lines SQL; artifacts in ${QDIR}"
-done
+    echo "[ch-explain] q${INDEX}: $(wc -l <"${QDIR}/query.sql") lines SQL; artifacts in ${QDIR}"
+  done
+fi
 
 # 5. Summary index.
 {

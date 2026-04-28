@@ -202,7 +202,10 @@ fixture_present_for() {
   scalar_equals "$base_url" 'count(promshim_compliance_fixture_info{fixture="promql-demo", generator="promshim-compliance-seed"})' "$COMPLIANCE_EVAL_TIME" 1 &&
     scalar_equals "$base_url" 'count(demo_memory_usage_bytes{job="demo"})' "$COMPLIANCE_EVAL_TIME" 12 &&
     scalar_equals "$base_url" 'count(demo_num_cpus{job="demo"})' "$COMPLIANCE_EVAL_TIME" 3 &&
-    scalar_equals "$base_url" 'count(demo_api_request_duration_seconds_bucket{job="demo"})' "$COMPLIANCE_EVAL_TIME" 702
+    scalar_equals "$base_url" 'count(demo_api_request_duration_seconds_bucket{job="demo"})' "$COMPLIANCE_EVAL_TIME" 702 &&
+    scalar_equals "$base_url" 'absent(demo_intermittent_metric{job="demo"})' "$COMPLIANCE_EVAL_TIME" 1 &&
+    scalar_equals "$base_url" 'sum(resets(demo_cpu_usage_seconds_total{job="demo"}[1h]))' "$COMPLIANCE_EVAL_TIME" 18 &&
+    scalar_equals "$base_url" 'count(count_values("value", demo_memory_usage_bytes{job="demo"}) > 1)' "$COMPLIANCE_EVAL_TIME" 1
 }
 
 fixture_empty_for() {

@@ -30,7 +30,8 @@ The current correctness gate is not a hand-written smoke test. Promshim passes,
 within the narrow accepted-deviation policy below:
 
 - the full upstream `prometheus/compliance` PromQL suite, run against reference
-  Prometheus and promshim on the same deterministic remote-write fixture;
+  Prometheus and promshim on the same deterministic remote-write fixture with
+  varied gauges, resets, sparse series, histogram buckets, and exact ties;
 - promshim's own deterministic differential harness and dashboard-focused
   corpora; and
 - native-only coverage runs that keep tier-2 gaps visible instead of silently

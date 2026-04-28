@@ -200,6 +200,9 @@ func TestClassifyQueryCostFamilies(t *testing.T) {
 				if got.SubqueryOverlapSlots != 30 {
 					t.Fatalf("subquery overlap slots = %v, want 30", got.SubqueryOverlapSlots)
 				}
+				if got.SubqueryWorkUnits != 31 {
+					t.Fatalf("subquery work units = %d, want 31", got.SubqueryWorkUnits)
+				}
 			},
 		},
 	}

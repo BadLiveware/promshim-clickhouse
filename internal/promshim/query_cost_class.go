@@ -39,6 +39,11 @@ func classifyQueryCost(expr parser.Expr, timing queryCostTiming, strictStrategy 
 	if class.SubqueryRangeMS > 0 && class.SubqueryStepMS > 0 {
 		class.SubqueryPointsPerEval = (class.SubqueryRangeMS / class.SubqueryStepMS) + 1
 		class.SubqueryOverlapSlots = float64(class.SubqueryRangeMS) / float64(class.SubqueryStepMS)
+		workSelectors := class.SelectorCount
+		if workSelectors <= 0 {
+			workSelectors = 1
+		}
+		class.SubqueryWorkUnits = class.SubqueryPointsPerEval * int64(workSelectors)
 	}
 	if class.SelectorCount > 0 {
 		class.LocalRoundTrips = class.SelectorCount

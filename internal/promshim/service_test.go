@@ -1709,6 +1709,7 @@ func TestQueryExplainIncludesSubqueryEstimateInputs(t *testing.T) {
 					SubqueryStepMS        int64   `json:"subqueryStepMs"`
 					SubqueryPointsPerEval int64   `json:"subqueryPointsPerEval"`
 					SubqueryOverlapSlots  float64 `json:"subqueryOverlapSlots"`
+					SubqueryWorkUnits     int64   `json:"subqueryWorkUnits"`
 				} `json:"class"`
 			} `json:"routing"`
 		} `json:"data"`
@@ -1734,6 +1735,9 @@ func TestQueryExplainIncludesSubqueryEstimateInputs(t *testing.T) {
 	}
 	if class.SubqueryOverlapSlots != 30 {
 		t.Fatalf("subqueryOverlapSlots = %v, want 30", class.SubqueryOverlapSlots)
+	}
+	if class.SubqueryWorkUnits != 31 {
+		t.Fatalf("subqueryWorkUnits = %d, want 31", class.SubqueryWorkUnits)
 	}
 }
 

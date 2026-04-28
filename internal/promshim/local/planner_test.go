@@ -1609,6 +1609,12 @@ func TestExplainPlanIncludesSubqueryNodeNoThreadCapDecision(t *testing.T) {
 	if decision.Reason != physical.ThreadPreferenceReasonSubqueryRateRows {
 		t.Fatalf("subquery query_settings reason = %q, want %q", decision.Reason, physical.ThreadPreferenceReasonSubqueryRateRows)
 	}
+	if len(decision.Guards) == 0 || decision.Guards[0] != "needs_subquery_step_grid" {
+		t.Fatalf("expected subquery step-grid guard prefix, got %#v", decision.Guards)
+	}
+	if len(decision.Rejected) != 1 || decision.Rejected[0].Strategy != "set_max_threads" || decision.Rejected[0].Reason != "suppressed by no-thread-cap preference" {
+		t.Fatalf("expected canonical no-thread-cap rejected alternative, got %#v", decision.Rejected)
+	}
 }
 
 func findPhysicalDecision(decisions []physical.Decision, kind string) (physical.Decision, bool) {

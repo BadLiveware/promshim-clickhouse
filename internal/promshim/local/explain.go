@@ -193,16 +193,12 @@ func annotateSubqueryPreferenceDecision(node *ExplainNode) {
 	if _, ok := findPhysicalDecisionByKind(node.PhysicalDecisions, "query_settings"); ok {
 		return
 	}
-	node.PhysicalDecisions = append(node.PhysicalDecisions, physical.Decision{
-		Kind:     "query_settings",
-		Strategy: "no_thread_cap",
-		Reason:   physical.ThreadPreferenceReasonSubqueryRateRows,
-		Guards:   []string{"needs_subquery_step_grid", "preserve_no_cap"},
-		Rejected: []physical.Alternative{{
-			Strategy: "set_max_threads",
-			Reason:   "suppressed by subquery step-grid preference",
-		}},
-	})
+	decision, ok := physical.ThreadPreferenceDecision(physical.ThreadPreference{Mode: physical.ThreadPreferenceNoCap, ReasonCode: physical.ThreadPreferenceReasonSubqueryRateRows})
+	if !ok {
+		return
+	}
+	decision.Guards = append([]string{"needs_subquery_step_grid"}, decision.Guards...)
+	node.PhysicalDecisions = append(node.PhysicalDecisions, decision)
 }
 
 func findPhysicalDecisionByKind(decisions []physical.Decision, kind string) (physical.Decision, bool) {

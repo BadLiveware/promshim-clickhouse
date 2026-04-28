@@ -26,8 +26,9 @@ Default flow:
   8) docker compose down                   (volumes preserved)
 
 The ClickHouse schema and Prometheus TSDB fixture are persisted in docker
-volumes, so repeat runs reuse the frozen fixture window configured in
-harness/compliance/test-promshim.yml (no rescrape, no end_time edit).
+volumes, so repeat runs reuse the deterministic remote-write fixture window
+configured in harness/compliance/test-promshim.yml. Fresh empty volumes are
+seeded automatically; stale or partial fixture data fails before compliance.
 
 Options:
   --no-build         Skip the promshim image build.
@@ -170,26 +171,103 @@ fi
 wait_for_http "Prometheus reference" "http://localhost:29090/-/ready"
 wait_for_http "promshim"             "http://localhost:29091/-/ready"
 
-# Promshim's /-/ready returns OK as soon as its HTTP server is listening,
-# even if ClickHouse isn't yet reachable. Probe a real query so the tester
-# doesn't see a wave of 502s during the first second of the run.
-log "Probing promshim -> ClickHouse integration."
-smoke_query="http://localhost:29091/api/v1/query?query=up"
-if [[ "${PROM_SHIM_CLICKHOUSE_TRANSPORT:-native}" == "native" ]]; then
-  smoke_query="http://localhost:29091/api/v1/query?query=sum(demo_memory_usage_bytes)"
+COMPLIANCE_EVAL_TIME=$(awk -F"'" '/end_time:/ {print $2; exit}' "${COMPLIANCE_DIR}/test-promshim.yml")
+if [[ -z "$COMPLIANCE_EVAL_TIME" ]]; then
+  fatal "Could not read query_time_parameters.end_time from ${COMPLIANCE_DIR}/test-promshim.yml"
 fi
-smoke_deadline=$(( $(date +%s) + READY_TIMEOUT ))
-smoke_ok=0
-while (( $(date +%s) < smoke_deadline )); do
-  if curl -fsS "$smoke_query" >/dev/null 2>&1; then
-    smoke_ok=1
+
+scalar_equals() {
+  local base_url="$1" query="$2" eval_time="$3" expected="$4" response
+  response=$(curl -fsS --get "${base_url}/api/v1/query" \
+    --data-urlencode "query=${query}" \
+    --data-urlencode "time=${eval_time}") || return 1
+  RESPONSE="$response" python3 - "$expected" <<'PY'
+import json, math, os, sys
+expected = float(sys.argv[1])
+data = json.loads(os.environ["RESPONSE"])
+result = data.get("data", {}).get("result", [])
+if data.get("status") != "success" or len(result) != 1:
+    sys.exit(1)
+try:
+    actual = float(result[0]["value"][1])
+except (KeyError, IndexError, TypeError, ValueError):
+    sys.exit(1)
+if not math.isclose(actual, expected, rel_tol=0, abs_tol=1e-9):
+    sys.exit(1)
+PY
+}
+
+fixture_present_for() {
+  local base_url="$1"
+  scalar_equals "$base_url" 'count(promshim_compliance_fixture_info{fixture="promql-demo", generator="promshim-compliance-seed"})' "$COMPLIANCE_EVAL_TIME" 1 &&
+    scalar_equals "$base_url" 'count(demo_memory_usage_bytes{job="demo"})' "$COMPLIANCE_EVAL_TIME" 9 &&
+    scalar_equals "$base_url" 'count(demo_num_cpus{job="demo"})' "$COMPLIANCE_EVAL_TIME" 3 &&
+    scalar_equals "$base_url" 'count(demo_api_request_duration_seconds_bucket{job="demo"})' "$COMPLIANCE_EVAL_TIME" 15
+}
+
+fixture_empty_for() {
+  local base_url="$1"
+  scalar_equals "$base_url" 'absent(promshim_compliance_fixture_info{fixture="promql-demo", generator="promshim-compliance-seed"})' "$COMPLIANCE_EVAL_TIME" 1 &&
+    scalar_equals "$base_url" 'absent(demo_memory_usage_bytes{job="demo"})' "$COMPLIANCE_EVAL_TIME" 1 &&
+    scalar_equals "$base_url" 'absent(demo_num_cpus{job="demo"})' "$COMPLIANCE_EVAL_TIME" 1 &&
+    scalar_equals "$base_url" 'absent(demo_api_request_duration_seconds_bucket{job="demo"})' "$COMPLIANCE_EVAL_TIME" 1
+}
+
+assert_fixture_for() {
+  local name="$1" base_url="$2"
+  fixture_present_for "$base_url" || fatal "${name} does not contain the expected compliance fixture data at ${COMPLIANCE_EVAL_TIME}"
+}
+
+log "Checking compliance fixture data at ${COMPLIANCE_EVAL_TIME}."
+fixture_state_deadline=$(( $(date +%s) + READY_TIMEOUT ))
+fixture_state_known=0
+PROM_FIXTURE_PRESENT=0
+SHIM_FIXTURE_PRESENT=0
+PROM_FIXTURE_EMPTY=0
+SHIM_FIXTURE_EMPTY=0
+while (( $(date +%s) < fixture_state_deadline )); do
+  PROM_FIXTURE_PRESENT=0
+  SHIM_FIXTURE_PRESENT=0
+  PROM_FIXTURE_EMPTY=0
+  SHIM_FIXTURE_EMPTY=0
+  fixture_present_for "http://localhost:29090" && PROM_FIXTURE_PRESENT=1
+  fixture_present_for "http://localhost:29091" && SHIM_FIXTURE_PRESENT=1
+  fixture_empty_for "http://localhost:29090" && PROM_FIXTURE_EMPTY=1
+  fixture_empty_for "http://localhost:29091" && SHIM_FIXTURE_EMPTY=1
+  if (( (PROM_FIXTURE_PRESENT == 1 || PROM_FIXTURE_EMPTY == 1) && (SHIM_FIXTURE_PRESENT == 1 || SHIM_FIXTURE_EMPTY == 1) )); then
+    fixture_state_known=1
     break
   fi
   sleep 1
 done
-if (( smoke_ok == 0 )); then
-  fatal "promshim did not successfully serve a query within ${READY_TIMEOUT}s"
+if (( fixture_state_known == 0 )); then
+  fatal "Could not classify compliance fixture state within ${READY_TIMEOUT}s; one or both query APIs did not return fixture count queries reliably."
 fi
+
+if (( PROM_FIXTURE_PRESENT == 1 && SHIM_FIXTURE_PRESENT == 1 )); then
+  log "Compliance fixture already present in Prometheus and ClickHouse."
+elif (( PROM_FIXTURE_EMPTY == 1 && SHIM_FIXTURE_EMPTY == 1 )); then
+  log "Seeding compliance fixture into Prometheus and ClickHouse."
+  (cd "$REPO_ROOT" && go run ./cmd/promshim-compliance-seed \
+    --target both \
+    --end-time "$COMPLIANCE_EVAL_TIME" \
+    --duration 2h \
+    --step 5s)
+else
+  fatal "Compliance fixture is stale or partially present (prometheus_present=${PROM_FIXTURE_PRESENT}, promshim_present=${SHIM_FIXTURE_PRESENT}, prometheus_empty=${PROM_FIXTURE_EMPTY}, promshim_empty=${SHIM_FIXTURE_EMPTY}); reset the compliance volumes so the deterministic fixture can be seeded consistently."
+fi
+
+log "Asserting compliance fixture data is queryable from both targets."
+fixture_deadline=$(( $(date +%s) + READY_TIMEOUT ))
+while (( $(date +%s) < fixture_deadline )); do
+  if fixture_present_for "http://localhost:29090" && fixture_present_for "http://localhost:29091"; then
+    break
+  fi
+  sleep 1
+done
+assert_fixture_for "Prometheus reference" "http://localhost:29090"
+assert_fixture_for "promshim/ClickHouse" "http://localhost:29091"
+
 if [[ "${PROM_SHIM_CLICKHOUSE_TRANSPORT:-native}" == "native" ]]; then
   # The native TCP listener can accept a first query while ClickHouse is still
   # finishing startup; give the pool a short stabilization window before the

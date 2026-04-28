@@ -1,6 +1,6 @@
 # PromQL Compliance Harness
 
-Runs the upstream Prometheus PromQL compliance suite against promshim and reference Prometheus, both backed by the same scraped fixture.
+Runs the upstream Prometheus PromQL compliance suite against promshim and reference Prometheus, both backed by the same deterministic remote-write fixture.
 
 A full two-pass run (prefer + native-only) finishes in ~15 seconds on a warm docker cache. Runs in the foreground; no minutes-long timeout needed.
 
@@ -15,7 +15,7 @@ A full two-pass run (prefer + native-only) finishes in ~15 seconds on a warm doc
 - `scripts/reconcile-expected.sh` — matches the report against `expected-failures.json`; any drift fails.
 - `scripts/classify-failures.sh` — buckets failures by pattern (regex-matched).
 - `scripts/native-gap-report.sh` — categorized breakdown of a native-mode report (diff failures, unsupported-root shapes, other errors). Informational only; never gates.
-- `../../scripts/run-compliance.sh` — top-level runner: brings the stack up, runs pass #1 (prefer) and pass #2 (native-only), tears down.
+- `../../scripts/run-compliance.sh` — top-level runner: brings the stack up, seeds or verifies the deterministic fixture, runs pass #1 (prefer) and pass #2 (native-only), tears down.
 
 ## Running
 
@@ -25,7 +25,7 @@ Two-pass run from the repo root:
 scripts/run-compliance.sh
 ```
 
-That brings the stack up, writes reports to `../../harness/artifacts/compliance/<timestamp>/`, updates `../../harness/artifacts/compliance/latest` when possible, runs pass #1 against the default `prefer` mode (reconciled against `expected-failures.json`), recreates promshim with the `native-only` override, runs pass #2 (informational gap report), and tears the stack down.
+That brings the stack up, writes reports to `../../harness/artifacts/compliance/<timestamp>/`, updates `../../harness/artifacts/compliance/latest` when possible, seeds the deterministic fixture into fresh Prometheus and ClickHouse volumes, verifies the expected fixture counts through both APIs, runs pass #1 against the default `prefer` mode (reconciled against `expected-failures.json`), recreates promshim with the `native-only` override, runs pass #2 (informational gap report), and tears the stack down.
 
 Single pass from this directory (stack must already be up):
 
@@ -36,7 +36,7 @@ scripts/run-compliance.sh --mode prefer --suffix prefer
 scripts/classify-failures.sh ../../harness/artifacts/compliance/latest/compliance-report-prefer-<stamp>.json
 ```
 
-The tester hits `29090` (Prom reference) and `29091` (promshim) with a pinned `end_time` inside the scraped fixture window.
+The tester hits `29090` (Prom reference) and `29091` (promshim) with a pinned `end_time` inside the deterministic fixture window.
 
 ## Philosophy: gaps stay visible
 
@@ -53,13 +53,9 @@ Each full run does two passes against the same frozen fixture:
 
 ## Allowlist (`expected-failures.json`)
 
-One entry: `topk-tie-break-ordering`.
+No deviations are currently accepted for the deterministic compliance fixture.
 
-`topk`'s tie-break is a Prometheus storage-layer implementation detail. `promql/engine.go:1052` calls `querier.Select` with `sortSeries=false`, so the TSDB `SeriesSet` is iterated in native postings order (essentially scrape-discovery order). `aggregationK` (`engine.go:3776`) then iterates `for si := range inputMatrix` preserving that order, and the heap replacement at `engine.go:3865` uses strict `<` — on an exact tie the new element does **not** displace the heap root, so first-seen wins. That first-seen order is not derivable from labels alone (both `labels.Hash` and `labels.StableHash` give alphabetical order, but the fixture's TSDB order differs). Reproducing Prom's tie-break exactly would require mirroring its storage layer.
-
-For this fixture, `demo_memory_usage_bytes` across `instance=demo.promlabs.com:10000/10001/10002` occasionally hits the same value (`173015040`) at the same timestep; Prom and the shim disagree on which instance survives the cut. Impact is cosmetic — affects only exact-value ties, which are rare in real data. Verified against `prometheus@57821524d`.
-
-The allowlist matcher is intentionally narrow (exact query + specific diff substrings) so any drift surfaces as a regression rather than being silently absorbed.
+The allowlist remains intentionally available for narrow cases where exact Prometheus behavior depends on reference-side storage internals or an immaterial primitive-level difference. Entries must be exact and specific; stale allowlist entries fail reconciliation so a missing fixture cannot make CI pass vacuously.
 
 ## Known gaps (visible; not allowlisted)
 
@@ -84,4 +80,13 @@ Each number should trend down over time. None are allowlistable.
 
 ## Fixture
 
-Prometheus scrapes `demo.promlabs.com:10000..10002` into ClickHouse via the Kafka/ingest path. Fixture window is frozen — `docker compose stop prometheus` pins it so compliance runs are reproducible. Adjust `end_time` in `test-promshim.yml` if the fixture is refreshed.
+The top-level runner seeds a deterministic `demo_*` fixture through remote write into both reference Prometheus and ClickHouse when fresh volumes are empty. It then verifies, at the pinned `end_time` in `test-promshim.yml`, that both APIs expose the expected fixture marker and core series counts before any compliance query runs.
+
+If old scraped data or a partially seeded fixture is present, the runner fails before the compliance pass and asks you to reset the compliance volumes:
+
+```bash
+cd harness/compliance
+docker compose down -v
+```
+
+This prevents empty or stale fixtures from producing vacuous green CI runs.

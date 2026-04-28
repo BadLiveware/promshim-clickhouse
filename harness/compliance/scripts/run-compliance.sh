@@ -103,5 +103,5 @@ else
   echo ">> Reconciling against expected-failures allowlist${mode_banner}"
   reconcile_args=( "$OUTPUT_FILE" )
   [[ -n "$mode" ]] && reconcile_args+=( --mode "$mode" )
-  "${ROOT}/scripts/reconcile-expected.sh" "${reconcile_args[@]}" || echo ">> Reconcile flagged drift (exit 1) — see above"
+  "${ROOT}/scripts/reconcile-expected.sh" "${reconcile_args[@]}"
 fi

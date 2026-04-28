@@ -15,9 +15,10 @@ import (
 // helpers). ExtraParams carries parameter bindings that are not part of the
 // Select AST (e.g. bindings namespaced by a legacy child bridge).
 type renderedFragment struct {
-	Select      *sqlb.Select
-	RawSQL      string
-	ExtraParams map[string]string
+	Select        *sqlb.Select
+	RawSQL        string
+	ExtraParams   map[string]string
+	ExtraSettings map[string]any
 }
 
 func finalizeRenderedFragment(rf renderedFragment) (RenderedQuery, error) {
@@ -42,7 +43,9 @@ func finalizeRenderedFragment(rf renderedFragment) (RenderedQuery, error) {
 	for key, value := range rf.ExtraParams {
 		params[key] = value
 	}
-	return RenderedQuery{SQL: sql + schema.QuerySuffix, QueryParams: params}, nil
+	settings := map[string]any{}
+	mergeRenderedQuerySettings(settings, rf.ExtraSettings)
+	return RenderedQuery{SQL: sql + schema.QuerySuffix, QueryParams: params, QuerySettings: settings}, nil
 }
 
 // renderLoweredChildAsSource renders a logical.Node child via Lower, then

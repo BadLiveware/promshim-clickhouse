@@ -52,7 +52,11 @@ func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 	if err != nil || !root {
 		return rq, err
 	}
-	return ctx.cse.apply(rq)
+	rq, err = ctx.cse.apply(rq)
+	if err != nil {
+		return RenderedQuery{}, err
+	}
+	return withPhysicalSettings(rq, ctx.Params.Physical), nil
 }
 
 func lowerInner(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
@@ -297,7 +301,7 @@ func (s *renderCSEState) subtreeReference(ctx LoweringCtx, node logicalpkg.Node,
 	if ctx.Params.Mode == native.RenderModeRange {
 		columns = "tags AS tags, time_series AS time_series"
 	}
-	return RenderedQuery{SQL: "SELECT " + columns + " FROM " + name + schema.QuerySuffix, QueryParams: map[string]string{}}, nil
+	return RenderedQuery{SQL: "SELECT " + columns + " FROM " + name + schema.QuerySuffix, QueryParams: map[string]string{}, QuerySettings: rq.QuerySettings}, nil
 }
 
 func (s *renderCSEState) apply(rq RenderedQuery) (RenderedQuery, error) {
@@ -318,7 +322,7 @@ func (s *renderCSEState) apply(rq RenderedQuery) (RenderedQuery, error) {
 	}
 	sql := "WITH " + strings.Join(parts, ",\n") + "\n" + rq.SQL
 	sql = strings.Replace(sql, "SETTINGS allow_experimental_time_series_table = 1", "SETTINGS allow_experimental_time_series_table = 1, enable_global_with_statement = 1, enable_materialized_cte = 1", 1)
-	return RenderedQuery{SQL: sql, QueryParams: params}, nil
+	return RenderedQuery{SQL: sql, QueryParams: params, QuerySettings: rq.QuerySettings}, nil
 }
 
 // IsUnsupportedByLower reports whether err is the Lower fallback

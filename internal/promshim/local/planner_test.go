@@ -1201,7 +1201,7 @@ func TestBuildPlanWithContextCreatesLocalPlanForPredictLinear(t *testing.T) {
 }
 
 func TestBuildPlanWithContextCreatesNativePlanForPredictLinear(t *testing.T) {
-	expr, err := logical.ParseExpression("predict_linear(up[5m], 60)")
+	expr, err := logical.ParseExpression("predict_linear(up[5m], 4 * 3600)")
 	if err != nil {
 		t.Fatal(err)
 	}

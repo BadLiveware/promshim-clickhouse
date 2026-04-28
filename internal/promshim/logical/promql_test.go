@@ -90,8 +90,19 @@ func TestAnalyzeExpressionSupportsTier1AdditionalRangeFunctions(t *testing.T) {
 	}
 }
 
+func TestAnalyzeExpressionSupportsConstantPredictLinearDuration(t *testing.T) {
+	expr, err := ParseExpression("predict_linear(up[5m], 4 * 3600)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := AnalyzeExpression(expr)
+	if !result.Supported {
+		t.Fatalf("expected supported constant predict_linear duration, got %#v", result)
+	}
+}
+
 func TestAnalyzeExpressionRejectsDynamicPredictLinearDuration(t *testing.T) {
-	expr, err := ParseExpression("predict_linear(up[5m], 1 + 2)")
+	expr, err := ParseExpression("predict_linear(up[5m], scalar(sum(up)))")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,8 +110,8 @@ func TestAnalyzeExpressionRejectsDynamicPredictLinearDuration(t *testing.T) {
 	if result.Supported {
 		t.Fatalf("expected unsupported dynamic predict_linear duration, got %#v", result)
 	}
-	if !strings.Contains(result.Reason, "literal scalar duration") {
-		t.Fatalf("expected literal scalar duration reason, got %#v", result)
+	if !strings.Contains(result.Reason, "constant scalar duration") {
+		t.Fatalf("expected constant scalar duration reason, got %#v", result)
 	}
 }
 

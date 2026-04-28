@@ -1,6 +1,7 @@
 package logical
 
 import (
+	"math"
 	"strings"
 
 	commonmodel "github.com/prometheus/common/model"
@@ -144,12 +145,58 @@ func stringLiteralArgument(expr parser.Expr, description string) (string, error)
 }
 
 func numberLiteralArgument(expr parser.Expr, description string) (float64, error) {
-	expr = UnwrapTransparentExpr(expr)
-	literal, ok := expr.(*parser.NumberLiteral)
+	value, ok := scalarConstantValue(expr)
 	if !ok {
-		return 0, NewBadDataErrorf("expected numeric literal for %s, got %T", description, expr)
+		return 0, NewBadDataErrorf("expected constant scalar expression for %s, got %T", description, UnwrapTransparentExpr(expr))
 	}
-	return literal.Val, nil
+	return value, nil
+}
+
+func scalarConstantValue(expr parser.Expr) (float64, bool) {
+	switch node := UnwrapTransparentExpr(expr).(type) {
+	case *parser.NumberLiteral:
+		return node.Val, true
+	case *parser.UnaryExpr:
+		value, ok := scalarConstantValue(node.Expr)
+		if !ok {
+			return 0, false
+		}
+		switch node.Op {
+		case parser.ADD:
+			return value, true
+		case parser.SUB:
+			return -value, true
+		default:
+			return 0, false
+		}
+	case *parser.BinaryExpr:
+		left, ok := scalarConstantValue(node.LHS)
+		if !ok {
+			return 0, false
+		}
+		right, ok := scalarConstantValue(node.RHS)
+		if !ok {
+			return 0, false
+		}
+		switch node.Op {
+		case parser.ADD:
+			return left + right, true
+		case parser.SUB:
+			return left - right, true
+		case parser.MUL:
+			return left * right, true
+		case parser.DIV:
+			return left / right, true
+		case parser.MOD:
+			return math.Mod(left, right), true
+		case parser.POW:
+			return math.Pow(left, right), true
+		default:
+			return 0, false
+		}
+	default:
+		return 0, false
+	}
 }
 
 func cloneFloat64(value float64) *float64 {

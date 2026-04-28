@@ -104,6 +104,10 @@ func mergeRenderedQuerySettings(dst, src map[string]any) {
 	}
 }
 
+func preferASOFThreadGuardrail(prefs PhysicalPlanPreferences, reasonCode string) PhysicalPlanPreferences {
+	return preferThreadCapPolicy(prefs, ThreadCapPolicyASOFGuardrail, reasonCode)
+}
+
 func preferThreadCapPolicy(prefs PhysicalPlanPreferences, policy ThreadCapPolicy, reasonCode string) PhysicalPlanPreferences {
 	if prefs.Execution.Threads.Mode == ThreadPreferenceNoCap {
 		return prefs

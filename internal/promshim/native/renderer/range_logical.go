@@ -133,6 +133,8 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 				}
 			}
 		case *logicalpkg.SubqueryPlan:
+			ctx = LoweringCtx{Config: ctx.Config, Analysis: ctx.Analysis, NativeAnalysis: ctx.NativeAnalysis, Params: suppressThreadCapForSubqueryRangeFunction(ctx.Params, child, fn), cse: ctx.cse}
+			params = ctx.Params
 			if child != nil && child.Child != nil && canUseInstantRangeFunctionRowsFastPath(fn) {
 				// The subquery's child is inspected via
 				// tryRenderSubqueryRowsSourceLogical, which matches the
@@ -176,7 +178,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 		if err != nil {
 			return renderedFragment{}, err
 		}
-		return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childRendered.QueryParams}, nil
+		return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childRendered.QueryParams, ExtraSettings: childRendered.QuerySettings}, nil
 
 	case native.RenderModeRange:
 		switch child := childNode.(type) {
@@ -295,7 +297,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 					if err != nil {
 						return renderedFragment{}, err
 					}
-					return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childRendered.QueryParams}, nil
+					return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childRendered.QueryParams, ExtraSettings: childRendered.QuerySettings}, nil
 				}
 			}
 		case *logicalpkg.SubqueryPlan:
@@ -343,7 +345,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 				if err != nil {
 					return renderedFragment{}, err
 				}
-				return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childRendered.QueryParams}, nil
+				return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: childRendered.QueryParams, ExtraSettings: childRendered.QuerySettings}, nil
 			}
 		}
 		return renderedFragment{}, fmt.Errorf("native range-mode rendering for %s currently requires a direct range-vector selector child or supported subquery child", fn)

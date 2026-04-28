@@ -1,0 +1,7 @@
+[
+  {
+    "name": "iter74_subquery_rate_shape",
+    "endpoint": "query",
+    "query": "rate(up[5m])[30m:1m]"
+  }
+]

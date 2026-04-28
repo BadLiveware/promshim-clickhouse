@@ -183,41 +183,66 @@ func TestQueryRangeExplainIncludesSubqueryNodeThreadPreferenceDecision(t *testin
 		t.Fatal(err)
 	}
 
-	url := "/api/v1/query_range_explain?query=rate((sum%20by%20(job)%20(up))%5B30m:1m%5D)&start=0&end=10800&step=30&native_lowering_mode=force_supported"
-	req := httptest.NewRequest(http.MethodGet, url, nil)
-	res := httptest.NewRecorder()
-	handler.ServeHTTP(res, req)
-
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	tests := []struct {
+		name                 string
+		url                  string
+		wantRootQuerySetting bool
+	}{
+		{
+			name:                 "pure subquery rate keeps root-level no-thread-cap",
+			url:                  "/api/v1/query_range_explain?query=rate((sum%20by%20(job)%20(up))%5B30m:1m%5D)&start=0&end=10800&step=30&native_lowering_mode=force_supported",
+			wantRootQuerySetting: true,
+		},
+		{
+			name:                 "mixed binary root keeps no-thread-cap on subquery branch",
+			url:                  "/api/v1/query_range_explain?query=sum(avg_over_time(up%5B1h%5D))%20%2B%20sum(rate((sum%20by%20(job)%20(up))%5B5m:1m%5D))&start=0&end=10800&step=30&native_lowering_mode=force_supported",
+			wantRootQuerySetting: false,
+		},
 	}
 
-	var body struct {
-		Status string `json:"status"`
-		Data   struct {
-			Mode string            `json:"mode"`
-			Plan local.ExplainNode `json:"plan"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if body.Data.Mode != "range" || body.Data.Plan.Strategy != "native_sql" {
-		t.Fatalf("expected native range explain, got %#v", body.Data)
-	}
-	subquery, ok := findExplainNodeByKind(body.Data.Plan, "subquery")
-	if !ok {
-		t.Fatalf("expected subquery node, got %#v", body.Data.Plan)
-	}
-	decision, ok := findExplainPhysicalDecision(subquery.PhysicalDecisions, "query_settings")
-	if !ok {
-		t.Fatalf("expected subquery query_settings decision, got %#v", subquery.PhysicalDecisions)
-	}
-	if decision.Strategy != "no_thread_cap" {
-		t.Fatalf("subquery query_settings strategy = %q, want no_thread_cap; decisions=%#v", decision.Strategy, subquery.PhysicalDecisions)
-	}
-	if decision.Reason != physical.ThreadPreferenceReasonSubqueryRateRows {
-		t.Fatalf("subquery query_settings reason = %q, want %q", decision.Reason, physical.ThreadPreferenceReasonSubqueryRateRows)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.url, nil)
+			res := httptest.NewRecorder()
+			handler.ServeHTTP(res, req)
+
+			if res.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+			}
+
+			var body struct {
+				Status string `json:"status"`
+				Data   struct {
+					Mode string            `json:"mode"`
+					Plan local.ExplainNode `json:"plan"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body.Data.Mode != "range" || body.Data.Plan.Strategy != "native_sql" {
+				t.Fatalf("expected native range explain, got %#v", body.Data)
+			}
+
+			if _, ok := findExplainPhysicalDecision(body.Data.Plan.PhysicalDecisions, "query_settings"); ok != tt.wantRootQuerySetting {
+				t.Fatalf("root query_settings presence=%v, want %v; root decisions=%#v", ok, tt.wantRootQuerySetting, body.Data.Plan.PhysicalDecisions)
+			}
+
+			subquery, ok := findExplainNodeByKind(body.Data.Plan, "subquery")
+			if !ok {
+				t.Fatalf("expected subquery node, got %#v", body.Data.Plan)
+			}
+			decision, ok := findExplainPhysicalDecision(subquery.PhysicalDecisions, "query_settings")
+			if !ok {
+				t.Fatalf("expected subquery query_settings decision, got %#v", subquery.PhysicalDecisions)
+			}
+			if decision.Strategy != "no_thread_cap" {
+				t.Fatalf("subquery query_settings strategy = %q, want no_thread_cap; decisions=%#v", decision.Strategy, subquery.PhysicalDecisions)
+			}
+			if decision.Reason != physical.ThreadPreferenceReasonSubqueryRateRows {
+				t.Fatalf("subquery query_settings reason = %q, want %q", decision.Reason, physical.ThreadPreferenceReasonSubqueryRateRows)
+			}
+		})
 	}
 }
 

@@ -134,6 +134,9 @@ func ComplianceMarkdown(report TesterReport, policy JUnitPolicy, reportPath stri
 				fmt.Fprintf(&b, "| `%s` | `%s` | %s |\n", escapeMarkdownPipes(result.TestCase.Query), result.ToleranceApplied.ID, escapeMarkdownPipes(result.ToleranceApplied.Reason))
 				continue
 			}
+			if !ResultFailed(result) {
+				continue
+			}
 			if expected := matchingExpectedFailure(policy.Allowlist, policy.Mode, result); expected != nil {
 				fmt.Fprintf(&b, "| `%s` | `%s` | %s |\n", escapeMarkdownPipes(result.TestCase.Query), expected.ID, escapeMarkdownPipes(expected.Reason))
 			}

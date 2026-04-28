@@ -57,6 +57,22 @@ func TestJUnitXMLMarksAcceptedTolerancePassed(t *testing.T) {
 	}
 }
 
+func TestComplianceMarkdownDoesNotRenderPassingAllowlistMatch(t *testing.T) {
+	report := TesterReport{TotalResults: 2, Results: []TesterResult{
+		{TestCase: TesterCase{Query: "query-only-match"}},
+		{TestCase: TesterCase{Query: "demo_memory_usage_bytes % 1.2345"}, ToleranceApplied: &AppliedTolerance{ID: "native-modulo-small-float-drift", Query: "demo_memory_usage_bytes % 1.2345", Margin: 0.000001, Reason: "small drift"}},
+	}}
+	allow := ExpectedFailures{Entries: []ExpectedFailureEntry{{ID: "query-only", Query: "query-only-match", Reason: "would be too broad if rendered for passing results"}}}
+
+	out := ComplianceMarkdown(report, JUnitPolicy{Mode: "prefer", Allowlist: allow}, "")
+	if strings.Contains(out, "| `query-only-match` | `query-only` |") {
+		t.Fatalf("passing allowlist query rendered as accepted deviation:\n%s", out)
+	}
+	if !strings.Contains(out, "native-modulo-small-float-drift") {
+		t.Fatalf("expected real accepted tolerance in markdown:\n%s", out)
+	}
+}
+
 func TestJUnitXMLMarksUnexpectedPreferFailureFailed(t *testing.T) {
 	report := TesterReport{TotalResults: 1, Results: []TesterResult{
 		{TestCase: TesterCase{Query: "rate(up[5m])"}, UnexpectedFailure: "server error: 500"},

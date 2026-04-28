@@ -197,10 +197,35 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-row-source-reuse-decision-observability` — **keep**. Added typed `row_source_reuse` decision metadata for repeated range binary shapes even when reuse is rejected. Example `rate(...) + on(job) rate(...)` now reports `row_source_reuse=not_reused` with reason `range self-reuse currently requires default one-to-one matching labels` and rejected alternative `range_self_join`. Validation: package tests passed, compliance remained clean (prefer/native 537 passed + 1 accepted tolerance, 0 failures), focused benchmark stayed `native_sql` with regressionCount 0. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-row-source-reuse-decision-observability.md`.
 - `20260428-range-self-join-bool-comparison` — **keep**. Extended range self-reuse to repeated bool comparisons under conservative gates (supported comparison op, default one-to-one matching, identical operand expression and repeated subtree key). For `rate(...) >= bool rate(...)`: `query_duration_ms` `8707 → 7206`, `memory_usage` `4045586437 → 3044895581`, `real_time_us` `293214755 → 242960764`, `join_build_rows` `3347760 → 11544`. Compliance passed; focused benchmark kept `native_sql` for all rows. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-range-self-join-bool-comparison.md`.
 - `20260428-range-self-join-comparison` — **keep**. Extended range self-reuse from repeated arithmetic to repeated non-bool comparisons under the same conservative gates. For `rate(...) >= rate(...)`: `join_build_rows` `3347760 → 11544`, `memory_usage` `4034302245 → 3023742564`, `real_time_us` `292427191 → 239284230`. Compliance passed; focused benchmark kept `native_sql` in prefer/force_supported. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-range-self-join-comparison.md`.
 - `20260428-range-self-join-arithmetic` — **keep**. Generalized range self-reuse from `A + A` to identical one-to-one arithmetic repeated range-function operands (`+ - * / % ^`) with a repeated-subtree gate (`cseSubtreeKey`) so leaf arithmetic (`up * up`) is not rewritten. For `rate(...) * rate(...)`: `join_build_rows` `3347760 → 11544`, `memory_usage` `4055860420 → 3027569371`, `real_time_us` `293298166 → 233424519`. Compliance passed; focused benchmark stayed `native_sql`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-range-self-join-arithmetic.md`.
 - `20260428-range-self-join` — **keep**. Added range-mode binary self-join rendering for identical default one-to-one `A + A` operands. Baseline showed `(A + A) / 2` targets are already cancelled by logical optimization, so the runtime target shifted to `rate(...) + rate(...)`. For `rate(...) + rate(...)`: `join_build_rows` `3347760 → 11544`, `memory_usage` `4056171689 → 3299962607`, `real_time_us` `290023641 → 248337765`. Compliance passed. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-range-self-join.md`.
+
+### Reflection checkpoint (iteration 6)
+
+1. **What has been accomplished so far?**
+   - Built a conservative range self-reuse ladder: repeated arithmetic, non-bool comparison, and bool comparison range-function shapes now reuse one flattened source under strict guards.
+   - Added reproducible measurement artifacts and self-contained commit evidence for each accepted attempt.
+   - Kept compliance clean after each behavior change.
+
+2. **What is working well?**
+   - The attempt loop (baseline → implementation → compliance/bench → commit) is producing consistent, low-variance wins.
+   - `join_build_rows`, memory, and CPU signals are strongly correlated with successful reuse changes.
+   - Commit policy updates improved reviewability by forcing in-commit metrics and validation outcomes.
+
+3. **What is not working / blockers?**
+   - Explain metadata currently emphasizes applied strategies; eligibility/rejection visibility is still partial across all binary families.
+   - Some non-repeated binary shapes do not surface row-source-reuse decisions in service-level explain output, which limits diagnosability for "why not reused" questions.
+
+4. **Should the approach be adjusted?**
+   - Yes: prioritize observability and decision transparency next, not broader operator expansion.
+   - Keep optimization scope conservative and only expand runtime behavior when explain metadata can justify decisions clearly.
+
+5. **Next priorities**
+   - Add typed eligibility/rejection row-source-reuse decision metadata that is consistently visible in explain output for repeated candidate shapes (applied and not-applied cases where relevant).
+   - Then move to subquery preference propagation / estimate plumbing once reuse decision observability is solid.
 
 ## Attempt notes policy
 

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 )
 
 // binaryVectorJoinCases covers the full matching-shape matrix for Surface 13:
@@ -178,6 +180,10 @@ func TestLowerBinaryVectorJoinReusesRangeComparisonBool(t *testing.T) {
 	if !strings.Contains(rq.SQL, "toFloat64(if((lhs.value >= lhs.value), 1, 0))") {
 		t.Fatalf("expected bool comparison self-reuse expression, got SQL:\n%s", rq.SQL)
 	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "row_source_reuse")
+	if !ok || decision.Strategy != "range_self_join" {
+		t.Fatalf("expected row_source_reuse=range_self_join decision, got %#v", rq.PhysicalDecisions)
+	}
 }
 
 func TestLowerBinaryVectorJoinDoesNotReuseLeafArithmetic(t *testing.T) {
@@ -189,6 +195,19 @@ func TestLowerBinaryVectorJoinDoesNotReuseLeafArithmetic(t *testing.T) {
 	if got := strings.Count(rq.SQL, "ARRAY JOIN time_series AS point"); got != 2 {
 		t.Fatalf("ARRAY JOIN count = %d, want 2 for non-range-function leaf reuse in SQL:\n%s", got, rq.SQL)
 	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "row_source_reuse")
+	if !ok || decision.Strategy != "not_reused" {
+		t.Fatalf("expected row_source_reuse=not_reused decision, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func findPhysicalDecisionByKind(decisions []physical.Decision, kind string) (physical.Decision, bool) {
+	for _, decision := range decisions {
+		if decision.Kind == kind {
+			return decision, true
+		}
+	}
+	return physical.Decision{}, false
 }
 
 // TestLowerBinaryVectorJoinNilErrors exercises the defensive nil guard in

@@ -199,6 +199,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-reflection71-shadow-branch-status` — **keep (reflection, no code change)**. Reflection checkpoint confirms first controlled shadow branch is stable and transparent, and shifts next priority to a bounded decision-quality scorecard across a fixed mini-corpus before any further branch expansion. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-reflection71-shadow-branch-status.md`.
 - `20260428-cbe-subquery-shadow-runtime-branch-evidence` — **keep**. Captured rebuilt-runtime before/after warm-up evidence for subquery `cost_shadow` behavior showing transition from `strict_missing_estimate` (with `missing_estimates` advisory) to `shadow_only` + `wouldSelect=local` (with `shadow_subquery_cap_bypass=subquery` advisory). Confirms controlled branch behavior under runtime state changes while preserving served strategy neutrality. Artifacts: `harness/artifacts/explain/20260428-iter70-subquery-shadow-blocked.json`, `harness/artifacts/explain/20260428-iter70-subquery-shadow-bypass.json`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-subquery-shadow-runtime-branch-evidence.md`.
 - `20260428-cbe-subquery-bypass-blocked-advisory` — **keep**. Extended controlled subquery shadow branch explainability with explicit blocked-path advisory (`shadow_subquery_cap_bypass_blocked=<reason>`) when cap bypass guardrails fail. Added focused regression coverage for both activation and blocked branches; strategy behavior unchanged. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-subquery-bypass-blocked-advisory.md`.
 - `20260428-cbe-subquery-shadow-bypass-advisory` — **keep**. Added explicit advisory `shadow_subquery_cap_bypass=subquery` when the bounded `cost_shadow` subquery cap-bypass branch activates, and validated via routing-policy tests plus rebuilt-runtime explain evidence. Strategy neutrality remains preserved. Artifacts: `harness/artifacts/explain/20260428-iter68-subquery-shadow-advisory-warm.json`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-subquery-shadow-bypass-advisory.md`.
@@ -292,6 +293,26 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 5. **Next priorities**
    - Add typed eligibility/rejection row-source-reuse decision metadata that is consistently visible in explain output for repeated candidate shapes (applied and not-applied cases where relevant).
    - Then move to subquery preference propagation / estimate plumbing once reuse decision observability is solid.
+
+### Reflection checkpoint (iteration 71)
+
+1. **What has been accomplished so far?**
+   - Completed advisory + diagnostics foundation and entered a bounded shadow behavior branch.
+   - Verified activation/blocked-path transparency and runtime cold/warm branch transitions.
+
+2. **What's working well?**
+   - Guarded behavior evolution with strong strategy-neutrality constraints.
+   - Evidence collection now clearly links routing outcomes to advisory state.
+
+3. **What's not working or blocking progress?**
+   - Decision-quality improvement is not yet summarized with a compact comparative scorecard.
+
+4. **Should the approach be adjusted?**
+   - Yes: focus next on a bounded scoring pass, not more branch logic.
+
+5. **What are the next priorities?**
+   - Build mini-corpus scorecard (advisory presence, missing-estimate rate, shadow-local candidate rate) pre/post warm-up.
+   - Use scorecard to decide keep/tighten/expand branch.
 
 ### Reflection checkpoint (iteration 66)
 

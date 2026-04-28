@@ -97,7 +97,7 @@ func tryRenderNativeGridRangeSumAggregationSQL(ctx LoweringCtx, n *logicalpkg.Ag
 	lookbackMS := sel.Lookback.Milliseconds()
 	offsetMS := sel.Offset.Milliseconds()
 	isIdentity := view.ValueExpr == "{value}" && view.TagsExpr == "{tags}" && !view.DropsMetric
-	if !isIdentity || !canUseNativeGridRangeFunction(fn, lookbackMS, offsetMS) {
+	if !isIdentity || canUseSparseDirectRateBuckets(fn, lookbackMS, offsetMS, ctx.Params.StepMS) || !canUseNativeGridRangeFunction(fn, lookbackMS, offsetMS) {
 		return "", nil, false, nil
 	}
 	childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
@@ -175,7 +175,7 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 		lookbackMS := sel.Lookback.Milliseconds()
 		offsetMS := sel.Offset.Milliseconds()
 		isIdentity := view.ValueExpr == "{value}" && view.TagsExpr == "{tags}" && !view.DropsMetric
-		if isIdentity && ctx.Config.EnableNativeGridFunctions && canUseNativeGridRangeFunction(fn, lookbackMS, offsetMS) {
+		if isIdentity && ctx.Config.EnableNativeGridFunctions && !canUseSparseDirectRateBuckets(fn, lookbackMS, offsetMS, ctx.Params.StepMS) && canUseNativeGridRangeFunction(fn, lookbackMS, offsetMS) {
 			childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
 			source, err := renderAggregationSourceView(view, ctx.Params)
 			if err != nil {
@@ -185,6 +185,15 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 			return storage.BuildRangeNativeGridSelectorRowsQuerySQLWithFinalTags(ctx.Config, *source.Selector, childRequiredStartMS, childRequiredEndMS, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, fn, tagsExpr)
 		}
 		if isIdentity {
+			if canUseSparseDirectRateBuckets(fn, lookbackMS, offsetMS, ctx.Params.StepMS) {
+				childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
+				source, err := renderAggregationSourceView(view, ctx.Params)
+				if err != nil {
+					return "", nil, err
+				}
+				tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(ctx.Params))
+				return storage.BuildRangeWindowSelectorDirectAggregateRowsQuerySQLWithFinalTags(ctx.Config, *source.Selector, childRequiredStartMS, childRequiredEndMS, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, fn, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
+			}
 			strategy := resolveRangeWindowAggregateStrategy(fn, ctx.Config, lookbackMS, ctx.Params.StepMS, ctx.Params.Physical)
 			switch strategy {
 			case RangeWindowAggregateStrategyCumulativeAvg:

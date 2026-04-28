@@ -356,6 +356,34 @@ func TestAggregationByMaxOverTimeRangeHonorsDirectAggregatePreference(t *testing
 	}
 }
 
+func TestAggregationByRateRangeUsesSparseDirectAggregateWhenNonOverlapping(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (rate(demo_cpu_usage_seconds_total[1h]))`)
+	cfg := testRenderConfig()
+	cfg.EnableNativeGridFunctions = true
+	rq, err := Lower(LoweringCtx{
+		Config:         cfg,
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params: RenderParams{
+			Mode:    testRenderParamsRange().Mode,
+			StartMS: 1_700_000_000_000,
+			EndMS:   1_700_086_400_000,
+			StepMS:  3_600_000,
+		},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	for _, expected := range []string{"deltaSumTimestamp(", "GROUP BY d.id, eval_ms", "ARRAY JOIN", "positiveModulo(", "GROUP BY tags, timestamp"} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected sparse direct rate aggregation SQL to contain %q, got:\n%s", expected, rq.SQL)
+		}
+	}
+	if strings.Contains(rq.SQL, "timeSeriesRateToGrid(") {
+		t.Fatalf("expected sparse non-overlap rate aggregation to avoid native-grid arrays, got:\n%s", rq.SQL)
+	}
+}
+
 func TestAggregationByRateRangeUsesNativeGridArrayAggregationWhenEnabled(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (rate(demo_cpu_usage_seconds_total[5m]))`)
 	cfg := testRenderConfig()
@@ -368,7 +396,7 @@ func TestAggregationByRateRangeUsesNativeGridArrayAggregationWhenEnabled(t *test
 			Mode:    testRenderParamsRange().Mode,
 			StartMS: 1_700_000_000_000,
 			EndMS:   1_700_086_400_000,
-			StepMS:  300_000,
+			StepMS:  60_000,
 		},
 	}, root)
 	if err != nil {

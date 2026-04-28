@@ -66,6 +66,56 @@ func BuildRangeBinaryVectorJoinSQL(lhsSQL string, lhsParams map[string]string, r
 	return buildBinaryVectorJoinSQL(lhsSQL, lhsParams, rhsSQL, rhsParams, cfg, true)
 }
 
+func BuildRangeBinaryVectorSelfJoinSQL(sourceSQL string, params map[string]string, cfg BinaryJoinConfig) (string, map[string]string, error) {
+	if isStorageSetOperator(cfg.Op) {
+		return "", nil, fmt.Errorf("native range vector self-join SQL for set operator %q is not supported", cfg.Op.String())
+	}
+	if cfg.JoinShape != "one_to_one" || !isDefaultOneToOneMatching(cfg.VectorMatching) {
+		return "", nil, fmt.Errorf("native range vector self-join SQL requires default one-to-one matching")
+	}
+	valueExpr, valueFilter, err := buildBinaryValueExpr(cfg.Op, cfg.ReturnBool, sqlb.Ident("lhs.value"), sqlb.Ident("lhs.value"))
+	if err != nil {
+		return "", nil, err
+	}
+	prepared, err := buildPreparedJoinSideSelect("lhs", buildJoinSource(sourceSQL, true), buildJoinGroupExpr(sqlb.Ident("tags"), cfg.VectorMatching), true, true)
+	if err != nil {
+		return "", nil, err
+	}
+	selfRows := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: buildBinarySelfResultTagsExpr(cfg), Alias: "result_tags"},
+			{Expr: sqlb.Ident("lhs.timestamp"), Alias: "timestamp"},
+			{Expr: valueExpr, Alias: "value"},
+		},
+		From:  sqlb.SubSelect{S: prepared, Alias: "lhs"},
+		Where: valueFilter,
+	}
+	grouped := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("result_tags"), Alias: "result_tags"},
+			{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
+			{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("value")}}, Alias: "value"},
+		},
+		From:    sqlb.SubSelect{S: selfRows},
+		GroupBy: []sqlb.Expr{sqlb.Ident("result_tags"), sqlb.Ident("timestamp")},
+		Having:  sqlb.RawLit{V: "throwIf(count() > 1, 'multiple matches for labels: grouping labels must ensure unique matches') = 0"},
+	}
+	outer := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("result_tags"), Alias: "tags"},
+			{Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"},
+		},
+		From:    sqlb.SubSelect{S: grouped},
+		GroupBy: []sqlb.Expr{sqlb.Ident("result_tags")},
+		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("result_tags")}},
+	}
+	sql, _, err := outer.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql + schema.QuerySuffix, params, nil
+}
+
 func buildBinaryVectorJoinSQL(lhsSQL string, lhsParams map[string]string, rhsSQL string, rhsParams map[string]string, cfg BinaryJoinConfig, rangeMode bool) (string, map[string]string, error) {
 	if isStorageSetOperator(cfg.Op) {
 		return buildSetVectorJoinSQL(lhsSQL, lhsParams, rhsSQL, rhsParams, cfg, rangeMode)

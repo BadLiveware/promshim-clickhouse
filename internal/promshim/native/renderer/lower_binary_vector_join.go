@@ -6,6 +6,7 @@ import (
 
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -79,6 +80,29 @@ func lowerBinaryVectorJoin(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQ
 		}
 		return finalizeRenderedFragment(renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams})
 	case native.RenderModeRange:
+		if binaryVectorSelfReuseEligible(n, joinShape) {
+			childCtx := ctx
+			childCtx.Params = rangeSideParams(ctx.Params, n.LHS)
+			childSQL, childParams, err := lowerBinaryVectorJoinSide(childCtx, n.LHS, "lhs")
+			if err != nil {
+				return RenderedQuery{}, err
+			}
+			sql, queryParams, err := storage.BuildRangeBinaryVectorSelfJoinSQL(childSQL, childParams, joinCfg)
+			if err != nil {
+				return RenderedQuery{}, err
+			}
+			rq, err := finalizeRenderedFragment(renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams})
+			if err != nil {
+				return RenderedQuery{}, err
+			}
+			rq.PhysicalDecisions = appendRenderedQueryPhysicalDecisions(rq.PhysicalDecisions, physical.Decision{
+				Kind:     "row_source_reuse",
+				Strategy: "range_self_join",
+				Reason:   "identical one-to-one binary operands share one flattened range source",
+				Guards:   []string{"identical_operands", "one_to_one_matching", "add_operator", "range_mode"},
+			})
+			return rq, nil
+		}
 		lhsBoundsCtx := ctx
 		lhsBoundsCtx.Params = rangeSideParams(ctx.Params, n.LHS)
 		rhsBoundsCtx := ctx

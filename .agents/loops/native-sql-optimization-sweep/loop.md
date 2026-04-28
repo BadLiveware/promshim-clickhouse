@@ -181,9 +181,9 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 1. **Native row-source reuse for repeated range sources**
    - Plan: `.agents/plans/native-row-source-reuse-optimizer.md`
-   - Target: repeated `sum by (...) (rate(selector[1h]))` in one native query.
+   - Current target family: non-cancelled repeated range-function arithmetic (e.g., `rate(...) + rate(...)`, `rate(...) * rate(...)`) in one native query.
    - Expected signal: duplicated source work drops in ProfileEvents/query log; strategy remains `native_sql`.
-   - First action: baseline with `ch-explain.sh` and inspect current CSE/lowerer behavior before keying.
+   - Next action: add typed eligibility/rejection metadata and keying for less-trivial repeated sources beyond direct arithmetic self-reuse.
 
 2. **Subquery physical preference propagation**
    - Target: nested range/subquery shapes where an inner source is eligible for sparse/native-grid strategy but parent context suppresses or fails to propagate the best preference.
@@ -197,6 +197,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-range-self-join-arithmetic` — **keep**. Generalized range self-reuse from `A + A` to identical one-to-one arithmetic repeated range-function operands (`+ - * / % ^`) with a repeated-subtree gate (`cseSubtreeKey`) so leaf arithmetic (`up * up`) is not rewritten. Evidence: `harness/artifacts/explain/20260428-range-self-join-mul-before/` → `...-mul-after/`; `join_build_rows` dropped `3347760 → 11544`, memory `4055860420 → 3027569371`, `real_time_us` `293298166 → 233424519`; compliance passed; focused benchmark artifact `harness/artifacts/bench/standalone/20260428-range-self-join-arithmetic/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-range-self-join-arithmetic.md`.
 - `20260428-range-self-join` — **keep**. Added range-mode binary self-join rendering for identical default one-to-one `A + A` operands. Baseline showed `(A + A) / 2` targets are already cancelled by logical optimization, so the runtime target shifted to `rate(...) + rate(...)`. Evidence: `harness/artifacts/explain/20260428-row-source-reuse-rate-plus-baseline/` → `harness/artifacts/explain/20260428-row-source-reuse-rate-plus-after/`; `join_build_rows` dropped `3347760 → 11544`, memory `4056171689 → 3299962607`, `real_time_us` `290023641 → 248337765`; compliance passed; focused benchmark artifacts under `harness/artifacts/bench/standalone/20260428-row-source-reuse-self-join/` and `...-prom-check/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-range-self-join.md`.
 
 ## Attempt notes policy

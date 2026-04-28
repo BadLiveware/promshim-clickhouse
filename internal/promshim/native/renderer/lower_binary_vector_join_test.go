@@ -129,6 +129,34 @@ func TestLowerBinaryVectorJoinReuseRollbackGate(t *testing.T) {
 	}
 }
 
+func TestLowerBinaryVectorJoinReusesIdenticalRangeMulSubexpression(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[5m]) * rate(demo_cpu_usage_seconds_total[5m])`)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsRange()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if got := strings.Count(rq.SQL, "timeSeriesData("); got != 1 {
+		t.Fatalf("timeSeriesData count = %d, want 1 in SQL:\n%s", got, rq.SQL)
+	}
+	if got := strings.Count(rq.SQL, "ARRAY JOIN time_series AS point"); got != 1 {
+		t.Fatalf("ARRAY JOIN count = %d, want 1 in SQL:\n%s", got, rq.SQL)
+	}
+	if !strings.Contains(rq.SQL, "lhs.value * lhs.value") {
+		t.Fatalf("expected self-reuse multiply expression, got SQL:\n%s", rq.SQL)
+	}
+}
+
+func TestLowerBinaryVectorJoinDoesNotReuseLeafArithmetic(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `up * up`)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsRange()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if got := strings.Count(rq.SQL, "ARRAY JOIN time_series AS point"); got != 2 {
+		t.Fatalf("ARRAY JOIN count = %d, want 2 for non-range-function leaf reuse in SQL:\n%s", got, rq.SQL)
+	}
+}
+
 // TestLowerBinaryVectorJoinNilErrors exercises the defensive nil guard in
 // lowerBinaryVectorJoin. A nil node must return a non-sentinel error.
 func TestLowerBinaryVectorJoinNilErrors(t *testing.T) {

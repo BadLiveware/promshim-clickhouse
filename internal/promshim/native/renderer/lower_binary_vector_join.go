@@ -98,8 +98,8 @@ func lowerBinaryVectorJoin(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQ
 			rq.PhysicalDecisions = appendRenderedQueryPhysicalDecisions(rq.PhysicalDecisions, physical.Decision{
 				Kind:     "row_source_reuse",
 				Strategy: "range_self_join",
-				Reason:   "identical one-to-one binary operands share one flattened range source",
-				Guards:   []string{"identical_operands", "one_to_one_matching", "add_operator", "range_mode"},
+				Reason:   "identical one-to-one arithmetic operands share one flattened range source",
+				Guards:   []string{"identical_operands", "one_to_one_matching", "arithmetic_operator", "range_mode"},
 			})
 			return rq, nil
 		}
@@ -130,7 +130,7 @@ func lowerBinaryVectorJoin(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQ
 // so the rendered SQL is embeddable as a FROM source inside the join
 // body.
 func binaryVectorSelfReuseEligible(n *logicalpkg.BinaryPlan, joinShape string) bool {
-	if n == nil || nativeRepeatedSubexpressionReuseDisabled() || n.ReturnBool || n.Op != nativePromQLAddOp() || joinShape != "one_to_one" {
+	if n == nil || nativeRepeatedSubexpressionReuseDisabled() || n.ReturnBool || !isSelfReuseArithmeticOp(n.Op) || joinShape != "one_to_one" {
 		return false
 	}
 	if n.VectorMatching != nil && (n.VectorMatching.On || len(n.VectorMatching.MatchingLabels) > 0 || len(n.VectorMatching.Include) > 0) {
@@ -138,7 +138,15 @@ func binaryVectorSelfReuseEligible(n *logicalpkg.BinaryPlan, joinShape string) b
 	}
 	lhsExpr := nodeExprString(n.LHS)
 	rhsExpr := nodeExprString(n.RHS)
-	return lhsExpr != "" && lhsExpr == rhsExpr
+	if lhsExpr == "" || lhsExpr != rhsExpr {
+		return false
+	}
+	lhsKey, lhsOK := cseSubtreeKey(n.LHS)
+	rhsKey, rhsOK := cseSubtreeKey(n.RHS)
+	if !lhsOK || !rhsOK || lhsKey != rhsKey {
+		return false
+	}
+	return true
 }
 
 func nodeExprString(n logicalpkg.Node) string {
@@ -152,7 +160,14 @@ func nodeExprString(n logicalpkg.Node) string {
 	return exprNode.ExprString()
 }
 
-func nativePromQLAddOp() parser.ItemType { return parser.ADD }
+func isSelfReuseArithmeticOp(op parser.ItemType) bool {
+	switch op {
+	case parser.ADD, parser.SUB, parser.MUL, parser.DIV, parser.MOD, parser.POW:
+		return true
+	default:
+		return false
+	}
+}
 
 func nativeRepeatedSubexpressionReuseDisabled() bool {
 	switch os.Getenv(DisableNativeRepeatedSubexpressionReuseEnv) {

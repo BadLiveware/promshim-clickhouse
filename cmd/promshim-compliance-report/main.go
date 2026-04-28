@@ -10,12 +10,14 @@ import (
 )
 
 func main() {
-	action := flag.String("action", "", "Action: reconcile, classify, native-gap, summary.")
+	action := flag.String("action", "", "Action: reconcile, classify, native-gap, or summary.")
 	reportPath := flag.String("report", "", "Compliance report path.")
 	allowPath := flag.String("allowlist", "harness/compliance/expected-failures.json", "Expected failures allowlist.")
 	mode := flag.String("mode", "", "Compliance mode for mode-tagged allowlist entries.")
 	bucket := flag.String("bucket", "", "Failure bucket to dump for classify action.")
 	limit := flag.Int("limit", 0, "Maximum details for classify bucket dump.")
+	outputFormat := flag.String("output-format", "", "Render report as junit or markdown; bypasses --action when set.")
+	outputPath := flag.String("output", "", "Output path for junit or markdown output; stdout when empty.")
 	flag.Parse()
 	if *reportPath == "" {
 		fail("--report is required")
@@ -23,6 +25,10 @@ func main() {
 	report, err := compliance.LoadTesterReport(*reportPath)
 	if err != nil {
 		fail("load report: %v", err)
+	}
+	if *outputFormat != "" {
+		renderOutput(report, *reportPath, *allowPath, *mode, *outputFormat, *outputPath)
+		return
 	}
 	switch *action {
 	case "summary":
@@ -46,7 +52,7 @@ func main() {
 	case "native-gap":
 		printNativeGap(report, *reportPath)
 	default:
-		fail("--action must be reconcile, classify, native-gap, or summary")
+		fail("--action must be reconcile, classify, native-gap, or summary; use --output-format for junit or markdown output")
 	}
 }
 
@@ -143,6 +149,26 @@ func printNativeGap(report compliance.TesterReport, reportPath string) {
 	fmt.Println("      native lowering coverage grows.")
 }
 
+func renderOutput(report compliance.TesterReport, reportPath, allowPath, mode, format, outputPath string) {
+	allow, err := compliance.LoadExpectedFailures(allowPath)
+	if err != nil {
+		fail("load allowlist: %v", err)
+	}
+	switch format {
+	case "junit":
+		out, err := compliance.JUnitXML(report, compliance.JUnitPolicy{Mode: mode, Allowlist: allow})
+		if err != nil {
+			fail("render junit: %v", err)
+		}
+		writeOutput(outputPath, out)
+	case "markdown":
+		out := compliance.ComplianceMarkdown(report, compliance.JUnitPolicy{Mode: mode, Allowlist: allow}, reportPath)
+		writeOutput(outputPath, []byte(out))
+	default:
+		fail("--output-format must be junit or markdown")
+	}
+}
+
 func sample(samples []string, i int) string {
 	if i >= len(samples) {
 		return ""
@@ -153,6 +179,16 @@ func sample(samples []string, i int) string {
 	}
 	return s
 }
+func writeOutput(path string, data []byte) {
+	if path == "" {
+		_, _ = os.Stdout.Write(data)
+		return
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		fail("write output: %v", err)
+	}
+}
+
 func fail(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, "promshim-compliance-report: "+format+"\n", args...)
 	os.Exit(2)

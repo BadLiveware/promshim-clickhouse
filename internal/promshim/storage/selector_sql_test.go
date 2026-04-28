@@ -263,12 +263,12 @@ func TestBuildRangeWindowSelectorDirectAggregateRowsQuerySQLUsesGroupedRateAlias
 	if err != nil {
 		t.Fatalf("expected direct aggregate rows SQL for rate, got error: %v", err)
 	}
-	for _, expected := range []string{"count() AS sample_count", "countIf(isNaN(ifNull(toFloat64(d.value), nan))) AS nan_count", "toUnixTimestamp64Milli(min(d.timestamp)) AS first_timestamp_ms", "toUnixTimestamp64Milli(max(d.timestamp)) AS last_timestamp_ms", "toUnixTimestamp64Milli(max(d.timestamp)) - toUnixTimestamp64Milli(min(d.timestamp)) AS window_duration_ms", "deltaSumTimestamp(ifNull(toFloat64(d.value), nan), toUnixTimestamp64Milli(d.timestamp)) AS counter_delta_sum", "counter_delta_sum * (if(", "toFloat64({lookback_ms:Int64}) / 1000.0", "windowed.id = series.id", "GROUP BY grid.id, grid.eval_ts"} {
+	for _, expected := range []string{"count() AS sample_count", "countIf(isNaN(ifNull(toFloat64(d.value), nan))) AS nan_count", "toUnixTimestamp64Milli(min(d.timestamp)) AS first_timestamp_ms", "toUnixTimestamp64Milli(max(d.timestamp)) AS last_timestamp_ms", "toUnixTimestamp64Milli(max(d.timestamp)) - toUnixTimestamp64Milli(min(d.timestamp)) AS window_duration_ms", "deltaSumTimestamp(ifNull(toFloat64(d.value), nan), toUnixTimestamp64Milli(d.timestamp)) AS counter_delta_sum", "counter_delta_sum * (if(", "toFloat64({lookback_ms:Int64}) / 1000.0", "windowed.id = series.id", "ARRAY JOIN", "positiveModulo(", "GROUP BY d.id, eval_ms"} {
 		if !strings.Contains(sql, expected) {
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)
 		}
 	}
-	for _, unwanted := range []string{"window_series", "window_values", "arrayPopBack(", "arrayPopFront(", "GROUP BY grid.id, grid.tags, grid.eval_ts"} {
+	for _, unwanted := range []string{"window_series", "window_values", "arrayPopBack(", "arrayPopFront(", "GROUP BY grid.id, grid.tags, grid.eval_ts", "GROUP BY grid.id, grid.eval_ts"} {
 		if strings.Contains(sql, unwanted) {
 			t.Fatalf("expected direct aggregate rows SQL to avoid %q, got %q", unwanted, sql)
 		}

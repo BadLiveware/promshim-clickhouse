@@ -514,6 +514,7 @@ func buildRangeWindowSelectorDirectAggregateSparsePerStepQuery(cfg QueryConfig, 
 	windowColumns := []sqlb.ColExpr{
 		{Expr: sqlb.Ident("d.id"), Alias: "id"},
 		{Expr: sqlb.Ident("eval_ms"), Alias: "eval_ms"},
+		{Expr: sqlb.RawLit{V: "fromUnixTimestamp64Milli(eval_ms)"}, Alias: "eval_ts"},
 		{Expr: sqlb.RawLit{V: "count()"}, Alias: "sample_count"},
 	}
 	windowColumns = append(windowColumns, aggregateColumns...)
@@ -541,6 +542,7 @@ func buildRangeWindowSelectorDirectAggregateSparsePerStepQuery(cfg QueryConfig, 
 		taggedColumns := []sqlb.ColExpr{
 			{Expr: sqlb.Ident("series.tags"), Alias: "tags"},
 			{Expr: sqlb.Ident("windowed.eval_ms"), Alias: "eval_ms"},
+			{Expr: sqlb.Ident("windowed.eval_ts"), Alias: "eval_ts"},
 			{Expr: sqlb.Ident("windowed.sample_count"), Alias: "sample_count"},
 		}
 		for _, col := range aggregateColumns {
@@ -628,7 +630,7 @@ func buildRangeWindowSelectorCumulativeAvgPerStepSQL(cfg QueryConfig, selector S
 
 func directRangeWindowAggregateCanUseSparseBuckets(fn string) bool {
 	switch fn {
-	case "avg_over_time", "max_over_time":
+	case "avg_over_time", "max_over_time", "rate":
 		return true
 	default:
 		return false

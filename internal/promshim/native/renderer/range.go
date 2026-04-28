@@ -239,6 +239,10 @@ func supportsDirectSelectorWindowAggregate(fn string, lookbackMS int64) bool {
 	}
 }
 
+func canUseSparseDirectRateBuckets(fn string, lookbackMS, offsetMS, stepMS int64) bool {
+	return fn == "rate" && lookbackMS > 0 && stepMS > 0 && offsetMS == 0 && lookbackMS <= stepMS
+}
+
 func canUseNativeGridRangeFunction(fn string, lookbackMS, offsetMS int64) bool {
 	if lookbackMS <= 0 || offsetMS != 0 {
 		return false

@@ -199,6 +199,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-reflection51-cbe-experiment-readiness` — **keep (reflection, no code change)**. Reflection checkpoint confirms readiness to transition from instrumentation to consumption: next iteration should run one bounded advisory/shadow experiment that uses subquery complexity diagnostics while keeping served strategy unchanged. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-reflection51-cbe-experiment-readiness.md`.
 - `20260428-cbe-estimate-tranche-closure` — **keep (scope decision, no code change)**. Closed the current estimate-input instrumentation tranche after landing and validating the full subquery diagnostic set. Next execution focus shifts to controlled CBE behavior experiments that consume existing diagnostics rather than adding more fields. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-estimate-tranche-closure.md`.
 - `20260428-cbe-estimate-input-subquery-complexity-band` — **keep**. Added qualitative derived diagnostic `subqueryComplexityBand` (`light|moderate|elevated|heavy`) from existing subquery complexity inputs, with classifier and API explain regression coverage. No routing/strategy behavior changes. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-estimate-input-subquery-complexity-band.md`.
 - `20260428-cbe-estimate-input-subquery-temporal-fanout` — **keep**. Added derived subquery complexity indicator `subqueryTemporalFanout` to routing cost class (`subqueryPointsPerEval * max(rangePointsPerSeries,1)`), with classifier and API explain regression coverage. No routing/strategy behavior changes. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-estimate-input-subquery-temporal-fanout.md`.
@@ -272,6 +273,28 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 5. **Next priorities**
    - Add typed eligibility/rejection row-source-reuse decision metadata that is consistently visible in explain output for repeated candidate shapes (applied and not-applied cases where relevant).
    - Then move to subquery preference propagation / estimate plumbing once reuse decision observability is solid.
+
+### Reflection checkpoint (iteration 51)
+
+1. **What has been accomplished so far?**
+   - Completed and validated the subquery estimate-diagnostics tranche end-to-end.
+   - Preserved routing behavior neutrality while improving explain/routing metadata depth.
+   - Closed low-EV runtime branches explicitly instead of carrying speculative partial work.
+
+2. **What's working well?**
+   - Tranche-based scope control and reflection checkpoints are improving loop quality.
+   - Metadata additions remain coherent and test-backed.
+
+3. **What's not working or blocking progress?**
+   - Diagnostics value remains mostly theoretical until consumed by decision logic in a controlled experiment.
+
+4. **Should the approach be adjusted?**
+   - Yes: execute one bounded consumption experiment now (advisory/shadow only, no served-strategy changes).
+
+5. **What are the next priorities?**
+   - Add one narrow rationale path that uses subquery complexity diagnostics.
+   - Assert unchanged selected/served strategy in tests.
+   - Capture before/after explain/routing artifacts proving improved decision transparency.
 
 ### Reflection checkpoint (iteration 46)
 

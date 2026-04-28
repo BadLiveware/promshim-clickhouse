@@ -85,9 +85,14 @@ When changing native SQL lowering:
 
 - Represent semantic and physical choices in plan structs first (strategy,
   predicate placement, stale-marker placement, matched-series distinctness,
-  join/aggregation shape), then render through `sqlb`.
+  join/aggregation shape, execution settings), then render through `sqlb`.
 - Prefer typed `sqlb` nodes/helpers for new optimization logic; keep raw SQL at
   compatibility edges and make it visible in review.
+- Measure optimizer claims with named benchmark/profile artifacts and
+  ClickHouse `ProfileEvents`, not p50 alone. If a query shape has measured
+  execution-setting behavior, encode it through typed physical preferences
+  (`RenderParams.Physical`, including set/no-cap execution hints) at the point
+  in planning where the whole-query shape is known.
 - Migrate path-by-path as optimization work touches code. Do not pause feature
   or performance work for a repository-wide SQL-builder migration.
 - Preserve rendered SQL/goldens unless the commit intentionally changes the

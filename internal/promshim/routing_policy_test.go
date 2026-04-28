@@ -40,6 +40,14 @@ func TestCostShadowDecisionStaysStrictOnMissingEstimate(t *testing.T) {
 	}
 }
 
+func TestCostShadowAddsSubqueryComplexityAdvisory(t *testing.T) {
+	class := httpapi.QueryCostClass{Endpoint: "query", Family: "subquery", SelectorCount: 1, LocalRoundTrips: 1, NativeRoundTrips: 1, HasSubquery: true, SubqueryComplexityBand: "elevated"}
+	info := routingDecisionForStrict(RoutingPolicyCostShadow, local.NativeLoweringModePrefer, class, "native_sql", nil)
+	if len(info.Advisory) == 0 || info.Advisory[0] != "subquery_complexity=elevated" {
+		t.Fatalf("advisory = %+v, want subquery complexity advisory", info.Advisory)
+	}
+}
+
 func TestCostShadowDecisionStaysStrictOverCap(t *testing.T) {
 	class := httpapi.QueryCostClass{Endpoint: "query", Family: "selector", SelectorCount: 1, EstimatedSeries: 10, EstimatedInputSamples: 1000000, EstimatedOutputPoints: 10, LocalRoundTrips: 1, NativeRoundTrips: 1}
 	info := routingDecisionForStrict(RoutingPolicyCostShadow, local.NativeLoweringModePrefer, class, "native_sql", nil)

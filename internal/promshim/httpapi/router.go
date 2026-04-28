@@ -137,6 +137,7 @@ type RoutingInfo struct {
 	CandidateDecision  *CandidateDecision     `json:"candidateDecision,omitempty"`
 	Candidates         []ExecutionCandidate   `json:"candidates,omitempty"`
 	Class              QueryCostClass         `json:"class"`
+	Advisory           []string               `json:"advisory,omitempty"`
 	SettingsProfile    string                 `json:"settingsProfile,omitempty"`
 }
 

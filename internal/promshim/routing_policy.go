@@ -85,6 +85,9 @@ func routingDecisionForStrict(policy RoutingPolicy, mode local.NativeLoweringMod
 
 func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, policy RoutingPolicy, enabledFamilies []string) httpapi.RoutingInfo {
 	info := baseRoutingInfo(policy, "shadow_only", "cost_shadow_strict_default", class, strictStrategy)
+	if advisory := subqueryComplexityAdvisory(class); advisory != "" {
+		info.Advisory = append(info.Advisory, advisory)
+	}
 	info.EnabledFamilies = append([]string(nil), enabledFamilies...)
 	maxLocalInputSamples := m.maxLocalInputSamplesLimit(class)
 	info.Caps = map[string]int64{
@@ -295,6 +298,13 @@ func familyBases(family string) (native, local float64) {
 	default:
 		return 0, 0
 	}
+}
+
+func subqueryComplexityAdvisory(class httpapi.QueryCostClass) string {
+	if !class.HasSubquery || class.SubqueryComplexityBand == "" {
+		return ""
+	}
+	return "subquery_complexity=" + class.SubqueryComplexityBand
 }
 
 func familyEnabled(class httpapi.QueryCostClass, enabled []string) bool {

@@ -503,6 +503,11 @@ func TestSubqueryRateOverAggregationSuppressesThreadGuardrail(t *testing.T) {
 	}{
 		{name: "instant", params: testRenderParamsInstant()},
 		{name: "range", params: testRenderParamsRange()},
+		{name: "range with root cap", params: func() RenderParams {
+			params := testRenderParamsRange()
+			params.Physical = preferASOFThreadGuardrail(params.Physical, "test_root_guardrail")
+			return params
+		}()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(sum by (job) (up)[5m:1m])`)

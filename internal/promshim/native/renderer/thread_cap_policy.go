@@ -45,6 +45,82 @@ func suppressThreadCapForSubqueryRangeFunction(params RenderParams, child *logic
 	return params
 }
 
+func suppressThreadCapForPlan(params RenderParams, node logicalpkg.Node) RenderParams {
+	if containsSubqueryRateOverAggregation(node) {
+		params.Physical = preferNoThreadCap(params.Physical, threadCapReasonSubqueryRateRows)
+	}
+	return params
+}
+
+func containsSubqueryRateOverAggregation(node logicalpkg.Node) bool {
+	if node == nil {
+		return false
+	}
+	if child, fn, ok := rangeFunctionChildNode(node); ok {
+		if fn == "rate" {
+			if sub, ok := child.(*logicalpkg.SubqueryPlan); ok && sub != nil {
+				if _, ok := sub.Child.(*logicalpkg.AggregationPlan); ok {
+					return true
+				}
+			}
+		}
+		return containsSubqueryRateOverAggregation(child)
+	}
+	switch n := node.(type) {
+	case *logicalpkg.UnaryPlan:
+		return containsSubqueryRateOverAggregation(n.Child)
+	case *logicalpkg.BinaryPlan:
+		return containsSubqueryRateOverAggregation(n.LHS) || containsSubqueryRateOverAggregation(n.RHS)
+	case *logicalpkg.AggregationPlan:
+		return containsSubqueryRateOverAggregation(n.Child)
+	case *logicalpkg.HistogramQuantilePlan:
+		return containsSubqueryRateOverAggregation(n.Child)
+	case *logicalpkg.HistogramFractionPlan:
+		return containsSubqueryRateOverAggregation(n.Child)
+	case *logicalpkg.HistogramProjectionPlan:
+		return containsSubqueryRateOverAggregation(n.Child)
+	case *logicalpkg.HistogramQuantilesPlan:
+		if containsSubqueryRateOverAggregation(n.Child) {
+			return true
+		}
+		for _, child := range n.ParamChildren {
+			if containsSubqueryRateOverAggregation(child) {
+				return true
+			}
+		}
+	case *logicalpkg.VectorPlan:
+		return containsSubqueryRateOverAggregation(n.Child)
+	case *logicalpkg.RoundPlan:
+		return containsSubqueryRateOverAggregation(n.Child)
+	case *logicalpkg.SortPlan:
+		return containsSubqueryRateOverAggregation(n.Child)
+	case *logicalpkg.ScalarConvertPlan:
+		return containsSubqueryRateOverAggregation(n.Child)
+	case *logicalpkg.InfoPlan:
+		return containsSubqueryRateOverAggregation(n.Child)
+	case *logicalpkg.PointwiseFunctionPlan:
+		if containsSubqueryRateOverAggregation(n.Child) {
+			return true
+		}
+		for _, child := range n.ParamChildren {
+			if containsSubqueryRateOverAggregation(child) {
+				return true
+			}
+		}
+	case *logicalpkg.SubqueryPlan:
+		return containsSubqueryRateOverAggregation(n.Child)
+	case *logicalpkg.AbsentPlan:
+		return containsSubqueryRateOverAggregation(n.Child)
+	case *logicalpkg.AbsentOverTimePlan:
+		return containsSubqueryRateOverAggregation(n.Child)
+	case *logicalpkg.LabelReplacePlan:
+		return containsSubqueryRateOverAggregation(n.Child)
+	case *logicalpkg.LabelJoinPlan:
+		return containsSubqueryRateOverAggregation(n.Child)
+	}
+	return false
+}
+
 func isMatrixSelectorLeaf(node logicalpkg.Node) bool {
 	leaf, ok := node.(*logicalpkg.LeafExprPlan)
 	if !ok || leaf == nil {

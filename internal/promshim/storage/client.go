@@ -90,7 +90,11 @@ func (c *Client) Query(ctx context.Context, req QueryRequest) (Rows, error) {
 }
 
 func (c *Client) Execute(ctx context.Context, sql string, params map[string]string) (*http.Response, error) {
-	rows, err := c.Query(ctx, QueryRequest{SQL: sql, Params: params, Format: ResultFormatJSONEachRow})
+	return c.ExecuteWithSettings(ctx, sql, params, nil)
+}
+
+func (c *Client) ExecuteWithSettings(ctx context.Context, sql string, params map[string]string, settings map[string]any) (*http.Response, error) {
+	rows, err := c.Query(ctx, QueryRequest{SQL: sql, Params: params, Settings: settings, Format: ResultFormatJSONEachRow})
 	if err != nil {
 		return nil, err
 	}

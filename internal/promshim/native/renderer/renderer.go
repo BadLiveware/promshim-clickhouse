@@ -12,6 +12,39 @@ import (
 
 type PhysicalPlanPreferences struct {
 	RangeInstantSelector RangeInstantSelectorPreference
+	Execution            ExecutionPreference
+}
+
+// ExecutionPreference carries whole-query ClickHouse execution preferences.
+// Unlike selector strategy preferences, these settings apply to the entire
+// rendered SQL statement, so composite parent shapes can explicitly suppress a
+// child preference that would be harmful for the final query.
+type ExecutionPreference struct {
+	Threads ThreadPreference
+}
+
+type ThreadPreferenceMode string
+
+const (
+	ThreadPreferenceDefault ThreadPreferenceMode = ""
+	ThreadPreferenceSet     ThreadPreferenceMode = "set"
+	ThreadPreferenceNoCap   ThreadPreferenceMode = "no_cap"
+)
+
+type ThreadCapPolicy string
+
+const (
+	ThreadCapPolicyDefault           ThreadCapPolicy = ""
+	ThreadCapPolicyASOFGuardrail     ThreadCapPolicy = "asof_guardrail"
+	ThreadCapPolicyBenchmarkControl  ThreadCapPolicy = "benchmark_control"
+	ThreadCapPolicyManualMeasurement ThreadCapPolicy = "manual_measurement"
+)
+
+type ThreadPreference struct {
+	Mode       ThreadPreferenceMode
+	Policy     ThreadCapPolicy
+	MaxThreads int
+	ReasonCode string
 }
 
 type RangeInstantSelectorPreference struct {
@@ -54,14 +87,67 @@ func physicalPreferencesForRangeInstantSelectorStrategy(strategy storage.RangeIn
 }
 
 type RenderedQuery struct {
-	SQL         string
-	QueryParams map[string]string
+	SQL           string
+	QueryParams   map[string]string
+	QuerySettings map[string]any
 }
 
 func mergeRenderedQueryParams(dst, src map[string]string) {
 	for key, value := range src {
 		dst[key] = value
 	}
+}
+
+func mergeRenderedQuerySettings(dst, src map[string]any) {
+	for key, value := range src {
+		dst[key] = value
+	}
+}
+
+func preferThreadCapPolicy(prefs PhysicalPlanPreferences, policy ThreadCapPolicy, reasonCode string) PhysicalPlanPreferences {
+	if prefs.Execution.Threads.Mode == ThreadPreferenceNoCap {
+		return prefs
+	}
+	maxThreads, ok := threadCapPolicyMaxThreads(policy)
+	if !ok {
+		return prefs
+	}
+	prefs.Execution.Threads = ThreadPreference{Mode: ThreadPreferenceSet, Policy: policy, MaxThreads: maxThreads, ReasonCode: reasonCode}
+	return prefs
+}
+
+func preferNoThreadCap(prefs PhysicalPlanPreferences, reasonCode string) PhysicalPlanPreferences {
+	prefs.Execution.Threads = ThreadPreference{Mode: ThreadPreferenceNoCap, ReasonCode: reasonCode}
+	return prefs
+}
+
+func threadCapPolicyMaxThreads(policy ThreadCapPolicy) (int, bool) {
+	switch policy {
+	case ThreadCapPolicyASOFGuardrail, ThreadCapPolicyBenchmarkControl, ThreadCapPolicyManualMeasurement:
+		return 4, true
+	default:
+		return 0, false
+	}
+}
+
+func physicalSettings(prefs PhysicalPlanPreferences) map[string]any {
+	threads := prefs.Execution.Threads
+	if threads.Mode != ThreadPreferenceSet || threads.MaxThreads <= 0 {
+		return nil
+	}
+	return map[string]any{"max_threads": threads.MaxThreads}
+}
+
+func withPhysicalSettings(rq RenderedQuery, prefs PhysicalPlanPreferences) RenderedQuery {
+	settings := physicalSettings(prefs)
+	if len(settings) == 0 {
+		return rq
+	}
+	merged := map[string]any{}
+	mergeRenderedQuerySettings(merged, rq.QuerySettings)
+	mergeRenderedQuerySettings(merged, settings)
+	rq.QuerySettings = merged
+	return rq
 }
 
 func trimRenderedQuerySQL(sql string) string {

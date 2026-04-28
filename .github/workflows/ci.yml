@@ -92,11 +92,11 @@ jobs:
         run: harness/compliance/scripts/export-ci-reports.sh
 
       - name: Publish compliance test report
-        if: always() && hashFiles('harness/artifacts/compliance/*/ci/junit-*.xml') != ''
+        if: always() && hashFiles('harness/artifacts/compliance/latest/ci/junit-*.xml') != ''
         uses: mikepenz/action-junit-report@v6
         with:
           check_name: PromQL compliance report
-          report_paths: harness/artifacts/compliance/*/ci/junit-*.xml
+          report_paths: harness/artifacts/compliance/latest/ci/junit-*.xml
           fail_on_failure: false
           require_tests: true
 

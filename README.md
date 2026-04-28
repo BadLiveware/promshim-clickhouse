@@ -156,6 +156,26 @@ The default execution mode is `PROM_SHIM_NATIVE_LOWERING_MODE=prefer`; the defau
 
 ## Quick start for local development
 
+### Run fast local checks
+
+The fast local gate mirrors the lightweight checks expected before committing:
+
+```bash
+make pre-commit
+```
+
+It runs gofmt verification, `go mod tidy` verification, `golangci-lint`, and
+Go tests. Install the repository Git hook once per clone to run the same checks
+before commits that touch Go or tooling files:
+
+```bash
+make hooks-install
+```
+
+The hook always runs `git diff --cached --check` and skips the Go checks for
+documentation-only commits. Use `make hooks-uninstall` to remove the local
+`core.hooksPath` setting.
+
 ### Run the main validation workflow
 
 From the repository root:

@@ -14,6 +14,8 @@ jobs:
   go:
     name: Go
     runs-on: ubuntu-latest
+    env:
+      GOLANGCI_LINT_VERSION: v2.11.4
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -24,14 +26,11 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Check formatting
-        run: make fmt-check
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" "${GOLANGCI_LINT_VERSION}"
+          golangci-lint version
 
-      - name: Check go.mod/go.sum
-        run: make tidy-check
-
-      - name: Test
-        run: make test
-
-      - name: Vet
-        run: make vet
+      - name: Run fast checks
+        run: make check

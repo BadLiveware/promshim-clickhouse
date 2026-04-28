@@ -260,7 +260,7 @@ func promScrapeMetric(ctx context.Context, client *http.Client, baseURL, metric 
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
-		return 0, fmt.Errorf("Prom scrape: %s", resp.Status)
+		return 0, fmt.Errorf("prom scrape: %s", resp.Status)
 	}
 
 	families, err := (&expfmt.TextParser{}).TextToMetricFamilies(resp.Body)

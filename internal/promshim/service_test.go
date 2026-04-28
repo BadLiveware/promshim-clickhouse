@@ -1701,17 +1701,18 @@ func TestQueryExplainIncludesSubqueryEstimateInputs(t *testing.T) {
 	var body struct {
 		Data struct {
 			Routing struct {
-				Class struct {
-					Family          string `json:"family"`
-					HasSubquery     bool   `json:"hasSubquery"`
-					LookbackMS      int64  `json:"lookbackMs"`
+				Advisory []string `json:"advisory"`
+				Class    struct {
+					Family                string  `json:"family"`
+					HasSubquery           bool    `json:"hasSubquery"`
+					LookbackMS            int64   `json:"lookbackMs"`
 					SubqueryRangeMS       int64   `json:"subqueryRangeMs"`
 					SubqueryStepMS        int64   `json:"subqueryStepMs"`
 					SubqueryPointsPerEval int64   `json:"subqueryPointsPerEval"`
 					SubqueryOverlapSlots  float64 `json:"subqueryOverlapSlots"`
-					SubqueryWorkUnits      int64   `json:"subqueryWorkUnits"`
-					SubqueryTemporalFanout int64   `json:"subqueryTemporalFanout"`
-					SubqueryComplexityBand string  `json:"subqueryComplexityBand"`
+					SubqueryWorkUnits     int64   `json:"subqueryWorkUnits"`
+					SubqueryTemporalFanout int64  `json:"subqueryTemporalFanout"`
+					SubqueryComplexityBand string `json:"subqueryComplexityBand"`
 				} `json:"class"`
 			} `json:"routing"`
 		} `json:"data"`
@@ -1746,6 +1747,9 @@ func TestQueryExplainIncludesSubqueryEstimateInputs(t *testing.T) {
 	}
 	if class.SubqueryComplexityBand != "light" {
 		t.Fatalf("subqueryComplexityBand = %q, want light", class.SubqueryComplexityBand)
+	}
+	if len(body.Data.Routing.Advisory) == 0 || body.Data.Routing.Advisory[0] != "subquery_complexity=light" {
+		t.Fatalf("routing advisory = %#v, want subquery complexity advisory", body.Data.Routing.Advisory)
 	}
 }
 

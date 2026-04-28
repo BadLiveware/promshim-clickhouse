@@ -93,6 +93,12 @@ func walkQueryCost(expr parser.Expr, class *httpapi.QueryCostClass) {
 		if node.Range.Milliseconds() > class.LookbackMS {
 			class.LookbackMS = node.Range.Milliseconds()
 		}
+		if node.Range.Milliseconds() > class.SubqueryRangeMS {
+			class.SubqueryRangeMS = node.Range.Milliseconds()
+		}
+		if node.Step.Milliseconds() > class.SubqueryStepMS {
+			class.SubqueryStepMS = node.Step.Milliseconds()
+		}
 		walkQueryCost(node.Expr, class)
 	case *parser.ParenExpr:
 		walkQueryCost(node.Expr, class)

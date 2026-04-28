@@ -1686,6 +1686,49 @@ func TestQueryExplainIncludesRoutingCostClass(t *testing.T) {
 	}
 }
 
+func TestQueryExplainIncludesSubqueryEstimateInputs(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=rate(up%5B5m%5D)%5B30m:1m%5D&time=300&routing_policy=cost_prefer", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Routing struct {
+				Class struct {
+					Family          string `json:"family"`
+					HasSubquery     bool   `json:"hasSubquery"`
+					LookbackMS      int64  `json:"lookbackMs"`
+					SubqueryRangeMS int64  `json:"subqueryRangeMs"`
+					SubqueryStepMS  int64  `json:"subqueryStepMs"`
+				} `json:"class"`
+			} `json:"routing"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	class := body.Data.Routing.Class
+	if class.Family != "subquery" || !class.HasSubquery {
+		t.Fatalf("unexpected subquery class: %#v", class)
+	}
+	if class.SubqueryRangeMS != int64((30 * time.Minute).Milliseconds()) {
+		t.Fatalf("subqueryRangeMs = %d, want %d", class.SubqueryRangeMS, int64((30*time.Minute).Milliseconds()))
+	}
+	if class.SubqueryStepMS != int64(time.Minute.Milliseconds()) {
+		t.Fatalf("subqueryStepMs = %d, want %d", class.SubqueryStepMS, int64(time.Minute.Milliseconds()))
+	}
+	if class.LookbackMS != int64((30 * time.Minute).Milliseconds()) {
+		t.Fatalf("lookbackMs = %d, want %d", class.LookbackMS, int64((30*time.Minute).Milliseconds()))
+	}
+}
+
 func TestQueryCostClassUsesCachedSelectorEstimates(t *testing.T) {
 	service := &queryService{selectorStats: newSelectorStatsCache(time.Minute)}
 	eval := time.Unix(300, 0).UTC()

@@ -64,6 +64,8 @@ type QueryCostClass struct {
 	RangePointsPerSeries  int64         `json:"rangePointsPerSeries"`
 	LookbackMS            int64         `json:"lookbackMs"`
 	StepMS                int64         `json:"stepMs"`
+	SubqueryRangeMS       int64         `json:"subqueryRangeMs,omitempty"`
+	SubqueryStepMS        int64         `json:"subqueryStepMs,omitempty"`
 	OverlapSlots          float64       `json:"overlapSlots"`
 	NativeRoundTrips      int           `json:"nativeRoundTrips"`
 	LocalRoundTrips       int           `json:"localRoundTrips"`

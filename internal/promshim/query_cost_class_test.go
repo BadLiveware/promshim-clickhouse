@@ -188,6 +188,12 @@ func TestClassifyQueryCostFamilies(t *testing.T) {
 				if !got.HasSubquery {
 					t.Fatalf("expected subquery metadata: %+v", got)
 				}
+				if got.SubqueryRangeMS != int64((30 * time.Minute).Milliseconds()) {
+					t.Fatalf("subquery range ms = %d, want %d", got.SubqueryRangeMS, int64((30*time.Minute).Milliseconds()))
+				}
+				if got.SubqueryStepMS != int64(time.Minute.Milliseconds()) {
+					t.Fatalf("subquery step ms = %d, want %d", got.SubqueryStepMS, int64(time.Minute.Milliseconds()))
+				}
 			},
 		},
 	}

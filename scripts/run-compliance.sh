@@ -14,14 +14,16 @@ Default flow:
   1) docker compose build promshim         (in harness/compliance)
   2) docker compose up -d                  (clickhouse + prometheus + promshim)
   3) wait for Prometheus + promshim to answer
-  4) pass #1 (prefer mode, gated by allowlist)
+  4) optionally run Go integration tests against the ready compliance stack
+     (--run-integration-tests)
+  5) pass #1 (prefer mode, gated by allowlist)
      - harness/compliance/scripts/run-compliance.sh --mode prefer --suffix prefer
      - harness/compliance/scripts/classify-failures.sh (latest report)
-  5) recreate promshim with NATIVE-ONLY override (force_supported)
-  6) pass #2 (native mode, informational gap report)
+  6) recreate promshim with NATIVE-ONLY override (force_supported)
+  7) pass #2 (native mode, informational gap report)
      - harness/compliance/scripts/run-compliance.sh --mode native --suffix native
      - harness/compliance/scripts/native-gap-report.sh (latest native report)
-  7) docker compose down                   (volumes preserved)
+  8) docker compose down                   (volumes preserved)
 
 The ClickHouse schema and Prometheus TSDB fixture are persisted in docker
 volumes, so repeat runs reuse the frozen fixture window configured in
@@ -35,6 +37,9 @@ Options:
                      allowlist/prefer-mode behavior.
   --skip-prefer      Skip pass #1 (prefer). Useful when only native
                      coverage matters.
+  --run-integration-tests
+                     Run Go integration tests against the ready compliance
+                     ClickHouse fixture before the compliance corpus.
   --ready-timeout N  Seconds to wait for endpoints to answer (default: 60).
   -h, --help         Show this help text.
 EOF
@@ -73,6 +78,7 @@ KEEP_UP=0
 SKIP_CLASSIFY=0
 SKIP_NATIVE=0
 SKIP_PREFER=0
+RUN_INTEGRATION_TESTS=0
 READY_TIMEOUT=60
 
 while [[ $# -gt 0 ]]; do
@@ -82,6 +88,7 @@ while [[ $# -gt 0 ]]; do
     --skip-classify)   SKIP_CLASSIFY=1; shift ;;
     --skip-native)     SKIP_NATIVE=1; shift ;;
     --skip-prefer)     SKIP_PREFER=1; shift ;;
+    --run-integration-tests) RUN_INTEGRATION_TESTS=1; shift ;;
     --ready-timeout)   READY_TIMEOUT="$2"; shift 2 ;;
     -h|--help)         usage; exit 0 ;;
     *)                 fatal "Unknown argument: $1" ;;
@@ -188,6 +195,11 @@ if [[ "${PROM_SHIM_CLICKHOUSE_TRANSPORT:-native}" == "native" ]]; then
   # finishing startup; give the pool a short stabilization window before the
   # compliance tester fans out concurrent requests.
   sleep 5
+fi
+
+if (( RUN_INTEGRATION_TESTS == 1 )); then
+  log "Running Go integration tests against the compliance stack."
+  (cd "$REPO_ROOT" && make integration-test-report)
 fi
 
 OVERALL_EXIT=0

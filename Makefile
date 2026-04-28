@@ -1,4 +1,4 @@
-.PHONY: build test vet race fmt fmt-check tidy tidy-check lint script-check config-check pre-commit check hooks-install hooks-uninstall harness compliance bench sweep sweep-smoke sweep-estimate-heavy bench-status release-check release-snapshot
+.PHONY: build test test-report integration-test integration-test-report vet race fmt fmt-check tidy tidy-check lint script-check config-check pre-commit check hooks-install hooks-uninstall harness compliance bench sweep sweep-smoke sweep-estimate-heavy bench-status release-check release-snapshot
 
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
@@ -11,12 +11,18 @@ SHELLFILES := $(shell git ls-files '*.sh' ':(exclude)harness/compliance/prom-com
 PYFILES := $(shell git ls-files '*.py' ':(exclude)harness/compliance/prom-compliance/**')
 YAMLFILES := $(shell git ls-files '*.yml' '*.yaml' ':(exclude)harness/compliance/prom-compliance/**')
 JSONFILES := $(shell git ls-files '*.json' ':(exclude).agents/**' ':(exclude)harness/compliance/prom-compliance/**')
+UNIT_PKGS := $(shell $(GO) list ./... | grep -v '/integration/')
+UNIT_TEST_FLAGS ?= -skip Integration
+# integration/promshim currently expects a live scrape-style fixture; the
+# compliance stack reliably supports the ClickHouse storage integration suite.
+INTEGRATION_PKGS := ./internal/promshim/storage
+INTEGRATION_ENV := PROM_SHIM_RUN_INTEGRATION_TESTS=1 PROM_SHIM_CLICKHOUSE_ENDPOINT=http://127.0.0.1:28123/ PROM_SHIM_CLICKHOUSE_NATIVE_ADDR=127.0.0.1:29000 PROM_SHIM_CLICKHOUSE_TRANSPORT=native
 
 build:
 	$(GO) build ./...
 
 test:
-	$(GO) test ./...
+	$(GO) test $(UNIT_TEST_FLAGS) $(UNIT_PKGS)
 
 test-report:
 	@command -v $(GOTESTSUM) >/dev/null 2>&1 || { \
@@ -24,7 +30,18 @@ test-report:
 		exit 127; \
 	}
 	mkdir -p harness/artifacts/unit
-	$(GOTESTSUM) --junitfile harness/artifacts/unit/junit-go.xml -- ./...
+	$(GOTESTSUM) --junitfile harness/artifacts/unit/junit-go.xml -- $(UNIT_TEST_FLAGS) $(UNIT_PKGS)
+
+integration-test:
+	$(INTEGRATION_ENV) $(GO) test $(INTEGRATION_PKGS)
+
+integration-test-report:
+	@command -v $(GOTESTSUM) >/dev/null 2>&1 || { \
+		echo "gotestsum is required; install it from https://github.com/gotestyourself/gotestsum" >&2; \
+		exit 127; \
+	}
+	mkdir -p harness/artifacts/integration
+	$(INTEGRATION_ENV) $(GOTESTSUM) --junitfile harness/artifacts/integration/junit-integration.xml -- $(INTEGRATION_PKGS)
 
 vet:
 	$(GO) vet ./...

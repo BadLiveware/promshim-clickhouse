@@ -575,9 +575,22 @@ func buildRangeWindowSelectorCumulativeAvgPerStepSQL(cfg QueryConfig, selector S
 	if stepMS <= 0 {
 		return "", nil, nil, fmt.Errorf("cumulative avg range-window selector SQL requires a positive step")
 	}
-	matchedSeriesSQL, params, err := buildMatchedSeriesSQL(cfg, selector, "range_window_cumulative_avg", requiredStartMS, requiredEndMS, true)
+	idSelector := selector
+	idSelector.NeedTags = false
+	idSelector.RequireFullTags = false
+	idSelector.RequiredTagLabels = nil
+	matchedSeriesSQL, params, err := buildMatchedSeriesSQL(cfg, idSelector, "range_window_cumulative_avg_ids", requiredStartMS, requiredEndMS, true)
 	if err != nil {
 		return "", nil, nil, err
+	}
+	finalMatchedSeriesSQL := matchedSeriesSQL
+	if selector.NeedTags {
+		var tagParams map[string]string
+		finalMatchedSeriesSQL, tagParams, err = buildMatchedSeriesSQL(cfg, selector, "range_window_cumulative_avg_tags", requiredStartMS, requiredEndMS, true)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		mergeParams(params, tagParams)
 	}
 	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
 	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
@@ -595,6 +608,7 @@ func buildRangeWindowSelectorCumulativeAvgPerStepSQL(cfg QueryConfig, selector S
 	}
 
 	matchedSeries := rawSubquerySQL(matchedSeriesSQL)
+	finalMatchedSeries := rawSubquerySQL(finalMatchedSeriesSQL)
 	dataRef := schema.TimeSeriesDataRef(timeSeriesTableRef(cfg))
 	statesSQL := "SELECT d.id AS id, d.timestamp AS timestamp, " +
 		"sum(if(NOT isNaN(ifNull(toFloat64(d.value), nan)), ifNull(toFloat64(d.value), nan), 0.)) OVER (PARTITION BY d.id ORDER BY d.timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS finite_sum, " +
@@ -603,24 +617,24 @@ func buildRangeWindowSelectorCumulativeAvgPerStepSQL(cfg QueryConfig, selector S
 		"FROM " + dataRef + " AS d INNER JOIN " + matchedSeries + " AS series ON d.id = series.id " +
 		"WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " " +
 		"ORDER BY id, timestamp"
-	gridSQL := "SELECT series.id AS id, arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts, " +
+	// Probe upper and lower window boundaries in one ASOF pass so the
+	// cumulative state stream is read once instead of once per boundary.
+	gridSQL := "SELECT id, eval_ts, boundary.1 AS boundary_kind, boundary.2 AS boundary_ts FROM " +
+		"(SELECT series.id AS id, arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts, " +
 		"eval_ts - toIntervalMillisecond({offset_ms:Int64}) AS upper_bound, " +
 		"eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64} + 1) AS lower_prev_bound " +
-		"FROM " + matchedSeries + " AS series ORDER BY id, upper_bound"
-	upperSQL := "SELECT grid.id AS id, grid.eval_ts AS eval_ts, ifNull(u.finite_sum, 0.) AS finite_sum, ifNull(u.finite_count, 0) AS finite_count, ifNull(u.nan_count, 0) AS nan_count " +
-		"FROM " + rawSubquerySQL(gridSQL) + " AS grid ASOF LEFT JOIN " + rawSubquerySQL(statesSQL) + " AS u ON grid.id = u.id AND grid.upper_bound >= u.timestamp"
-	lowerGridSQL := "SELECT series.id AS id, arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts, " +
-		"eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64} + 1) AS lower_prev_bound " +
-		"FROM " + matchedSeries + " AS series ORDER BY id, lower_prev_bound"
-	lowerSQL := "SELECT grid.id AS id, grid.eval_ts AS eval_ts, ifNull(l.finite_sum, 0.) AS finite_sum, ifNull(l.finite_count, 0) AS finite_count, ifNull(l.nan_count, 0) AS nan_count " +
-		"FROM " + rawSubquerySQL(lowerGridSQL) + " AS grid ASOF LEFT JOIN " + rawSubquerySQL(statesSQL) + " AS l ON grid.id = l.id AND grid.lower_prev_bound >= l.timestamp"
-	windowedSQL := "SELECT upper.id AS id, upper.eval_ts AS eval_ts, " +
-		"upper.finite_sum - lower.finite_sum AS finite_sum, " +
-		"upper.finite_count - lower.finite_count AS finite_count, " +
-		"upper.nan_count - lower.nan_count AS nan_count " +
-		"FROM " + rawSubquerySQL(upperSQL) + " AS upper INNER JOIN " + rawSubquerySQL(lowerSQL) + " AS lower ON upper.id = lower.id AND upper.eval_ts = lower.eval_ts"
+		"FROM " + matchedSeries + " AS series) AS eval_grid " +
+		"ARRAY JOIN [(1, upper_bound), (0, lower_prev_bound)] AS boundary ORDER BY id, boundary_ts"
+	boundarySQL := "SELECT grid.id AS id, grid.eval_ts AS eval_ts, grid.boundary_kind AS boundary_kind, " +
+		"ifNull(s.finite_sum, 0.) AS finite_sum, ifNull(s.finite_count, 0) AS finite_count, ifNull(s.nan_count, 0) AS nan_count " +
+		"FROM " + rawSubquerySQL(gridSQL) + " AS grid ASOF LEFT JOIN " + rawSubquerySQL(statesSQL) + " AS s ON grid.id = s.id AND grid.boundary_ts >= s.timestamp"
+	windowedSQL := "SELECT id AS id, eval_ts AS eval_ts, " +
+		"maxIf(finite_sum, boundary_kind = 1) - maxIf(finite_sum, boundary_kind = 0) AS finite_sum, " +
+		"maxIf(finite_count, boundary_kind = 1) - maxIf(finite_count, boundary_kind = 0) AS finite_count, " +
+		"maxIf(nan_count, boundary_kind = 1) - maxIf(nan_count, boundary_kind = 0) AS nan_count " +
+		"FROM " + rawSubquerySQL(boundarySQL) + " GROUP BY id, eval_ts"
 	if selector.NeedTags {
-		windowedSQL = "SELECT series.tags AS tags, windowed.eval_ts AS eval_ts, windowed.finite_sum AS finite_sum, windowed.finite_count AS finite_count, windowed.nan_count AS nan_count FROM " + rawSubquerySQL(windowedSQL) + " AS windowed INNER JOIN " + matchedSeries + " AS series ON windowed.id = series.id"
+		windowedSQL = "SELECT series.tags AS tags, windowed.eval_ts AS eval_ts, windowed.finite_sum AS finite_sum, windowed.finite_count AS finite_count, windowed.nan_count AS nan_count FROM " + rawSubquerySQL(windowedSQL) + " AS windowed INNER JOIN " + finalMatchedSeries + " AS series ON windowed.id = series.id"
 	} else {
 		windowedSQL = "SELECT CAST([], '" + schema.TagsArrayType + "') AS tags, eval_ts, finite_sum, finite_count, nan_count FROM " + rawSubquerySQL(windowedSQL)
 	}

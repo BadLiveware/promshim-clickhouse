@@ -217,6 +217,117 @@ func TestAggregationByAvgOverTimeRangeUsesDirectAggregateRowsWhenCumulativeDisab
 	}
 }
 
+func TestAggregationByAvgOverTimeRangeHonorsDirectAggregatePreference(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job, type) (avg_over_time(demo_memory_usage_bytes[1h]))`)
+	cfg := testRenderConfig()
+	rq, err := Lower(LoweringCtx{
+		Config:         cfg,
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params: RenderParams{
+			Mode:     testRenderParamsRange().Mode,
+			StartMS:  1_700_000_000_000,
+			EndMS:    1_700_086_400_000,
+			StepMS:   60_000,
+			Physical: preferRangeWindowAggregateStrategy(PhysicalPlanPreferences{}, RangeWindowAggregateStrategyDirectAggregate),
+		},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if !strings.Contains(rq.SQL, "avgIf(ifNull(toFloat64(d.value), nan), NOT isNaN(ifNull(toFloat64(d.value), nan))) AS avg_value") {
+		t.Fatalf("expected direct-aggregate avg_over_time SQL, got:\n%s", rq.SQL)
+	}
+	if strings.Contains(rq.SQL, "ASOF LEFT JOIN") || strings.Contains(rq.SQL, "finite_sum / finite_count") {
+		t.Fatalf("expected direct-aggregate preference to avoid cumulative avg SQL, got:\n%s", rq.SQL)
+	}
+}
+
+func TestAggregationByMaxOverTimeRangeDefaultsToSparseDirectAggregateWhenNonOverlapping(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `max by (instance, job, type) (max_over_time(demo_memory_usage_bytes[1h]))`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params: RenderParams{
+			Mode:    testRenderParamsRange().Mode,
+			StartMS: 1_700_000_000_000,
+			EndMS:   1_700_086_400_000,
+			StepMS:  3_600_000,
+		},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	for _, expected := range []string{"maxIf(ifNull(toFloat64(d.value), nan), NOT isNaN(ifNull(toFloat64(d.value), nan))) AS max_value", "GROUP BY d.id, eval_ms", "ARRAY JOIN", "positiveModulo("} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected max_over_time non-overlap default SQL to contain %q, got:\n%s", expected, rq.SQL)
+		}
+	}
+	for _, unexpected := range []string{"window_series", "window_values", "arraySort(groupArray((d.timestamp, d.value)))"} {
+		if strings.Contains(rq.SQL, unexpected) {
+			t.Fatalf("expected max_over_time non-overlap default SQL to avoid %q, got:\n%s", unexpected, rq.SQL)
+		}
+	}
+}
+
+func TestAggregationByMaxOverTimeRangeDefaultsToWindowJoinWhenOverlapping(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `max by (instance, job, type) (max_over_time(demo_memory_usage_bytes[1h]))`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params: RenderParams{
+			Mode:    testRenderParamsRange().Mode,
+			StartMS: 1_700_000_000_000,
+			EndMS:   1_700_086_400_000,
+			StepMS:  300_000,
+		},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	for _, expected := range []string{"arrayFilter(point -> tupleElement(point, 1) <= grid.eval_ts", "source.time_series", "window_series", "window_values"} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected max_over_time overlap default SQL to contain %q, got:\n%s", expected, rq.SQL)
+		}
+	}
+	for _, unexpected := range []string{"GROUP BY d.id, eval_ms", "positiveModulo("} {
+		if strings.Contains(rq.SQL, unexpected) {
+			t.Fatalf("expected max_over_time overlap default SQL to avoid %q, got:\n%s", unexpected, rq.SQL)
+		}
+	}
+}
+
+func TestAggregationByMaxOverTimeRangeHonorsDirectAggregatePreference(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `max by (instance, job, type) (max_over_time(demo_memory_usage_bytes[1h]))`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params: RenderParams{
+			Mode:     testRenderParamsRange().Mode,
+			StartMS:  1_700_000_000_000,
+			EndMS:    1_700_086_400_000,
+			StepMS:   3_600_000,
+			Physical: preferRangeWindowAggregateStrategy(PhysicalPlanPreferences{}, RangeWindowAggregateStrategyDirectAggregate),
+		},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	for _, expected := range []string{"maxIf(ifNull(toFloat64(d.value), nan), NOT isNaN(ifNull(toFloat64(d.value), nan))) AS max_value", "if(nan_count > 0 OR finite_count = 0, nan, max_value) AS value", "GROUP BY d.id, eval_ms", "ARRAY JOIN", "positiveModulo("} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected max_over_time direct rows SQL to contain %q, got:\n%s", expected, rq.SQL)
+		}
+	}
+	for _, unexpected := range []string{"window_series", "window_values", "arraySort(groupArray((d.timestamp, d.value)))"} {
+		if strings.Contains(rq.SQL, unexpected) {
+			t.Fatalf("expected max_over_time direct rows SQL to avoid %q, got:\n%s", unexpected, rq.SQL)
+		}
+	}
+}
+
 func TestAggregationByRateRangeUsesNativeGridArrayAggregationWhenEnabled(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (rate(demo_cpu_usage_seconds_total[5m]))`)
 	cfg := testRenderConfig()

@@ -454,6 +454,13 @@ func buildRangeWindowSelectorDirectAggregatePerStepQuery(cfg QueryConfig, select
 		return nil, nil, nil, err
 	}
 
+	// For non-overlapping range windows (lookback <= step) and zero offset, avoid
+	// materializing a full series×grid join for max_over_time. Instead, map each
+	// sample directly to its candidate eval bucket(s) and aggregate by eval_ms.
+	if fn == "max_over_time" && selector.OffsetMS == 0 && selector.LookbackMS > 0 && selector.LookbackMS <= stepMS {
+		return buildRangeWindowSelectorDirectAggregateSparseMaxPerStepQuery(cfg, selector, matchedSeriesSQL, params, aggregateColumns, aggregateValueExpr, resolvedFinalTagsExpr, orderBy, minimumSeriesLength)
+	}
+
 	grid := &sqlb.Select{
 		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("series.id"), Alias: "id"}, {Expr: sqlb.RawLit{V: emit.GridEvalTSParams()}, Alias: "eval_ts"}},
 		From:    sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},
@@ -494,6 +501,64 @@ func buildRangeWindowSelectorDirectAggregatePerStepQuery(cfg QueryConfig, select
 	}
 	perStep := &sqlb.Select{
 		Columns: []sqlb.ColExpr{{Expr: resolvedFinalTagsExpr, Alias: "final_tags"}, {Expr: sqlb.Ident("eval_ts"), Alias: "timestamp"}, {Expr: sqlb.RawLit{V: aggregateValueExpr}, Alias: "value"}},
+		From:    perStepFrom,
+		Where:   sqlb.RawLit{V: "sample_count > " + strconv.Itoa(minimumSeriesLength)},
+	}
+	return perStep, params, orderBy, nil
+}
+
+func buildRangeWindowSelectorDirectAggregateSparseMaxPerStepQuery(cfg QueryConfig, selector SelectorSource, matchedSeriesSQL string, params map[string]string, aggregateColumns []sqlb.ColExpr, aggregateValueExpr string, resolvedFinalTagsExpr sqlb.Expr, orderBy []sqlb.OrderExpr, minimumSeriesLength int) (*sqlb.Select, map[string]string, []sqlb.OrderExpr, error) {
+	evalUpperExpr := "{start_ms:Int64} + intDiv(greatest(toUnixTimestamp64Milli(d.timestamp) - {start_ms:Int64}, 0) + {step_ms:Int64} - 1, {step_ms:Int64}) * {step_ms:Int64}"
+	candidateEvalExpr := "if({lookback_ms:Int64} = {step_ms:Int64} AND toUnixTimestamp64Milli(d.timestamp) >= {start_ms:Int64} AND positiveModulo(toUnixTimestamp64Milli(d.timestamp) - {start_ms:Int64}, {step_ms:Int64}) = 0, [" + evalUpperExpr + ", " + evalUpperExpr + " + {step_ms:Int64}], [" + evalUpperExpr + "])"
+	windowColumns := []sqlb.ColExpr{
+		{Expr: sqlb.Ident("d.id"), Alias: "id"},
+		{Expr: sqlb.Ident("eval_ms"), Alias: "eval_ms"},
+		{Expr: sqlb.RawLit{V: "count()"}, Alias: "sample_count"},
+	}
+	windowColumns = append(windowColumns, aggregateColumns...)
+	windowed := &sqlb.Select{
+		Columns: windowColumns,
+		From: sqlb.ArrayJoin{
+			Base: sqlb.Join{
+				Left:  sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"},
+				Right: sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},
+				Kind:  "INNER",
+				On:    sqlb.RawLit{V: "d.id = series.id"},
+			},
+			Expr:  sqlb.RawLit{V: candidateEvalExpr},
+			Alias: "eval_ms",
+		},
+		Where: sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND eval_ms >= {start_ms:Int64} AND eval_ms <= {end_ms:Int64} AND toUnixTimestamp64Milli(d.timestamp) >= eval_ms - {lookback_ms:Int64} AND toUnixTimestamp64Milli(d.timestamp) <= eval_ms"},
+		GroupBy: []sqlb.Expr{
+			sqlb.Ident("d.id"),
+			sqlb.Ident("eval_ms"),
+		},
+	}
+
+	perStepFrom := sqlb.Source(sqlb.SubSelect{S: windowed})
+	if selector.NeedTags {
+		taggedColumns := []sqlb.ColExpr{
+			{Expr: sqlb.Ident("series.tags"), Alias: "tags"},
+			{Expr: sqlb.Ident("windowed.eval_ms"), Alias: "eval_ms"},
+			{Expr: sqlb.Ident("windowed.sample_count"), Alias: "sample_count"},
+		}
+		for _, col := range aggregateColumns {
+			taggedColumns = append(taggedColumns, sqlb.ColExpr{Expr: sqlb.Ident("windowed." + col.Alias), Alias: col.Alias})
+		}
+		tagged := &sqlb.Select{
+			Columns: taggedColumns,
+			From: sqlb.Join{
+				Left:  sqlb.SubSelect{S: windowed, Alias: "windowed"},
+				Right: sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},
+				Kind:  "INNER",
+				On:    sqlb.RawLit{V: "windowed.id = series.id"},
+			},
+		}
+		perStepFrom = sqlb.SubSelect{S: tagged}
+	}
+
+	perStep := &sqlb.Select{
+		Columns: []sqlb.ColExpr{{Expr: resolvedFinalTagsExpr, Alias: "final_tags"}, {Expr: sqlb.RawLit{V: "fromUnixTimestamp64Milli(eval_ms)"}, Alias: "timestamp"}, {Expr: sqlb.RawLit{V: aggregateValueExpr}, Alias: "value"}},
 		From:    perStepFrom,
 		Where:   sqlb.RawLit{V: "sample_count > " + strconv.Itoa(minimumSeriesLength)},
 	}
@@ -569,6 +634,12 @@ func directRangeWindowAggregateSpec(fn string) ([]sqlb.ColExpr, string, error) {
 			{Expr: sqlb.RawLit{V: "countIf(NOT isNaN(" + valueExpr + "))"}, Alias: "finite_count"},
 			{Expr: sqlb.RawLit{V: "avgIf(" + valueExpr + ", NOT isNaN(" + valueExpr + "))"}, Alias: "avg_value"},
 		}, "if(nan_count > 0 OR finite_count = 0, nan, avg_value)", nil
+	case "max_over_time":
+		return []sqlb.ColExpr{
+			{Expr: sqlb.RawLit{V: "countIf(isNaN(" + valueExpr + "))"}, Alias: "nan_count"},
+			{Expr: sqlb.RawLit{V: "countIf(NOT isNaN(" + valueExpr + "))"}, Alias: "finite_count"},
+			{Expr: sqlb.RawLit{V: "maxIf(" + valueExpr + ", NOT isNaN(" + valueExpr + "))"}, Alias: "max_value"},
+		}, "if(nan_count > 0 OR finite_count = 0, nan, max_value)", nil
 	case "rate":
 		factor := rateExtrapolationFactorSQL("first_timestamp_ms", "last_timestamp_ms", "sample_count", "toUnixTimestamp64Milli(eval_ts)", "{lookback_ms:Int64}")
 		return []sqlb.ColExpr{

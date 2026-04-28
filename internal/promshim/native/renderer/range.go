@@ -28,10 +28,42 @@ func preferDirectSelectorWindowAggregate(fn string, lookbackMS, stepMS int64) bo
 	if lookbackMS <= 0 || stepMS <= 0 {
 		return false
 	}
+	// avg_over_time has measured wins on direct grouped aggregation paths.
 	if fn == "avg_over_time" {
 		return true
 	}
+	// max_over_time uses a sparse direct-aggregate shape when windows do not
+	// overlap (lookback <= step). This avoids materializing a full series×grid
+	// range join for the high-cardinality 7d/1h gauge shape.
+	if fn == "max_over_time" {
+		return lookbackMS <= stepMS
+	}
 	return preferDirectSelectorWindowJoin(lookbackMS, stepMS)
+}
+
+func resolveRangeWindowAggregateStrategy(fn string, cfg storage.QueryConfig, lookbackMS, stepMS int64, prefs PhysicalPlanPreferences) RangeWindowAggregateStrategy {
+	switch prefs.RangeWindowAggregate.Strategy {
+	case RangeWindowAggregateStrategyWindowJoin:
+		return RangeWindowAggregateStrategyWindowJoin
+	case RangeWindowAggregateStrategyDirectAggregate:
+		if supportsDirectSelectorWindowAggregate(fn, lookbackMS) {
+			return RangeWindowAggregateStrategyDirectAggregate
+		}
+	case RangeWindowAggregateStrategyCumulativeAvg:
+		if cfg.EnableCumulativeAvgOverTime && fn == "avg_over_time" {
+			return RangeWindowAggregateStrategyCumulativeAvg
+		}
+	}
+	if cfg.EnableCumulativeAvgOverTime && fn == "avg_over_time" && !preferDirectSelectorWindowJoin(lookbackMS, stepMS) {
+		return RangeWindowAggregateStrategyCumulativeAvg
+	}
+	if supportsDirectSelectorWindowAggregate(fn, lookbackMS) && preferDirectSelectorWindowAggregate(fn, lookbackMS, stepMS) {
+		return RangeWindowAggregateStrategyDirectAggregate
+	}
+	if preferDirectSelectorWindowJoin(lookbackMS, stepMS) {
+		return RangeWindowAggregateStrategyWindowJoin
+	}
+	return RangeWindowAggregateStrategyDefault
 }
 
 func buildWindowedArraysSourceSQL(sourceSQL, fn string, startMS, endMS, stepMS, rangeMS, offsetMS int64) (string, error) {
@@ -199,7 +231,12 @@ func canUseRangeFunctionRowsFastPath(fn string) bool {
 }
 
 func supportsDirectSelectorWindowAggregate(fn string, lookbackMS int64) bool {
-	return fn == "avg_over_time"
+	switch fn {
+	case "avg_over_time", "max_over_time":
+		return true
+	default:
+		return false
+	}
 }
 
 func canUseNativeGridRangeFunction(fn string, lookbackMS, offsetMS int64) bool {

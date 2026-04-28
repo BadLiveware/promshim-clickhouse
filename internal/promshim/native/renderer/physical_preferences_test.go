@@ -60,3 +60,10 @@ func TestFinalizeRenderedFragmentCarriesExtraSettings(t *testing.T) {
 		t.Fatalf("max_threads setting = %#v, want 4", got)
 	}
 }
+
+func TestPreferRangeWindowAggregateStrategySetsTypedPreference(t *testing.T) {
+	prefs := preferRangeWindowAggregateStrategy(PhysicalPlanPreferences{}, RangeWindowAggregateStrategyDirectAggregate)
+	if prefs.RangeWindowAggregate.Strategy != RangeWindowAggregateStrategyDirectAggregate {
+		t.Fatalf("range-window aggregate strategy = %q, want %q", prefs.RangeWindowAggregate.Strategy, RangeWindowAggregateStrategyDirectAggregate)
+	}
+}

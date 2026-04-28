@@ -203,6 +203,9 @@ func TestClassifyQueryCostFamilies(t *testing.T) {
 				if got.SubqueryWorkUnits != 31 {
 					t.Fatalf("subquery work units = %d, want 31", got.SubqueryWorkUnits)
 				}
+				if got.SubqueryTemporalFanout != 31 {
+					t.Fatalf("subquery temporal fanout = %d, want 31", got.SubqueryTemporalFanout)
+				}
 			},
 		},
 	}

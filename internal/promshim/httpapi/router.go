@@ -69,6 +69,7 @@ type QueryCostClass struct {
 	SubqueryPointsPerEval int64         `json:"subqueryPointsPerEval,omitempty"`
 	SubqueryOverlapSlots  float64       `json:"subqueryOverlapSlots,omitempty"`
 	SubqueryWorkUnits     int64         `json:"subqueryWorkUnits,omitempty"`
+	SubqueryTemporalFanout int64        `json:"subqueryTemporalFanout,omitempty"`
 	OverlapSlots          float64       `json:"overlapSlots"`
 	NativeRoundTrips      int           `json:"nativeRoundTrips"`
 	LocalRoundTrips       int           `json:"localRoundTrips"`

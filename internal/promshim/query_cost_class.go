@@ -44,6 +44,11 @@ func classifyQueryCost(expr parser.Expr, timing queryCostTiming, strictStrategy 
 			workSelectors = 1
 		}
 		class.SubqueryWorkUnits = class.SubqueryPointsPerEval * int64(workSelectors)
+		temporalSlices := class.RangePointsPerSeries
+		if temporalSlices <= 0 {
+			temporalSlices = 1
+		}
+		class.SubqueryTemporalFanout = class.SubqueryPointsPerEval * temporalSlices
 	}
 	if class.SelectorCount > 0 {
 		class.LocalRoundTrips = class.SelectorCount

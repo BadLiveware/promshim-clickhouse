@@ -203,6 +203,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-reflection81-measurable-pivot-status` — **keep (reflection, no code change)**. Reflection checkpoint confirms branch-gating discipline is working and sets next priority to a concrete processing-family SQL-shape optimization candidate with measurable resource-win evidence, instead of further mode-comparison-only gates. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-reflection81-measurable-pivot-status.md`.
 - `20260428-high-pressure-binary-rate-measurement-gate` — **keep (measurement gate)**. Measured high-pressure binary rate comparison shapes and confirmed native serving remains dramatically superior to local (orders-of-magnitude fewer round-trips and much lower wall time). This rules out local-serving expansion experiments for this family in current conditions. Artifacts: `harness/artifacts/bench/standalone/20260428-iter78-high-pressure-rate-binary/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-high-pressure-binary-rate-measurement-gate.md`.
 - `20260428-processing-family-scout` — **keep (measurement scout)**. Ran a focused processing-corpus scout to locate higher-headroom families after rejecting local-serving expansions. Identified top absolute-cost/memory candidates (`processing_histogram_quantile_1h_instant_7d`, `processing_avg_memory_1h_by_job_type_range_24h_7d`, `processing_histogram_quantile_1h_range_24h_7d`) for next measurable optimization work. Artifacts: `harness/artifacts/bench/standalone/20260428-iter79-processing-scout/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-processing-family-scout.md`.
 - `20260428-high-pressure-binary-rate-measurement-gate` — **keep (measurement gate)**. Measured high-pressure binary rate comparison shapes and confirmed native serving remains dramatically superior to local (orders-of-magnitude fewer round-trips and much lower wall time). This rules out local-serving expansion experiments for this family in current conditions. Artifacts: `harness/artifacts/bench/standalone/20260428-iter78-high-pressure-rate-binary/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-high-pressure-binary-rate-measurement-gate.md`.
@@ -306,6 +307,28 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 5. **Next priorities**
    - Add typed eligibility/rejection row-source-reuse decision metadata that is consistently visible in explain output for repeated candidate shapes (applied and not-applied cases where relevant).
    - Then move to subquery preference propagation / estimate plumbing once reuse decision observability is solid.
+
+### Reflection checkpoint (iteration 81)
+
+1. **What has been accomplished so far?**
+   - Stabilized the first bounded behavior experiment and its advisory transparency.
+   - Used measurable gates to reject regressive expansion paths.
+   - Identified processing-family higher-pressure candidates for next optimization work.
+
+2. **What's working well?**
+   - Decision quality is now strongly evidence-driven.
+   - Scope control prevents low-value expansion churn.
+
+3. **What's not working or blocking progress?**
+   - Recent progress is mostly directional filtering; new accepted resource wins are still pending in the new family.
+
+4. **Should the approach be adjusted?**
+   - Yes: move from comparison-only gating to one concrete processing-family SQL-shape optimization attempt.
+
+5. **What are the next priorities?**
+   - Target `processing_avg_memory_1h_by_job_type_range_24h_7d` first.
+   - Implement a bounded repeated-work reduction candidate.
+   - Validate with CH duration/memory and corroborating engine metrics.
 
 ### Reflection checkpoint (iteration 76)
 

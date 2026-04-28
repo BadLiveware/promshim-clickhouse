@@ -175,7 +175,7 @@ func binaryVectorSelfReuseEligible(n *logicalpkg.BinaryPlan, joinShape string) b
 func buildSelfReuseDecision(n *logicalpkg.BinaryPlan, joinShape string, mode native.RenderMode) (physical.Decision, bool) {
 	lhsExpr := nodeExprString(n.LHS)
 	rhsExpr := nodeExprString(n.RHS)
-	if lhsExpr == "" || lhsExpr != rhsExpr {
+	if lhsExpr == "" || rhsExpr == "" {
 		return physical.Decision{}, false
 	}
 	decision := physical.Decision{Kind: "row_source_reuse", Strategy: "not_reused"}
@@ -186,6 +186,17 @@ func buildSelfReuseDecision(n *logicalpkg.BinaryPlan, joinShape string, mode nat
 		selectedStrategy = "instant_self_join"
 		modeGuard = "instant_mode"
 		reuseReason = "identical one-to-one repeated range-function operands share one instant source"
+	}
+	lhsKey, lhsOK := cseSubtreeKey(n.LHS)
+	rhsKey, rhsOK := cseSubtreeKey(n.RHS)
+	if lhsExpr != rhsExpr {
+		if lhsOK && rhsOK {
+			decision.Reason = "operands are different repeated subtree candidates"
+			decision.Guards = []string{"repeated_subtree_candidate_mismatch"}
+			decision.Rejected = []physical.Alternative{{Strategy: selectedStrategy, Reason: decision.Reason}}
+			return decision, true
+		}
+		return physical.Decision{}, false
 	}
 	switch {
 	case nativeRepeatedSubexpressionReuseDisabled():
@@ -204,8 +215,6 @@ func buildSelfReuseDecision(n *logicalpkg.BinaryPlan, joinShape string, mode nat
 		decision.Reason = "bool modifier is only supported for comparison self-reuse"
 		decision.Guards = []string{"bool_with_non_comparison"}
 	default:
-		lhsKey, lhsOK := cseSubtreeKey(n.LHS)
-		rhsKey, rhsOK := cseSubtreeKey(n.RHS)
 		if !lhsOK || !rhsOK || lhsKey != rhsKey {
 			decision.Reason = "operands are not identical repeated subtree candidates"
 			decision.Guards = []string{"repeated_subtree_candidate_mismatch"}

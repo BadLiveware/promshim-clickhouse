@@ -217,6 +217,18 @@ func TestLowerBinaryVectorJoinMarksInstantNotReusedForOnMatching(t *testing.T) {
 	}
 }
 
+func TestLowerBinaryVectorJoinMarksInstantNotReusedForDifferentRepeatedOperands(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[1h]) + rate(demo_cpu_usage_seconds_total[6h])`)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "row_source_reuse")
+	if !ok || decision.Strategy != "not_reused" || !strings.Contains(decision.Reason, "different repeated subtree candidates") {
+		t.Fatalf("expected row_source_reuse=not_reused for different repeated operands, got %#v", rq.PhysicalDecisions)
+	}
+}
+
 func findPhysicalDecisionByKind(decisions []physical.Decision, kind string) (physical.Decision, bool) {
 	for _, decision := range decisions {
 		if decision.Kind == kind {

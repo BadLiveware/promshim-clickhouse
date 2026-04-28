@@ -10,6 +10,8 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 )
 
+const explainSubqueryNoThreadCapReason = "subquery_step_grid_prefers_no_thread_cap"
+
 type LogicalOptimizationExplain struct {
 	Disabled  bool                     `json:"disabled,omitempty"`
 	EnvGate   string                   `json:"envGate,omitempty"`
@@ -179,7 +181,36 @@ func finalizeExplainNode(node *ExplainNode) {
 	if node.Strategy != "native_sql" {
 		node.FallbackReason = node.Reason
 	}
+	annotateSubqueryPreferenceDecision(node)
 	for index := range node.Children {
 		finalizeExplainNode(&node.Children[index])
 	}
+}
+
+func annotateSubqueryPreferenceDecision(node *ExplainNode) {
+	if node == nil || node.Kind != "subquery" || node.Lowering == nil || !node.Lowering.NeedsSubqueryStepGrid {
+		return
+	}
+	if _, ok := findPhysicalDecisionByKind(node.PhysicalDecisions, "query_settings"); ok {
+		return
+	}
+	node.PhysicalDecisions = append(node.PhysicalDecisions, physical.Decision{
+		Kind:     "query_settings",
+		Strategy: "no_thread_cap",
+		Reason:   explainSubqueryNoThreadCapReason,
+		Guards:   []string{"needs_subquery_step_grid", "preserve_no_cap"},
+		Rejected: []physical.Alternative{{
+			Strategy: "set_max_threads",
+			Reason:   "suppressed by subquery step-grid preference",
+		}},
+	})
+}
+
+func findPhysicalDecisionByKind(decisions []physical.Decision, kind string) (physical.Decision, bool) {
+	for _, decision := range decisions {
+		if decision.Kind == kind {
+			return decision, true
+		}
+	}
+	return physical.Decision{}, false
 }

@@ -197,6 +197,8 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-subquery-node-preference-decision-surfacing` — **keep**. Added explain-only nested decision annotation so subquery nodes with `lowering.needsSubqueryStepGrid=true` emit `query_settings=no_thread_cap` metadata (reason `subquery_step_grid_prefers_no_thread_cap`, explicit guards/rejected alternative). Added planner regression test `TestExplainPlanIncludesSubqueryNodeNoThreadCapDecision`. No runtime SQL strategy change. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-subquery-node-preference-decision-surfacing.md`.
+- `20260428-subquery-preference-propagation-mapping` — **split/defer (no code change)**. Captured a subquery baseline for `rate((sum by (job) (up))[30m:1m])` showing native SQL selection with root-level `query_settings=no_thread_cap` metadata, but no child/node-level preference decision rows in explain output. This narrowed the next step to decision-surfacing instrumentation before any propagation/routing behavior change. Artifacts: `harness/artifacts/explain/20260428-subquery-pref-propagation-baseline/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-subquery-preference-propagation-mapping.md`.
 - `20260428-direct-agg-threadcap-decision-guard` — **keep**. Added planner/explain regression coverage for direct range aggregation (`sum by(job)(up)`) to lock `query_settings=set_max_threads` with guardrail reason/guard metadata. No runtime behavior change; this protects the newly surfaced query-settings decision contract. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-direct-agg-threadcap-decision-guard.md`.
 - `20260428-fused-rate-threadcap-decision-surfacing` — **keep**. Surfaced `query_settings=set_max_threads` in explain metadata for fused range-rate aggregation where thread-cap guardrails were already being applied (`max_threads=4`). This is observability parity (no runtime strategy change) and aligns physical decision reporting with applied query settings. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-fused-rate-threadcap-decision-surfacing.md`.
 - `20260428-subquery-no-cap-rejected-alternative` — **keep**. Updated no-thread-cap physical decision metadata to include an explicit rejected alternative (`set_max_threads`) so explain output shows why thread-cap settings were suppressed. Runtime unchanged for the validated query shape; this is preference-precedence observability for upcoming subquery propagation work. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-subquery-no-cap-rejected-alternative.md`.
@@ -235,6 +237,28 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 5. **Next priorities**
    - Add typed eligibility/rejection row-source-reuse decision metadata that is consistently visible in explain output for repeated candidate shapes (applied and not-applied cases where relevant).
    - Then move to subquery preference propagation / estimate plumbing once reuse decision observability is solid.
+
+### Reflection checkpoint (iteration 16)
+
+1. **What has been accomplished so far?**
+   - Established a broad set of conservative reuse and thread-cap/no-cap explainability guards with clean validation history.
+   - Confirmed through fresh subquery baseline artifacts that current explain output for nested subquery families is still mostly root-level for preference decisions.
+
+2. **What is working well?**
+   - Iteration discipline continues to prevent speculative behavior edits: baseline evidence first, then scoped implementation.
+   - Explain artifacts are good enough to detect strategy and top-level preference outcomes quickly.
+
+3. **What is not working / blockers?**
+   - Missing child/node-level preference decision surfacing limits our ability to safely change or validate subquery propagation logic.
+   - Without nested decision visibility, runtime propagation edits would be hard to audit and prone to overfitting.
+
+4. **Should the approach be adjusted?**
+   - Yes: perform an instrumentation-first slice for nested decision surfacing (no routing change), then revisit propagation behavior with clear before/after evidence.
+
+5. **Next priorities**
+   - Add typed child/node-level preference decision reporting for subquery-relevant nodes.
+   - Add regression tests locking that metadata shape.
+   - After visibility is in place, evaluate a minimal propagation behavior change with targeted measurement.
 
 ### Reflection checkpoint (iteration 11)
 

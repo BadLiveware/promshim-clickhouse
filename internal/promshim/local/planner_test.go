@@ -1576,6 +1576,41 @@ func TestExplainPlanIncludesSparseRateAndNoCapPhysicalDecisions(t *testing.T) {
 	}
 }
 
+func TestExplainPlanIncludesSubqueryNodeNoThreadCapDecision(t *testing.T) {
+	expr, err := logical.ParseExpression("rate((sum by (job) (up))[30m:1m])")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, analysis, err := BuildPlanWithContextAndAnalysis(expr, PlanContext{
+		Mode:                            EvalModeRange,
+		Start:                           time.Unix(0, 0).UTC(),
+		End:                             time.Unix(3*3600, 0).UTC(),
+		Step:                            30 * time.Second,
+		NativeLoweringMode:              NativeLoweringModeForceSupported,
+		PreferNativeAggregationPushdown: true,
+	})
+	if err != nil {
+		t.Fatalf("expected native subquery/rate plan, got error: %v", err)
+	}
+
+	explain := ExplainPlanWithLowering(plan, analysis.Root)
+	subquery, ok := findExplainNodeByKind(explain, "subquery")
+	if !ok {
+		t.Fatalf("expected subquery explain node, got %#v", explain)
+	}
+	decision, ok := findPhysicalDecision(subquery.PhysicalDecisions, "query_settings")
+	if !ok {
+		t.Fatalf("expected query_settings decision on subquery node, got %#v", subquery.PhysicalDecisions)
+	}
+	if decision.Strategy != "no_thread_cap" {
+		t.Fatalf("subquery query_settings strategy = %q, want no_thread_cap; decisions=%#v", decision.Strategy, subquery.PhysicalDecisions)
+	}
+	if decision.Reason != explainSubqueryNoThreadCapReason {
+		t.Fatalf("subquery query_settings reason = %q, want %q", decision.Reason, explainSubqueryNoThreadCapReason)
+	}
+}
+
 func findPhysicalDecision(decisions []physical.Decision, kind string) (physical.Decision, bool) {
 	for _, decision := range decisions {
 		if decision.Kind == kind {
@@ -1583,6 +1618,18 @@ func findPhysicalDecision(decisions []physical.Decision, kind string) (physical.
 		}
 	}
 	return physical.Decision{}, false
+}
+
+func findExplainNodeByKind(node ExplainNode, kind string) (ExplainNode, bool) {
+	if node.Kind == kind {
+		return node, true
+	}
+	for _, child := range node.Children {
+		if found, ok := findExplainNodeByKind(child, kind); ok {
+			return found, true
+		}
+	}
+	return ExplainNode{}, false
 }
 
 func TestExplainPlanDescribesNativeTransformedAggregationStrategy(t *testing.T) {

@@ -197,6 +197,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-reflection31-runtime-priority-reset` — **keep (reflection reset, no code change)**. Reflection checkpoint confirms harness/measurement reliability improvements are in place and resets loop priority back to runtime-impact candidates, requiring non-wall-clock corroborating signals for future optimization claims. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-reflection31-runtime-priority-reset.md`.
 - `20260428-bench-corpus-validation-test-hardening` — **keep**. Added loader regression tests for non-positive `query_range` step and unsupported endpoint errors, complementing the prior invalid-offset fail-fast coverage. No runtime behavior change; harness validation guard-only improvement. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-bench-corpus-validation-test-hardening.md`.
 - `20260428-binary-thread-policy-post-unblock-measurement` — **keep (measurement-only)**. Ran focused binary-subquery smoke corpus with repeats/warmup after harness unblocking. All rows served `native_sql` with stable CH/runtime metrics and only small prefer-vs-force_supported deltas (within noise-scale for this setup). Artifacts: `harness/artifacts/bench/standalone/20260428-iter29-binary-thread-policy-measure/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-binary-thread-policy-post-unblock-measurement.md`.
 - `20260428-bench-corpus-range-validation` — **keep**. Added runtime query-corpus validation in `promharness` so invalid `query_range` windows (`endOffsetSeconds < startOffsetSeconds`) and non-positive step sizes fail fast at corpus load with actionable errors. Added loader unit test and verified `run-bench` now exits early with explicit validation failure instead of row-level HTTP 400s. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-bench-corpus-range-validation.md`.
@@ -250,6 +251,30 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 5. **Next priorities**
    - Add typed eligibility/rejection row-source-reuse decision metadata that is consistently visible in explain output for repeated candidate shapes (applied and not-applied cases where relevant).
    - Then move to subquery preference propagation / estimate plumbing once reuse decision observability is solid.
+
+### Reflection checkpoint (iteration 31)
+
+1. **What has been accomplished so far?**
+   - Landed binary-root subquery thread-policy scoping plus planner/service explain guards.
+   - Unblocked focused binary-subquery benchmarking by fixing corpus-window shape and adding fail-fast corpus validation.
+   - Captured stable focused measurement artifacts for mixed/nested binary shapes.
+
+2. **What's working well?**
+   - Measurement workflow is now significantly more reliable (rebuild discipline + corpus validation + focused artifacts).
+   - Explain/API observability makes policy-placement effects easier to verify.
+
+3. **What's not working or blocking progress?**
+   - Recent output has leaned heavily toward harness/test hardening; direct runtime gains have slowed.
+   - Current focused deltas remain small, making optimization claims sensitive to noise.
+
+4. **Should the approach be adjusted?**
+   - Yes: pivot back to runtime-impact candidates now that harness reliability is restored.
+   - Require at least one corroborating non-wall-clock signal for any runtime claim.
+
+5. **What are the next priorities?**
+   - Select one bounded runtime candidate in this subquery family with explicit expected signal.
+   - Run before/after focused benchmark with profile/memory summaries.
+   - Keep harness-only work as reactive support, not primary output.
 
 ### Reflection checkpoint (iteration 26)
 

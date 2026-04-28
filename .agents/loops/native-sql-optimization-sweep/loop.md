@@ -197,6 +197,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-reflection36-design-slice-priority` — **keep (reflection reset, no code change)**. Reflection checkpoint confirms progress on behavior guards/measurement reliability and resets next-step execution shape to a bounded design-first slice for the `rate(sum(...)[5m:])` hotspot before further runtime edits. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-reflection36-design-slice-priority.md`.
 - `20260428-subquery-hotspot-sql-shape-triage` — **split/defer (no code change)**. Triaged the current higher-latency subquery hotspot SQL shape (`rate(sum(...)[5m:])`) and confirmed it is dominated by grid+ASOF+windowed rate evaluation with constant empty-tag aggregation. Candidate optimizations appear non-trivial and contract-sensitive; deferred direct runtime edits pending a bounded design slice with explicit correctness/perf signals. Artifacts: `harness/artifacts/explain/20260428-iter35-cand0242-baseline/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-subquery-hotspot-sql-shape-triage.md`.
 - `20260428-avg-over-time-rows-fastpath-rejected` — **reject/defer (reverted)**. Tested enabling range-mode rows fast path for `avg_over_time` to target the subquery memory hotspot, but focused validation failed (`TestLowerHighOverlapAvgOverTimeRangeUsesDirectAggregate`, explain/physical-decision guards). Reverted in-iteration; no code retained. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-avg-over-time-rows-fastpath-rejected.md`.
 - `20260428-subquery-hotspot-candidate-mapping` — **keep (measurement-only)**. Mapped a broader 3-query subquery hotspot corpus from dashboard subset and measured on isolated bench stack. All rows remained `native_sql`; prefer-vs-force deltas stayed small, but absolute-cost/memory outliers emerged (`draft_cand_0242...` CPU/latency and `draft_cand_0416...` memory), giving higher-EV runtime targeting for next behavior attempt. Artifacts: `harness/artifacts/bench/standalone/20260428-iter33-subquery-hotspots/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-subquery-hotspot-candidate-mapping.md`.
@@ -255,6 +256,28 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 5. **Next priorities**
    - Add typed eligibility/rejection row-source-reuse decision metadata that is consistently visible in explain output for repeated candidate shapes (applied and not-applied cases where relevant).
    - Then move to subquery preference propagation / estimate plumbing once reuse decision observability is solid.
+
+### Reflection checkpoint (iteration 36)
+
+1. **What has been accomplished so far?**
+   - Completed binary-root thread-policy behavior scoping with explain/service guard coverage.
+   - Stabilized focused benchmark workflows and removed key harness blockers.
+   - Identified concrete subquery hotspot candidates and captured detailed SQL-shape evidence for the top-latency path.
+
+2. **What's working well?**
+   - Evidence-first decisions are containing risk and reducing speculative churn.
+   - Measurement and explain artifacts now provide reliable decision inputs.
+
+3. **What's not working or blocking progress?**
+   - Top runtime candidate is contract-sensitive; quick tweaks are failing or low-signal.
+   - Runtime improvement throughput has slowed versus harness/triage throughput.
+
+4. **Should the approach be adjusted?**
+   - Yes: switch to a bounded design-first slice for the top hotspot before further code edits.
+
+5. **What are the next priorities?**
+   - Produce a compact design note with candidate shape alternatives, correctness/decision-contract impacts, expected perf signals, and a tight validation matrix.
+   - Implement only the smallest design-backed variant with explicit rollback criteria.
 
 ### Reflection checkpoint (iteration 31)
 

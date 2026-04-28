@@ -1,5 +1,12 @@
 {
   "comment": "Known compliance deviations accepted by policy. Accept a deviation only when exact compatibility is infeasible and the observable impact is immaterial. Entries must match exactly; tolerances must be query-specific and bounded. Any drift (different query, different diff shape, over-margin values, or unused allowlist entry) fails reconciliation so regressions surface.",
-  "tolerances": [],
+  "tolerances": [
+    {
+      "id": "native-modulo-small-float-drift",
+      "query": "demo_memory_usage_bytes % 1.2345",
+      "margin": 0.000001,
+      "reason": "ClickHouse native modulo uses x - trunc(x / y) * y instead of Go/Prometheus math.Mod, which causes tiny float drift on large operands. Accept only when the rerun against both APIs stays within a 1e-6 absolute margin and labels/timestamps still match exactly."
+    }
+  ],
   "entries": []
 }

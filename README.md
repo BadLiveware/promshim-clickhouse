@@ -36,11 +36,11 @@ within the narrow accepted-deviation policy below:
 - native-only coverage runs that keep tier-2 gaps visible instead of silently
   hiding them behind fallback execution.
 
-Accepted deviations, when present, are limited to narrow, documented cases
-where exact Prometheus behavior depends on storage-engine internals or tiny
-primitive-level floating-point differences. The current deterministic fixture
-has no accepted deviations; everything else is treated as a bug or visible
-coverage gap.
+Accepted deviations are limited to narrow, documented cases where exact
+Prometheus behavior depends on storage-engine internals or tiny primitive-level
+floating-point differences. The current deterministic fixture accepts only a
+bounded `demo_memory_usage_bytes % 1.2345` modulo drift; everything else is
+treated as a bug or visible coverage gap.
 
 ## Where it fits
 

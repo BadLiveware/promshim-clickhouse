@@ -53,7 +53,9 @@ Each full run does two passes against the same frozen fixture:
 
 ## Allowlist (`expected-failures.json`)
 
-No deviations are currently accepted for the deterministic compliance fixture.
+One tolerance is currently accepted for the deterministic compliance fixture: `native-modulo-small-float-drift` on `demo_memory_usage_bytes % 1.2345`.
+
+ClickHouse native modulo uses `x - trunc(x / y) * y` instead of Go/Prometheus `math.Mod`, which can cause tiny float drift on large operands. The tolerance is query-specific and bounded to an absolute `1e-6`; labels and timestamps must still match exactly.
 
 The allowlist remains intentionally available for narrow cases where exact Prometheus behavior depends on reference-side storage internals or an immaterial primitive-level difference. Entries must be exact and specific; stale allowlist entries fail reconciliation so a missing fixture cannot make CI pass vacuously.
 

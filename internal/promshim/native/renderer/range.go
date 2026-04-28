@@ -46,7 +46,7 @@ func resolveRangeWindowAggregateStrategy(fn string, cfg storage.QueryConfig, loo
 	case RangeWindowAggregateStrategyWindowJoin:
 		return RangeWindowAggregateStrategyWindowJoin
 	case RangeWindowAggregateStrategyDirectAggregate:
-		if supportsDirectSelectorWindowAggregate(fn, lookbackMS) {
+		if supportsDirectSelectorWindowAggregate(fn) {
 			return RangeWindowAggregateStrategyDirectAggregate
 		}
 	case RangeWindowAggregateStrategyCumulativeAvg:
@@ -57,7 +57,7 @@ func resolveRangeWindowAggregateStrategy(fn string, cfg storage.QueryConfig, loo
 	if cfg.EnableCumulativeAvgOverTime && fn == "avg_over_time" && !preferDirectSelectorWindowJoin(lookbackMS, stepMS) {
 		return RangeWindowAggregateStrategyCumulativeAvg
 	}
-	if supportsDirectSelectorWindowAggregate(fn, lookbackMS) && preferDirectSelectorWindowAggregate(fn, lookbackMS, stepMS) {
+	if supportsDirectSelectorWindowAggregate(fn) && preferDirectSelectorWindowAggregate(fn, lookbackMS, stepMS) {
 		return RangeWindowAggregateStrategyDirectAggregate
 	}
 	if preferDirectSelectorWindowJoin(lookbackMS, stepMS) {
@@ -230,7 +230,7 @@ func canUseRangeFunctionRowsFastPath(fn string) bool {
 	}
 }
 
-func supportsDirectSelectorWindowAggregate(fn string, lookbackMS int64) bool {
+func supportsDirectSelectorWindowAggregate(fn string) bool {
 	switch fn {
 	case "avg_over_time", "max_over_time":
 		return true

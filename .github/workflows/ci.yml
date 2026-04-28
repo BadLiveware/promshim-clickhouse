@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  checks: write
 
 jobs:
   go:
@@ -47,6 +48,23 @@ jobs:
 
       - name: Run full compliance suite
         run: scripts/run-compliance.sh
+
+      - name: Generate compliance reports
+        if: always()
+        run: harness/compliance/scripts/export-ci-reports.sh
+
+      - name: Publish compliance test report
+        if: always() && hashFiles('harness/artifacts/compliance/*/ci/junit-*.xml') != ''
+        uses: mikepenz/action-junit-report@v5
+        with:
+          check_name: PromQL compliance report
+          report_paths: harness/artifacts/compliance/*/ci/junit-*.xml
+          fail_on_failure: false
+          require_tests: true
+
+      - name: Add compliance summary
+        if: always() && hashFiles('harness/artifacts/compliance/*/ci/summary.md') != ''
+        run: cat harness/artifacts/compliance/*/ci/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload compliance artifacts
         if: always()

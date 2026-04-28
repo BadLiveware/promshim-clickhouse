@@ -623,7 +623,7 @@ func TestBuildLogicalPlanCreatesScalarConvertPlan(t *testing.T) {
 }
 
 func TestBuildLogicalPlanCreatesPredictLinearPlan(t *testing.T) {
-	logical, err := BuildLogicalPlan(mustParseExpr(t, "predict_linear(up[5m], 60)"))
+	logical, err := BuildLogicalPlan(mustParseExpr(t, "predict_linear(up[5m], 4 * 3600)"))
 	if err != nil {
 		t.Fatalf("expected logical predict_linear plan, got error: %v", err)
 	}
@@ -631,7 +631,7 @@ func TestBuildLogicalPlanCreatesPredictLinearPlan(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected logicalRangeFunctionPlan, got %T", logical)
 	}
-	if rangePlan.Func != "predict_linear" || rangePlan.ParamNumber == nil || *rangePlan.ParamNumber != 60 {
+	if rangePlan.Func != "predict_linear" || rangePlan.ParamNumber == nil || *rangePlan.ParamNumber != 14400 {
 		t.Fatalf("unexpected predict_linear plan: %#v", rangePlan)
 	}
 	if _, ok := rangePlan.Child.(*logicalLeafExprPlan); !ok {

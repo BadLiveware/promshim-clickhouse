@@ -157,8 +157,8 @@ func AnalyzePredictLinearCall(call *parser.Call) SupportResult {
 	if call.Args[1].Type() != parser.ValueTypeScalar {
 		return unsupported(DifficultyHard, "predict_linear requires a scalar duration argument")
 	}
-	if _, ok := unwrapTransparentExpr(call.Args[1]).(*parser.NumberLiteral); !ok {
-		return unsupported(DifficultyHard, "predict_linear currently requires a literal scalar duration argument")
+	if _, ok := scalarConstantValue(call.Args[1]); !ok {
+		return unsupported(DifficultyHard, "predict_linear currently requires a constant scalar duration argument")
 	}
 	child := AnalyzeExpression(call.Args[0])
 	if !child.Supported {

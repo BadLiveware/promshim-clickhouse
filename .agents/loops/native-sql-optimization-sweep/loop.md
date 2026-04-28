@@ -2,7 +2,7 @@
 
 ## Objective
 
-Continuously improve promshim's PromQL → logical IR → native SQL and fallback execution surface by repeatedly finding high-expected-value optimization opportunities, implementing the safest useful candidate, measuring correctness and runtime signals, and keeping or rejecting each attempt based on evidence. The overarching objective is to make promshim look like a better solution by being a better solution. We do this by being fast and efficient, and producing fast and efficient sql, and choosing local execution when that is superior.
+Continuously improve promshim's PromQL → logical IR → native SQL and fallback execution surface by repeatedly finding high-expected-value optimization opportunities, implementing the safest useful candidate, measuring correctness and runtime signals, and keeping or rejecting each attempt based on evidence. The overarching objective is to make promshim look like a better solution by being a better solution. We do this by being fast and efficient, and producing fast and efficient sql, and choosing the appropriate execution tier balancing speed/resource usage with easy of running promshim.
 
 Primary metric directions:
 
@@ -195,6 +195,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-reflection46-cbe-instrumentation-balance` — **keep (reflection pivot, no code change)**. Reflection checkpoint notes estimate-input surfacing progress and shifts next priority from adding more raw fields to deriving/packaging useful subquery complexity diagnostics from existing fields before any routing behavior changes. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-reflection46-cbe-instrumentation-balance.md`.
 - `20260428-cbe-estimate-input-subquery-overlap` — **keep**. Added derived estimate metadata `subqueryOverlapSlots` to routing cost class (`subqueryRangeMs/subqueryStepMs`) and validated classifier/API explain surfacing with subquery regression tests. No routing/strategy behavior changes. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-estimate-input-subquery-overlap.md`.
 - `20260428-cbe-estimate-input-subquery-points` — **keep**. Added derived estimate metadata `subqueryPointsPerEval` to routing cost class (`subqueryRangeMs/subqueryStepMs + 1`) and validated classifier/API explain surfacing with subquery regression tests. No routing/strategy behavior changes. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-estimate-input-subquery-points.md`.
 - `20260428-cbe-estimate-input-subquery-fields` — **keep**. Added instrumentation-first estimate metadata for later CBE by surfacing `subqueryRangeMs` and `subqueryStepMs` in routing cost class, populated from parsed subquery nodes. Added classifier and API explain regression tests; no routing/strategy behavior changes. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-estimate-input-subquery-fields.md`.
@@ -263,6 +264,28 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 5. **Next priorities**
    - Add typed eligibility/rejection row-source-reuse decision metadata that is consistently visible in explain output for repeated candidate shapes (applied and not-applied cases where relevant).
    - Then move to subquery preference propagation / estimate plumbing once reuse decision observability is solid.
+
+### Reflection checkpoint (iteration 46)
+
+1. **What has been accomplished so far?**
+   - Closed the low-signal subquery hotspot runtime tranche responsibly.
+   - Landed multiple behavior-neutral CBE estimate-input metadata fields with stable explain/API surfacing.
+
+2. **What's working well?**
+   - Low-risk, additive instrumentation is moving predictably with solid regression coverage.
+   - Scope control is preventing return to noisy micro-optimization churn.
+
+3. **What's not working or blocking progress?**
+   - Additional raw fields now have diminishing standalone value without synthesis/consumption.
+   - Runtime value remains deferred until these inputs are used to improve candidate interpretation.
+
+4. **Should the approach be adjusted?**
+   - Yes: shift from field expansion to derived diagnostics using existing fields, still behavior-neutral.
+
+5. **What are the next priorities?**
+   - Add one bounded derived subquery complexity indicator in explain/cost diagnostics.
+   - Keep routing unchanged; validate classifier/API contracts.
+   - Reassess readiness for controlled CBE behavior experimentation afterward.
 
 ### Reflection checkpoint (iteration 41)
 

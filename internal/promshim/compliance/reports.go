@@ -304,18 +304,17 @@ func NativeGapReport(report TesterReport) NativeGapSummary {
 	s := NativeGapSummary{Total: report.TotalResults}
 	shapes := map[string]int{}
 	for _, r := range report.Results {
-		if r.ToleranceApplied != nil {
+		switch {
+		case r.ToleranceApplied != nil:
 			s.AcceptedTolerance++
-		} else if r.Diff == "" && r.UnexpectedFailure == "" && !r.UnexpectedSuccess {
+		case !ResultFailed(r):
 			s.Passed++
-		}
-		if r.Diff != "" {
+		case r.Diff != "":
 			s.DiffFailure++
-		}
-		if strings.Contains(r.UnexpectedFailure, "requires a native_sql root plan") {
+		case strings.Contains(r.UnexpectedFailure, "requires a native_sql root plan"):
 			s.UnsupportedRoot++
 			shapes[NormalizeNativeGapShape(r.TestCase.Query)]++
-		} else if r.UnexpectedFailure != "" {
+		default:
 			s.UnexpectedFailureOther++
 		}
 	}

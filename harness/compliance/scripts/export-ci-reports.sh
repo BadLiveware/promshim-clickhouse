@@ -21,6 +21,7 @@ fi
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "${SCRIPT_DIR}/../../.." && pwd)
 ARTIFACT_DIR="${1:-${REPO_ROOT}/harness/artifacts/compliance/latest}"
+ALLOWLIST="${REPO_ROOT}/harness/compliance/expected-failures.json"
 OUT_DIR="${ARTIFACT_DIR}/ci"
 
 if [[ ! -d "$ARTIFACT_DIR" ]]; then
@@ -43,8 +44,8 @@ export_one() {
     return 0
   fi
 
-  "$BIN" --output-format junit --mode "$mode" --report "$report" --output "${OUT_DIR}/junit-${mode}.xml"
-  "$BIN" --output-format markdown --mode "$mode" --report "$report" >> "${OUT_DIR}/summary.md"
+  "$BIN" --output-format junit --mode "$mode" --report "$report" --allowlist "$ALLOWLIST" --output "${OUT_DIR}/junit-${mode}.xml"
+  "$BIN" --output-format markdown --mode "$mode" --report "$report" --allowlist "$ALLOWLIST" >> "${OUT_DIR}/summary.md"
 }
 
 export_one prefer

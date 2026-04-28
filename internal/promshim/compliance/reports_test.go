@@ -43,16 +43,18 @@ func TestFailureBuckets(t *testing.T) {
 }
 
 func TestNativeGapReport(t *testing.T) {
-	report := TesterReport{TotalResults: 6, Results: []TesterResult{
+	report := TesterReport{TotalResults: 8, Results: []TesterResult{
 		{},
 		{ToleranceApplied: &AppliedTolerance{ID: "small-drift"}},
+		{ToleranceApplied: &AppliedTolerance{ID: "cleared-drift"}, Diff: "+ tolerated\n- tolerated"},
 		{TestCase: TesterCase{Query: `sum(rate(demo_requests_total{job="api"}[5m]))`}, UnexpectedFailure: "requires a native_sql root plan"},
 		{Diff: "+ a\n- b"},
 		{UnexpectedFailure: "bad_data"},
+		{UnexpectedSuccess: true},
 		{Diff: "+ x\n- y", UnexpectedFailure: "server error: 500"},
 	}}
 	summary := NativeGapReport(report)
-	if summary.Passed != 1 || summary.AcceptedTolerance != 1 || summary.UnsupportedRoot != 1 || summary.DiffFailure != 2 || summary.UnexpectedFailureOther != 2 {
+	if summary.Passed != 1 || summary.AcceptedTolerance != 2 || summary.UnsupportedRoot != 1 || summary.DiffFailure != 2 || summary.UnexpectedFailureOther != 2 {
 		t.Fatalf("summary = %#v", summary)
 	}
 	if len(summary.UnsupportedShapes) != 1 || summary.UnsupportedShapes[0].Shape != `sum(rate(<metric>[Nm]))` {

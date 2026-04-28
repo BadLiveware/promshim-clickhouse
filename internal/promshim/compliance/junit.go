@@ -59,9 +59,7 @@ func JUnitXML(report TesterReport, policy JUnitPolicy) ([]byte, error) {
 			Name:      result.TestCase.Query,
 		}
 		if result.ToleranceApplied != nil {
-			caseResult.Skipped = &junitSkipped{Message: "accepted tolerance: " + result.ToleranceApplied.ID, Text: acceptedToleranceDetail(result.ToleranceApplied)}
-			caseResult.SystemOut = result.ToleranceApplied.Reason
-			suite.Skipped++
+			caseResult.SystemOut = "accepted tolerance: " + result.ToleranceApplied.ID + "\n" + acceptedToleranceDetail(result.ToleranceApplied)
 			suite.TestCases = append(suite.TestCases, caseResult)
 			continue
 		}
@@ -71,13 +69,11 @@ func JUnitXML(report TesterReport, policy JUnitPolicy) ([]byte, error) {
 		}
 
 		kind, detail := resultFailureDetail(result)
-		if policy.NativeIsInform || policy.Mode == "native" {
+		if expected := matchingExpectedFailure(policy.Allowlist, policy.Mode, result); expected != nil {
+			caseResult.SystemOut = "accepted deviation: " + expected.ID + "\n" + detail + "\n" + expected.Reason
+		} else if policy.NativeIsInform || policy.Mode == "native" {
 			caseResult.Skipped = &junitSkipped{Message: "native informational gap: " + kind, Text: detail}
 			caseResult.SystemOut = "Native-mode compliance is informational; gaps stay visible but do not gate CI."
-			suite.Skipped++
-		} else if expected := matchingExpectedFailure(policy.Allowlist, policy.Mode, result); expected != nil {
-			caseResult.Skipped = &junitSkipped{Message: "expected compliance failure: " + expected.ID, Text: detail}
-			caseResult.SystemOut = expected.Reason
 			suite.Skipped++
 		} else {
 			caseResult.Failure = &junitFailure{Message: kind, Type: kind, Text: detail}
@@ -107,33 +103,40 @@ func ComplianceMarkdown(report TesterReport, policy JUnitPolicy, reportPath stri
 	summary := ComplianceSummary(report)
 	passed := summary["passed"]
 	acceptedTolerance := summary["accepted_tolerance"]
-	failed := report.TotalResults - passed - acceptedTolerance
+	acceptedExpected := countAcceptedExpected(report, policy)
+	acceptedTotal := acceptedTolerance + acceptedExpected
+	passedIncludingAccepted := passed + acceptedTotal
+	failed := report.TotalResults - passedIncludingAccepted
 	var b strings.Builder
 	fmt.Fprintf(&b, "## PromQL compliance (%s)\n\n", mode)
 	if reportPath != "" {
 		fmt.Fprintf(&b, "Report: `%s`\n\n", reportPath)
 	}
-	fmt.Fprintf(&b, "| Total | Passed | Accepted tolerances | Failed or visible gaps | Diff failures | Unexpected failures | Unexpected successes | Unsupported |\n")
+	fmt.Fprintf(&b, "| Total | Passed | Accepted deviations | Failed or visible gaps | Diff failures | Unexpected failures | Unexpected successes | Unsupported |\n")
 	fmt.Fprintf(&b, "|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 	fmt.Fprintf(&b, "| %d | %d | %d | %d | %d | %d | %d | %d |\n\n",
 		report.TotalResults,
-		passed,
-		acceptedTolerance,
+		passedIncludingAccepted,
+		acceptedTotal,
 		failed,
 		summary["diff_failure"],
 		summary["unexpected_failure"],
 		summary["unexpected_success"],
 		summary["unsupported"],
 	)
-	if acceptedTolerance > 0 {
-		fmt.Fprintf(&b, "### Accepted tolerances\n\n")
-		fmt.Fprintf(&b, "| Query | Tolerance | Reason |\n")
+	if acceptedTotal > 0 {
+		fmt.Fprintf(&b, "### Accepted deviations\n\n")
+		fmt.Fprintf(&b, "Accepted deviations pass CI, but stay listed here. Add one only when exact compatibility is infeasible and the observable impact is immaterial.\n\n")
+		fmt.Fprintf(&b, "| Query | Deviation | Reason |\n")
 		fmt.Fprintf(&b, "|---|---|---|\n")
 		for _, result := range report.Results {
-			if result.ToleranceApplied == nil {
+			if result.ToleranceApplied != nil {
+				fmt.Fprintf(&b, "| `%s` | `%s` | %s |\n", escapeMarkdownPipes(result.TestCase.Query), result.ToleranceApplied.ID, escapeMarkdownPipes(result.ToleranceApplied.Reason))
 				continue
 			}
-			fmt.Fprintf(&b, "| `%s` | `%s` | %s |\n", escapeMarkdownPipes(result.TestCase.Query), result.ToleranceApplied.ID, escapeMarkdownPipes(result.ToleranceApplied.Reason))
+			if expected := matchingExpectedFailure(policy.Allowlist, policy.Mode, result); expected != nil {
+				fmt.Fprintf(&b, "| `%s` | `%s` | %s |\n", escapeMarkdownPipes(result.TestCase.Query), expected.ID, escapeMarkdownPipes(expected.Reason))
+			}
 		}
 		b.WriteString("\n")
 	}
@@ -160,6 +163,19 @@ func ComplianceMarkdown(report TesterReport, policy JUnitPolicy, reportPath stri
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func countAcceptedExpected(report TesterReport, policy JUnitPolicy) int {
+	count := 0
+	for _, result := range report.Results {
+		if result.ToleranceApplied != nil || !ResultFailed(result) {
+			continue
+		}
+		if matchingExpectedFailure(policy.Allowlist, policy.Mode, result) != nil {
+			count++
+		}
+	}
+	return count
 }
 
 func matchingExpectedFailure(allow ExpectedFailures, mode string, result TesterResult) *ExpectedFailureEntry {

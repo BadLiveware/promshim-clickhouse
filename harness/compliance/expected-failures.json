@@ -1,5 +1,5 @@
 {
-  "comment": "Known compliance deviations tracked as EXPECTED (not bugs in the shim). Entries must match exactly; tolerances must be query-specific and bounded. Any drift (different query, different diff shape, over-margin values, or unused allowlist entry) fails reconciliation so regressions surface.",
+  "comment": "Known compliance deviations accepted by policy. Accept a deviation only when exact compatibility is infeasible and the observable impact is immaterial. Entries must match exactly; tolerances must be query-specific and bounded. Any drift (different query, different diff shape, over-margin values, or unused allowlist entry) fails reconciliation so regressions surface.",
   "tolerances": [
     {
       "id": "native-modulo-small-float-drift",

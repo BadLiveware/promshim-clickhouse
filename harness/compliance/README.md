@@ -82,7 +82,7 @@ Each number should trend down over time. None are allowlistable.
 
 ## Fixture
 
-The top-level runner seeds a deterministic `demo_*` fixture through remote write into both reference Prometheus and ClickHouse when fresh volumes are empty. It then verifies, at the pinned `end_time` in `test-promshim.yml`, that both APIs expose the expected fixture marker and core series counts before any compliance query runs.
+The top-level runner seeds a deterministic `demo_*` fixture through remote write into both reference Prometheus and ClickHouse when fresh volumes are empty. The seed intentionally includes large varied gauges, exact gauge ties, counter resets, a sparse metric that disappears before the evaluation timestamp, and histogram buckets matching the old scraped fixture's bucket/cardinality shape. It then verifies, at the pinned `end_time` in `test-promshim.yml`, that both APIs expose the expected fixture marker, core series counts, sparse-series absence, reset count, and tie coverage before any compliance query runs.
 
 If old scraped data or a partially seeded fixture is present, the runner fails before the compliance pass and asks you to reset the compliance volumes:
 

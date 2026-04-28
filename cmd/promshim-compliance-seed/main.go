@@ -144,6 +144,11 @@ func buildFixtureSeries(end time.Time) []seriesDesc {
 			amp := []float64{40_000_000, 420_000_000, 260_000_000, 330_000_000}[typeIdx]
 			typePhase := float64(typeIdx) * 0.7
 			add("demo_memory_usage_bytes", labels, func(ts time.Time, idx int) float64 {
+				// Force a periodic exact tie across instances to exercise topk/bottomk
+				// tie handling while the rest of the gauge remains varied and large.
+				if typ == "buffers" && idx%120 == 119 {
+					return 173_015_040
+				}
 				phase := float64(idx)/3.0 + typePhase + float64(instIdx)*0.4
 				return math.Round(base + instanceShift*5_000_000 + amp*(0.5+0.5*math.Sin(phase)))
 			})
@@ -153,7 +158,11 @@ func buildFixtureSeries(end time.Time) []seriesDesc {
 			labels["mode"] = mode
 			modeScale := float64(modeIdx+1) * 0.25
 			add("demo_cpu_usage_seconds_total", labels, func(ts time.Time, idx int) float64 {
-				return 100 + float64(idx)*(0.5+modeScale) + instanceShift
+				// Deterministic counter resets every 20 minutes keep rate/increase/resets
+				// coverage meaningful without introducing randomness.
+				cycle := idx % 240
+				generation := idx / 240
+				return 10 + float64(generation)*3 + float64(cycle)*(0.5+modeScale) + instanceShift
 			})
 		}
 		for comboIdx := 0; comboIdx < len(methods)*len(paths); comboIdx++ {

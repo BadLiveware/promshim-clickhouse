@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestJUnitXMLMarksAllowlistedPreferFailureSkipped(t *testing.T) {
+func TestJUnitXMLMarksAllowlistedPreferFailurePassed(t *testing.T) {
 	report := TesterReport{TotalResults: 2, Results: []TesterResult{
 		{TestCase: TesterCase{Query: "up"}},
 		{TestCase: TesterCase{Query: "topk(1, up)"}, Diff: "- old\n+ new"},
@@ -29,15 +29,15 @@ func TestJUnitXMLMarksAllowlistedPreferFailureSkipped(t *testing.T) {
 	if err := xml.Unmarshal(out, &parsed); err != nil {
 		t.Fatalf("unmarshal junit xml: %v\n%s", err, out)
 	}
-	if parsed.Tests != 2 || parsed.Failures != 0 || parsed.Skipped != 1 {
+	if parsed.Tests != 2 || parsed.Failures != 0 || parsed.Skipped != 0 {
 		t.Fatalf("unexpected suite counts: tests=%d failures=%d skipped=%d", parsed.Tests, parsed.Failures, parsed.Skipped)
 	}
-	if got := string(out); !strings.Contains(got, "expected compliance failure: known-topk-ordering") {
-		t.Fatalf("expected allowlist skip reason in junit XML, got:\n%s", got)
+	if got := string(out); !strings.Contains(got, "accepted deviation: known-topk-ordering") {
+		t.Fatalf("expected accepted deviation reason in junit XML, got:\n%s", got)
 	}
 }
 
-func TestJUnitXMLMarksAcceptedToleranceSkipped(t *testing.T) {
+func TestJUnitXMLMarksAcceptedTolerancePassed(t *testing.T) {
 	report := TesterReport{TotalResults: 1, Results: []TesterResult{
 		{TestCase: TesterCase{Query: "demo_memory_usage_bytes % 1.2345"}, ToleranceApplied: &AppliedTolerance{ID: "native-modulo-small-float-drift", Query: "demo_memory_usage_bytes % 1.2345", Margin: 0.000001, Reason: "small drift"}},
 	}}
@@ -49,7 +49,7 @@ func TestJUnitXMLMarksAcceptedToleranceSkipped(t *testing.T) {
 	if err := xml.Unmarshal(out, &parsed); err != nil {
 		t.Fatalf("unmarshal junit xml: %v\n%s", err, out)
 	}
-	if parsed.Tests != 1 || parsed.Failures != 0 || parsed.Skipped != 1 {
+	if parsed.Tests != 1 || parsed.Failures != 0 || parsed.Skipped != 0 {
 		t.Fatalf("unexpected suite counts: tests=%d failures=%d skipped=%d", parsed.Tests, parsed.Failures, parsed.Skipped)
 	}
 	if got := string(out); !strings.Contains(got, "accepted tolerance: native-modulo-small-float-drift") {

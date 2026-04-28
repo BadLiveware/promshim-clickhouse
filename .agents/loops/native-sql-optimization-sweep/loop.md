@@ -199,6 +199,7 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 
 ### Recent attempt summaries
 
+- `20260428-reflection61-advisory-readiness-gate` — **keep (reflection, no code change)**. Reflection checkpoint concludes advisory tranche is near saturation and sets a readiness-gate pivot: next step is either enter one tightly bounded behavior experiment if readiness is met, or fix only the missing gate item. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-reflection61-advisory-readiness-gate.md`.
 - `20260428-cbe-advisory-low-confidence-coverage` — **keep**. Expanded advisory low-confidence coverage with an additional reason path (`candidate_serving_disabled`) to verify reason-specific advisory consistency across multiple strict-low-confidence outcomes. No routing behavior changes. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-advisory-low-confidence-coverage.md`.
 - `20260428-cbe-advisory-low-confidence-reason` — **keep**. Extended advisory/shadow diagnostics so `strict_low_confidence` decisions carry explicit `low_confidence_reason=<reason>` hints, improving decision transparency with no selected/served strategy change. Added regression assertion on family-gate low-confidence path. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-advisory-low-confidence-reason.md`.
 - `20260428-cbe-advisory-matrix-eval-rebuilt` — **keep**. Re-ran the advisory behavior matrix after rebuilding benchmark promshim runtime; advisory hints now surface consistently where intended (subquery/rate shadow cases) while strategy neutrality remains intact. This resolves prior capture mismatch and completes the bounded advisory decision-quality evaluation tranche. Artifacts: `harness/artifacts/explain/20260428-iter58-advisory-matrix-rebuilt/`. Attempt notes: `.pi/loops/native-sql-optimization-sweep/attempts/20260428-cbe-advisory-matrix-eval-rebuilt.md`.
@@ -282,6 +283,26 @@ Keep only the next 1-3 active hypotheses and the last 3-5 attempt summaries here
 5. **Next priorities**
    - Add typed eligibility/rejection row-source-reuse decision metadata that is consistently visible in explain output for repeated candidate shapes (applied and not-applied cases where relevant).
    - Then move to subquery preference propagation / estimate plumbing once reuse decision observability is solid.
+
+### Reflection checkpoint (iteration 61)
+
+1. **What has been accomplished so far?**
+   - Completed estimate-input and advisory consumption tranches with solid coverage.
+   - Confirmed advisory consistency and strategy neutrality on rebuilt runtime captures.
+
+2. **What's working well?**
+   - Tranche execution remains controlled and test-backed.
+   - Explain/routing transparency is materially improved.
+
+3. **What's not working or blocking progress?**
+   - Additional advisory-only work is approaching diminishing returns.
+   - No controlled behavior-change experiment has started yet.
+
+4. **Should the approach be adjusted?**
+   - Yes: define a readiness gate and transition to a minimal behavior experiment once satisfied.
+
+5. **What are the next priorities?**
+   - Record readiness checklist and immediately either enter behavior experiment or close the remaining gap.
 
 ### Reflection checkpoint (iteration 56)
 

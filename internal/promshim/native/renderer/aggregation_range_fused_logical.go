@@ -49,14 +49,17 @@ func tryRenderFusedRangeAggregationLogical(ctx LoweringCtx, n *logicalpkg.Aggreg
 	if err != nil {
 		return renderedFragment{}, false, err
 	}
-	settings := fusedRateAggregationThreadSettings(ctx.Params, n)
+	settings, settingDecisions := fusedRateAggregationThreadSettings(ctx.Params, n)
 	if emitZeroOnEmpty {
 		rendered := wrapZeroOnEmptyAggregationRangeSQL(trimRenderedQuerySQL(sql), queryParams, ctx.Params)
 		rendered.ExtraSettings = settings
 		rendered.ExtraPhysicalDecisions = appendRenderedQueryPhysicalDecisions(rendered.ExtraPhysicalDecisions, decisions...)
+		rendered.ExtraPhysicalDecisions = appendRenderedQueryPhysicalDecisions(rendered.ExtraPhysicalDecisions, settingDecisions...)
 		return rendered, true, nil
 	}
-	return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams, ExtraSettings: settings, ExtraPhysicalDecisions: decisions}, true, nil
+	allDecisions := appendRenderedQueryPhysicalDecisions(nil, decisions...)
+	allDecisions = appendRenderedQueryPhysicalDecisions(allDecisions, settingDecisions...)
+	return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams, ExtraSettings: settings, ExtraPhysicalDecisions: allDecisions}, true, nil
 }
 
 // renderFusedRangeAggregationLogicalSQL builds the row-level SQL via

@@ -3,6 +3,7 @@ package renderer
 import (
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -13,25 +14,34 @@ const (
 	threadCapReasonSubqueryRateRows       = "subquery_rate_over_aggregate_regresses_with_thread_cap"
 )
 
-func directRangeAggregationThreadSettings(params RenderParams, source storage.AggregationSource) map[string]any {
+func directRangeAggregationThreadSettings(params RenderParams, source storage.AggregationSource) (map[string]any, []physical.Decision) {
 	if params.Mode != native.RenderModeRange || source.Selector == nil {
-		return nil
+		return nil, nil
 	}
-	return physicalSettings(preferASOFThreadGuardrail(params.Physical, threadCapReasonDirectRangeAggregation))
+	prefs := preferASOFThreadGuardrail(params.Physical, threadCapReasonDirectRangeAggregation)
+	return physicalSettings(prefs), threadPreferenceDecisionsForPrefs(prefs)
 }
 
-func fusedRateAggregationThreadSettings(params RenderParams, agg *logicalpkg.AggregationPlan) map[string]any {
+func fusedRateAggregationThreadSettings(params RenderParams, agg *logicalpkg.AggregationPlan) (map[string]any, []physical.Decision) {
 	if params.Mode != native.RenderModeRange || agg == nil {
-		return nil
+		return nil, nil
 	}
 	child, fn, ok := rangeFunctionChildNode(agg.Child)
 	if !ok || fn != "rate" {
-		return nil
+		return nil, nil
 	}
 	if !isMatrixSelectorLeaf(child) {
-		return nil
+		return nil, nil
 	}
-	return physicalSettings(preferASOFThreadGuardrail(params.Physical, threadCapReasonFusedRateAggregation))
+	prefs := preferASOFThreadGuardrail(params.Physical, threadCapReasonFusedRateAggregation)
+	return physicalSettings(prefs), threadPreferenceDecisionsForPrefs(prefs)
+}
+
+func threadPreferenceDecisionsForPrefs(prefs PhysicalPlanPreferences) []physical.Decision {
+	if decision, ok := physical.ThreadPreferenceDecision(prefs.Execution.Threads); ok {
+		return []physical.Decision{decision}
+	}
+	return nil
 }
 
 func suppressThreadCapForSubqueryRangeFunction(params RenderParams, child *logicalpkg.SubqueryPlan, fn string) RenderParams {

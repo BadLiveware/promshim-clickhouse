@@ -1,18 +1,18 @@
 [
   {
-    "name": "iter25_mixed_root_subquery_thread_policy_or",
+    "name": "iter25_mixed_root_subquery_thread_policy",
     "endpoint": "query_range",
-    "query": "sum(avg_over_time(up[1h])) or sum(rate((sum by (job) (up))[5m:1m]))",
-    "startOffsetSeconds": 3600,
-    "endOffsetSeconds": 0,
+    "query": "sum(avg_over_time(up[1h])) + sum(rate((sum by (job) (up))[5m:1m]))",
+    "startOffsetSeconds": 0,
+    "endOffsetSeconds": 3600,
     "stepSeconds": 30
   },
   {
-    "name": "iter25_nested_binary_subquery_thread_policy_or",
+    "name": "iter25_nested_binary_subquery_thread_policy",
     "endpoint": "query_range",
-    "query": "rate((sum by (job) (up))[30m:1m]) or on(job) up",
-    "startOffsetSeconds": 3600,
-    "endOffsetSeconds": 0,
+    "query": "rate((sum by (job) (up))[30m:1m]) + on(job) up",
+    "startOffsetSeconds": 0,
+    "endOffsetSeconds": 3600,
     "stepSeconds": 30
   }
 ]

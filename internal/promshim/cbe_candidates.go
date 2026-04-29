@@ -30,12 +30,12 @@ func attachCBECandidates(info *httpapi.RoutingInfo, mode local.NativeLoweringMod
 	if info == nil {
 		return
 	}
-	strictID := cbeCandidateForStrategy(info.StrictStrategy)
-	selectedID := cbeCandidateForStrategy(info.WouldSelect)
+	strictID := cbeCandidateForStrategyInMode(info.StrictStrategy, mode)
+	selectedID := cbeCandidateForStrategyInMode(info.WouldSelect, mode)
 	if selectedID == cbeCandidateUnknown {
-		selectedID = cbeCandidateForStrategy(info.SelectedStrategy)
+		selectedID = cbeCandidateForStrategyInMode(info.SelectedStrategy, mode)
 	}
-	servedID := cbeCandidateForStrategy(info.SelectedStrategy)
+	servedID := cbeCandidateForStrategyInMode(info.SelectedStrategy, mode)
 	info.CandidateDecision = &httpapi.CandidateDecision{
 		StrictCandidate:   string(strictID),
 		SelectedCandidate: string(selectedID),
@@ -51,13 +51,16 @@ func attachCBECandidates(info *httpapi.RoutingInfo, mode local.NativeLoweringMod
 	}
 }
 
-func cbeCandidateForStrategy(strategy string) cbeCandidateID {
+func cbeCandidateForStrategyInMode(strategy string, mode local.NativeLoweringMode) cbeCandidateID {
 	switch strategy {
 	case "delegated_promql":
 		return cbeCandidateWholeQueryDelegation
 	case "native_sql":
 		return cbeCandidateNativeSQL
 	case "local":
+		if mode == local.NativeLoweringModeLocalPushdown {
+			return cbeCandidateLocalPushdown
+		}
 		return cbeCandidateFullLocal
 	default:
 		return cbeCandidateUnknown
@@ -78,6 +81,14 @@ func buildCBECandidates(info httpapi.RoutingInfo, mode local.NativeLoweringMode,
 }
 
 func candidateFromStrict(info httpapi.RoutingInfo, id cbeCandidateID, tier, strategy string, strictID, selectedID, servedID cbeCandidateID) httpapi.ExecutionCandidate {
+	supported := id == strictID || id == selectedID || id == servedID
+	knownCorrect := supported
+	var advisory []string
+	if id == cbeCandidateLocalPushdown && histogramLocalPushdownCandidate(info) {
+		supported = true
+		knownCorrect = true
+		advisory = append(advisory, "shadow_candidate=histogram_local_pushdown", "estimate_scope=conservative_full_local_caps")
+	}
 	candidate := httpapi.ExecutionCandidate{
 		ID:                 string(id),
 		Tier:               tier,
@@ -86,10 +97,11 @@ func candidateFromStrict(info httpapi.RoutingInfo, id cbeCandidateID, tier, stra
 		Strict:             id == strictID,
 		Selected:           id == selectedID,
 		Served:             id == servedID,
-		Supported:          id == strictID || id == selectedID || id == servedID,
-		KnownCorrect:       id == strictID || id == selectedID || id == servedID,
-		Eligible:           id == strictID || id == selectedID || id == servedID,
+		Supported:          supported,
+		KnownCorrect:       knownCorrect,
+		Eligible:           supported && knownCorrect,
 		EstimatesAvailable: info.EstimatesAvailable,
+		Advisory:           advisory,
 	}
 	if id == cbeCandidateNativeSQL && info.Cost != nil {
 		candidate.EstimatedCost = &httpapi.CandidateCost{Value: info.Cost.Native, Unit: info.Cost.Unit}
@@ -97,7 +109,49 @@ func candidateFromStrict(info httpapi.RoutingInfo, id cbeCandidateID, tier, stra
 	if (id == cbeCandidateLocalPushdown || id == cbeCandidateFullLocal) && info.Cost != nil {
 		candidate.EstimatedCost = &httpapi.CandidateCost{Value: info.Cost.Local, Unit: info.Cost.Unit}
 	}
+	if id == cbeCandidateLocalPushdown && histogramLocalPushdownCandidate(info) {
+		annotateHistogramLocalPushdownCandidate(&candidate, info)
+	}
 	return candidate
+}
+
+func annotateHistogramLocalPushdownCandidate(candidate *httpapi.ExecutionCandidate, info httpapi.RoutingInfo) {
+	if candidate == nil {
+		return
+	}
+	model := defaultCostModel()
+	candidate.Estimates = append(candidate.Estimates,
+		httpapi.CandidateEstimate{Name: "nativeChildInputSamples", Value: info.Class.EstimatedInputSamples, Unit: "samples", Scope: "native_child"},
+		httpapi.CandidateEstimate{Name: "nativeChildOutputPointsConservative", Value: info.Class.EstimatedOutputPoints, Unit: "points", Scope: "native_child"},
+		httpapi.CandidateEstimate{Name: "localEngineRoundTrips", Value: int64(info.Class.LocalRoundTrips), Unit: "round_trips", Scope: "local_engine"},
+	)
+	if len(info.Class.HistogramChildGroupingLabels) > 0 {
+		candidate.Estimates = append(candidate.Estimates, httpapi.CandidateEstimate{Name: "localEngineGroupingLabels", Value: int64(len(info.Class.HistogramChildGroupingLabels)), Unit: "labels", Scope: "local_engine"})
+	}
+	candidate.CapEvaluations = append(candidate.CapEvaluations,
+		candidateCapEvaluation("maxNativeChildInputSamples", info.Class.EstimatedInputSamples, model.maxLocalInputSamplesLimit(info.Class), "samples", "native_child"),
+		candidateCapEvaluation("maxNativeChildOutputPointsConservative", info.Class.EstimatedOutputPoints, int64(model.MaxLocalOutputPoints), "points", "native_child"),
+		candidateCapEvaluation("maxLocalEngineRoundTrips", int64(info.Class.LocalRoundTrips), int64(model.MaxLocalRoundTrips), "round_trips", "local_engine"),
+	)
+	candidate.Advisory = append(candidate.Advisory,
+		"candidate_cap_scope=local_engine,native_child",
+		"local_engine_estimate=unknown_native_child_output_cardinality",
+		"routing_deferred=needs_histogram_memory_policy",
+	)
+	if info.Class.HistogramChildGroupsByLeOnly {
+		candidate.Advisory = append(candidate.Advisory, "local_engine_output_shape=classic_histogram_buckets_only")
+	}
+}
+
+func candidateCapEvaluation(name string, estimate, limit int64, unit, scope string) httpapi.RoutingCapEvaluation {
+	evaluation := capEvaluation(name, estimate, limit, unit)
+	evaluation.Scope = scope
+	return evaluation
+}
+
+func histogramLocalPushdownCandidate(info httpapi.RoutingInfo) bool {
+	class := info.Class
+	return class.Endpoint == "query" && class.Family == "histogram_quantile" && class.HasHistogram && class.HasAggregation && class.HasRangeFunction && !class.HasVectorJoin && !class.HasSubquery && class.SelectorCount == 1
 }
 
 func applyCandidateGates(candidate *httpapi.ExecutionCandidate, info httpapi.RoutingInfo, mode local.NativeLoweringMode) {
@@ -133,6 +187,9 @@ func boolLabel(value bool) string {
 func candidateRejectReasons(candidate httpapi.ExecutionCandidate, info httpapi.RoutingInfo, mode local.NativeLoweringMode) []string {
 	var reasons []string
 	if mode == local.NativeLoweringModeForceSupported && candidate.ID != string(cbeCandidateNativeSQL) {
+		reasons = append(reasons, string(cbeRejectPolicyIgnored))
+	}
+	if mode == local.NativeLoweringModeLocalPushdown && candidate.ID != string(cbeCandidateLocalPushdown) {
 		reasons = append(reasons, string(cbeRejectPolicyIgnored))
 	}
 	if !info.EstimatesAvailable && candidate.ID != string(cbeCandidateWholeQueryDelegation) {

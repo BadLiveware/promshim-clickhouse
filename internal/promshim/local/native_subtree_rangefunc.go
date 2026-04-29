@@ -132,7 +132,7 @@ func maybeBuildNativeRangeLikePlanAllowRange(node logicalpkg.Node, kind, expr st
 		return nil, false, err
 	}
 	children := buildNativeSubtreeChildren(info)
-	return newNativeSubtreePlan(kind, expr, info.NativeReason, estimateRangePlan(ctx), children, optimized, info, node, analysis), true, nil
+	return newNativeSubtreePlan(kind, expr, info.NativeReason, estimateRangePlan(ctx), children, optimized, info, node, analysis, ctx), true, nil
 }
 
 func maybeBuildNativeAbsentPlan(node *logicalAbsentPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, bool, error) {
@@ -162,5 +162,5 @@ func maybeBuildNativeAbsentLikePlan(node logicalpkg.Node, kind, expr string, ctx
 		return nil, false, err
 	}
 	children := buildNativeSubtreeChildren(info)
-	return newNativeSubtreePlan(kind, expr, info.NativeReason, estimateRangePlan(ctx), children, optimized, info, node, analysis), true, nil
+	return newNativeSubtreePlan(kind, expr, info.NativeReason, estimateRangePlan(ctx), children, optimized, info, node, analysis, ctx), true, nil
 }

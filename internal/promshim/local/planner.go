@@ -9,6 +9,7 @@ import (
 	logicalopt "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical/opt"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/renderer"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 
 	"github.com/prometheus/prometheus/promql/parser"
@@ -36,6 +37,36 @@ type Plan interface {
 
 func annotateQueryPlan(plan Plan, _ *nativeplan.LoweringInfo) Plan {
 	return plan
+}
+
+func histogramChildPlanContext(ctx PlanContext, child logicalpkg.Node) PlanContext {
+	// In local_pushdown mode histogram roots stay local while their immediate
+	// aggregation child may render as a native subtree. Thread the histogram
+	// renderer's existing tag-narrowing contract to that child only; generic
+	// aggregation-over-rate shapes must still preserve full labels.
+	if !NormalizeNativeLoweringMode(ctx.NativeLoweringMode).ForcesLocalRoot() {
+		return ctx
+	}
+	agg, ok := child.(*logicalAggregationPlan)
+	if !ok {
+		return ctx
+	}
+	requireFullTags, requiredLabels := renderer.HistogramChildTagNarrowing(agg)
+	if requireFullTags || len(requiredLabels) == 0 {
+		return ctx
+	}
+	out := ctx
+	out.NativeSubtreeRenderTagHint = true
+	out.NativeSubtreeRequireFullTags = requireFullTags
+	out.NativeSubtreeRequiredTagLabels = append([]string(nil), requiredLabels...)
+	return out
+}
+
+func clearNativeSubtreeRenderTagHint(ctx PlanContext) PlanContext {
+	ctx.NativeSubtreeRenderTagHint = false
+	ctx.NativeSubtreeRequireFullTags = false
+	ctx.NativeSubtreeRequiredTagLabels = nil
+	return ctx
 }
 
 type delegatedExprPlan struct {
@@ -238,6 +269,7 @@ func buildExecPlan(plan logicalPlan) (Plan, error) {
 }
 
 func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nativeplan.Analysis) (Plan, error) {
+	ctx.nativePlanningDepth++
 	switch node := plan.(type) {
 	case *logicalLeafExprPlan:
 		if ctx.AllowsNativePlanning() && ctx.NativeLoweringMode.ForcesNativeRoot() {
@@ -304,7 +336,7 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nati
 				return annotateQueryPlan(pushdownPlan, analysis.InfoFor(node)), nil
 			}
 		}
-		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
+		child, err := buildExecPlanWithAnalysis(node.Child, clearNativeSubtreeRenderTagHint(ctx), analysis)
 		if err != nil {
 			return nil, WithInternalContext(err, "building execution child plan for aggregate %q", node.ExprString())
 		}
@@ -327,7 +359,7 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nati
 				return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
 			}
 		}
-		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
+		child, err := buildExecPlanWithAnalysis(node.Child, histogramChildPlanContext(ctx, node.Child), analysis)
 		if err != nil {
 			return nil, WithInternalContext(err, "building execution child plan for histogram_quantile %q", node.ExprString())
 		}
@@ -340,7 +372,7 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nati
 				return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
 			}
 		}
-		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
+		child, err := buildExecPlanWithAnalysis(node.Child, histogramChildPlanContext(ctx, node.Child), analysis)
 		if err != nil {
 			return nil, WithInternalContext(err, "building execution child plan for histogram_fraction %q", node.ExprString())
 		}
@@ -353,7 +385,7 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nati
 				return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
 			}
 		}
-		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
+		child, err := buildExecPlanWithAnalysis(node.Child, histogramChildPlanContext(ctx, node.Child), analysis)
 		if err != nil {
 			return nil, WithInternalContext(err, "building execution child plan for %s %q", node.Func, node.ExprString())
 		}
@@ -366,7 +398,7 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nati
 				return annotateQueryPlan(nativePlan, analysis.InfoFor(node)), nil
 			}
 		}
-		child, err := buildExecPlanWithAnalysis(node.Child, ctx, analysis)
+		child, err := buildExecPlanWithAnalysis(node.Child, histogramChildPlanContext(ctx, node.Child), analysis)
 		if err != nil {
 			return nil, WithInternalContext(err, "building execution child plan for histogram_quantiles %q", node.ExprString())
 		}

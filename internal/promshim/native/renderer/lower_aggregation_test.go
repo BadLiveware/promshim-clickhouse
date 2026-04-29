@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 )
 
 // aggregationCases covers the full spread of aggregation shapes:
@@ -177,7 +179,11 @@ func TestAggregationByAvgOverTimeRangeUsesDirectAggregateRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
 	}
-	for _, expected := range []string{"sum(if(NOT isNaN(ifNull(toFloat64(d.value), nan))", "AS finite_sum", "ASOF LEFT JOIN", "upper.finite_sum - lower.finite_sum AS finite_sum", "finite_sum / finite_count", "GROUP BY tags, timestamp"} {
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "range_window_aggregate")
+	if !ok || decision.Strategy != string(physical.RangeWindowAggregateStrategyCumulativeAvg) {
+		t.Fatalf("expected cumulative_avg physical decision, got %#v", rq.PhysicalDecisions)
+	}
+	for _, expected := range []string{"sum(if(NOT isNaN(ifNull(toFloat64(d.value), nan))", "AS finite_sum", "ASOF LEFT JOIN", "ARRAY JOIN [(1, upper_bound), (0, lower_prev_bound)] AS boundary", "maxIf(finite_sum, boundary_kind = 1) - maxIf(finite_sum, boundary_kind = 0) AS finite_sum", "finite_sum / finite_count", "GROUP BY tags, timestamp"} {
 		if !strings.Contains(rq.SQL, expected) {
 			t.Fatalf("expected avg_over_time aggregation cumulative rows SQL to contain %q, got:\n%s", expected, rq.SQL)
 		}
@@ -480,7 +486,7 @@ func TestRangeAggregationSelectorRequestsThreadGuardrail(t *testing.T) {
 	}
 }
 
-func TestFusedRateAggregationRequestsThreadGuardrail(t *testing.T) {
+func TestFusedRateAggregationPreservesNoThreadCap(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (rate(http_requests_total[5m]))`)
 	rq, err := Lower(LoweringCtx{
 		Config:         testRenderConfig(),
@@ -491,8 +497,8 @@ func TestFusedRateAggregationRequestsThreadGuardrail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
 	}
-	if got := rq.QuerySettings["max_threads"]; got != 4 {
-		t.Fatalf("max_threads = %#v, want 4", got)
+	if _, ok := rq.QuerySettings["max_threads"]; ok {
+		t.Fatalf("max_threads = %#v, want no thread cap", rq.QuerySettings["max_threads"])
 	}
 }
 
@@ -524,6 +530,22 @@ func TestSubqueryRateOverAggregationSuppressesThreadGuardrail(t *testing.T) {
 				t.Fatalf("subquery rate over aggregation should suppress max_threads, got settings %#v", rq.QuerySettings)
 			}
 		})
+	}
+}
+
+func TestAggregationByInstantRateNarrowsLabelsAfterPerSeriesRate(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (rate(http_requests_total[5m]))`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if !strings.Contains(rq.SQL, "src.tags['job']") || strings.Contains(rq.SQL, "arrayMap((k, v) -> tuple(k, v), mapKeys(src.tags), mapValues(src.tags))") {
+		t.Fatalf("expected instant range-function aggregation to narrow carried labels after per-series rate, got:\n%s", rq.SQL)
 	}
 }
 

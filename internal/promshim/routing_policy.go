@@ -62,10 +62,11 @@ func defaultCostModel() costModel {
 func routingDecisionForStrict(policy RoutingPolicy, mode local.NativeLoweringMode, class httpapi.QueryCostClass, strictStrategy string, enabledFamilies []string) httpapi.RoutingInfo {
 	class.RootStrategyStrict = strictStrategy
 	effectivePolicy := NormalizeRoutingPolicy(policy)
-	if mode == local.NativeLoweringModeForceSupported || mode == local.NativeLoweringModeOff || mode == local.NativeLoweringModeShadow {
+	if mode == local.NativeLoweringModeForceSupported || mode == local.NativeLoweringModeOff || mode == local.NativeLoweringModeShadow || mode == local.NativeLoweringModeLocalPushdown {
 		// Cost routing is deliberately ignored in modes that already have explicit
-		// execution semantics. This keeps force_supported native-only visibility and
-		// the existing shadow/off behavior independent from future cost policy work.
+		// execution semantics. This keeps force_supported native-only visibility,
+		// local_pushdown tier isolation, and the existing shadow/off behavior
+		// independent from future cost policy work.
 		info := baseRoutingInfo(RoutingPolicyStrict, "strict", "native_lowering_mode_ignores_cost_routing", class, strictStrategy)
 		attachCBECandidates(&info, mode)
 		recordRoutingInfo(info)
@@ -85,6 +86,9 @@ func routingDecisionForStrict(policy RoutingPolicy, mode local.NativeLoweringMod
 
 func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, policy RoutingPolicy, enabledFamilies []string) httpapi.RoutingInfo {
 	info := baseRoutingInfo(policy, "shadow_only", "cost_shadow_strict_default", class, strictStrategy)
+	if advisory := subqueryComplexityAdvisory(class); advisory != "" {
+		info.Advisory = append(info.Advisory, advisory)
+	}
 	info.EnabledFamilies = append([]string(nil), enabledFamilies...)
 	maxLocalInputSamples := m.maxLocalInputSamplesLimit(class)
 	info.Caps = map[string]int64{
@@ -100,6 +104,9 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 		return info
 	}
 	if len(info.MissingEstimates) > 0 {
+		if advisory := missingEstimatesAdvisory(info.MissingEstimates); advisory != "" {
+			info.Advisory = append(info.Advisory, advisory)
+		}
 		info.Decision = "strict_missing_estimate"
 		info.Reason = "missing_estimate"
 		return info
@@ -113,9 +120,21 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 		routingmetrics.ObserveOverCap(class.Family, capEval.Name)
 	}
 	if len(info.CapHits) > 0 {
-		info.Decision = "strict_over_cap"
-		info.Reason = "hard_cap"
-		return info
+		if policy == RoutingPolicyCostShadow && allowSubqueryShadowCapBypass(class, info.CapHits) {
+			info.Advisory = append(info.Advisory, "shadow_subquery_cap_bypass=subquery")
+		} else {
+			if advisory := hardCapAdvisory(info.CapEvaluations); advisory != "" {
+				info.Advisory = append(info.Advisory, advisory)
+			}
+			if policy == RoutingPolicyCostShadow {
+				if advisory := subqueryShadowCapBypassBlockedAdvisory(class, info.CapHits); advisory != "" {
+					info.Advisory = append(info.Advisory, advisory)
+				}
+			}
+			info.Decision = "strict_over_cap"
+			info.Reason = "hard_cap"
+			return info
+		}
 	}
 	if !localCandidateFamily(class) {
 		info.Decision = "strict_low_confidence"
@@ -130,6 +149,9 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 	if info.Cost.Local > m.MinRelativeLocalRatio*info.Cost.Native || info.Cost.Native-info.Cost.Local < m.MinAbsoluteWinMS {
 		info.Decision = "strict_low_confidence"
 		info.Reason = "predicted_win_below_margin"
+		if advisory := lowConfidenceAdvisory(info.Reason); advisory != "" {
+			info.Advisory = append(info.Advisory, advisory)
+		}
 		return info
 	}
 	info.WouldSelect = "local"
@@ -139,12 +161,18 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 			info.WouldSelect = strictStrategy
 			info.Decision = "strict_low_confidence"
 			info.Reason = "family_gate_disabled"
+			if advisory := lowConfidenceAdvisory(info.Reason); advisory != "" {
+				info.Advisory = append(info.Advisory, advisory)
+			}
 			return info
 		}
 		if !costPreferServingCandidateAllowed(class) {
 			info.WouldSelect = strictStrategy
 			info.Decision = "strict_low_confidence"
 			info.Reason = "candidate_serving_disabled"
+			if advisory := lowConfidenceAdvisory(info.Reason); advisory != "" {
+				info.Advisory = append(info.Advisory, advisory)
+			}
 			return info
 		}
 		if strictStrategy == "local" {
@@ -154,12 +182,18 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 			info.WouldSelect = strictStrategy
 			info.Decision = "strict_low_confidence"
 			info.Reason = "strict_reference_already_local"
+			if advisory := lowConfidenceAdvisory(info.Reason); advisory != "" {
+				info.Advisory = append(info.Advisory, advisory)
+			}
 			return info
 		}
 		if hasKnownCostPreferDivergence(class) {
 			info.WouldSelect = strictStrategy
 			info.Decision = "strict_low_confidence"
 			info.Reason = "known_divergence"
+			if advisory := lowConfidenceAdvisory(info.Reason); advisory != "" {
+				info.Advisory = append(info.Advisory, advisory)
+			}
 			return info
 		}
 		info.Decision = "local_override"
@@ -292,9 +326,50 @@ func familyBases(family string) (native, local float64) {
 		return 150, 35
 	case "aggregation":
 		return 40, 25
+	case "subquery":
+		return 55, 24
 	default:
 		return 0, 0
 	}
+}
+
+func subqueryComplexityAdvisory(class httpapi.QueryCostClass) string {
+	if !class.HasSubquery || class.SubqueryComplexityBand == "" {
+		return ""
+	}
+	return "subquery_complexity=" + class.SubqueryComplexityBand
+}
+
+func missingEstimatesAdvisory(fields []string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	return "missing_estimates=" + strings.Join(fields, ",")
+}
+
+func lowConfidenceAdvisory(reason string) string {
+	if strings.TrimSpace(reason) == "" {
+		return ""
+	}
+	return "low_confidence_reason=" + reason
+}
+
+func hardCapAdvisory(evaluations []httpapi.RoutingCapEvaluation) string {
+	parts := make([]string, 0, len(evaluations))
+	for _, evaluation := range evaluations {
+		if !evaluation.Exceeded {
+			continue
+		}
+		if evaluation.Limit > 0 && evaluation.Usage > 0 {
+			parts = append(parts, fmt.Sprintf("%s:%.1fx", evaluation.Name, evaluation.Usage))
+			continue
+		}
+		parts = append(parts, evaluation.Name)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "hard_cap_usage=" + strings.Join(parts, ",")
 }
 
 func familyEnabled(class httpapi.QueryCostClass, enabled []string) bool {
@@ -335,6 +410,34 @@ func familyGate(class httpapi.QueryCostClass) string {
 	}
 }
 
+func allowSubqueryShadowCapBypass(class httpapi.QueryCostClass, capHits []string) bool {
+	return subqueryShadowCapBypassBlockedReason(class, capHits) == ""
+}
+
+func subqueryShadowCapBypassBlockedAdvisory(class httpapi.QueryCostClass, capHits []string) string {
+	reason := subqueryShadowCapBypassBlockedReason(class, capHits)
+	if reason == "" {
+		return ""
+	}
+	return "shadow_subquery_cap_bypass_blocked=" + reason
+}
+
+func subqueryShadowCapBypassBlockedReason(class httpapi.QueryCostClass, capHits []string) string {
+	if class.Family != "subquery" || !class.HasSubquery {
+		return "not_subquery_family"
+	}
+	if !class.EstimateState.Fresh || class.EstimateState.Missing > 0 || class.EstimateState.Stale > 0 {
+		return "estimates_not_fresh"
+	}
+	if class.SubqueryComplexityBand != "light" {
+		return "complexity_not_light"
+	}
+	if len(capHits) != 1 || capHits[0] != "subquery" {
+		return "cap_hits_not_subquery_only"
+	}
+	return ""
+}
+
 func localCandidateFamily(class httpapi.QueryCostClass) bool {
 	switch class.Family {
 	case "selector":
@@ -355,6 +458,8 @@ func localCandidateFamily(class httpapi.QueryCostClass) bool {
 		return false
 	case "range_selector":
 		return class.RangePointsPerSeries > 0 && class.RangePointsPerSeries <= 60
+	case "subquery":
+		return class.Endpoint == "query" && class.HasSubquery && class.SelectorCount == 1 && !class.HasVectorJoin
 	default:
 		return false
 	}

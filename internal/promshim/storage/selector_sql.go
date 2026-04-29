@@ -69,10 +69,114 @@ func BuildRangeSelectorRowsQuerySQL(cfg QueryConfig, selector SelectorSource, re
 }
 
 func BuildRangeMatrixSelectorRowsQuerySQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
+	return buildRangeMatrixSelectorRowsQuerySQL(cfg, selector, requiredStartMS, requiredEndMS, false)
+}
+
+func BuildRangeMatrixSelectorRowsQuerySQLWithSeriesID(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
+	return buildRangeMatrixSelectorRowsQuerySQL(cfg, selector, requiredStartMS, requiredEndMS, true)
+}
+
+func BuildInstantScalarRangeFunctionSelectorQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, evaluationTimeMS int64, fn, finalTagsSQL string) (string, map[string]string, error) {
+	if selector.Kind != SelectorKindRangeVector {
+		return "", nil, fmt.Errorf("instant scalar range-function selector SQL requires a range-vector selector, got %q", selector.Kind)
+	}
+	idSelector := selector
+	idSelector.NeedTags = false
+	idSelector.RequireFullTags = false
+	idSelector.RequiredTagLabels = nil
+	matchedIDsSQL, params, err := buildMatchedSeriesSQL(cfg, idSelector, "instant_range_ids", requiredStartMS, requiredEndMS, true)
+	if err != nil {
+		return "", nil, err
+	}
+	taggedSeriesSQL := matchedIDsSQL
+	if selector.NeedTags {
+		var tagParams map[string]string
+		taggedSeriesSQL, tagParams, err = buildMatchedSeriesSQL(cfg, selector, "instant_range_tags", requiredStartMS, requiredEndMS, true)
+		if err != nil {
+			return "", nil, err
+		}
+		mergeParams(params, tagParams)
+	}
+
+	valueExpr := emit.NullableFloatCoerce("d.value")
+	aggregateExpr, err := instantScalarRangeAggregateValueExpr(fn, valueExpr)
+	if err != nil {
+		return "", nil, err
+	}
+	grouped := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("d.id"), Alias: "id"},
+			{Expr: sqlb.RawLit{V: aggregateExpr}, Alias: "value"},
+		},
+		From: sqlb.Join{
+			Left:  sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"},
+			Right: sqlb.RawSource{SQL: rawSubquerySQL(matchedIDsSQL), Alias: "series"},
+			Kind:  "INNER",
+			On:    sqlb.RawLit{V: "d.id = series.id"},
+		},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value")},
+		GroupBy: []sqlb.Expr{sqlb.Ident("d.id")},
+	}
+
+	perSeriesFrom := sqlb.Source(sqlb.SubSelect{S: grouped})
+	if selector.NeedTags {
+		tagged := &sqlb.Select{
+			Columns: []sqlb.ColExpr{
+				{Expr: sqlb.Ident("series.tags"), Alias: "tags"},
+				{Expr: sqlb.Ident("grouped.value"), Alias: "value"},
+			},
+			From: sqlb.Join{
+				Left:  sqlb.SubSelect{S: grouped, Alias: "grouped"},
+				Right: sqlb.RawSource{SQL: rawSubquerySQL(taggedSeriesSQL), Alias: "series"},
+				Kind:  "INNER",
+				On:    sqlb.RawLit{V: "grouped.id = series.id"},
+			},
+		}
+		perSeriesFrom = sqlb.SubSelect{S: tagged}
+	}
+	resolvedFinalTagsExpr := sqlb.Expr(emit.EmptyTagsArray())
+	orderBy := []sqlb.OrderExpr(nil)
+	if selector.NeedTags {
+		resolvedFinalTagsExpr = sqlb.RawLit{V: emit.StripMetricName("tags")}
+		orderBy = []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}}
+		if strings.TrimSpace(finalTagsSQL) != "" {
+			resolvedFinalTagsExpr = sqlb.RawLit{V: finalTagsSQL}
+		}
+	}
+	outer := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: resolvedFinalTagsExpr, Alias: "tags"},
+			{Expr: sqlb.RawLit{V: "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"}, Alias: "timestamp"},
+			{Expr: sqlb.Ident("value"), Alias: "value"},
+		},
+		From:    perSeriesFrom,
+		OrderBy: orderBy,
+	}
+	sql, _, err := outer.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql + schema.QuerySuffix, params, nil
+}
+
+func instantScalarRangeAggregateValueExpr(fn, valueExpr string) (string, error) {
+	switch fn {
+	case "sum_over_time":
+		return "if(countIf(isNaN(" + valueExpr + ")) > 0, nan, sumIf(" + valueExpr + ", NOT isNaN(" + valueExpr + ")))", nil
+	case "avg_over_time":
+		return "if(countIf(isNaN(" + valueExpr + ")) > 0 OR countIf(NOT isNaN(" + valueExpr + ")) = 0, nan, avgIf(" + valueExpr + ", NOT isNaN(" + valueExpr + ")))", nil
+	case "max_over_time":
+		return "if(countIf(isNaN(" + valueExpr + ")) > 0 OR countIf(NOT isNaN(" + valueExpr + ")) = 0, nan, maxIf(" + valueExpr + ", NOT isNaN(" + valueExpr + ")))", nil
+	default:
+		return "", fmt.Errorf("instant scalar range-function selector SQL does not support %q", fn)
+	}
+}
+
+func buildRangeMatrixSelectorRowsQuerySQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64, includeSeriesID bool) (string, map[string]string, error) {
 	if selector.Kind != SelectorKindRangeVector {
 		return "", nil, fmt.Errorf("range matrix selector rows SQL requires a range-vector selector, got %q", selector.Kind)
 	}
-	sql, params, err := buildRangeMatrixSelectorRowsSQL(cfg, selector, requiredStartMS, requiredEndMS)
+	sql, params, err := buildRangeMatrixSelectorRowsSQL(cfg, selector, requiredStartMS, requiredEndMS, includeSeriesID)
 	if err != nil {
 		return "", nil, err
 	}
@@ -211,16 +315,50 @@ func BuildRangeRateSelectorNativeGridQuerySQLWithFinalTags(cfg QueryConfig, sele
 }
 
 func BuildRangeNativeGridSelectorSumAggregationQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, finalTagsSQL string, grouping []string, without bool) (string, map[string]string, error) {
-	inner, params, finalTagsExpr, err := buildRangeNativeGridSelectorInner(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, fn, finalTagsSQL)
+	if selector.Kind != SelectorKindRangeVector {
+		return "", nil, fmt.Errorf("native-grid %s selector SQL requires a range-vector selector, got %q", fn, selector.Kind)
+	}
+	if stepMS <= 0 {
+		return "", nil, fmt.Errorf("native-grid %s selector SQL requires a positive step", fn)
+	}
+	chFunction, ok := nativeGridRangeFunctionName(fn)
+	if !ok {
+		return "", nil, fmt.Errorf("native-grid selector SQL does not support range function %q", fn)
+	}
+	matchedSeriesSQL, params, err := buildMatchedSeriesSQL(cfg, selector, "native_grid_"+fn, requiredStartMS, requiredEndMS, true)
 	if err != nil {
 		return "", nil, err
+	}
+	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
+	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
+	params["param_step_ms"] = strconv.FormatInt(stepMS, 10)
+	params["param_lookback_ms"] = strconv.FormatInt(selector.LookbackMS, 10)
+
+	finalTagsExpr := sqlb.Expr(sqlb.RawLit{V: emit.StripMetricName("series.tags")})
+	if strings.TrimSpace(finalTagsSQL) != "" {
+		finalTagsExpr = sqlb.RawLit{V: finalTagsSQL}
+	}
+
+	perIDValues := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("d.id"), Alias: "id"},
+			{Expr: sqlb.RawLit{V: chFunction + "(fromUnixTimestamp64Milli({start_ms:Int64}), fromUnixTimestamp64Milli({end_ms:Int64}), toDecimal64({step_ms:Int64}, 3) / 1000, toDecimal64({lookback_ms:Int64}, 3) / 1000)(d.timestamp, d.value)"}, Alias: "values"},
+		},
+		From:    sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND d.id IN (SELECT id FROM " + rawSubquerySQL(matchedSeriesSQL) + ")"},
+		GroupBy: []sqlb.Expr{sqlb.Ident("d.id")},
 	}
 	perSeries := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
 			{Expr: finalTagsExpr, Alias: "final_tags"},
-			{Expr: sqlb.Ident("values"), Alias: "values"},
+			{Expr: sqlb.Ident("g.values"), Alias: "values"},
 		},
-		From: sqlb.SubSelect{S: inner},
+		From: sqlb.Join{
+			Left:  sqlb.SubSelect{S: perIDValues, Alias: "g"},
+			Right: sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},
+			Kind:  "INNER",
+			On:    sqlb.RawLit{V: "g.id = series.id"},
+		},
 	}
 	timeGridExpr := "arrayMap(i -> fromUnixTimestamp64Milli({start_ms:Int64}) + toIntervalMillisecond((i - 1) * {step_ms:Int64}), arrayEnumerate(group_values))"
 	sumValuesExpr := "arrayReduce('sumForEach', groupArray(arrayMap(v -> if(isNull(v), 0., toFloat64(assumeNotNull(v))), values)))"
@@ -284,6 +422,31 @@ func BuildRangeRateSelectorNativeGridRowsQuerySQLWithFinalTags(cfg QueryConfig, 
 	return BuildRangeNativeGridSelectorRowsQuerySQLWithFinalTags(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, "rate", finalTagsSQL)
 }
 
+func BuildHistogramRangeNativeGridSelectorRowsLateTagsQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, finalTagsSQL string) (string, map[string]string, error) {
+	inner, params, finalTagsExpr, err := buildRangeNativeGridSelectorLateTagsInner(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, fn, finalTagsSQL)
+	if err != nil {
+		return "", nil, err
+	}
+	points := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: finalTagsExpr, Alias: "tags"},
+			{Expr: sqlb.RawLit{V: "point.1"}, Alias: "timestamp"},
+			{Expr: sqlb.RawLit{V: "toFloat64(assumeNotNull(point.2))"}, Alias: "value"},
+		},
+		From: sqlb.ArrayJoin{
+			Base:  sqlb.SubSelect{S: inner},
+			Expr:  sqlb.RawLit{V: nativeGridTimestampValueZipExpr()},
+			Alias: "point",
+		},
+		Where: sqlb.RawLit{V: "isNotNull(point.2)"},
+	}
+	sql, _, err := points.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql + schema.QuerySuffix, params, nil
+}
+
 func buildRangeNativeGridSelectorInner(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, finalTagsSQL string) (*sqlb.Select, map[string]string, sqlb.Expr, error) {
 	if selector.Kind != SelectorKindRangeVector {
 		return nil, nil, nil, fmt.Errorf("native-grid %s selector SQL requires a range-vector selector, got %q", fn, selector.Kind)
@@ -322,6 +485,59 @@ func buildRangeNativeGridSelectorInner(cfg QueryConfig, selector SelectorSource,
 		},
 		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value")},
 		GroupBy: []sqlb.Expr{sqlb.Ident("series.id")},
+	}
+	return inner, params, resolvedFinalTagsExpr, nil
+}
+
+func buildRangeNativeGridSelectorLateTagsInner(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, finalTagsSQL string) (*sqlb.Select, map[string]string, sqlb.Expr, error) {
+	if selector.Kind != SelectorKindRangeVector {
+		return nil, nil, nil, fmt.Errorf("native-grid %s selector SQL requires a range-vector selector, got %q", fn, selector.Kind)
+	}
+	if stepMS <= 0 {
+		return nil, nil, nil, fmt.Errorf("native-grid %s selector SQL requires a positive step", fn)
+	}
+	chFunction, ok := nativeGridRangeFunctionName(fn)
+	if !ok {
+		return nil, nil, nil, fmt.Errorf("native-grid selector SQL does not support range function %q", fn)
+	}
+	matchedSeriesSQL, params, err := buildMatchedSeriesSQL(cfg, selector, "histogram_native_grid_"+fn, requiredStartMS, requiredEndMS, true)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
+	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
+	params["param_step_ms"] = strconv.FormatInt(stepMS, 10)
+	params["param_lookback_ms"] = strconv.FormatInt(selector.LookbackMS, 10)
+
+	resolvedFinalTagsExpr := sqlb.Expr(sqlb.RawLit{V: emit.StripMetricName("tags")})
+	if strings.TrimSpace(finalTagsSQL) != "" {
+		resolvedFinalTagsExpr = sqlb.RawLit{V: finalTagsSQL}
+	}
+
+	matchedSeriesSource := rawSubquerySQL(matchedSeriesSQL)
+	grid := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("d.id"), Alias: "id"},
+			{Expr: sqlb.RawLit{V: chFunction + "(fromUnixTimestamp64Milli({start_ms:Int64}), fromUnixTimestamp64Milli({end_ms:Int64}), toDecimal64({step_ms:Int64}, 3) / 1000, toDecimal64({lookback_ms:Int64}, 3) / 1000)(d.timestamp, d.value)"}, Alias: "values"},
+		},
+		From:    sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND d.id IN (SELECT id FROM " + matchedSeriesSource + ")"},
+		GroupBy: []sqlb.Expr{sqlb.Ident("d.id")},
+	}
+
+	inner := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("grid.id"), Alias: "id"},
+			{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("series.tags")}}, Alias: "tags"},
+			{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("grid.values")}}, Alias: "values"},
+		},
+		From: sqlb.Join{
+			Left:  sqlb.SubSelect{S: grid, Alias: "grid"},
+			Right: sqlb.RawSource{SQL: matchedSeriesSource, Alias: "series"},
+			Kind:  "INNER",
+			On:    sqlb.RawLit{V: "grid.id = series.id"},
+		},
+		GroupBy: []sqlb.Expr{sqlb.Ident("grid.id")},
 	}
 	return inner, params, resolvedFinalTagsExpr, nil
 }
@@ -575,9 +791,21 @@ func buildRangeWindowSelectorCumulativeAvgPerStepSQL(cfg QueryConfig, selector S
 	if stepMS <= 0 {
 		return "", nil, nil, fmt.Errorf("cumulative avg range-window selector SQL requires a positive step")
 	}
-	matchedSeriesSQL, params, err := buildMatchedSeriesSQL(cfg, selector, "range_window_cumulative_avg", requiredStartMS, requiredEndMS, true)
+	idSelector := selector
+	idSelector.NeedTags = false
+	idSelector.RequireFullTags = false
+	idSelector.RequiredTagLabels = nil
+	matchedSeriesSQL, params, err := buildMatchedSeriesSQL(cfg, idSelector, "range_window_cumulative_avg_ids", requiredStartMS, requiredEndMS, true)
 	if err != nil {
 		return "", nil, nil, err
+	}
+	finalMatchedSeriesSQL := matchedSeriesSQL
+	if selector.NeedTags {
+		finalMatchedSeriesSQL, params, err = buildMatchedSeriesSQL(cfg, selector, "range_window_cumulative_avg_tags", requiredStartMS, requiredEndMS, true)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		matchedSeriesSQL = "SELECT DISTINCT id FROM (" + finalMatchedSeriesSQL + ") AS range_window_cumulative_avg_ids_from_tags"
 	}
 	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
 	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
@@ -595,6 +823,7 @@ func buildRangeWindowSelectorCumulativeAvgPerStepSQL(cfg QueryConfig, selector S
 	}
 
 	matchedSeries := rawSubquerySQL(matchedSeriesSQL)
+	finalMatchedSeries := rawSubquerySQL(finalMatchedSeriesSQL)
 	dataRef := schema.TimeSeriesDataRef(timeSeriesTableRef(cfg))
 	statesSQL := "SELECT d.id AS id, d.timestamp AS timestamp, " +
 		"sum(if(NOT isNaN(ifNull(toFloat64(d.value), nan)), ifNull(toFloat64(d.value), nan), 0.)) OVER (PARTITION BY d.id ORDER BY d.timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS finite_sum, " +
@@ -603,24 +832,24 @@ func buildRangeWindowSelectorCumulativeAvgPerStepSQL(cfg QueryConfig, selector S
 		"FROM " + dataRef + " AS d INNER JOIN " + matchedSeries + " AS series ON d.id = series.id " +
 		"WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " " +
 		"ORDER BY id, timestamp"
-	gridSQL := "SELECT series.id AS id, arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts, " +
+	// Probe upper and lower window boundaries in one ASOF pass so the
+	// cumulative state stream is read once instead of once per boundary.
+	gridSQL := "SELECT id, eval_ts, boundary.1 AS boundary_kind, boundary.2 AS boundary_ts FROM " +
+		"(SELECT series.id AS id, arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts, " +
 		"eval_ts - toIntervalMillisecond({offset_ms:Int64}) AS upper_bound, " +
-		"eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64} + 1) AS lower_prev_bound " +
-		"FROM " + matchedSeries + " AS series ORDER BY id, upper_bound"
-	upperSQL := "SELECT grid.id AS id, grid.eval_ts AS eval_ts, ifNull(u.finite_sum, 0.) AS finite_sum, ifNull(u.finite_count, 0) AS finite_count, ifNull(u.nan_count, 0) AS nan_count " +
-		"FROM " + rawSubquerySQL(gridSQL) + " AS grid ASOF LEFT JOIN " + rawSubquerySQL(statesSQL) + " AS u ON grid.id = u.id AND grid.upper_bound >= u.timestamp"
-	lowerGridSQL := "SELECT series.id AS id, arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts, " +
-		"eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64} + 1) AS lower_prev_bound " +
-		"FROM " + matchedSeries + " AS series ORDER BY id, lower_prev_bound"
-	lowerSQL := "SELECT grid.id AS id, grid.eval_ts AS eval_ts, ifNull(l.finite_sum, 0.) AS finite_sum, ifNull(l.finite_count, 0) AS finite_count, ifNull(l.nan_count, 0) AS nan_count " +
-		"FROM " + rawSubquerySQL(lowerGridSQL) + " AS grid ASOF LEFT JOIN " + rawSubquerySQL(statesSQL) + " AS l ON grid.id = l.id AND grid.lower_prev_bound >= l.timestamp"
-	windowedSQL := "SELECT upper.id AS id, upper.eval_ts AS eval_ts, " +
-		"upper.finite_sum - lower.finite_sum AS finite_sum, " +
-		"upper.finite_count - lower.finite_count AS finite_count, " +
-		"upper.nan_count - lower.nan_count AS nan_count " +
-		"FROM " + rawSubquerySQL(upperSQL) + " AS upper INNER JOIN " + rawSubquerySQL(lowerSQL) + " AS lower ON upper.id = lower.id AND upper.eval_ts = lower.eval_ts"
+		"greatest(eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64} + 1), fromUnixTimestamp64Milli({required_start_ms:Int64}) - toIntervalMillisecond(1)) AS lower_prev_bound " +
+		"FROM " + matchedSeries + " AS series) AS eval_grid " +
+		"ARRAY JOIN [(1, upper_bound), (0, lower_prev_bound)] AS boundary ORDER BY id, boundary_ts"
+	boundarySQL := "SELECT grid.id AS id, grid.eval_ts AS eval_ts, grid.boundary_kind AS boundary_kind, " +
+		"ifNull(s.finite_sum, 0.) AS finite_sum, ifNull(s.finite_count, 0) AS finite_count, ifNull(s.nan_count, 0) AS nan_count " +
+		"FROM " + rawSubquerySQL(gridSQL) + " AS grid ASOF LEFT JOIN " + rawSubquerySQL(statesSQL) + " AS s ON grid.id = s.id AND grid.boundary_ts >= s.timestamp"
+	windowedSQL := "SELECT id AS id, eval_ts AS eval_ts, " +
+		"maxIf(finite_sum, boundary_kind = 1) - maxIf(finite_sum, boundary_kind = 0) AS finite_sum, " +
+		"maxIf(finite_count, boundary_kind = 1) - maxIf(finite_count, boundary_kind = 0) AS finite_count, " +
+		"maxIf(nan_count, boundary_kind = 1) - maxIf(nan_count, boundary_kind = 0) AS nan_count " +
+		"FROM " + rawSubquerySQL(boundarySQL) + " GROUP BY id, eval_ts"
 	if selector.NeedTags {
-		windowedSQL = "SELECT series.tags AS tags, windowed.eval_ts AS eval_ts, windowed.finite_sum AS finite_sum, windowed.finite_count AS finite_count, windowed.nan_count AS nan_count FROM " + rawSubquerySQL(windowedSQL) + " AS windowed INNER JOIN " + matchedSeries + " AS series ON windowed.id = series.id"
+		windowedSQL = "SELECT series.tags AS tags, windowed.eval_ts AS eval_ts, windowed.finite_sum AS finite_sum, windowed.finite_count AS finite_count, windowed.nan_count AS nan_count FROM " + rawSubquerySQL(windowedSQL) + " AS windowed INNER JOIN " + finalMatchedSeries + " AS series ON windowed.id = series.id"
 	} else {
 		windowedSQL = "SELECT CAST([], '" + schema.TagsArrayType + "') AS tags, eval_ts, finite_sum, finite_count, nan_count FROM " + rawSubquerySQL(windowedSQL)
 	}
@@ -1163,7 +1392,7 @@ func shouldFilterSparseRangeInstantSelectorSamples(lookbackMS, stepMS int64) boo
 }
 
 func buildRangeMatrixSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
-	innerSQL, params, err := buildRangeMatrixSelectorRowsSQL(cfg, selector, requiredStartMS, requiredEndMS)
+	innerSQL, params, err := buildRangeMatrixSelectorRowsSQL(cfg, selector, requiredStartMS, requiredEndMS, false)
 	if err != nil {
 		return "", nil, err
 	}
@@ -1182,7 +1411,7 @@ func buildRangeMatrixSelectorSourceSQL(cfg QueryConfig, selector SelectorSource,
 	return sql, params, nil
 }
 
-func buildRangeMatrixSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
+func buildRangeMatrixSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64, includeSeriesID bool) (string, map[string]string, error) {
 	matchedSeriesSQL, params, err := buildMatchedSeriesSQL(cfg, selector, "range_matrix", requiredStartMS, requiredEndMS, true)
 	if err != nil {
 		return "", nil, err
@@ -1191,12 +1420,16 @@ func buildRangeMatrixSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, r
 	if !selector.NeedTags {
 		selectTagsExpr = emit.EmptyTagsArray()
 	}
+	columns := []sqlb.ColExpr{
+		{Expr: selectTagsExpr, Alias: "tags"},
+		{Expr: sqlb.Ident("d.timestamp"), Alias: "timestamp"},
+		{Expr: sqlb.Ident("d.value"), Alias: "value"},
+	}
+	if includeSeriesID {
+		columns = append([]sqlb.ColExpr{{Expr: sqlb.Ident("d.id"), Alias: "id"}}, columns...)
+	}
 	inner := &sqlb.Select{
-		Columns: []sqlb.ColExpr{
-			{Expr: selectTagsExpr, Alias: "tags"},
-			{Expr: sqlb.Ident("d.timestamp"), Alias: "timestamp"},
-			{Expr: sqlb.Ident("d.value"), Alias: "value"},
-		},
+		Columns: columns,
 		From: sqlb.Join{
 			Left:  sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"},
 			Right: sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},

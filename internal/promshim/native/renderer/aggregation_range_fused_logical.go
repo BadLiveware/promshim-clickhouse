@@ -165,6 +165,13 @@ func renderFusedRangeAggregationLogicalRowsSQL(ctx LoweringCtx, n *logicalpkg.Ag
 // narrowed by applySelectorProjection during native.Analyze). The last
 // two branches recurse via Lower on the equivalent logical node
 // (LeafExprPlan or SubqueryPlan).
+func canUseHistogramNativeGridLateTags(params RenderParams, fn string) bool {
+	if !params.HistogramPreparation || params.Mode != native.RenderModeRange || fn != "rate" {
+		return false
+	}
+	return len(params.RequiredTagLabels) == 1 && params.RequiredTagLabels[0] == "le" && !params.RequireFullTags
+}
+
 func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Node) (string, map[string]string, []physical.Decision, error) {
 	childNode, fn, ok := rangeFunctionChildNode(rangeNode)
 	if !ok || childNode == nil {
@@ -208,6 +215,10 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 				return "", nil, nil, err
 			}
 			tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(ctx.Params))
+			if canUseHistogramNativeGridLateTags(ctx.Params, fn) {
+				sql, queryParams, err := storage.BuildHistogramRangeNativeGridSelectorRowsLateTagsQuerySQLWithFinalTags(ctx.Config, *source.Selector, childRequiredStartMS, childRequiredEndMS, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, fn, tagsExpr)
+				return sql, queryParams, []physical.Decision{rowsDecision.Explain("range_function_rows"), physical.HistogramNativeGridRowsDecision()}, err
+			}
 			sql, queryParams, err := storage.BuildRangeNativeGridSelectorRowsQuerySQLWithFinalTags(ctx.Config, *source.Selector, childRequiredStartMS, childRequiredEndMS, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, fn, tagsExpr)
 			return sql, queryParams, []physical.Decision{rowsDecision.Explain("range_function_rows")}, err
 		case physical.RangeFunctionRowsStrategySparseDirectRateAggregation:
@@ -264,16 +275,17 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 		childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, ctx.Params.StartMS, ctx.Params.EndMS)
 		childCtx := ctx
 		childCtx.Params = RenderParams{
-			Mode:                native.RenderModeRange,
-			StartMS:             ctx.Params.StartMS,
-			EndMS:               ctx.Params.EndMS,
-			StepMS:              ctx.Params.StepMS,
-			RequiredStartMS:     childRequiredStartMS,
-			RequiredEndMS:       childRequiredEndMS,
-			ResolveSourcePromQL: ctx.Params.ResolveSourcePromQL,
-			RequireFullTags:     ctx.Params.RequireFullTags,
-			RequiredTagLabels:   ctx.Params.RequiredTagLabels,
-			Physical:            preferRangeInstantSelectorStrategy(ctx.Params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
+			Mode:                 native.RenderModeRange,
+			StartMS:              ctx.Params.StartMS,
+			EndMS:                ctx.Params.EndMS,
+			StepMS:               ctx.Params.StepMS,
+			RequiredStartMS:      childRequiredStartMS,
+			RequiredEndMS:        childRequiredEndMS,
+			ResolveSourcePromQL:  ctx.Params.ResolveSourcePromQL,
+			RequireFullTags:      ctx.Params.RequireFullTags,
+			RequiredTagLabels:    ctx.Params.RequiredTagLabels,
+			HistogramPreparation: ctx.Params.HistogramPreparation,
+			Physical:             preferRangeInstantSelectorStrategy(ctx.Params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
 		}
 		childRendered, err := Lower(childCtx, child)
 		if err != nil {
@@ -293,16 +305,17 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 		// Subquery branch: recurse into the subquery node via renderer.Lower.
 		childCtx := ctx
 		childCtx.Params = RenderParams{
-			Mode:                native.RenderModeRange,
-			StartMS:             ctx.Params.StartMS,
-			EndMS:               ctx.Params.EndMS,
-			StepMS:              ctx.Params.StepMS,
-			RequiredStartMS:     ctx.Params.RequiredStartMS,
-			RequiredEndMS:       ctx.Params.RequiredEndMS,
-			ResolveSourcePromQL: ctx.Params.ResolveSourcePromQL,
-			RequireFullTags:     ctx.Params.RequireFullTags,
-			RequiredTagLabels:   ctx.Params.RequiredTagLabels,
-			Physical:            preferRangeInstantSelectorStrategy(ctx.Params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
+			Mode:                 native.RenderModeRange,
+			StartMS:              ctx.Params.StartMS,
+			EndMS:                ctx.Params.EndMS,
+			StepMS:               ctx.Params.StepMS,
+			RequiredStartMS:      ctx.Params.RequiredStartMS,
+			RequiredEndMS:        ctx.Params.RequiredEndMS,
+			ResolveSourcePromQL:  ctx.Params.ResolveSourcePromQL,
+			RequireFullTags:      ctx.Params.RequireFullTags,
+			RequiredTagLabels:    ctx.Params.RequiredTagLabels,
+			HistogramPreparation: ctx.Params.HistogramPreparation,
+			Physical:             preferRangeInstantSelectorStrategy(ctx.Params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
 		}
 		childRendered, err := Lower(childCtx, child)
 		if err != nil {

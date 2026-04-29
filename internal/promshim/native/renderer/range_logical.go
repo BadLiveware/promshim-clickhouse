@@ -103,7 +103,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						if err != nil {
 							return renderedFragment{}, err
 						}
-						rowsSQL, rowParams, err := storage.BuildRangeMatrixSelectorRowsQuerySQL(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS)
+						rowsSQL, rowParams, err := storage.BuildRangeMatrixSelectorRowsQuerySQLWithSeriesID(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS)
 						if err != nil {
 							return renderedFragment{}, err
 						}
@@ -119,16 +119,12 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						if err != nil {
 							return renderedFragment{}, err
 						}
-						rowsSQL, rowParams, err := storage.BuildRangeMatrixSelectorRowsQuerySQL(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS)
-						if err != nil {
-							return renderedFragment{}, err
-						}
 						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
-						sql, err := buildInstantRangeFunctionOverRowsSQL(trimRenderedQuerySQL(rowsSQL), fn, tagsExpr, params.EvaluationTimeMS)
+						sql, queryParams, err := storage.BuildInstantScalarRangeFunctionSelectorQuerySQLWithFinalTags(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS, params.EvaluationTimeMS, fn, tagsExpr)
 						if err != nil {
 							return renderedFragment{}, err
 						}
-						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: rowParams}, nil
+						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 					}
 				}
 			}
@@ -143,7 +139,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 				if childRowsSQL, childParams, ok, err := tryRenderSubqueryRowsSourceLogical(ctx, child); err != nil {
 					return renderedFragment{}, err
 				} else if ok {
-					sql, err := buildInstantRangeFunctionOverRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, subqueryRowsOutputTagsExprLogical(child, fn), params.EvaluationTimeMS)
+					sql, err := buildInstantRangeFunctionOverRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, subqueryRowsOutputTagsExprLogical(child, fn), params.EvaluationTimeMS, false)
 					if err != nil {
 						return renderedFragment{}, err
 					}
@@ -280,16 +276,17 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 					childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
 					childCtx := ctx
 					childCtx.Params = RenderParams{
-						Mode:                native.RenderModeRange,
-						StartMS:             params.StartMS,
-						EndMS:               params.EndMS,
-						StepMS:              params.StepMS,
-						RequiredStartMS:     childRequiredStartMS,
-						RequiredEndMS:       childRequiredEndMS,
-						ResolveSourcePromQL: params.ResolveSourcePromQL,
-						RequireFullTags:     params.RequireFullTags,
-						RequiredTagLabels:   params.RequiredTagLabels,
-						Physical:            preferRangeInstantSelectorStrategy(params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
+						Mode:                 native.RenderModeRange,
+						StartMS:              params.StartMS,
+						EndMS:                params.EndMS,
+						StepMS:               params.StepMS,
+						RequiredStartMS:      childRequiredStartMS,
+						RequiredEndMS:        childRequiredEndMS,
+						ResolveSourcePromQL:  params.ResolveSourcePromQL,
+						RequireFullTags:      params.RequireFullTags,
+						RequiredTagLabels:    params.RequiredTagLabels,
+						HistogramPreparation: params.HistogramPreparation,
+						Physical:             preferRangeInstantSelectorStrategy(params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
 					}
 					childRendered, err := Lower(childCtx, child)
 					if err != nil {
@@ -331,16 +328,17 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 				// step-grid over the outer range envelope.
 				childCtx := ctx
 				childCtx.Params = RenderParams{
-					Mode:                native.RenderModeRange,
-					StartMS:             params.StartMS,
-					EndMS:               params.EndMS,
-					StepMS:              params.StepMS,
-					RequiredStartMS:     params.RequiredStartMS,
-					RequiredEndMS:       params.RequiredEndMS,
-					ResolveSourcePromQL: params.ResolveSourcePromQL,
-					RequireFullTags:     params.RequireFullTags,
-					RequiredTagLabels:   params.RequiredTagLabels,
-					Physical:            preferRangeInstantSelectorStrategy(params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
+					Mode:                 native.RenderModeRange,
+					StartMS:              params.StartMS,
+					EndMS:                params.EndMS,
+					StepMS:               params.StepMS,
+					RequiredStartMS:      params.RequiredStartMS,
+					RequiredEndMS:        params.RequiredEndMS,
+					ResolveSourcePromQL:  params.ResolveSourcePromQL,
+					RequireFullTags:      params.RequireFullTags,
+					RequiredTagLabels:    params.RequiredTagLabels,
+					HistogramPreparation: params.HistogramPreparation,
+					Physical:             preferRangeInstantSelectorStrategy(params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
 				}
 				childRendered, err := Lower(childCtx, child)
 				if err != nil {

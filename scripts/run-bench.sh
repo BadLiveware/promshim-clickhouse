@@ -36,7 +36,7 @@ Options:
                      (default: harness/bench/baseline.json when present).
   --no-baseline      Disable baseline discovery/gating for this run.
   --update-baseline  Rewrite the baseline file from this run's results.
-  --shim-modes LIST  Comma-separated v2 shim modes, e.g. prefer,force_supported,off.
+  --shim-modes LIST  Comma-separated v2 shim modes, e.g. force_supported,local_pushdown,off.
   --routing-policies LIST
                      Comma-separated routing_policy values for v2 reports, e.g. strict,cost_shadow.
   --include-prom BOOL Include Prometheus timing in v2 reports (default true).
@@ -56,6 +56,7 @@ Options:
   --repeats N        Timed repeats per (query, mode) (default: 10).
   --warmup N         Warmup repeats per (query, mode) (default: 2).
   --ready-timeout N  Seconds to wait for endpoints (default: 60).
+  --request-timeout D Per-request benchmark timeout passed to promshim-bench (default: 30s).
   --matrix           Print a Markdown native-SQL vs Prometheus matrix
                      (sorted by N/P ratio, descending) after the bench
                      finishes. Reads the selected benchmark report.
@@ -103,6 +104,7 @@ UPDATE_BASELINE=0
 REPEATS=10
 WARMUP=2
 READY_TIMEOUT=60
+REQUEST_TIMEOUT="30s"
 MATRIX=0
 LONG_RANGE=""
 EVAL_TIME=""
@@ -139,6 +141,7 @@ while [[ $# -gt 0 ]]; do
     --repeats)         REPEATS="$2"; shift 2 ;;
     --warmup)          WARMUP="$2"; shift 2 ;;
     --ready-timeout)   READY_TIMEOUT="$2"; shift 2 ;;
+    --request-timeout) REQUEST_TIMEOUT="$2"; shift 2 ;;
     --matrix)          MATRIX=1; shift ;;
     --long-range)
       # Optional argument: --long-range [7d|30d|1y|all], default 7d.
@@ -169,7 +172,7 @@ if [[ -n "$LONG_RANGE" ]]; then
       if (( NO_BASELINE == 1 ));     then PASSTHROUGH+=(--no-baseline); fi
       if (( MATRIX == 1 ));          then PASSTHROUGH+=(--matrix); fi
       if (( LEGACY_REPORT == 1 ));   then PASSTHROUGH+=(--legacy-report); fi
-      PASSTHROUGH+=(--repeats "$REPEATS" --warmup "$WARMUP" --ready-timeout "$READY_TIMEOUT" --prom-url "$PROM_URL" --shim-url "$SHIM_URL" --ch-url "$CH_URL" --ch-user "$CH_USER" --ch-password "$CH_PASSWORD" --artifact-dir "$ARTIFACT_DIR")
+      PASSTHROUGH+=(--repeats "$REPEATS" --warmup "$WARMUP" --ready-timeout "$READY_TIMEOUT" --request-timeout "$REQUEST_TIMEOUT" --prom-url "$PROM_URL" --shim-url "$SHIM_URL" --ch-url "$CH_URL" --ch-user "$CH_USER" --ch-password "$CH_PASSWORD" --artifact-dir "$ARTIFACT_DIR")
       if [[ -n "$BASELINE" ]];      then PASSTHROUGH+=(--baseline "$BASELINE"); fi
       if [[ -n "$SHIM_MODES" ]];    then PASSTHROUGH+=(--shim-modes "$SHIM_MODES"); fi
       if [[ -n "$ROUTING_POLICIES" ]]; then PASSTHROUGH+=(--routing-policies "$ROUTING_POLICIES"); fi
@@ -268,6 +271,7 @@ ARGS=(
   --shim-url "$SHIM_URL"
   --repeats "$REPEATS"
   --warmup "$WARMUP"
+  --timeout "$REQUEST_TIMEOUT"
 )
 if [[ -n "$BASELINE" ]]; then
   ARGS+=(--baseline "$BASELINE")

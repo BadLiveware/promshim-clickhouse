@@ -174,19 +174,25 @@ func canUseRangeFunctionRowsFastPath(fn string) bool {
 	}
 }
 
-func buildInstantRangeFunctionOverRowsSQL(sourceRowsSQL, fn, finalTagsExpr string, evaluationTimeMS int64) (string, error) {
+func buildInstantRangeFunctionOverRowsSQL(sourceRowsSQL, fn, finalTagsExpr string, evaluationTimeMS int64, includeSeriesID bool) (string, error) {
 	valueExpr, err := rangeFunctionRowsFastPathValueExpr(fn, "value")
 	if err != nil {
 		return "", fmt.Errorf("instant row fast path for %s is not implemented yet", fn)
 	}
+	columns := []sqlb.ColExpr{{Expr: sqlb.RawLit{V: finalTagsExpr}, Alias: "final_tags"}, {Expr: sqlb.Ident("value"), Alias: "value"}}
+	groupBy := []sqlb.Expr{sqlb.Ident("final_tags")}
+	if includeSeriesID {
+		columns = append([]sqlb.ColExpr{{Expr: sqlb.Ident("id"), Alias: "id"}}, columns...)
+		groupBy = []sqlb.Expr{sqlb.Ident("id"), sqlb.Ident("final_tags")}
+	}
 	prepared := &sqlb.Select{
-		Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: finalTagsExpr}, Alias: "final_tags"}, {Expr: sqlb.Ident("value"), Alias: "value"}},
+		Columns: columns,
 		From:    rawRenderedSubquerySource(trimRenderedQuerySQL(sourceRowsSQL)),
 	}
 	outer := &sqlb.Select{
 		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("final_tags"), Alias: "tags"}, {Expr: sqlb.RawLit{V: "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"}, Alias: "timestamp"}, {Expr: valueExpr, Alias: "value"}},
 		From:    sqlb.SubSelect{S: prepared},
-		GroupBy: []sqlb.Expr{sqlb.Ident("final_tags")},
+		GroupBy: groupBy,
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("final_tags")}},
 	}
 	return buildNativeWrapperSQL(outer)
@@ -196,6 +202,7 @@ func buildInstantRateOverRowsSQL(sourceRowsSQL, finalTagsExpr string, evaluation
 	valueExpr := emit.NullableFloatCoerce("value")
 	prepared := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("id"), Alias: "id"},
 			{Expr: sqlb.RawLit{V: finalTagsExpr}, Alias: "final_tags"},
 			{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
 			{Expr: sqlb.RawLit{V: valueExpr}, Alias: "value"},
@@ -207,10 +214,11 @@ func buildInstantRateOverRowsSQL(sourceRowsSQL, finalTagsExpr string, evaluation
 	if rangeMS < 60_000 {
 		annotated := &sqlb.Select{
 			Columns: []sqlb.ColExpr{
+				{Expr: sqlb.Ident("id"), Alias: "id"},
 				{Expr: sqlb.Ident("final_tags"), Alias: "final_tags"},
 				{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
 				{Expr: sqlb.Ident("value"), Alias: "value"},
-				{Expr: sqlb.RawLit{V: "lagInFrame(value, 1, nan) OVER (PARTITION BY final_tags ORDER BY timestamp)"}, Alias: "prev_value"},
+				{Expr: sqlb.RawLit{V: "lagInFrame(value, 1, nan) OVER (PARTITION BY id, final_tags ORDER BY timestamp)"}, Alias: "prev_value"},
 			},
 			From: sqlb.SubSelect{S: prepared},
 		}
@@ -219,6 +227,7 @@ func buildInstantRateOverRowsSQL(sourceRowsSQL, finalTagsExpr string, evaluation
 	}
 	grouped := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("id"), Alias: "id"},
 			{Expr: sqlb.Ident("final_tags"), Alias: "final_tags"},
 			{Expr: sqlb.RawLit{V: "count()"}, Alias: "sample_count"},
 			{Expr: sqlb.RawLit{V: "countIf(isNaN(value))"}, Alias: "nan_count"},
@@ -228,7 +237,7 @@ func buildInstantRateOverRowsSQL(sourceRowsSQL, finalTagsExpr string, evaluation
 			{Expr: sqlb.RawLit{V: counterDeltaExpr}, Alias: "range_counter_delta_sum"},
 		},
 		From:    groupedFrom,
-		GroupBy: []sqlb.Expr{sqlb.Ident("final_tags")},
+		GroupBy: []sqlb.Expr{sqlb.Ident("id"), sqlb.Ident("final_tags")},
 	}
 	factor := scalarExtrapolationFactorSQL("first_timestamp_ms", "last_timestamp_ms", "sample_count", strconv.FormatInt(evaluationTimeMS, 10), rangeMS)
 	rangeSeconds := storage.NativeFloatLiteral(float64(rangeMS) / 1000.0)

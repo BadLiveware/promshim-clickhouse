@@ -89,6 +89,7 @@ type BenchShimModeResult struct {
 	SelectedCandidate  string `json:"selectedCandidate,omitempty"`
 	ServedCandidate    string `json:"servedCandidate,omitempty"`
 	CostFamily         string `json:"costFamily,omitempty"`
+	PhysicalDecisions  string `json:"physicalDecisions,omitempty"`
 	Strategy           string `json:"strategy,omitempty"`
 	FallbackReason     string `json:"fallbackReason,omitempty"`
 	SettingsProfile    string `json:"settingsProfile,omitempty"`
@@ -296,6 +297,7 @@ func benchOneQueryV2(client *http.Client, cfg BenchConfig, spec QuerySpec) Bench
 					result.SelectedCandidate = sample.selectedCandidate
 					result.ServedCandidate = sample.servedCandidate
 					result.CostFamily = sample.costFamily
+					result.PhysicalDecisions = sample.physicalDecisions
 				}
 				result.StrategyFlap = detectStrategyFlap(samples)
 			}
@@ -413,6 +415,7 @@ type headerSample struct {
 	selectedCandidate string
 	servedCandidate   string
 	costFamily        string
+	physicalDecisions string
 }
 
 type requestTiming struct {
@@ -525,6 +528,7 @@ func parseHeaders(h http.Header) headerSample {
 	s.selectedCandidate = h.Get("X-Promshim-Selected-Candidate")
 	s.servedCandidate = h.Get("X-Promshim-Served-Candidate")
 	s.costFamily = h.Get("X-Promshim-Cost-Family")
+	s.physicalDecisions = h.Get("X-Promshim-Physical-Decisions")
 	if v := h.Get("X-Promshim-CH-Roundtrips"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			s.roundtrips = n

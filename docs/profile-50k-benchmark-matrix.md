@@ -6,6 +6,8 @@
 
 On the successfully served rows, promshim in `prefer` mode is usually faster than Prometheus on the 7d/50k fixture: median shim/Prometheus p50 is `0.59×` across comparable rows. The result is not cleanly green because several range-function rows failed warmup or timed out, and two served rows are materially slower than Prometheus.
 
+The latest PR #14 processing refresh shows the 8-row processing corpus improved on every representative `prefer` row versus this baseline: geometric mean p50 is `0.60×` of baseline (`~40%` lower), and current median shim/Prometheus p50 is `0.31×`.
+
 | Scope | Value |
 |---|---:|
 | Sweep artifact | `harness/artifacts/bench/sweeps/profile-50k-baseline/` |
@@ -39,6 +41,66 @@ Lower S/P is better for promshim; `0.59×` means shim p50 is 59% of Prometheus p
 | Geomean S/P excluding tiny-query outlier | `0.61×` |
 
 The tiny-query outlier is `absent_or_vector_default_instant`: Prometheus p50 was `0.24 ms`, so promshim's `18.68 ms` absolute latency becomes a `78.8×` ratio.
+
+## PR #14 processing refresh
+
+Focused current-branch processing run on the same `7d` / `profile-50k` fixture. Lower p50 is better; S/P is current shim p50 divided by current Prometheus p50. This is a focused processing-corpus update, not a replacement for the full broad matrix below.
+
+| Scope | Value |
+|---|---:|
+| Current artifact | `harness/artifacts/bench/standalone/pr14-current-processing-prom-profile/` |
+| Baseline artifact | `harness/artifacts/bench/sweeps/profile-50k-baseline/` |
+| Command family | `run-bench.sh` focused processing corpus |
+| Active series | `50,024` |
+| Modes | `prefer` |
+| Routing policy | `strict` |
+| Repeats / warmup | `3 / 1` |
+| Memory / CH / Prom profile | `summary / summary / runtime` |
+| Query-log coverage | `8` rows, `0` missing log comments |
+
+| Query | Baseline prefer p50 ms | Current prefer p50 ms | Δ vs baseline | Current Prom p50 ms | Current S/P |
+|---|---:|---:|---:|---:|---:|
+| `sum rate 1h instant` | `123.95` | `76.95` | `-37.9%` | `248.85` | `0.31×` |
+| `sum rate 6h instant` | `487.30` | `286.70` | `-41.2%` | `874.57` | `0.33×` |
+| `avg memory 6h instant` | `476.47` | `218.75` | `-54.1%` | `880.17` | `0.25×` |
+| `histogram quantile instant` | `217.95` | `217.27` | `-0.3%` | `397.27` | `0.55×` |
+| `sum rate 5m / 24h range` | `1,977.16` | `1,757.74` | `-11.1%` | `4,297.77` | `0.41×` |
+| `sum rate 1h / 7d range` | `10,337.95` | `5,478.87` | `-47.0%` | `21,956.91` | `0.25×` |
+| `avg memory 1h / 24h range` | `13,997.08` | `6,444.00` | `-54.0%` | `13,810.35` | `0.47×` |
+| `histogram quantile / 24h range` | `2,151.60` | `1,480.99` | `-31.2%` | `5,339.24` | `0.28×` |
+
+The remaining heavy rows are resource-heavy despite the p50 gains. Duration-capped native chunking moved `sum rate 1h / 7d range` to `2.36 GiB` memory p95 and `307.9M` read rows; current ClickHouse profile highlights now show `avg memory 1h / 24h range` at `8.2 GiB` memory p95 and `710.1M` read rows, and `histogram quantile / 24h range` at `3.9 GiB` memory p95 and `437.4M` read rows.
+
+## Resource vs Prometheus runtime profile
+
+The current artifact was run with `--prometheus-profile runtime`, which samples Prometheus `/metrics` around one measured Prometheus query per row. The Prometheus figures are process/Go-runtime deltas, not exact per-query accounting; ClickHouse figures are from query-log/profile summaries. Lower S/P is better. Weighted total uses latency `50%`, memory `30%`, and CPU `20%`.
+
+| Query | Strategy | Lat S/P | Mem S/P | CPU S/P | Weighted total | CH mem p95 | Prom heap Δ | CH CPU | Prom CPU |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `sum rate 1h instant` | `native_sql` | `0.31×` | `0.5×` | `3.5×` | `0.6×` | `0.02 GiB` | `35 MiB` | `1.0s` | `0.3s` |
+| `sum rate 6h instant` | `native_sql` | `0.33×` | `2.1×` | `5.9×` | `1.0×` | `0.14 GiB` | `70 MiB` | `6.8s` | `1.2s` |
+| `avg memory 6h instant` | `native_sql` | `0.25×` | `0.3×` | `4.3×` | `0.4×` | `0.02 GiB` | `77 MiB` | `5.1s` | `1.2s` |
+| `histogram quantile instant` | `native_sql` | `0.55×` | `0.7×` | `2.6×` | `0.8×` | `0.03 GiB` | `42 MiB` | `1.5s` | `0.6s` |
+| `sum rate 5m / 24h range` | `chunked_native` | `0.41×` | `4.2×` | `1.3×` | `1.0×` | `0.78 GiB` | `190 MiB` | `6.6s` | `5.1s` |
+| `sum rate 1h / 7d range` | `chunked_native` | `0.25×` | `6.3×` | `0.7×` | `0.8×` | `2.36 GiB` | `386 MiB` | `19.0s` | `25.9s` |
+| `avg memory 1h / 24h range` | `native_sql` | `0.47×` | `26.7×` | `2.3×` | `2.2×` | `8.23 GiB` | `315 MiB` | `37.6s` | `16.5s` |
+| `histogram quantile / 24h range` | `native_sql` | `0.28×` | `31.4×` | `5.2×` | `2.1×` | `3.89 GiB` | `127 MiB` | `33.8s` | `6.5s` |
+
+Aggregate geomeans: all 8 rows latency `0.34×`, memory `2.80×`, CPU `2.67×`, weighted total `0.97×`; range rows latency `0.34×`, memory `12.20×`, CPU `1.83×`, weighted total `1.39×`.
+
+## Native range auto-chunking tradeoff
+
+Native range auto-chunking is a resource-safety path for native-grid range aggregation rows. It is not a latency optimization. The current default combines a point cap with a safe output-duration cap (`PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES=289`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS=86400`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS=12`) so coarse-step long-range queries do not keep multi-day chunks only because they have fewer output points.
+
+The current duration-cap hit-set benchmark (`harness/artifacts/bench/standalone/pr14-native-chunking-duration-cap/`) keeps the high-risk rows faster than Prometheus while lowering ClickHouse peak memory. It also fixes the coarse-step `sum rate 1h / 7d @15m` case that was still `8.26 GiB` with the earlier point-only cap.
+
+| Query | No-chunk p50 | Duration-cap p50 | Prom p50 | Duration-cap S/P | No-chunk mem p95 | Duration-cap mem p95 |
+|---|---:|---:|---:|---:|---:|---:|
+| `sum rate 5m / 24h @1m` | `1,257 ms` | `1,725 ms` | `4,226 ms` | `0.41×` | `3.59 GiB` | `0.77 GiB` |
+| `sum rate 1h / 7d @15m` | `4,519 ms` | `5,954 ms` | `19,074 ms` | `0.31×` | `18.98 GiB` | `2.86 GiB` |
+| `sum rate 1h / 7d @5m` | `4,494 ms` | `5,464 ms` | `21,956 ms` | `0.25×` | `15.41 GiB` | `2.36 GiB` |
+
+The selected path is visible as `chunked_native` in `X-Promshim-Strategy`, benchmark strategy columns, and explain plans so regressions can be correlated with the resource-safety route.
 
 ## Category matrix
 

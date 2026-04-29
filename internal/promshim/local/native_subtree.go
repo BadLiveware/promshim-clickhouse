@@ -44,8 +44,11 @@ type nativeSubtreePlan struct {
 	// Node and Analysis carry the logical node and native analysis for
 	// this subtree; distinct from LogicalRoot/LogicalAnalysis which
 	// are set only for the whole-query tier-2 plan.
-	Node     logicalpkg.Node
-	Analysis *nativeplan.Analysis
+	Node                         logicalpkg.Node
+	Analysis                     *nativeplan.Analysis
+	NativeSubtreeRenderTagHint   bool
+	NativeSubtreeRequireFullTags bool
+	NativeSubtreeRequiredLabels  []string
 }
 
 // rootLogicalNode returns the logical plan root for this subtree: the
@@ -101,6 +104,7 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 			return resolveDelegatedPromQL(expr, params)
 		},
 	}
+	applyNativeSubtreeRenderTagHint(&renderParams, p.NativeSubtreeRenderTagHint, p.NativeSubtreeRequireFullTags, p.NativeSubtreeRequiredLabels)
 	rendered, err := p.renderSQL(cfg, renderParams)
 	if err != nil {
 		return nil, err
@@ -217,7 +221,7 @@ func renderNativeSubtreeSQL(cfg storage.QueryConfig, renderParams renderer.Rende
 // dispatch in renderSQL.
 func preRenderNativeSubtreePlanSQL(node logicalpkg.Node, analysis *nativeplan.Analysis, optimized *nativeplan.OptimizedFragment, ctx PlanContext) error {
 	renderMode := renderModeForPlanContext(ctx)
-	cfg := storage.QueryConfig{Database: "preview", Table: "preview"}
+	cfg := storage.QueryConfig{Database: "preview", Table: "preview", EnableNativeGridFunctions: ctx.EnableNativeGridFunctions, EnableCumulativeAvgOverTime: ctx.EnableCumulativeAvgOverTime}
 	renderParams := renderer.RenderParams{
 		Mode:             renderMode,
 		EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(),
@@ -230,6 +234,7 @@ func preRenderNativeSubtreePlanSQL(node logicalpkg.Node, analysis *nativeplan.An
 			return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
 		},
 	}
+	applyNativeSubtreeRenderTagHint(&renderParams, ctx.NativeSubtreeRenderTagHint, ctx.NativeSubtreeRequireFullTags, ctx.NativeSubtreeRequiredTagLabels)
 	var logicalAnalysis *logicalpkg.Analysis
 	if node != nil {
 		logicalAnalysis = logicalpkg.Analyze(node)
@@ -316,18 +321,29 @@ func buildNativeSubtreeChildren(info *nativeplan.LoweringInfo) []ExplainNode {
 
 // newNativeSubtreePlan constructs a nativeSubtreePlan from an
 // OptimizedFragment and its LoweringInfo.
-func newNativeSubtreePlan(kind, expr, reason string, estimate *planEstimate, children []ExplainNode, optimized *nativeplan.OptimizedFragment, info *nativeplan.LoweringInfo, node logicalpkg.Node, analysis *nativeplan.Analysis) *nativeSubtreePlan {
+func newNativeSubtreePlan(kind, expr, reason string, estimate *planEstimate, children []ExplainNode, optimized *nativeplan.OptimizedFragment, info *nativeplan.LoweringInfo, node logicalpkg.Node, analysis *nativeplan.Analysis, ctx PlanContext) *nativeSubtreePlan {
 	return &nativeSubtreePlan{
-		Kind:               kind,
-		Expr:               expr,
-		Reason:             reason,
-		Estimate:           estimate,
-		Children:           children,
-		OptimizationReport: optimized.Report,
-		Info:               info,
-		Node:               node,
-		Analysis:           analysis,
+		Kind:                         kind,
+		Expr:                         expr,
+		Reason:                       reason,
+		Estimate:                     estimate,
+		Children:                     children,
+		OptimizationReport:           optimized.Report,
+		Info:                         info,
+		Node:                         node,
+		Analysis:                     analysis,
+		NativeSubtreeRenderTagHint:   ctx.NativeSubtreeRenderTagHint,
+		NativeSubtreeRequireFullTags: ctx.NativeSubtreeRequireFullTags,
+		NativeSubtreeRequiredLabels:  append([]string(nil), ctx.NativeSubtreeRequiredTagLabels...),
 	}
+}
+
+func applyNativeSubtreeRenderTagHint(params *renderer.RenderParams, enabled bool, requireFullTags bool, requiredLabels []string) {
+	if params == nil || !enabled {
+		return
+	}
+	params.RequireFullTags = requireFullTags
+	params.RequiredTagLabels = append([]string(nil), requiredLabels...)
 }
 
 func nativeAggregationSourceFromLowering(info *nativeplan.LoweringInfo) (nativeAggregationSource, bool) {

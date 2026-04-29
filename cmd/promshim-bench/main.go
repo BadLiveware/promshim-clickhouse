@@ -60,7 +60,7 @@ func main() {
 		shimURL         = flag.String("shim-url", "http://localhost:29091", "promshim base URL.")
 		timeoutFlag     = flag.Duration("timeout", 30*time.Second, "Per-request HTTP timeout.")
 		evalTime        = flag.String("eval-time", "2026-04-21T21:45:42Z", "Bench evaluation time (manifest base). Corpus offsets are interpreted relative to this. Match the compliance fixture's end_time.")
-		shimModes       = flag.String("shim-modes", "", "Comma-separated shim native_lowering_mode values for v2 reports, e.g. prefer,force_supported,off.")
+		shimModes       = flag.String("shim-modes", "", "Comma-separated shim native_lowering_mode values for v2 reports, e.g. force_supported,local_pushdown,off.")
 		routingPolicies = flag.String("routing-policies", "", "Comma-separated routing_policy values for v2 reports, e.g. strict,cost_shadow.")
 		includeProm     = flag.Bool("include-prom", true, "Include Prometheus baseline timing in v2 reports.")
 		memoryMode      = flag.String("memory", "off", "Memory capture mode placeholder: off|summary|detailed. Detailed capture lands in a later sweep phase.")

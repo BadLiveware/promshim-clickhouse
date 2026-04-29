@@ -89,7 +89,9 @@ func candidateNativeMode(candidate httpapi.ExecutionCandidate) string {
 	switch candidate.ID {
 	case string(cbeCandidateNativeSQL):
 		return string(local.NativeLoweringModeForceSupported)
-	case string(cbeCandidateLocalPushdown), string(cbeCandidateFullLocal):
+	case string(cbeCandidateLocalPushdown):
+		return string(local.NativeLoweringModeLocalPushdown)
+	case string(cbeCandidateFullLocal):
 		return string(local.NativeLoweringModeOff)
 	default:
 		return string(local.NativeLoweringModePrefer)

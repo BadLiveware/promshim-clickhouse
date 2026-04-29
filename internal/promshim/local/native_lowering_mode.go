@@ -13,6 +13,7 @@ const (
 	NativeLoweringModeShadow         NativeLoweringMode = "shadow"
 	NativeLoweringModePrefer         NativeLoweringMode = "prefer"
 	NativeLoweringModeForceSupported NativeLoweringMode = "force_supported"
+	NativeLoweringModeLocalPushdown  NativeLoweringMode = "local_pushdown"
 )
 
 func ParseNativeLoweringMode(raw string) (NativeLoweringMode, error) {
@@ -20,10 +21,10 @@ func ParseNativeLoweringMode(raw string) (NativeLoweringMode, error) {
 	switch mode {
 	case "", NativeLoweringModePrefer:
 		return NativeLoweringModePrefer, nil
-	case NativeLoweringModeOff, NativeLoweringModeExplain, NativeLoweringModeShadow, NativeLoweringModeForceSupported:
+	case NativeLoweringModeOff, NativeLoweringModeExplain, NativeLoweringModeShadow, NativeLoweringModeForceSupported, NativeLoweringModeLocalPushdown:
 		return mode, nil
 	default:
-		return "", fmt.Errorf("unsupported native lowering mode %q", raw)
+		return "", fmt.Errorf("unsupported native lowering mode %q (want off, explain, shadow, prefer, force_supported, or local_pushdown)", raw)
 	}
 }
 
@@ -41,6 +42,10 @@ func (mode NativeLoweringMode) EnablesNativePlanning() bool {
 
 func (mode NativeLoweringMode) ForcesNativeRoot() bool {
 	return NormalizeNativeLoweringMode(mode) == NativeLoweringModeForceSupported
+}
+
+func (mode NativeLoweringMode) ForcesLocalRoot() bool {
+	return NormalizeNativeLoweringMode(mode) == NativeLoweringModeLocalPushdown
 }
 
 func (mode NativeLoweringMode) ForcesExplainResponse() bool {

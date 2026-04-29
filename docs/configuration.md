@@ -42,7 +42,7 @@
 
 Per-request knobs:
 
-- `native_lowering_mode=off|prefer|explain|shadow|force_supported`
+- `native_lowering_mode=off|prefer|explain|shadow|force_supported|local_pushdown`
 - `routing_policy=strict|cost_shadow|cost_prefer`
 - `explain=1` or `explain=true`
 - `X-Promshim-Log-Comment: ...` to forward a ClickHouse `log_comment` for query

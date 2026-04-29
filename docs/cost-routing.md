@@ -4,9 +4,9 @@
 Cost routing is an opt-in routing policy layered on top of the native lowering
 mode. Strict routing remains the default and keeps the priority order above:
 whole-query delegation, native SQL, local with pushdown, then full local.
-`force_supported`, `off`, and the existing native-lowering `shadow` mode ignore
-cost routing so they continue to serve as native-only, local-baseline, and
-native-shadow visibility modes.
+`force_supported`, `off`, `local_pushdown`, and the existing native-lowering
+`shadow` mode ignore cost routing so they continue to serve as native-only,
+local-baseline, tier-3-isolation, and native-shadow visibility modes.
 
 The global policy is controlled by `PROM_SHIM_ROUTING_POLICY` and can be
 overridden per request with `routing_policy=...`.

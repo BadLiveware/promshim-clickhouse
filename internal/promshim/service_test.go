@@ -156,6 +156,42 @@ func TestQueryRangeExplainIncludesPhysicalDecisions(t *testing.T) {
 	}
 }
 
+func TestQueryRangeExplainUsesRuntimePhysicalOptions(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true, CumulativeAvgOverTime: "prefer"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	url := "/api/v1/query_range_explain?query=avg_over_time(up%5B1h%5D)&start=0&end=3600&step=60&native_lowering_mode=force_supported"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	decision, ok := findExplainPhysicalDecision(body.Data.Plan.PhysicalDecisions, "range_window_aggregate")
+	if !ok {
+		t.Fatalf("expected range-window physical decision in API response, got %#v", body.Data.Plan.PhysicalDecisions)
+	}
+	if decision.Strategy != string(physical.RangeWindowAggregateStrategyCumulativeAvg) {
+		t.Fatalf("physical strategy = %q, want %q; decisions=%#v", decision.Strategy, physical.RangeWindowAggregateStrategyCumulativeAvg, body.Data.Plan.PhysicalDecisions)
+	}
+	if !strings.Contains(body.Data.Plan.RenderedSQL, "ARRAY JOIN [(1, upper_bound), (0, lower_prev_bound)] AS boundary") {
+		t.Fatalf("expected explain rendered SQL to use cumulative boundary pivot, got %q", body.Data.Plan.RenderedSQL)
+	}
+}
+
 func findExplainPhysicalDecision(decisions []physical.Decision, kind string) (physical.Decision, bool) {
 	for _, decision := range decisions {
 		if decision.Kind == kind {
@@ -1140,6 +1176,46 @@ func TestQueryExplainHonorsNativeLoweringModeOff(t *testing.T) {
 	}
 }
 
+func TestQueryRangeExplainLocalPushdownForcesLocalRootWithNativeChild(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	url := "/api/v1/query_range_explain?query=sum%20by%20(job)%20(rate(up%5B5m%5D))&start=0&end=300&step=30&native_lowering_mode=local_pushdown"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200 for local_pushdown range explain, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			NativeLoweringMode string            `json:"nativeLoweringMode"`
+			Plan               local.ExplainNode `json:"plan"`
+			Routing            struct {
+				CandidateDecision struct {
+					ServedCandidate string `json:"servedCandidate"`
+				} `json:"candidateDecision"`
+			} `json:"routing"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.NativeLoweringMode != string(local.NativeLoweringModeLocalPushdown) {
+		t.Fatalf("expected local_pushdown mode in explain response, got %#v", body.Data)
+	}
+	if body.Data.Plan.Strategy != "local" || len(body.Data.Plan.Children) != 1 || body.Data.Plan.Children[0].Strategy != "native_sql" {
+		t.Fatalf("expected local root with native child, got %#v", body.Data.Plan)
+	}
+	if body.Data.Routing.CandidateDecision.ServedCandidate != "local_pushdown" {
+		t.Fatalf("expected served local_pushdown candidate, got %#v", body.Data.Routing.CandidateDecision)
+	}
+}
+
 func TestQueryRangeExplainPreferUsesNativeAggregationOverRangeFunction(t *testing.T) {
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
@@ -1705,16 +1781,16 @@ func TestQueryExplainIncludesSubqueryEstimateInputs(t *testing.T) {
 				StrictStrategy   string   `json:"strictStrategy"`
 				Advisory         []string `json:"advisory"`
 				Class            struct {
-					Family                string  `json:"family"`
-					HasSubquery           bool    `json:"hasSubquery"`
-					LookbackMS            int64   `json:"lookbackMs"`
-					SubqueryRangeMS       int64   `json:"subqueryRangeMs"`
-					SubqueryStepMS        int64   `json:"subqueryStepMs"`
-					SubqueryPointsPerEval int64   `json:"subqueryPointsPerEval"`
-					SubqueryOverlapSlots  float64 `json:"subqueryOverlapSlots"`
-					SubqueryWorkUnits     int64   `json:"subqueryWorkUnits"`
-					SubqueryTemporalFanout int64  `json:"subqueryTemporalFanout"`
-					SubqueryComplexityBand string `json:"subqueryComplexityBand"`
+					Family                 string  `json:"family"`
+					HasSubquery            bool    `json:"hasSubquery"`
+					LookbackMS             int64   `json:"lookbackMs"`
+					SubqueryRangeMS        int64   `json:"subqueryRangeMs"`
+					SubqueryStepMS         int64   `json:"subqueryStepMs"`
+					SubqueryPointsPerEval  int64   `json:"subqueryPointsPerEval"`
+					SubqueryOverlapSlots   float64 `json:"subqueryOverlapSlots"`
+					SubqueryWorkUnits      int64   `json:"subqueryWorkUnits"`
+					SubqueryTemporalFanout int64   `json:"subqueryTemporalFanout"`
+					SubqueryComplexityBand string  `json:"subqueryComplexityBand"`
 				} `json:"class"`
 			} `json:"routing"`
 		} `json:"data"`
@@ -1727,13 +1803,13 @@ func TestQueryExplainIncludesSubqueryEstimateInputs(t *testing.T) {
 		t.Fatalf("unexpected subquery class: %#v", class)
 	}
 	if class.SubqueryRangeMS != int64((30 * time.Minute).Milliseconds()) {
-		t.Fatalf("subqueryRangeMs = %d, want %d", class.SubqueryRangeMS, int64((30*time.Minute).Milliseconds()))
+		t.Fatalf("subqueryRangeMs = %d, want %d", class.SubqueryRangeMS, int64((30 * time.Minute).Milliseconds()))
 	}
 	if class.SubqueryStepMS != int64(time.Minute.Milliseconds()) {
 		t.Fatalf("subqueryStepMs = %d, want %d", class.SubqueryStepMS, int64(time.Minute.Milliseconds()))
 	}
 	if class.LookbackMS != int64((30 * time.Minute).Milliseconds()) {
-		t.Fatalf("lookbackMs = %d, want %d", class.LookbackMS, int64((30*time.Minute).Milliseconds()))
+		t.Fatalf("lookbackMs = %d, want %d", class.LookbackMS, int64((30 * time.Minute).Milliseconds()))
 	}
 	if class.SubqueryPointsPerEval != 31 {
 		t.Fatalf("subqueryPointsPerEval = %d, want 31", class.SubqueryPointsPerEval)

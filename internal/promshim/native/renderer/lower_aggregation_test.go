@@ -486,7 +486,7 @@ func TestRangeAggregationSelectorRequestsThreadGuardrail(t *testing.T) {
 	}
 }
 
-func TestFusedRateAggregationRequestsThreadGuardrail(t *testing.T) {
+func TestFusedRateAggregationPreservesNoThreadCap(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (rate(http_requests_total[5m]))`)
 	rq, err := Lower(LoweringCtx{
 		Config:         testRenderConfig(),
@@ -497,8 +497,8 @@ func TestFusedRateAggregationRequestsThreadGuardrail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
 	}
-	if got := rq.QuerySettings["max_threads"]; got != 4 {
-		t.Fatalf("max_threads = %#v, want 4", got)
+	if _, ok := rq.QuerySettings["max_threads"]; ok {
+		t.Fatalf("max_threads = %#v, want no thread cap", rq.QuerySettings["max_threads"])
 	}
 }
 

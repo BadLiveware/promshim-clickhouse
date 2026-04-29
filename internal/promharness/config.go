@@ -55,7 +55,7 @@ func LoadCompareConfigFromEnv() (CompareConfig, error) {
 	}
 	if cfg.DefaultNativeLoweringMode != "" {
 		switch cfg.DefaultNativeLoweringMode {
-		case "off", "explain", "shadow", "prefer", "force_supported":
+		case "off", "explain", "shadow", "prefer", "force_supported", "local_pushdown":
 		default:
 			return CompareConfig{}, fmt.Errorf("invalid PROM_HARNESS_NATIVE_LOWERING_MODE %q", cfg.DefaultNativeLoweringMode)
 		}

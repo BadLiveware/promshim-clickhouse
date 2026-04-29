@@ -62,10 +62,11 @@ func defaultCostModel() costModel {
 func routingDecisionForStrict(policy RoutingPolicy, mode local.NativeLoweringMode, class httpapi.QueryCostClass, strictStrategy string, enabledFamilies []string) httpapi.RoutingInfo {
 	class.RootStrategyStrict = strictStrategy
 	effectivePolicy := NormalizeRoutingPolicy(policy)
-	if mode == local.NativeLoweringModeForceSupported || mode == local.NativeLoweringModeOff || mode == local.NativeLoweringModeShadow {
+	if mode == local.NativeLoweringModeForceSupported || mode == local.NativeLoweringModeOff || mode == local.NativeLoweringModeShadow || mode == local.NativeLoweringModeLocalPushdown {
 		// Cost routing is deliberately ignored in modes that already have explicit
-		// execution semantics. This keeps force_supported native-only visibility and
-		// the existing shadow/off behavior independent from future cost policy work.
+		// execution semantics. This keeps force_supported native-only visibility,
+		// local_pushdown tier isolation, and the existing shadow/off behavior
+		// independent from future cost policy work.
 		info := baseRoutingInfo(RoutingPolicyStrict, "strict", "native_lowering_mode_ignores_cost_routing", class, strictStrategy)
 		attachCBECandidates(&info, mode)
 		recordRoutingInfo(info)
@@ -122,6 +123,9 @@ func (m costModel) decide(class httpapi.QueryCostClass, strictStrategy string, p
 		if policy == RoutingPolicyCostShadow && allowSubqueryShadowCapBypass(class, info.CapHits) {
 			info.Advisory = append(info.Advisory, "shadow_subquery_cap_bypass=subquery")
 		} else {
+			if advisory := hardCapAdvisory(info.CapEvaluations); advisory != "" {
+				info.Advisory = append(info.Advisory, advisory)
+			}
 			if policy == RoutingPolicyCostShadow {
 				if advisory := subqueryShadowCapBypassBlockedAdvisory(class, info.CapHits); advisory != "" {
 					info.Advisory = append(info.Advisory, advisory)
@@ -348,6 +352,24 @@ func lowConfidenceAdvisory(reason string) string {
 		return ""
 	}
 	return "low_confidence_reason=" + reason
+}
+
+func hardCapAdvisory(evaluations []httpapi.RoutingCapEvaluation) string {
+	parts := make([]string, 0, len(evaluations))
+	for _, evaluation := range evaluations {
+		if !evaluation.Exceeded {
+			continue
+		}
+		if evaluation.Limit > 0 && evaluation.Usage > 0 {
+			parts = append(parts, fmt.Sprintf("%s:%.1fx", evaluation.Name, evaluation.Usage))
+			continue
+		}
+		parts = append(parts, evaluation.Name)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "hard_cap_usage=" + strings.Join(parts, ",")
 }
 
 func familyEnabled(class httpapi.QueryCostClass, enabled []string) bool {

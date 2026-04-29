@@ -25,6 +25,10 @@ func classifyQueryCost(expr parser.Expr, timing queryCostTiming, strictStrategy 
 	}
 	walkQueryCost(expr, &class)
 	class.HasRepeatedRangeFunc = hasRepeatedRangeFunctionCall(expr)
+	if grouping, ok := histogramChildGrouping(expr); ok {
+		class.HistogramChildGroupingLabels = grouping
+		class.HistogramChildGroupsByLeOnly = len(grouping) == 1 && grouping[0] == "le"
+	}
 	if timing.Endpoint == "query_range" && timing.Step > 0 && !timing.End.Before(timing.Start) {
 		class.RangePointsPerSeries = int64(timing.End.Sub(timing.Start)/timing.Step) + 1
 		if class.SelectorCount > 0 {
@@ -190,6 +194,29 @@ func outputKind(expr parser.Expr, endpoint string) string {
 		return "unknown"
 	}
 	return string(expr.Type())
+}
+
+func histogramChildGrouping(expr parser.Expr) ([]string, bool) {
+	call, ok := unwrapExpr(expr).(*parser.Call)
+	if !ok || call.Func == nil || strings.ToLower(call.Func.Name) != "histogram_quantile" || len(call.Args) < 2 {
+		return nil, false
+	}
+	agg, ok := unwrapExpr(call.Args[1]).(*parser.AggregateExpr)
+	if !ok || agg.Without || len(agg.Grouping) == 0 {
+		return nil, false
+	}
+	return append([]string(nil), agg.Grouping...), true
+}
+
+func unwrapExpr(expr parser.Expr) parser.Expr {
+	for {
+		switch node := expr.(type) {
+		case *parser.ParenExpr:
+			expr = node.Expr
+		default:
+			return expr
+		}
+	}
 }
 
 func hasExplicitVectorJoin(expr *parser.BinaryExpr) bool {

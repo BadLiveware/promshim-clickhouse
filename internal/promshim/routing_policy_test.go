@@ -67,6 +67,9 @@ func TestCostShadowDecisionStaysStrictOverCap(t *testing.T) {
 	if capEval.Estimate != 1000000 || capEval.Limit != 50000 || !capEval.Exceeded || capEval.OverBy != 950000 || capEval.Unit != "samples" {
 		t.Fatalf("cap evaluation = %+v", capEval)
 	}
+	if !containsString(info.Advisory, "hard_cap_usage=maxLocalInputSamples:20.0x") {
+		t.Fatalf("advisory = %+v, want hard cap usage advisory", info.Advisory)
+	}
 	seriesEval, ok := capEvaluationByName(info.CapEvaluations, "maxLocalOutputSeries")
 	if !ok || seriesEval.Exceeded || seriesEval.Estimate != 10 || seriesEval.Limit != 5000 {
 		t.Fatalf("series cap evaluation = %+v ok=%v", seriesEval, ok)
@@ -338,6 +341,17 @@ func TestCostRoutingIgnoredForOffMode(t *testing.T) {
 	}
 }
 
+func TestCostRoutingIgnoredForLocalPushdownMode(t *testing.T) {
+	class := httpapi.QueryCostClass{Endpoint: "query", Family: "rate", SelectorCount: 1, EstimatedSeries: 10, EstimatedInputSamples: 100, EstimatedOutputPoints: 10, LocalRoundTrips: 1, NativeRoundTrips: 1}
+	info := routingDecisionForStrict(RoutingPolicyCostPrefer, local.NativeLoweringModeLocalPushdown, class, "local", []string{"rate_instant"})
+	if info.Policy != "strict" || info.Reason != "native_lowering_mode_ignores_cost_routing" {
+		t.Fatalf("decision = %+v, want local_pushdown mode ignores cost routing", info)
+	}
+	if info.CandidateDecision == nil || info.CandidateDecision.ServedCandidate != "local_pushdown" {
+		t.Fatalf("candidate decision = %+v, want served local_pushdown", info.CandidateDecision)
+	}
+}
+
 func TestRoutingInfoIncludesCBECandidates(t *testing.T) {
 	class := httpapi.QueryCostClass{Endpoint: "query", Family: "rate", SelectorCount: 1, EstimatedSeries: 10, EstimatedInputSamples: 100, EstimatedOutputPoints: 10, LocalRoundTrips: 1, NativeRoundTrips: 1}
 	info := routingDecisionForStrict(RoutingPolicyCostPrefer, local.NativeLoweringModePrefer, class, "native_sql", []string{"rate_instant"})
@@ -377,6 +391,97 @@ func TestCBECandidatesRespectForceSupportedMode(t *testing.T) {
 	}
 }
 
+func TestHistogramLocalPushdownCandidateModeledInShadow(t *testing.T) {
+	class := httpapi.QueryCostClass{
+		Endpoint:                     "query",
+		Family:                       "histogram_quantile",
+		SelectorCount:                1,
+		HasHistogram:                 true,
+		HasAggregation:               true,
+		HasRangeFunction:             true,
+		EstimatedSeries:              38480,
+		EstimatedInputSamples:        9273680,
+		EstimatedOutputPoints:        38480,
+		LocalRoundTrips:              1,
+		NativeRoundTrips:             1,
+		HistogramChildGroupingLabels: []string{"le"},
+		HistogramChildGroupsByLeOnly: true,
+	}
+	info := routingDecisionForStrict(RoutingPolicyCostShadow, local.NativeLoweringModePrefer, class, "native_sql", nil)
+	if info.Decision != "strict_over_cap" || info.SelectedStrategy != "native_sql" {
+		t.Fatalf("decision = %+v, want strict native over-cap", info)
+	}
+	candidates := map[string]httpapi.ExecutionCandidate{}
+	for _, candidate := range info.Candidates {
+		candidates[candidate.ID] = candidate
+	}
+	localPushdown := candidates["local_pushdown"]
+	if !localPushdown.Supported || !localPushdown.KnownCorrect {
+		t.Fatalf("local_pushdown candidate = %+v, want supported known-correct shadow candidate", localPushdown)
+	}
+	if localPushdown.Eligible || !containsString(localPushdown.RejectReasons, "over_cap") {
+		t.Fatalf("local_pushdown candidate = %+v, want over-cap rejection", localPushdown)
+	}
+	for _, want := range []string{"shadow_candidate=histogram_local_pushdown", "estimate_scope=conservative_full_local_caps", "candidate_cap_scope=local_engine,native_child", "local_engine_estimate=unknown_native_child_output_cardinality", "routing_deferred=needs_histogram_memory_policy", "local_engine_output_shape=classic_histogram_buckets_only"} {
+		if !containsString(localPushdown.Advisory, want) {
+			t.Fatalf("local_pushdown advisory = %+v, want %q", localPushdown.Advisory, want)
+		}
+	}
+	inputEstimate, ok := candidateEstimateByName(localPushdown.Estimates, "nativeChildInputSamples")
+	if !ok || inputEstimate.Value != 9273680 || inputEstimate.Unit != "samples" || inputEstimate.Scope != "native_child" {
+		t.Fatalf("native child input estimate = %+v ok=%v", inputEstimate, ok)
+	}
+	outputEstimate, ok := candidateEstimateByName(localPushdown.Estimates, "nativeChildOutputPointsConservative")
+	if !ok || outputEstimate.Value != 38480 || outputEstimate.Unit != "points" || outputEstimate.Scope != "native_child" {
+		t.Fatalf("native child output estimate = %+v ok=%v", outputEstimate, ok)
+	}
+	inputCap, ok := capEvaluationByName(localPushdown.CapEvaluations, "maxNativeChildInputSamples")
+	if !ok || inputCap.Scope != "native_child" || !inputCap.Exceeded || inputCap.Estimate != 9273680 || inputCap.Limit != 50000 {
+		t.Fatalf("native child input cap = %+v ok=%v", inputCap, ok)
+	}
+	roundTripCap, ok := capEvaluationByName(localPushdown.CapEvaluations, "maxLocalEngineRoundTrips")
+	if !ok || roundTripCap.Scope != "local_engine" || roundTripCap.Exceeded || roundTripCap.Estimate != 1 || roundTripCap.Limit != 2 {
+		t.Fatalf("local engine round-trip cap = %+v ok=%v", roundTripCap, ok)
+	}
+	groupingEstimate, ok := candidateEstimateByName(localPushdown.Estimates, "localEngineGroupingLabels")
+	if !ok || groupingEstimate.Value != 1 || groupingEstimate.Unit != "labels" || groupingEstimate.Scope != "local_engine" {
+		t.Fatalf("local engine grouping estimate = %+v ok=%v", groupingEstimate, ok)
+	}
+	if candidates["full_local"].Supported || !containsString(candidates["full_local"].RejectReasons, "unsupported_shape") {
+		t.Fatalf("full_local candidate = %+v, want unsupported", candidates["full_local"])
+	}
+}
+
+func TestHistogramLocalPushdownCandidateAnnotationsAreShapeSpecific(t *testing.T) {
+	class := httpapi.QueryCostClass{
+		Endpoint:              "query_range",
+		Family:                "histogram_quantile",
+		SelectorCount:         1,
+		HasHistogram:          true,
+		HasAggregation:        true,
+		HasRangeFunction:      true,
+		EstimatedSeries:       38480,
+		EstimatedInputSamples: 9273680,
+		EstimatedOutputPoints: 38480,
+		LocalRoundTrips:       1,
+		NativeRoundTrips:      1,
+	}
+	info := routingDecisionForStrict(RoutingPolicyCostShadow, local.NativeLoweringModePrefer, class, "native_sql", nil)
+	var localPushdown httpapi.ExecutionCandidate
+	for _, candidate := range info.Candidates {
+		if candidate.ID == "local_pushdown" {
+			localPushdown = candidate
+			break
+		}
+	}
+	if localPushdown.Supported || !containsString(localPushdown.RejectReasons, "unsupported_shape") {
+		t.Fatalf("range local_pushdown candidate = %+v, want unsupported shape", localPushdown)
+	}
+	if len(localPushdown.Estimates) != 0 || len(localPushdown.CapEvaluations) != 0 || containsString(localPushdown.Advisory, "candidate_cap_scope=local_engine,native_child") {
+		t.Fatalf("range local_pushdown candidate annotations = estimates %+v caps %+v advisory %+v", localPushdown.Estimates, localPushdown.CapEvaluations, localPushdown.Advisory)
+	}
+}
+
 func capEvaluationByName(items []httpapi.RoutingCapEvaluation, name string) (httpapi.RoutingCapEvaluation, bool) {
 	for _, item := range items {
 		if item.Name == name {
@@ -384,6 +489,15 @@ func capEvaluationByName(items []httpapi.RoutingCapEvaluation, name string) (htt
 		}
 	}
 	return httpapi.RoutingCapEvaluation{}, false
+}
+
+func candidateEstimateByName(items []httpapi.CandidateEstimate, name string) (httpapi.CandidateEstimate, bool) {
+	for _, item := range items {
+		if item.Name == name {
+			return item, true
+		}
+	}
+	return httpapi.CandidateEstimate{}, false
 }
 
 func containsString(items []string, want string) bool {

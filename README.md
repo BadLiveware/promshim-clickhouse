@@ -121,6 +121,7 @@ overridden per request with `native_lowering_mode=...`.
 | `explain` | Same planning freedom as `prefer` | Enabled | Always include explain output in normal query responses. |
 | `shadow` | Local executor | Runs a native/delegated candidate in the background and records comparison metrics | Safe rollout and divergence detection. |
 | `force_supported` | Native SQL root only | Fails unless the final root plan is `native_sql` | Native-only compliance and gap discovery. |
+| `local_pushdown` | Local executor root with native SQL subtrees | Skips native/delegated root planning but allows supported child subtrees to lower to native SQL | Tier-3 isolation and candidate/resource analysis. |
 
 Shadow mode exposes process-local counters/histograms under `/metrics`. It is
 intended for rollout confidence, not durable audit storage.

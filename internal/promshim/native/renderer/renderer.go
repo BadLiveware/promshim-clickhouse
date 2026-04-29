@@ -61,7 +61,12 @@ type RenderParams struct {
 	// Default (nil) means no explicit tag requirement from the parent; the
 	// storage selector falls through to the full-tags base path.
 	RequiredTagLabels []string
-	Physical          PhysicalPlanPreferences
+	// HistogramPreparation marks child lowering that feeds a histogram-function
+	// preparation path. It lets range-row physical-shape choices stay scoped to
+	// histogram-only callers instead of relying on function-name or SQL-text
+	// heuristics shared with generic rate/delta paths.
+	HistogramPreparation bool
+	Physical             PhysicalPlanPreferences
 }
 
 func preferRangeInstantSelectorStrategy(prefs PhysicalPlanPreferences, strategy storage.RangeInstantSelectorStrategy) PhysicalPlanPreferences {

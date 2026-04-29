@@ -6,6 +6,7 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/emit"
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -29,6 +30,7 @@ func renderHistogramProjectionLogical(cfg storage.QueryConfig, logicalAnalysis *
 		requireFull, labels := decideHistogramChildNarrowing(aggChild)
 		childParams.RequireFullTags = requireFull
 		childParams.RequiredTagLabels = labels
+		childParams.HistogramPreparation = true
 	}
 
 	histograms, err := renderClassicHistogramGroupsQueryLogical(cfg, n.Child, logicalAnalysis, analysis, childParams, "histogram_projection_child")
@@ -75,11 +77,18 @@ func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalp
 		requireFull, labels := decideHistogramChildNarrowing(aggChild)
 		childParams.RequireFullTags = requireFull
 		childParams.RequiredTagLabels = labels
+		childParams.HistogramPreparation = true
 	}
 
 	histograms, err := renderClassicHistogramGroupsQueryLogical(cfg, childNode, logicalAnalysis, analysis, childParams, "histogram_function_child")
 	if err != nil {
 		return renderedFragment{}, err
+	}
+	baseDecisions := appendRenderedQueryPhysicalDecisions(nil, histograms.ExtraPhysicalDecisions...)
+	baseDecisions = appendRenderedQueryPhysicalDecisions(baseDecisions, histogramFunctionChildPhysicalDecision(childNode, params.Mode))
+	baseDecisions = appendRenderedQueryPhysicalDecisions(baseDecisions, physical.HistogramPreparationDecision(funcName, string(params.Mode), histogramChildUsesOnlyLETagsLogical(childNode)))
+	if histogramFunctionUsesNativeGridLateTags(cfg, childNode, params.Mode) {
+		baseDecisions = appendRenderedQueryPhysicalDecisions(baseDecisions, physical.HistogramNativeGridRowsDecision())
 	}
 
 	switch funcName {
@@ -97,7 +106,7 @@ func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalp
 		if params.Mode == native.RenderModeRange && histogramChildUsesOnlyLETagsLogical(childNode) {
 			finalSQL = wrapHistogramRowsForConstantEmptyTagsRange(rowsSQL, "histogram_quantile_rows")
 		}
-		return renderedFragment{RawSQL: trimRenderedQuerySQL(finalSQL), ExtraParams: prepared.QueryParams}, nil
+		return renderedFragment{RawSQL: trimRenderedQuerySQL(finalSQL), ExtraParams: prepared.QueryParams, ExtraPhysicalDecisions: baseDecisions}, nil
 	case "histogram_quantiles":
 		q, qok := node.(*logicalpkg.HistogramQuantilesPlan)
 		if !qok {
@@ -113,14 +122,21 @@ func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalp
 			NativeAnalysis: analysis,
 			Params:         params,
 		}
-		return renderHistogramQuantilesLogical(ctx, q, params, prepared)
+		rendered, err := renderHistogramQuantilesLogical(ctx, q, params, prepared)
+		if err != nil {
+			return renderedFragment{}, err
+		}
+		rendered.ExtraPhysicalDecisions = appendRenderedQueryPhysicalDecisions(baseDecisions, rendered.ExtraPhysicalDecisions...)
+		return rendered, nil
 	case "histogram_fraction":
 		f, fok := node.(*logicalpkg.HistogramFractionPlan)
 		if !fok {
 			return renderedFragment{}, errUnsupportedLowerNode
 		}
 		valueExpr := classicHistogramFractionValueExpr(sqlb.Ident("buckets"), f.Lower, f.Upper)
-		return histogramOutputFragment(histograms, valueExpr, params.Mode, "histogram_function_steps"), nil
+		rendered := histogramOutputFragment(histograms, valueExpr, params.Mode, "histogram_function_steps")
+		rendered.ExtraPhysicalDecisions = appendRenderedQueryPhysicalDecisions(baseDecisions, rendered.ExtraPhysicalDecisions...)
+		return rendered, nil
 	default:
 		return renderedFragment{}, fmt.Errorf("histogram function %q is not implemented yet", funcName)
 	}
@@ -187,6 +203,36 @@ func histogramChildUsesOnlyLETagsLogical(childNode logicalpkg.Node) bool {
 		return false
 	}
 	return childAggregationUsesOnlyLETags(agg)
+}
+
+func histogramFunctionUsesNativeGridLateTags(cfg storage.QueryConfig, childNode logicalpkg.Node, mode native.RenderMode) bool {
+	if mode != native.RenderModeRange || !cfg.EnableNativeGridFunctions || !histogramChildUsesOnlyLETagsLogical(childNode) {
+		return false
+	}
+	agg, ok := childNode.(*logicalpkg.AggregationPlan)
+	return ok && agg != nil && canFuseRangeAggregationLogicalDirect(agg, RenderParams{Mode: mode})
+}
+
+func histogramFunctionChildPhysicalDecision(childNode logicalpkg.Node, mode native.RenderMode) physical.Decision {
+	strategy := "generic_child_lowering"
+	reason := "histogram child lowered through generic path"
+	guards := []string{"histogram_child"}
+	if agg, ok := childNode.(*logicalpkg.AggregationPlan); ok && agg != nil {
+		strategy = "aggregation_child"
+		reason = "histogram child is aggregation"
+		guards = append(guards, "aggregation_child")
+		if mode == native.RenderModeRange && canFuseRangeAggregationLogicalDirect(agg, RenderParams{Mode: mode}) {
+			strategy = "fused_range_aggregation_child"
+			reason = "aggregation-over-range child is fusible"
+			guards = append(guards, "range_mode", "fusible_range_aggregation")
+		}
+		if histogramChildUsesOnlyLETagsLogical(childNode) {
+			strategy = strategy + "_le_only"
+			reason = reason + "; le-only histogram tag projection"
+			guards = append(guards, "le_only_tags")
+		}
+	}
+	return physical.Decision{Kind: "histogram_child_path", Strategy: strategy, Reason: reason, Guards: guards}
 }
 
 func tryRenderDirectClassicHistogramGroupsLogical(cfg storage.QueryConfig, childNode logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams, histogramTagsExpr, leRaw, upperBoundExpr, whereExpr sqlb.Expr, prefix string) (renderedFragment, bool, error) {

@@ -293,7 +293,7 @@ That writes:
 and expands the upstream `promql-test-queries.yml` variant matrix so the current native measurement surface can be compared against the same query families the compliance suite expects.
 
 Corpus rows can also set:
-- `"nativeLoweringMode": "off|explain|shadow|prefer|force_supported"`
+- `"nativeLoweringMode": "off|explain|shadow|prefer|force_supported|local_pushdown"`
 - `"explain": true`
 - `"timeOffsets": [{"name": "early", "timeOffsetSeconds": 60}, ...]` for instant-query variants
 - `"rangeOffsets": [{"name": "boundary", "startOffsetSeconds": 0, "endOffsetSeconds": 240}, ...]` for range-query variants

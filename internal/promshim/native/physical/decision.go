@@ -57,6 +57,30 @@ func NativeGridRangeFunctionDecision(kind string) Decision {
 	}
 }
 
+func HistogramPreparationDecision(functionName, renderMode string, leOnly bool) Decision {
+	strategy := "classic_histogram_preparation"
+	guards := []string{"histogram_preparation", "function=" + functionName, "mode=" + renderMode}
+	if leOnly {
+		strategy = "classic_histogram_preparation_le_only"
+		guards = append(guards, "le_only_tags")
+	}
+	return Decision{
+		Kind:     "histogram_preparation_shape",
+		Strategy: strategy,
+		Reason:   "histogram function prepares classic histogram rows before final calculation",
+		Guards:   guards,
+	}
+}
+
+func HistogramNativeGridRowsDecision() Decision {
+	return Decision{
+		Kind:     "histogram_native_grid_rows_shape",
+		Strategy: "late_series_join",
+		Reason:   "histogram preparation computes native-grid rows per id before joining tags",
+		Guards:   []string{"histogram_preparation", "le_only_tags", "native_grid_rows"},
+	}
+}
+
 func ThreadPreferenceDecision(threads ThreadPreference) (Decision, bool) {
 	switch threads.Mode {
 	case ThreadPreferenceSet:

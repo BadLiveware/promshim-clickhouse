@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
+	"strings"
 	"time"
 
 	httpapi "github.com/BadLiveware/promshim-clickhouse/internal/promshim/httpapi"
@@ -197,7 +199,7 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 			"routing":                   routing,
 		}}, nil
 	}
-	return &httpapi.Response{Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Stream: func(w http.ResponseWriter) error {
+	return &httpapi.Response{Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, PhysicalDecisions: physicalDecisionSummary(selectedExplain), Stream: func(w http.ResponseWriter) error {
 		return httpapi.WritePromSuccessInstantValue(w, value)
 	}}, nil
 }
@@ -250,7 +252,7 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 			"routing":                   routing,
 		}}, nil
 	}
-	return &httpapi.Response{Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Stream: func(w http.ResponseWriter) error {
+	return &httpapi.Response{Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, PhysicalDecisions: physicalDecisionSummary(selectedExplain), Stream: func(w http.ResponseWriter) error {
 		return httpapi.WritePromSuccessRangeValue(w, value)
 	}}, nil
 }
@@ -572,7 +574,9 @@ func selectedCandidateMode(routing httpapi.RoutingInfo) (string, bool) {
 	switch routing.CandidateDecision.SelectedCandidate {
 	case string(cbeCandidateNativeSQL):
 		return string(local.NativeLoweringModeForceSupported), true
-	case string(cbeCandidateLocalPushdown), string(cbeCandidateFullLocal):
+	case string(cbeCandidateLocalPushdown):
+		return string(local.NativeLoweringModeLocalPushdown), true
+	case string(cbeCandidateFullLocal):
 		return string(local.NativeLoweringModeOff), true
 	default:
 		return "", false
@@ -685,11 +689,11 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 	if apiErr != nil {
 		return "", time.Time{}, nil, nil, apiErr
 	}
-	ctx := local.PlanContext{Mode: local.EvalModeInstant, EvaluationTime: evaluationTime, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries}
+	ctx := local.PlanContext{Mode: local.EvalModeInstant, EvaluationTime: evaluationTime, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries}
 	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion)
 	var queryPlan local.Plan
 	var analysis *nativeplan.Analysis
-	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !h.opts.DisableEntireQueryDelegation {
+	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !mode.ForcesLocalRoot() && !h.opts.DisableEntireQueryDelegation {
 		queryPlan, analysis, err = local.BuildEntireQueryDelegatedPlan(expr)
 		if err != nil {
 			return "", time.Time{}, nil, nil, local.ApiErrorToHTTP(err)
@@ -743,11 +747,11 @@ func (h *queryService) buildRangePlan(req httpapi.RangeQueryRequest) (string, ti
 	if apiErr != nil {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, apiErr
 	}
-	ctx := local.PlanContext{Mode: local.EvalModeRange, Start: start, End: end, Step: step, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries}
+	ctx := local.PlanContext{Mode: local.EvalModeRange, Start: start, End: end, Step: step, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries}
 	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion)
 	var queryPlan local.Plan
 	var analysis *nativeplan.Analysis
-	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !h.opts.DisableEntireQueryDelegation {
+	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !mode.ForcesLocalRoot() && !h.opts.DisableEntireQueryDelegation {
 		queryPlan, analysis, err = local.BuildEntireQueryDelegatedPlan(expr)
 		if err != nil {
 			return "", time.Time{}, time.Time{}, 0, nil, nil, local.ApiErrorToHTTP(err)
@@ -765,4 +769,37 @@ func (h *queryService) buildRangePlan(req httpapi.RangeQueryRequest) (string, ti
 		}
 	}
 	return query, start, end, step, queryPlan, analysis, nil
+}
+
+func physicalDecisionSummary(explain local.ExplainNode) string {
+	seen := map[string]struct{}{}
+	parts := make([]string, 0, 8)
+	var walk func(local.ExplainNode)
+	walk = func(n local.ExplainNode) {
+		for _, d := range n.PhysicalDecisions {
+			kind := strings.TrimSpace(d.Kind)
+			if kind == "" {
+				continue
+			}
+			strategy := strings.TrimSpace(d.Strategy)
+			entry := kind
+			if strategy != "" {
+				entry = kind + "=" + strategy
+			}
+			if _, ok := seen[entry]; ok {
+				continue
+			}
+			seen[entry] = struct{}{}
+			parts = append(parts, entry)
+		}
+		for _, child := range n.Children {
+			walk(child)
+		}
+	}
+	walk(explain)
+	if len(parts) == 0 {
+		return ""
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
 }

@@ -34,7 +34,7 @@ Options:
   --execute                      Execute even when --estimate is set.
   --skip-compliance              Skip compliance pass.
   --skip-bench                   Skip benchmark pass.
-  --shim-modes LIST              Bench modes, e.g. prefer,force_supported,off.
+  --shim-modes LIST              Bench modes, e.g. force_supported,local_pushdown,off.
   --routing-policies LIST        Routing policies, e.g. strict,cost_shadow.
   --warmup-routing-policies LIST Run a benchmark warmup pass with these routing policies before measured bench reports.
   --cost-routing-local-families LIST

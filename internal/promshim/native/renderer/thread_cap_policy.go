@@ -27,7 +27,7 @@ func fusedRateAggregationThreadSettings(params RenderParams, agg *logicalpkg.Agg
 	if !isMatrixSelectorLeaf(child) {
 		return nil, nil
 	}
-	prefs := preferASOFThreadGuardrail(params.Physical, physical.ThreadPreferenceReasonFusedRateAggregation)
+	prefs := preferNoThreadCap(params.Physical, physical.ThreadPreferenceReasonFusedRateAggregation)
 	return physicalSettings(prefs), threadPreferenceDecisionsForPrefs(prefs)
 }
 

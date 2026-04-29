@@ -83,6 +83,20 @@ func TestClassifyQueryCostFamilies(t *testing.T) {
 				if !got.HasHistogram || !got.HasAggregation {
 					t.Fatalf("histogram/aggregation metadata missing: %+v", got)
 				}
+				if !got.HistogramChildGroupsByLeOnly || len(got.HistogramChildGroupingLabels) != 1 || got.HistogramChildGroupingLabels[0] != "le" {
+					t.Fatalf("histogram child grouping metadata = %+v", got)
+				}
+			},
+		},
+		{
+			name:     "histogram grouped by extra label",
+			query:    `histogram_quantile(0.9, sum by (job, le) (rate(bucket[5m])))`,
+			endpoint: "query",
+			want:     "histogram_quantile",
+			check: func(t *testing.T, got httpapi.QueryCostClass) {
+				if got.HistogramChildGroupsByLeOnly || len(got.HistogramChildGroupingLabels) != 2 {
+					t.Fatalf("histogram child grouping metadata = %+v", got)
+				}
 			},
 		},
 		{
@@ -187,6 +201,27 @@ func TestClassifyQueryCostFamilies(t *testing.T) {
 			check: func(t *testing.T, got httpapi.QueryCostClass) {
 				if !got.HasSubquery {
 					t.Fatalf("expected subquery metadata: %+v", got)
+				}
+				if got.SubqueryRangeMS != int64((30 * time.Minute).Milliseconds()) {
+					t.Fatalf("subquery range ms = %d, want %d", got.SubqueryRangeMS, int64((30 * time.Minute).Milliseconds()))
+				}
+				if got.SubqueryStepMS != int64(time.Minute.Milliseconds()) {
+					t.Fatalf("subquery step ms = %d, want %d", got.SubqueryStepMS, int64(time.Minute.Milliseconds()))
+				}
+				if got.SubqueryPointsPerEval != 31 {
+					t.Fatalf("subquery points per eval = %d, want 31", got.SubqueryPointsPerEval)
+				}
+				if got.SubqueryOverlapSlots != 30 {
+					t.Fatalf("subquery overlap slots = %v, want 30", got.SubqueryOverlapSlots)
+				}
+				if got.SubqueryWorkUnits != 31 {
+					t.Fatalf("subquery work units = %d, want 31", got.SubqueryWorkUnits)
+				}
+				if got.SubqueryTemporalFanout != 31 {
+					t.Fatalf("subquery temporal fanout = %d, want 31", got.SubqueryTemporalFanout)
+				}
+				if got.SubqueryComplexityBand != "light" {
+					t.Fatalf("subquery complexity band = %q, want light", got.SubqueryComplexityBand)
 				}
 			},
 		},

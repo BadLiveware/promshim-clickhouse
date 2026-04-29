@@ -25,6 +25,10 @@ func classifyQueryCost(expr parser.Expr, timing queryCostTiming, strictStrategy 
 	}
 	walkQueryCost(expr, &class)
 	class.HasRepeatedRangeFunc = hasRepeatedRangeFunctionCall(expr)
+	if grouping, ok := histogramChildGrouping(expr); ok {
+		class.HistogramChildGroupingLabels = grouping
+		class.HistogramChildGroupsByLeOnly = len(grouping) == 1 && grouping[0] == "le"
+	}
 	if timing.Endpoint == "query_range" && timing.Step > 0 && !timing.End.Before(timing.Start) {
 		class.RangePointsPerSeries = int64(timing.End.Sub(timing.Start)/timing.Step) + 1
 		if class.SelectorCount > 0 {
@@ -35,6 +39,21 @@ func classifyQueryCost(expr parser.Expr, timing queryCostTiming, strictStrategy 
 	}
 	if class.HasRangeFunction && class.LookbackMS > 0 && timing.Step > 0 {
 		class.OverlapSlots = float64(time.Duration(class.LookbackMS)*time.Millisecond) / float64(timing.Step)
+	}
+	if class.SubqueryRangeMS > 0 && class.SubqueryStepMS > 0 {
+		class.SubqueryPointsPerEval = (class.SubqueryRangeMS / class.SubqueryStepMS) + 1
+		class.SubqueryOverlapSlots = float64(class.SubqueryRangeMS) / float64(class.SubqueryStepMS)
+		workSelectors := class.SelectorCount
+		if workSelectors <= 0 {
+			workSelectors = 1
+		}
+		class.SubqueryWorkUnits = class.SubqueryPointsPerEval * int64(workSelectors)
+		temporalSlices := class.RangePointsPerSeries
+		if temporalSlices <= 0 {
+			temporalSlices = 1
+		}
+		class.SubqueryTemporalFanout = class.SubqueryPointsPerEval * temporalSlices
+		class.SubqueryComplexityBand = classifySubqueryComplexityBand(class.SubqueryWorkUnits, class.SubqueryTemporalFanout)
 	}
 	if class.SelectorCount > 0 {
 		class.LocalRoundTrips = class.SelectorCount
@@ -92,6 +111,12 @@ func walkQueryCost(expr parser.Expr, class *httpapi.QueryCostClass) {
 		class.HasSubquery = true
 		if node.Range.Milliseconds() > class.LookbackMS {
 			class.LookbackMS = node.Range.Milliseconds()
+		}
+		if node.Range.Milliseconds() > class.SubqueryRangeMS {
+			class.SubqueryRangeMS = node.Range.Milliseconds()
+		}
+		if node.Step.Milliseconds() > class.SubqueryStepMS {
+			class.SubqueryStepMS = node.Step.Milliseconds()
 		}
 		walkQueryCost(node.Expr, class)
 	case *parser.ParenExpr:
@@ -171,6 +196,29 @@ func outputKind(expr parser.Expr, endpoint string) string {
 	return string(expr.Type())
 }
 
+func histogramChildGrouping(expr parser.Expr) ([]string, bool) {
+	call, ok := unwrapExpr(expr).(*parser.Call)
+	if !ok || call.Func == nil || strings.ToLower(call.Func.Name) != "histogram_quantile" || len(call.Args) < 2 {
+		return nil, false
+	}
+	agg, ok := unwrapExpr(call.Args[1]).(*parser.AggregateExpr)
+	if !ok || agg.Without || len(agg.Grouping) == 0 {
+		return nil, false
+	}
+	return append([]string(nil), agg.Grouping...), true
+}
+
+func unwrapExpr(expr parser.Expr) parser.Expr {
+	for {
+		switch node := expr.(type) {
+		case *parser.ParenExpr:
+			expr = node.Expr
+		default:
+			return expr
+		}
+	}
+}
+
 func hasExplicitVectorJoin(expr *parser.BinaryExpr) bool {
 	if expr == nil || expr.VectorMatching == nil {
 		return false
@@ -197,6 +245,25 @@ func isRangeFunction(name string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func classifySubqueryComplexityBand(workUnits, temporalFanout int64) string {
+	score := workUnits
+	if temporalFanout > score {
+		score = temporalFanout
+	}
+	switch {
+	case score >= 1000:
+		return "heavy"
+	case score >= 200:
+		return "elevated"
+	case score >= 50:
+		return "moderate"
+	case score > 0:
+		return "light"
+	default:
+		return ""
 	}
 }
 

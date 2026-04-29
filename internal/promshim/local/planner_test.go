@@ -956,6 +956,91 @@ func TestBuildPlanWithContextCreatesLocalPlanForInfo(t *testing.T) {
 	}
 }
 
+func TestBuildPlanWithContextLocalPushdownSuppressesNativeRootOnly(t *testing.T) {
+	expr, err := logical.ParseExpression("sum by (job) (rate(up[5m]))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, PlanContext{
+		Mode:                            EvalModeRange,
+		Start:                           time.Unix(0, 0).UTC(),
+		End:                             time.Unix(300, 0).UTC(),
+		Step:                            30 * time.Second,
+		NativeLoweringMode:              NativeLoweringModeLocalPushdown,
+		PreferNativeAggregationPushdown: true,
+	})
+	if err != nil {
+		t.Fatalf("expected local-pushdown plan, got error: %v", err)
+	}
+	root, ok := built.(*localAggregationPlan)
+	if !ok {
+		t.Fatalf("expected local aggregation root, got %T", built)
+	}
+	if _, ok := root.Child.(*nativeSubtreePlan); !ok {
+		t.Fatalf("expected native child under local root, got %T", root.Child)
+	}
+}
+
+func TestLocalPushdownHistogramChildNarrowsNativeAggregationTags(t *testing.T) {
+	expr, err := logical.ParseExpression("histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[1h])))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, analysis, err := BuildPlanWithContextAndAnalysis(expr, PlanContext{
+		Mode:                            EvalModeInstant,
+		EvaluationTime:                  time.Unix(3600, 0).UTC(),
+		NativeLoweringMode:              NativeLoweringModeLocalPushdown,
+		PreferNativeAggregationPushdown: true,
+	})
+	if err != nil {
+		t.Fatalf("expected local-pushdown histogram plan, got error: %v", err)
+	}
+	explain := ExplainPlanWithLowering(plan, analysis.Root)
+	if explain.Kind != "histogram_quantile" || explain.Strategy != "local" || len(explain.Children) != 1 {
+		t.Fatalf("expected local histogram root with one child, got %#v", explain)
+	}
+	child := explain.Children[0]
+	if child.Kind != "aggregation" || child.Strategy != "native_sql" || child.RenderedSQL == "" {
+		t.Fatalf("expected native aggregation child with rendered SQL, got %#v", child)
+	}
+	if !strings.Contains(child.RenderedSQL, "if(mapContains(src.tags, 'le')") {
+		t.Fatalf("expected histogram child selector to project le tag only, got %q", child.RenderedSQL)
+	}
+	if strings.Contains(child.RenderedSQL, "arrayConcat([tuple('__name__'") || strings.Contains(child.RenderedSQL, "mapKeys(src.tags)") {
+		t.Fatalf("expected histogram child selector to avoid full tag materialization, got %q", child.RenderedSQL)
+	}
+}
+
+func TestLocalPushdownGenericAggregationKeepsFullTagsBeforeRate(t *testing.T) {
+	expr, err := logical.ParseExpression("sum by (le) (rate(http_request_duration_seconds_bucket[1h]))")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, analysis, err := BuildPlanWithContextAndAnalysis(expr, PlanContext{
+		Mode:                            EvalModeInstant,
+		EvaluationTime:                  time.Unix(3600, 0).UTC(),
+		NativeLoweringMode:              NativeLoweringModeLocalPushdown,
+		PreferNativeAggregationPushdown: true,
+	})
+	if err != nil {
+		t.Fatalf("expected local-pushdown aggregation plan, got error: %v", err)
+	}
+	explain := ExplainPlanWithLowering(plan, analysis.Root)
+	if explain.Kind != "aggregation" || explain.Strategy != "local" || len(explain.Children) != 1 {
+		t.Fatalf("expected local aggregation root with one child, got %#v", explain)
+	}
+	child := explain.Children[0]
+	if child.Strategy != "native_sql" || child.RenderedSQL == "" {
+		t.Fatalf("expected native child with rendered SQL, got %#v", child)
+	}
+	if !strings.Contains(child.RenderedSQL, "arrayConcat([tuple('__name__'") || !strings.Contains(child.RenderedSQL, "mapKeys(src.tags)") {
+		t.Fatalf("expected generic aggregation child to preserve full tags before rate, got %q", child.RenderedSQL)
+	}
+}
+
 func TestBuildPlanWithContextCreatesNativePlanForInfo(t *testing.T) {
 	expr, err := logical.ParseExpression("info(up)")
 	if err != nil {
@@ -1504,11 +1589,11 @@ func TestExplainPlanIncludesSparseRangeWindowPhysicalDecision(t *testing.T) {
 
 func TestExplainPlanIncludesSparseRateAndNoCapPhysicalDecisions(t *testing.T) {
 	tests := []struct {
-		name          string
-		query         string
-		wantKind      string
-		wantStrategy  string
-		wantDecision  bool
+		name         string
+		query        string
+		wantKind     string
+		wantStrategy string
+		wantDecision bool
 	}{
 		{
 			name:         "sparse direct rate aggregation",
@@ -1518,10 +1603,10 @@ func TestExplainPlanIncludesSparseRateAndNoCapPhysicalDecisions(t *testing.T) {
 			wantDecision: true,
 		},
 		{
-			name:         "fused rate aggregation applies thread-cap guardrail setting",
+			name:         "fused rate aggregation preserves no thread cap",
 			query:        "sum by (job) (rate(up[1h]))",
 			wantKind:     "query_settings",
-			wantStrategy: "set_max_threads",
+			wantStrategy: "no_thread_cap",
 			wantDecision: true,
 		},
 		{

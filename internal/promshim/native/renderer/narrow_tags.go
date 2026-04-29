@@ -14,6 +14,10 @@ import (
 //
 // The returned slice is freshly allocated; callers own it and may hand it
 // to RenderParams.
+func HistogramChildTagNarrowing(child *logicalpkg.AggregationPlan) (requireFullTags bool, requiredLabels []string) {
+	return decideHistogramChildNarrowing(child)
+}
+
 func decideHistogramChildNarrowing(child *logicalpkg.AggregationPlan) (requireFullTags bool, requiredLabels []string) {
 	if child == nil || child.Without || len(child.Grouping) == 0 {
 		return true, nil

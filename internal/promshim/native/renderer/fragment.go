@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage/schema"
 )
@@ -15,10 +16,11 @@ import (
 // helpers). ExtraParams carries parameter bindings that are not part of the
 // Select AST (e.g. bindings namespaced by a legacy child bridge).
 type renderedFragment struct {
-	Select        *sqlb.Select
-	RawSQL        string
-	ExtraParams   map[string]string
-	ExtraSettings map[string]any
+	Select                 *sqlb.Select
+	RawSQL                 string
+	ExtraParams            map[string]string
+	ExtraSettings          map[string]any
+	ExtraPhysicalDecisions []physical.Decision
 }
 
 func finalizeRenderedFragment(rf renderedFragment) (RenderedQuery, error) {
@@ -45,7 +47,8 @@ func finalizeRenderedFragment(rf renderedFragment) (RenderedQuery, error) {
 	}
 	settings := map[string]any{}
 	mergeRenderedQuerySettings(settings, rf.ExtraSettings)
-	return RenderedQuery{SQL: sql + schema.QuerySuffix, QueryParams: params, QuerySettings: settings}, nil
+	decisions := appendRenderedQueryPhysicalDecisions(nil, rf.ExtraPhysicalDecisions...)
+	return RenderedQuery{SQL: sql + schema.QuerySuffix, QueryParams: params, QuerySettings: settings, PhysicalDecisions: decisions}, nil
 }
 
 // renderLoweredChildAsSource renders a logical.Node child via Lower, then

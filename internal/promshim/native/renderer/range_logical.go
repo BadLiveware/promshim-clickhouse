@@ -5,6 +5,7 @@ import (
 
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -62,10 +63,9 @@ func renderRangeFunctionLogicalDirect(ctx LoweringCtx, n logicalpkg.Node) (rende
 // Range mode:
 //  1. leaf range-vector selector + identity + canUseRangeFunctionRowsFastPath(fn):
 //     BuildRangeMatrixSelectorRowsQuerySQL + buildRangeFunctionOverRowsSQL.
-//  2. leaf range-vector selector + identity + avg_over_time +
-//     preferDirectSelectorWindowJoin:
+//  2. leaf range-vector selector + identity + direct aggregate strategy:
 //     BuildRangeWindowSelectorDirectAggregateQuerySQLWithFinalTags.
-//  3. leaf range-vector selector + identity + preferDirectSelectorWindowJoin:
+//  3. leaf range-vector selector + identity + direct window-join strategy:
 //     BuildRangeWindowSelectorQuerySQLWithFinalTags.
 //  4. leaf range-vector selector (catch-all): Lower on the leaf +
 //     buildRangeFunctionOverWindowedArraysSQL.
@@ -212,7 +212,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						}
 						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: rowParams}, nil
 					}
-					if isIdentity && cfg.EnableNativeGridFunctions && canUseNativeGridRangeFunction(fn, lookbackMS, offsetMS) {
+					if isIdentity && cfg.EnableNativeGridFunctions && physical.CanUseNativeGridRangeFunction(fn, lookbackMS, offsetMS) {
 						childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
 						source, err := renderAggregationSourceView(view, params)
 						if err != nil {
@@ -223,12 +223,19 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						if err != nil {
 							return renderedFragment{}, err
 						}
-						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
+						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams, ExtraPhysicalDecisions: []physical.Decision{physical.NativeGridRangeFunctionDecision("range_function")}}, nil
 					}
 					if isIdentity {
-						strategy := resolveRangeWindowAggregateStrategy(fn, cfg, lookbackMS, params.StepMS, params.Physical)
-						switch strategy {
-						case RangeWindowAggregateStrategyCumulativeAvg:
+						decision := physical.ChooseRangeWindowAggregate(physical.RangeWindowAggregateInput{
+							Func:                        fn,
+							LookbackMS:                  lookbackMS,
+							OffsetMS:                    offsetMS,
+							StepMS:                      params.StepMS,
+							EnableCumulativeAvgOverTime: cfg.EnableCumulativeAvgOverTime,
+							Preferences:                 params.Physical,
+						})
+						switch decision.Strategy {
+						case physical.RangeWindowAggregateStrategyCumulativeAvg:
 							childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
 							source, err := renderAggregationSourceView(view, params)
 							if err != nil {
@@ -239,8 +246,8 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 							if err != nil {
 								return renderedFragment{}, err
 							}
-							return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
-						case RangeWindowAggregateStrategyDirectAggregate:
+							return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams, ExtraPhysicalDecisions: []physical.Decision{decision.Explain("range_window_aggregate")}}, nil
+						case physical.RangeWindowAggregateStrategyDirectAggregate, physical.RangeWindowAggregateStrategySparseDirectAggregate:
 							childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
 							source, err := renderAggregationSourceView(view, params)
 							if err != nil {
@@ -251,8 +258,8 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 							if err != nil {
 								return renderedFragment{}, err
 							}
-							return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
-						case RangeWindowAggregateStrategyWindowJoin:
+							return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams, ExtraPhysicalDecisions: []physical.Decision{decision.Explain("range_window_aggregate")}}, nil
+						case physical.RangeWindowAggregateStrategyWindowJoin:
 							childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
 							source, err := renderAggregationSourceView(view, params)
 							if err != nil {
@@ -264,7 +271,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 							if err != nil {
 								return renderedFragment{}, err
 							}
-							return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
+							return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams, ExtraPhysicalDecisions: []physical.Decision{decision.Explain("range_window_aggregate")}}, nil
 						}
 					}
 					// Range-mode leaf catch-all: Lower the logical leaf
@@ -483,7 +490,7 @@ func tryRenderSubqueryRowsSourceLogical(ctx LoweringCtx, n *logicalpkg.SubqueryP
 	if !canFuseRangeAggregationLogicalDirect(agg, childCtx.Params) {
 		return "", nil, false, nil
 	}
-	rowsSQL, rowParams, err := renderFusedRangeAggregationLogicalRowsSQL(childCtx, agg)
+	rowsSQL, rowParams, _, err := renderFusedRangeAggregationLogicalRowsSQL(childCtx, agg)
 	if err != nil {
 		return "", nil, false, err
 	}

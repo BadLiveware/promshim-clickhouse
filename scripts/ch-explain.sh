@@ -136,7 +136,10 @@ PromQL-only artifacts:
   shim-summary.json / .tsv          HTTP status, Prometheus status/error, result type,
                                     series count, point count.
   promshim-explain.json             promshim explain endpoint response.
-  promshim-explain-summary.tsv      Transport, settings profile, routing/strategy summary.
+  promshim-explain-summary.tsv      Transport, settings profile, routing/strategy summary,
+                                    and compact physical decision list.
+  promshim-physical-decisions.tsv   One row per physical decision with reason,
+                                    guards, and rejected alternatives.
 
 Notes:
   - The script takes the project stack lock because query_log windows and stack
@@ -260,7 +263,14 @@ write_promshim_explain() {
   fi
   if curl "${args[@]}" "$@" >"${OUTPUT_DIR}/promshim-explain.json"; then
     jq -r '
-      ["clickhouse_transport","settings_profile","settings_family","settings_candidate","strict_strategy","selected_strategy","served_candidate","routing_decision","routing_reason","cost_family"],
+      def physical_decision_summary:
+        [
+          paths(type == "object" and has("physicalDecisions")) as $p
+          | getpath($p).physicalDecisions[]?
+          | select((.kind // "") != "" and (.strategy // "") != "")
+          | "\(.kind)=\(.strategy)"
+        ] | unique | join(",");
+      ["clickhouse_transport","settings_profile","settings_family","settings_candidate","strict_strategy","selected_strategy","served_candidate","routing_decision","routing_reason","cost_family","physical_decisions"],
       [
         (.data.clickHouseTransport // ""),
         (.data.clickHouseSettingsProfile.name // ""),
@@ -271,9 +281,26 @@ write_promshim_explain() {
         (.data.routing.servedCandidate // ""),
         (.data.routing.routingDecision // ""),
         (.data.routing.routingReason // ""),
-        (.data.routing.costFamily // "")
+        (.data.routing.costFamily // ""),
+        physical_decision_summary
       ] | @tsv
     ' "${OUTPUT_DIR}/promshim-explain.json" >"${OUTPUT_DIR}/promshim-explain-summary.tsv" || true
+    jq -r '
+      ["node_path","kind","strategy","reason","guards","rejected"],
+      (
+        paths(type == "object" and has("physicalDecisions")) as $p
+        | getpath($p).physicalDecisions[]?
+        | select((.kind // "") != "" and (.strategy // "") != "")
+        | [
+            ($p | map(tostring) | join(".")),
+            (.kind // ""),
+            (.strategy // ""),
+            (.reason // ""),
+            ((.guards // []) | join(",")),
+            ((.rejected // []) | map((.strategy // "") + (if (.reason // "") != "" then ":" + .reason else "" end)) | join(","))
+          ]
+      ) | @tsv
+    ' "${OUTPUT_DIR}/promshim-explain.json" >"${OUTPUT_DIR}/promshim-physical-decisions.tsv" || true
   else
     echo "[ch-explain] promshim explain capture failed; continuing" >&2
     rm -f "${OUTPUT_DIR}/promshim-explain.json"
@@ -495,6 +522,7 @@ fi
     echo "- shim_summary: \`shim-summary.tsv\`"
     [[ -f "${OUTPUT_DIR}/promshim-explain.json" ]] && echo "- promshim_explain: \`promshim-explain.json\`"
     [[ -f "${OUTPUT_DIR}/promshim-explain-summary.tsv" ]] && echo "- promshim_explain_summary: \`promshim-explain-summary.tsv\`"
+    [[ -f "${OUTPUT_DIR}/promshim-physical-decisions.tsv" ]] && echo "- promshim_physical_decisions: \`promshim-physical-decisions.tsv\`"
   fi
   echo "- log_comment: ${LOG_COMMENT}"
   [[ -n "$NATIVE_MODE" ]] && echo "- native_lowering_mode: ${NATIVE_MODE}"
@@ -523,6 +551,14 @@ fi
     echo
     echo '```tsv'
     cat "${OUTPUT_DIR}/promshim-explain-summary.tsv"
+    echo '```'
+  fi
+  if [[ "$INPUT_MODE" != "sql" && -f "${OUTPUT_DIR}/promshim-physical-decisions.tsv" ]]; then
+    echo
+    echo "## Promshim physical decisions"
+    echo
+    echo '```tsv'
+    cat "${OUTPUT_DIR}/promshim-physical-decisions.tsv"
     echo '```'
   fi
   echo

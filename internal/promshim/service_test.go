@@ -11,6 +11,7 @@ import (
 	httpapi "github.com/BadLiveware/promshim-clickhouse/internal/promshim/httpapi"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/local"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 )
 
 func TestPromotedTagColumnHelpersMergeExplicitAndDiscovered(t *testing.T) {
@@ -115,6 +116,133 @@ func TestQueryRangeExplainReturnsNativeAggregationForLabelMutation(t *testing.T)
 	}
 	if len(body.Data.Plan.Children) != 1 || body.Data.Plan.Children[0].Strategy != "native_sql_expression" {
 		t.Fatalf("expected native label-mutation child explain, got %#v", body.Data.Plan)
+	}
+}
+
+func TestQueryRangeExplainIncludesPhysicalDecisions(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	url := "/api/v1/query_range_explain?query=avg_over_time(up%5B1h%5D)&start=0&end=10800&step=3600&native_lowering_mode=force_supported"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Mode string            `json:"mode"`
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Mode != "range" || body.Data.Plan.Strategy != "native_sql" {
+		t.Fatalf("expected native range explain, got %#v", body.Data)
+	}
+	decision, ok := findExplainPhysicalDecision(body.Data.Plan.PhysicalDecisions, "range_window_aggregate")
+	if !ok {
+		t.Fatalf("expected range-window physical decision in API response, got %#v", body.Data.Plan.PhysicalDecisions)
+	}
+	if decision.Strategy != string(physical.RangeWindowAggregateStrategySparseDirectAggregate) {
+		t.Fatalf("physical strategy = %q, want %q; decisions=%#v", decision.Strategy, physical.RangeWindowAggregateStrategySparseDirectAggregate, body.Data.Plan.PhysicalDecisions)
+	}
+}
+
+func findExplainPhysicalDecision(decisions []physical.Decision, kind string) (physical.Decision, bool) {
+	for _, decision := range decisions {
+		if decision.Kind == kind {
+			return decision, true
+		}
+	}
+	return physical.Decision{}, false
+}
+
+func findExplainNodeByKind(node local.ExplainNode, kind string) (local.ExplainNode, bool) {
+	if node.Kind == kind {
+		return node, true
+	}
+	for _, child := range node.Children {
+		if found, ok := findExplainNodeByKind(child, kind); ok {
+			return found, true
+		}
+	}
+	return local.ExplainNode{}, false
+}
+
+func TestQueryRangeExplainIncludesSubqueryNodeThreadPreferenceDecision(t *testing.T) {
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name                 string
+		url                  string
+		wantRootQuerySetting bool
+	}{
+		{
+			name:                 "pure subquery rate keeps root-level no-thread-cap",
+			url:                  "/api/v1/query_range_explain?query=rate((sum%20by%20(job)%20(up))%5B30m:1m%5D)&start=0&end=10800&step=30&native_lowering_mode=force_supported",
+			wantRootQuerySetting: true,
+		},
+		{
+			name:                 "mixed binary root keeps no-thread-cap on subquery branch",
+			url:                  "/api/v1/query_range_explain?query=sum(avg_over_time(up%5B1h%5D))%20%2B%20sum(rate((sum%20by%20(job)%20(up))%5B5m:1m%5D))&start=0&end=10800&step=30&native_lowering_mode=force_supported",
+			wantRootQuerySetting: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.url, nil)
+			res := httptest.NewRecorder()
+			handler.ServeHTTP(res, req)
+
+			if res.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+			}
+
+			var body struct {
+				Status string `json:"status"`
+				Data   struct {
+					Mode string            `json:"mode"`
+					Plan local.ExplainNode `json:"plan"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body.Data.Mode != "range" || body.Data.Plan.Strategy != "native_sql" {
+				t.Fatalf("expected native range explain, got %#v", body.Data)
+			}
+
+			if _, ok := findExplainPhysicalDecision(body.Data.Plan.PhysicalDecisions, "query_settings"); ok != tt.wantRootQuerySetting {
+				t.Fatalf("root query_settings presence=%v, want %v; root decisions=%#v", ok, tt.wantRootQuerySetting, body.Data.Plan.PhysicalDecisions)
+			}
+
+			subquery, ok := findExplainNodeByKind(body.Data.Plan, "subquery")
+			if !ok {
+				t.Fatalf("expected subquery node, got %#v", body.Data.Plan)
+			}
+			decision, ok := findExplainPhysicalDecision(subquery.PhysicalDecisions, "query_settings")
+			if !ok {
+				t.Fatalf("expected subquery query_settings decision, got %#v", subquery.PhysicalDecisions)
+			}
+			if decision.Strategy != "no_thread_cap" {
+				t.Fatalf("subquery query_settings strategy = %q, want no_thread_cap; decisions=%#v", decision.Strategy, subquery.PhysicalDecisions)
+			}
+			if decision.Reason != physical.ThreadPreferenceReasonSubqueryRateRows {
+				t.Fatalf("subquery query_settings reason = %q, want %q", decision.Reason, physical.ThreadPreferenceReasonSubqueryRateRows)
+			}
+		})
 	}
 }
 

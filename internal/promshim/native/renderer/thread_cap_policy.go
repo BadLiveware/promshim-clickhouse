@@ -3,35 +3,39 @@ package renderer
 import (
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-const (
-	threadCapReasonDirectRangeAggregation = "direct_range_aggregation_cpu_guardrail"
-	threadCapReasonFusedRateAggregation   = "fused_rate_aggregation_cpu_guardrail"
-	threadCapReasonSubqueryRateRows       = "subquery_rate_over_aggregate_regresses_with_thread_cap"
-)
-
-func directRangeAggregationThreadSettings(params RenderParams, source storage.AggregationSource) map[string]any {
+func directRangeAggregationThreadSettings(params RenderParams, source storage.AggregationSource) (map[string]any, []physical.Decision) {
 	if params.Mode != native.RenderModeRange || source.Selector == nil {
-		return nil
+		return nil, nil
 	}
-	return physicalSettings(preferASOFThreadGuardrail(params.Physical, threadCapReasonDirectRangeAggregation))
+	prefs := preferASOFThreadGuardrail(params.Physical, physical.ThreadPreferenceReasonDirectRangeAggregation)
+	return physicalSettings(prefs), threadPreferenceDecisionsForPrefs(prefs)
 }
 
-func fusedRateAggregationThreadSettings(params RenderParams, agg *logicalpkg.AggregationPlan) map[string]any {
+func fusedRateAggregationThreadSettings(params RenderParams, agg *logicalpkg.AggregationPlan) (map[string]any, []physical.Decision) {
 	if params.Mode != native.RenderModeRange || agg == nil {
-		return nil
+		return nil, nil
 	}
 	child, fn, ok := rangeFunctionChildNode(agg.Child)
 	if !ok || fn != "rate" {
-		return nil
+		return nil, nil
 	}
 	if !isMatrixSelectorLeaf(child) {
-		return nil
+		return nil, nil
 	}
-	return physicalSettings(preferASOFThreadGuardrail(params.Physical, threadCapReasonFusedRateAggregation))
+	prefs := preferASOFThreadGuardrail(params.Physical, physical.ThreadPreferenceReasonFusedRateAggregation)
+	return physicalSettings(prefs), threadPreferenceDecisionsForPrefs(prefs)
+}
+
+func threadPreferenceDecisionsForPrefs(prefs PhysicalPlanPreferences) []physical.Decision {
+	if decision, ok := physical.ThreadPreferenceDecision(prefs.Execution.Threads); ok {
+		return []physical.Decision{decision}
+	}
+	return nil
 }
 
 func suppressThreadCapForSubqueryRangeFunction(params RenderParams, child *logicalpkg.SubqueryPlan, fn string) RenderParams {
@@ -41,13 +45,21 @@ func suppressThreadCapForSubqueryRangeFunction(params RenderParams, child *logic
 	if _, ok := child.Child.(*logicalpkg.AggregationPlan); !ok {
 		return params
 	}
-	params.Physical = preferNoThreadCap(params.Physical, threadCapReasonSubqueryRateRows)
+	params.Physical = preferNoThreadCap(params.Physical, physical.ThreadPreferenceReasonSubqueryRateRows)
 	return params
 }
 
 func suppressThreadCapForPlan(params RenderParams, node logicalpkg.Node) RenderParams {
+	// Query settings are whole-query in ClickHouse; when a binary root mixes
+	// subquery-rate and non-subquery branches, forcing a global no-thread-cap
+	// preference can suppress useful guardrails for the other branch. Keep the
+	// no-cap override for non-binary roots and rely on branch-local propagation
+	// inside range-lowering for nested subquery/rate paths.
+	if _, mixedRoot := node.(*logicalpkg.BinaryPlan); mixedRoot {
+		return params
+	}
 	if containsSubqueryRateOverAggregation(node) {
-		params.Physical = preferNoThreadCap(params.Physical, threadCapReasonSubqueryRateRows)
+		params.Physical = preferNoThreadCap(params.Physical, physical.ThreadPreferenceReasonSubqueryRateRows)
 	}
 	return params
 }

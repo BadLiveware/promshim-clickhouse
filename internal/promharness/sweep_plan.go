@@ -31,6 +31,7 @@ type SweepPlanOptions struct {
 	CostRoutingLocalFamilies   string
 	MemoryMode                 string
 	ClickHouseProfileMode      string
+	PrometheusProfileMode      string
 	ClickHouseReferenceProfile string
 	SettingsProfile            string
 	CorpusSet                  string
@@ -298,6 +299,7 @@ func RenderSweepPlan(plan SweepPlan) string {
 	fmt.Fprintf(&b, "Cost routing local families: %s\n", valueOr(o.CostRoutingLocalFamilies, "none"))
 	fmt.Fprintf(&b, "Memory mode: %s\n", o.MemoryMode)
 	fmt.Fprintf(&b, "ClickHouse profile mode: %s\n", o.ClickHouseProfileMode)
+	fmt.Fprintf(&b, "Prometheus profile mode: %s\n", o.PrometheusProfileMode)
 	fmt.Fprintf(&b, "ClickHouse reference profile: %s\n", o.ClickHouseReferenceProfile)
 	fmt.Fprintf(&b, "promshim settings profile: %s\n\n", o.SettingsProfile)
 	b.WriteString("Datasets:\n")

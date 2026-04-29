@@ -27,6 +27,7 @@ func main() {
 	flag.StringVar(&opts.CostRoutingLocalFamilies, "cost-routing-local-families", "", "Cost routing local families.")
 	flag.StringVar(&opts.MemoryMode, "memory-mode", "summary", "Memory mode.")
 	flag.StringVar(&opts.ClickHouseProfileMode, "clickhouse-profile-mode", "off", "ClickHouse profile mode.")
+	flag.StringVar(&opts.PrometheusProfileMode, "prometheus-profile-mode", "off", "Prometheus profile mode.")
 	flag.StringVar(&opts.ClickHouseReferenceProfile, "clickhouse-reference-profile", "default-benchmark-compose", "ClickHouse reference profile.")
 	flag.StringVar(&opts.SettingsProfile, "settings-profile", "default_safe", "promshim settings profile.")
 	flag.StringVar(&opts.CorpusSet, "corpus-set", "native", "Corpus set.")

@@ -44,6 +44,10 @@ Options:
                                   Capture memory trade-off artifacts (default summary).
   --clickhouse-profile {off|summary|auto|processors}
                                   Capture per-query ClickHouse profile output from bench runs (default off).
+  --prometheus-profile {off|runtime}
+                                  Capture per-query Prometheus runtime samples in bench reports (default off).
+  --prometheus-profile-sample-interval D
+                                  Sampling interval for --prometheus-profile=runtime (default 20ms).
   --clickhouse-reference-profile NAME
                                   Reference profile label recorded in sweep artifacts (default default-benchmark-compose).
   --settings-profile NAME        promshim ClickHouse settings profile for benchmark containers (default default_safe).
@@ -113,6 +117,8 @@ COST_ROUTING_LOCAL_FAMILIES=""
 INCLUDE_PROM="true"
 MEMORY_MODE="summary"
 CLICKHOUSE_PROFILE_MODE="off"
+PROMETHEUS_PROFILE_MODE="off"
+PROMETHEUS_PROFILE_SAMPLE_INTERVAL="20ms"
 CLICKHOUSE_REFERENCE_PROFILE="${PROM_SHIM_BENCH_CLICKHOUSE_REFERENCE_PROFILE:-default-benchmark-compose}"
 SETTINGS_PROFILE="${PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE:-default_safe}"
 CORPUS_SET=""
@@ -137,6 +143,8 @@ while [[ $# -gt 0 ]]; do
     --include-prom) INCLUDE_PROM="$2"; shift 2 ;;
     --memory)       MEMORY_MODE="$2"; shift 2 ;;
     --clickhouse-profile) CLICKHOUSE_PROFILE_MODE="$2"; shift 2 ;;
+    --prometheus-profile) PROMETHEUS_PROFILE_MODE="$2"; shift 2 ;;
+    --prometheus-profile-sample-interval) PROMETHEUS_PROFILE_SAMPLE_INTERVAL="$2"; shift 2 ;;
     --clickhouse-reference-profile) CLICKHOUSE_REFERENCE_PROFILE="$2"; shift 2 ;;
     --settings-profile) SETTINGS_PROFILE="$2"; shift 2 ;;
     --corpus-set)   CORPUS_SET="$2"; shift 2 ;;
@@ -169,6 +177,10 @@ esac
 case "$CLICKHOUSE_REFERENCE_PROFILE" in
   default-benchmark-compose|promshim-ch-timeseries-reference-v1) ;;
   *) fatal "--clickhouse-reference-profile must be default-benchmark-compose|promshim-ch-timeseries-reference-v1 (got: $CLICKHOUSE_REFERENCE_PROFILE)" ;;
+esac
+case "$PROMETHEUS_PROFILE_MODE" in
+  off|runtime) ;;
+  *) fatal "--prometheus-profile must be off|runtime (got: $PROMETHEUS_PROFILE_MODE)" ;;
 esac
 if [[ -n "$CORPUS_SET" ]]; then
   case "$CORPUS_SET" in
@@ -540,6 +552,7 @@ print_sweep_plan() {
     --cost-routing-local-families "$COST_ROUTING_LOCAL_FAMILIES"
     --memory-mode "$MEMORY_MODE"
     --clickhouse-profile-mode "$CLICKHOUSE_PROFILE_MODE"
+    --prometheus-profile-mode "$PROMETHEUS_PROFILE_MODE"
     --clickhouse-reference-profile "$CLICKHOUSE_REFERENCE_PROFILE"
     --settings-profile "$SETTINGS_PROFILE"
     --corpus-set "$CORPUS_SET"
@@ -580,6 +593,7 @@ generate_sweep_artifacts() {
     --ch-url "$BENCH_CH_URL" \
     --memory-mode "$MEMORY_MODE" \
     --clickhouse-profile-mode "$CLICKHOUSE_PROFILE_MODE" \
+    --prometheus-profile-mode "$PROMETHEUS_PROFILE_MODE" \
     --clickhouse-reference-profile "$CLICKHOUSE_REFERENCE_PROFILE" \
     --settings-profile "$SETTINGS_PROFILE"
 }
@@ -657,6 +671,8 @@ run_sweep() {
             --ch-url "$BENCH_CH_URL" \
             --memory "$MEMORY_MODE" \
             --clickhouse-profile "$CLICKHOUSE_PROFILE_MODE" \
+            --prometheus-profile "$PROMETHEUS_PROFILE_MODE" \
+            --prometheus-profile-sample-interval "$PROMETHEUS_PROFILE_SAMPLE_INTERVAL" \
             --run-label "run=${RUN_NAME}" \
             --run-label "profile=${p}" \
             --run-label "active-series=${d}" \

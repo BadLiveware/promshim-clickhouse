@@ -49,22 +49,24 @@ func (f runLabelFlags) Set(value string) error {
 
 func main() {
 	var (
-		corpusPath      = flag.String("corpus", "harness/corpus/bench-native-lowering.json", "Path to bench corpus JSON.")
-		artifactDir     = flag.String("artifact-dir", "harness/artifacts/bench/standalone/latest", "Directory to write bench report artifacts.")
-		artifactName    = flag.String("artifact-name", "bench-report.json", "Artifact file name for v2 reports (default bench-report.json when v2 is enabled).")
-		repeats         = flag.Int("repeats", 10, "Timed repeats per (query, mode).")
-		warmup          = flag.Int("warmup", 2, "Warmup repeats per (query, mode), discarded.")
-		baselinePath    = flag.String("baseline", "", "Optional baseline bench report for regression comparison.")
-		updateBaseline  = flag.Bool("update-baseline", false, "Rewrite the baseline file from this run's results.")
-		promURL         = flag.String("prom-url", "http://localhost:29090", "Prometheus base URL.")
-		shimURL         = flag.String("shim-url", "http://localhost:29091", "promshim base URL.")
-		timeoutFlag     = flag.Duration("timeout", 30*time.Second, "Per-request HTTP timeout.")
-		evalTime        = flag.String("eval-time", "2026-04-21T21:45:42Z", "Bench evaluation time (manifest base). Corpus offsets are interpreted relative to this. Match the compliance fixture's end_time.")
-		shimModes       = flag.String("shim-modes", "", "Comma-separated shim native_lowering_mode values for v2 reports, e.g. force_supported,local_pushdown,off.")
-		routingPolicies = flag.String("routing-policies", "", "Comma-separated routing_policy values for v2 reports, e.g. strict,cost_shadow.")
-		includeProm     = flag.Bool("include-prom", true, "Include Prometheus baseline timing in v2 reports.")
-		memoryMode      = flag.String("memory", "off", "Memory capture mode placeholder: off|summary|detailed. Detailed capture lands in a later sweep phase.")
-		legacyReport    = flag.Bool("legacy-report", false, "Force legacy v1 bench report output even when v2 flags are present.")
+		corpusPath                = flag.String("corpus", "harness/corpus/bench-native-lowering.json", "Path to bench corpus JSON.")
+		artifactDir               = flag.String("artifact-dir", "harness/artifacts/bench/standalone/latest", "Directory to write bench report artifacts.")
+		artifactName              = flag.String("artifact-name", "bench-report.json", "Artifact file name for v2 reports (default bench-report.json when v2 is enabled).")
+		repeats                   = flag.Int("repeats", 10, "Timed repeats per (query, mode).")
+		warmup                    = flag.Int("warmup", 2, "Warmup repeats per (query, mode), discarded.")
+		baselinePath              = flag.String("baseline", "", "Optional baseline bench report for regression comparison.")
+		updateBaseline            = flag.Bool("update-baseline", false, "Rewrite the baseline file from this run's results.")
+		promURL                   = flag.String("prom-url", "http://localhost:29090", "Prometheus base URL.")
+		shimURL                   = flag.String("shim-url", "http://localhost:29091", "promshim base URL.")
+		timeoutFlag               = flag.Duration("timeout", 30*time.Second, "Per-request HTTP timeout.")
+		evalTime                  = flag.String("eval-time", "2026-04-21T21:45:42Z", "Bench evaluation time (manifest base). Corpus offsets are interpreted relative to this. Match the compliance fixture's end_time.")
+		shimModes                 = flag.String("shim-modes", "", "Comma-separated shim native_lowering_mode values for v2 reports, e.g. force_supported,local_pushdown,off.")
+		routingPolicies           = flag.String("routing-policies", "", "Comma-separated routing_policy values for v2 reports, e.g. strict,cost_shadow.")
+		includeProm               = flag.Bool("include-prom", true, "Include Prometheus baseline timing in v2 reports.")
+		memoryMode                = flag.String("memory", "off", "Memory capture mode placeholder: off|summary|detailed. Detailed capture lands in a later sweep phase.")
+		promProfileMode           = flag.String("prometheus-profile", "off", "Prometheus resource profile mode for v2 reports: off|runtime. runtime samples Prometheus /metrics around one measured Prometheus query per row.")
+		promProfileSampleInterval = flag.Duration("prometheus-profile-sample-interval", 20*time.Millisecond, "Sampling interval for --prometheus-profile=runtime.")
+		legacyReport              = flag.Bool("legacy-report", false, "Force legacy v1 bench report output even when v2 flags are present.")
 	)
 	runLabels := runLabelFlags{}
 	flag.Var(runLabels, "run-label", "Run label for v2 reports, repeated as KEY=VALUE.")
@@ -84,27 +86,29 @@ func main() {
 
 	modeList := splitCSV(*shimModes)
 	routingPolicyList := splitCSV(*routingPolicies)
-	useV2 := len(modeList) > 0 || len(routingPolicyList) > 0 || includePromSet || len(runLabels) > 0 || *artifactName != "bench-report.json" || *memoryMode != "off"
+	useV2 := len(modeList) > 0 || len(routingPolicyList) > 0 || includePromSet || len(runLabels) > 0 || *artifactName != "bench-report.json" || *memoryMode != "off" || *promProfileMode != "off"
 	if *legacyReport {
 		useV2 = false
 	}
 	if useV2 {
 		report, err := promharness.RunBenchV2(promharness.BenchConfig{
-			PromURL:         *promURL,
-			ShimURL:         *shimURL,
-			CorpusPath:      *corpusPath,
-			ArtifactDir:     *artifactDir,
-			ArtifactName:    *artifactName,
-			Manifest:        promharness.Manifest{BaseUnixSeconds: base.Unix()},
-			Repeats:         *repeats,
-			WarmupRepeats:   *warmup,
-			Timeout:         *timeoutFlag,
-			ShimModes:       modeList,
-			RoutingPolicies: routingPolicyList,
-			IncludeProm:     *includeProm,
-			IncludePromSet:  includePromSet,
-			RunLabels:       map[string]string(runLabels),
-			MemoryMode:      *memoryMode,
+			PromURL:                   *promURL,
+			ShimURL:                   *shimURL,
+			CorpusPath:                *corpusPath,
+			ArtifactDir:               *artifactDir,
+			ArtifactName:              *artifactName,
+			Manifest:                  promharness.Manifest{BaseUnixSeconds: base.Unix()},
+			Repeats:                   *repeats,
+			WarmupRepeats:             *warmup,
+			Timeout:                   *timeoutFlag,
+			ShimModes:                 modeList,
+			RoutingPolicies:           routingPolicyList,
+			IncludeProm:               *includeProm,
+			IncludePromSet:            includePromSet,
+			RunLabels:                 map[string]string(runLabels),
+			MemoryMode:                *memoryMode,
+			PromProfileMode:           *promProfileMode,
+			PromProfileSampleInterval: *promProfileSampleInterval,
 		})
 		if err != nil {
 			fail("RunBenchV2: %v", err)

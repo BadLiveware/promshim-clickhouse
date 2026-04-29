@@ -75,6 +75,42 @@ func TestBuildPlanWithContextWrapsLargeLocalRangePlanInChunkedRangePlan(t *testi
 	}
 }
 
+func TestBuildPlanWithContextWrapsLargeNativeRangePlanInChunkedRangePlan(t *testing.T) {
+	expr, err := logical.ParseExpression(`sum by (job) (rate(up[5m]))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := buildPlanWithContext(expr, PlanContext{
+		Mode:                            EvalModeRange,
+		Start:                           time.Unix(0, 0).UTC(),
+		End:                             time.Unix(600, 0).UTC(),
+		Step:                            time.Minute,
+		NativeLoweringMode:              NativeLoweringModeForceSupported,
+		EnableNativeGridFunctions:       true,
+		MaxRangePointsPerSeries:         100,
+		RangeChunkPointsPerSeries:       5000,
+		NativeRangeChunkPointsPerSeries: 5,
+	})
+	if err != nil {
+		t.Fatalf("expected chunked native plan, got error: %v", err)
+	}
+	chunked, ok := plan.(*chunkedRangePlan)
+	if !ok {
+		t.Fatalf("expected chunkedRangePlan, got %T", plan)
+	}
+	nativeChild, ok := chunked.Child.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan child, got %T", chunked.Child)
+	}
+	if nativeChild.LogicalRoot == nil || nativeChild.LogicalAnalysis == nil {
+		t.Fatalf("expected chunked native child to retain logical lowering metadata")
+	}
+	if strategy := chunked.explain().Strategy; strategy != "chunked_native" {
+		t.Fatalf("chunked native strategy = %q, want chunked_native", strategy)
+	}
+}
+
 func TestChunkedRangePlanExecutesAndMergesChunks(t *testing.T) {
 	plan := &chunkedRangePlan{
 		Child:                syntheticRangePlan{},

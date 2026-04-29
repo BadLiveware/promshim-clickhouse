@@ -71,6 +71,18 @@ Focused current-branch processing run on the same `7d` / `profile-50k` fixture. 
 
 The remaining heavy rows are resource-heavy despite the p50 gains: current ClickHouse profile highlights show `avg memory 1h / 24h range` at `8.2 GiB` memory p95 and `710.1M` read rows, `sum rate 1h / 7d range` at `15.4 GiB` memory p95 and `931.4M` read rows, and `histogram quantile / 24h range` at `3.9 GiB` memory p95 and `437.4M` read rows.
 
+## Native range auto-chunking tradeoff
+
+Default native range auto-chunking (`PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES=289`) is a resource-safety path for native-grid range aggregation rows. It is not a latency optimization: on the focused hit set, geomean p50 was `1.36×` slower than the single-query native path, while ClickHouse memory p95 dropped to `0.24×`; read rows rose `1.66×` and user CPU rose `1.27×`.
+
+| Query | No-chunk p50 | Auto-chunk p50 | Prom p50 | Auto S/P | No-chunk mem p95 | Auto mem p95 |
+|---|---:|---:|---:|---:|---:|---:|
+| `sum rate 5m / 24h @1m` | `1,257 ms` | `1,917 ms` | `4,238 ms` | `0.43×` | `3.59 GiB` | `0.78 GiB` |
+| `sum rate 1h / 7d @15m` | `4,519 ms` | `5,221 ms` | `19,194 ms` | `0.24×` | `18.98 GiB` | `8.26 GiB` |
+| `sum rate 1h / 7d @5m` | `4,494 ms` | `6,370 ms` | `21,839 ms` | `0.24×` | `15.41 GiB` | `2.35 GiB` |
+
+The selected path is visible as `chunked_native` in `X-Promshim-Strategy`, benchmark strategy columns, and explain plans so regressions can be correlated with the resource-safety route.
+
 ## Category matrix
 
 | Category | Count | Strategy mix | Prom p50 median | Shim p50 median | S/P median | Target bands |

@@ -46,6 +46,18 @@ On the `7d` / `profile-50k` fixture, the current PR branch improved all 8 proces
 
 Tradeoff: the heavy range rows are still large ClickHouse jobs, with current memory p95 up to `15.4 GiB` and read volume up to `931.4M` rows; treat these numbers as local harness evidence, not broad production claims.
 
+### Native range auto-chunking check
+
+Default native range auto-chunking (`PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES=289`) trades latency and extra ClickHouse work for lower peak memory on native-grid range aggregation rows. Conditions: focused hit-set run, `prefer`, `strict`, 3 repeats, 1 warmup, memory and ClickHouse profile summaries enabled; Prometheus comparison used the same hit set with Prom timings enabled.
+
+| Query | No-chunk p50 | Auto-chunk p50 | Auto vs Prom | No-chunk mem p95 | Auto mem p95 | Read rows/logical request |
+|---|---:|---:|---:|---:|---:|---:|
+| `sum rate 5m / 24h @1m` | `1,257 ms` | `1,917 ms` | `0.43×` | `3.59 GiB` | `0.78 GiB` | `0.34B → 0.56B` |
+| `sum rate 1h / 7d @15m` | `4,519 ms` | `5,221 ms` | `0.24×` | `18.98 GiB` | `8.26 GiB` | `0.93B → 1.27B` |
+| `sum rate 1h / 7d @5m` | `4,494 ms` | `6,370 ms` | `0.24×` | `15.41 GiB` | `2.35 GiB` | `0.93B → 1.87B` |
+
+Across the hit set, auto-chunking was `1.36×` slower by geomean p50, but reduced ClickHouse memory p95 to `0.24×` of the non-chunked path; read rows rose `1.66×` and user CPU rose `1.27×`. The strategy is visible as `chunked_native` in benchmark output, response headers, and explain plans.
+
 ### 7d sparse CBE category matrix (strict vs cost_prefer)
 
 10 timed repeats, 2 warmups, mode `prefer`, routing policies

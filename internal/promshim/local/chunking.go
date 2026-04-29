@@ -42,12 +42,17 @@ func (p *chunkedRangePlan) execute(ctx context.Context, Evaluator *Evaluator, pa
 }
 
 func (p *chunkedRangePlan) explain() ExplainNode {
+	child := p.Child.explain()
+	strategy := "chunked_local"
+	if _, ok := p.Child.(*nativeSubtreePlan); ok {
+		strategy = "chunked_native"
+	}
 	return ExplainNode{
 		Kind:     "range_chunk",
-		Strategy: "chunked_local",
+		Strategy: strategy,
 		Reason:   p.Reason,
 		Estimate: p.Estimate,
-		Children: []ExplainNode{p.Child.explain()},
+		Children: []ExplainNode{child},
 	}
 }
 

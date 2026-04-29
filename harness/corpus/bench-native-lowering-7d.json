@@ -85,6 +85,36 @@
     "compareMode": "structural"
   },
   {
+    "name": "rate_plus_rate_5m_range_1d",
+    "endpoint": "query_range",
+    "query": "rate(demo_cpu_usage_seconds_total[5m]) + rate(demo_cpu_usage_seconds_total[5m])",
+    "category": "range_repeated_subexpr",
+    "startOffsetSeconds": -86400,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 300,
+    "compareMode": "structural"
+  },
+  {
+    "name": "rate_ge_rate_5m_range_1d",
+    "endpoint": "query_range",
+    "query": "rate(demo_cpu_usage_seconds_total[5m]) >= rate(demo_cpu_usage_seconds_total[5m])",
+    "category": "range_repeated_subexpr",
+    "startOffsetSeconds": -86400,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 300,
+    "compareMode": "structural"
+  },
+  {
+    "name": "rate_ge_bool_rate_5m_range_1d",
+    "endpoint": "query_range",
+    "query": "rate(demo_cpu_usage_seconds_total[5m]) >= bool rate(demo_cpu_usage_seconds_total[5m])",
+    "category": "range_repeated_subexpr",
+    "startOffsetSeconds": -86400,
+    "endOffsetSeconds": 0,
+    "stepSeconds": 300,
+    "compareMode": "structural"
+  },
+  {
     "name": "repeated_rate_average_5m_range_1d",
     "endpoint": "query_range",
     "query": "(rate(demo_cpu_usage_seconds_total[5m]) + rate(demo_cpu_usage_seconds_total[5m])) / 2",

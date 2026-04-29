@@ -302,7 +302,7 @@ func (s *renderCSEState) subtreeReference(ctx LoweringCtx, node logicalpkg.Node,
 	if ctx.Params.Mode == native.RenderModeRange {
 		columns = "tags AS tags, time_series AS time_series"
 	}
-	return RenderedQuery{SQL: "SELECT " + columns + " FROM " + name + schema.QuerySuffix, QueryParams: map[string]string{}, QuerySettings: rq.QuerySettings}, nil
+	return RenderedQuery{SQL: "SELECT " + columns + " FROM " + name + schema.QuerySuffix, QueryParams: map[string]string{}, QuerySettings: rq.QuerySettings, PhysicalDecisions: rq.PhysicalDecisions}, nil
 }
 
 func (s *renderCSEState) apply(rq RenderedQuery) (RenderedQuery, error) {
@@ -323,7 +323,7 @@ func (s *renderCSEState) apply(rq RenderedQuery) (RenderedQuery, error) {
 	}
 	sql := "WITH " + strings.Join(parts, ",\n") + "\n" + rq.SQL
 	sql = strings.Replace(sql, "SETTINGS allow_experimental_time_series_table = 1", "SETTINGS allow_experimental_time_series_table = 1, enable_global_with_statement = 1, enable_materialized_cte = 1", 1)
-	return RenderedQuery{SQL: sql, QueryParams: params, QuerySettings: rq.QuerySettings}, nil
+	return RenderedQuery{SQL: sql, QueryParams: params, QuerySettings: rq.QuerySettings, PhysicalDecisions: rq.PhysicalDecisions}, nil
 }
 
 // IsUnsupportedByLower reports whether err is the Lower fallback

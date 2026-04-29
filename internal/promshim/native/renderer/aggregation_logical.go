@@ -95,13 +95,14 @@ func renderAggregationLogicalBody(ctx LoweringCtx, n *logicalpkg.AggregationPlan
 				if err != nil {
 					return renderedFragment{}, err
 				}
-				settings := directRangeAggregationThreadSettings(ctx.Params, source)
+				settings, decisions := directRangeAggregationThreadSettings(ctx.Params, source)
 				if cachedAgg.EmitZeroOnEmpty {
 					rendered := wrapZeroOnEmptyAggregationRangeSQL(trimRenderedQuerySQL(sql), queryParams, ctx.Params)
 					rendered.ExtraSettings = settings
+					rendered.ExtraPhysicalDecisions = appendRenderedQueryPhysicalDecisions(rendered.ExtraPhysicalDecisions, decisions...)
 					return rendered, nil
 				}
-				return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams, ExtraSettings: settings}, nil
+				return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams, ExtraSettings: settings, ExtraPhysicalDecisions: decisions}, nil
 			default:
 				return renderedFragment{}, fmt.Errorf("unknown render mode %q", ctx.Params.Mode)
 			}

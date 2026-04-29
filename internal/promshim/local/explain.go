@@ -6,6 +6,7 @@ import (
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	logicalopt "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical/opt"
 	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 )
 
@@ -101,6 +102,7 @@ type ExplainNode struct {
 	RequiredColumns      []string                        `json:"requiredColumns,omitempty"`
 	MaterializedColumns  []string                        `json:"materializedColumns,omitempty"`
 	SemanticBarriers     []string                        `json:"semanticBarriers,omitempty"`
+	PhysicalDecisions    []physical.Decision             `json:"physicalDecisions,omitempty"`
 	RequiredInputStartMS int64                           `json:"requiredInputStartMs,omitempty"`
 	RequiredInputEndMS   int64                           `json:"requiredInputEndMs,omitempty"`
 	RenderedSQL          string                          `json:"renderedSQL,omitempty"`
@@ -177,7 +179,32 @@ func finalizeExplainNode(node *ExplainNode) {
 	if node.Strategy != "native_sql" {
 		node.FallbackReason = node.Reason
 	}
+	annotateSubqueryPreferenceDecision(node)
 	for index := range node.Children {
 		finalizeExplainNode(&node.Children[index])
 	}
+}
+
+func annotateSubqueryPreferenceDecision(node *ExplainNode) {
+	if node == nil || node.Kind != "subquery" || node.Lowering == nil || !node.Lowering.NeedsSubqueryStepGrid {
+		return
+	}
+	if _, ok := findPhysicalDecisionByKind(node.PhysicalDecisions, "query_settings"); ok {
+		return
+	}
+	decision, ok := physical.ThreadPreferenceDecision(physical.ThreadPreference{Mode: physical.ThreadPreferenceNoCap, ReasonCode: physical.ThreadPreferenceReasonSubqueryRateRows})
+	if !ok {
+		return
+	}
+	decision.Guards = append([]string{"needs_subquery_step_grid"}, decision.Guards...)
+	node.PhysicalDecisions = append(node.PhysicalDecisions, decision)
+}
+
+func findPhysicalDecisionByKind(decisions []physical.Decision, kind string) (physical.Decision, bool) {
+	for _, decision := range decisions {
+		if decision.Kind == kind {
+			return decision, true
+		}
+	}
+	return physical.Decision{}, false
 }

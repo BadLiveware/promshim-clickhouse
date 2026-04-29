@@ -10,6 +10,7 @@ import (
 	logicalopt "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical/opt"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/renderer"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 
@@ -237,7 +238,11 @@ func preRenderNativeSubtreePlanSQL(node logicalpkg.Node, analysis *nativeplan.An
 	if err != nil {
 		return err
 	}
-	return nativeplan.ApplyRenderedSQLMetadata(optimized.Report, renderMode, rendered.SQL)
+	if err := nativeplan.ApplyRenderedSQLMetadata(optimized.Report, renderMode, rendered.SQL); err != nil {
+		return err
+	}
+	nativeplan.ApplyPhysicalDecisionMetadata(optimized.Report, rendered.PhysicalDecisions)
+	return nil
 }
 
 func (p *nativeSubtreePlan) explain() ExplainNode {
@@ -259,6 +264,7 @@ func (p *nativeSubtreePlan) explain() ExplainNode {
 		RequiredColumns:      append([]string(nil), report.RequiredColumns...),
 		MaterializedColumns:  append([]string(nil), report.MaterializedColumns...),
 		SemanticBarriers:     append([]string(nil), report.SemanticBarriers...),
+		PhysicalDecisions:    append([]physical.Decision(nil), report.PhysicalDecisions...),
 		RequiredInputStartMS: report.RequiredInputStartMS,
 		RequiredInputEndMS:   report.RequiredInputEndMS,
 		RenderedSQL:          report.RenderedSQL,

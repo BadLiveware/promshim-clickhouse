@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 )
 
 // binaryVectorJoinCases covers the full matching-shape matrix for Surface 13:
@@ -101,7 +103,7 @@ func TestLowerBinaryVectorJoinGolden(t *testing.T) {
 }
 
 func TestLowerBinaryVectorJoinReusesIdenticalInstantAddSubexpression(t *testing.T) {
-	root, analysis, nativeAnalysis := buildLowerInputs(t, `(rate(demo_cpu_usage_seconds_total[1h]) + rate(demo_cpu_usage_seconds_total[1h])) / 2`)
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[1h]) + rate(demo_cpu_usage_seconds_total[1h])`)
 	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
@@ -115,6 +117,10 @@ func TestLowerBinaryVectorJoinReusesIdenticalInstantAddSubexpression(t *testing.
 	if !strings.Contains(rq.SQL, "lhs.value + lhs.value") {
 		t.Fatalf("expected self-reuse value expression, got SQL:\n%s", rq.SQL)
 	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "row_source_reuse")
+	if !ok || decision.Strategy != "instant_self_join" {
+		t.Fatalf("expected row_source_reuse=instant_self_join decision, got %#v", rq.PhysicalDecisions)
+	}
 }
 
 func TestLowerBinaryVectorJoinReuseRollbackGate(t *testing.T) {
@@ -127,6 +133,121 @@ func TestLowerBinaryVectorJoinReuseRollbackGate(t *testing.T) {
 	if got := strings.Count(rq.SQL, "timeSeriesData("); got != 2 {
 		t.Fatalf("timeSeriesData count = %d, want rollback to 2 in SQL:\n%s", got, rq.SQL)
 	}
+}
+
+func TestLowerBinaryVectorJoinReusesIdenticalRangeMulSubexpression(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[5m]) * rate(demo_cpu_usage_seconds_total[5m])`)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsRange()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if got := strings.Count(rq.SQL, "timeSeriesData("); got != 1 {
+		t.Fatalf("timeSeriesData count = %d, want 1 in SQL:\n%s", got, rq.SQL)
+	}
+	if got := strings.Count(rq.SQL, "ARRAY JOIN time_series AS point"); got != 1 {
+		t.Fatalf("ARRAY JOIN count = %d, want 1 in SQL:\n%s", got, rq.SQL)
+	}
+	if !strings.Contains(rq.SQL, "lhs.value * lhs.value") {
+		t.Fatalf("expected self-reuse multiply expression, got SQL:\n%s", rq.SQL)
+	}
+}
+
+func TestLowerBinaryVectorJoinReusesIdenticalRangeComparisonSubexpression(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[5m]) >= rate(demo_cpu_usage_seconds_total[5m])`)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsRange()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if got := strings.Count(rq.SQL, "timeSeriesData("); got != 1 {
+		t.Fatalf("timeSeriesData count = %d, want 1 in SQL:\n%s", got, rq.SQL)
+	}
+	if got := strings.Count(rq.SQL, "ARRAY JOIN time_series AS point"); got != 1 {
+		t.Fatalf("ARRAY JOIN count = %d, want 1 in SQL:\n%s", got, rq.SQL)
+	}
+	if !strings.Contains(rq.SQL, "lhs.value >= lhs.value") {
+		t.Fatalf("expected self-reuse comparison predicate, got SQL:\n%s", rq.SQL)
+	}
+}
+
+func TestLowerBinaryVectorJoinReusesRangeComparisonBool(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[5m]) >= bool rate(demo_cpu_usage_seconds_total[5m])`)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsRange()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if got := strings.Count(rq.SQL, "timeSeriesData("); got != 1 {
+		t.Fatalf("timeSeriesData count = %d, want 1 in SQL:\n%s", got, rq.SQL)
+	}
+	if got := strings.Count(rq.SQL, "ARRAY JOIN time_series AS point"); got != 1 {
+		t.Fatalf("ARRAY JOIN count = %d, want 1 for bool comparison self-reuse in SQL:\n%s", got, rq.SQL)
+	}
+	if !strings.Contains(rq.SQL, "toFloat64(if((lhs.value >= lhs.value), 1, 0))") {
+		t.Fatalf("expected bool comparison self-reuse expression, got SQL:\n%s", rq.SQL)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "row_source_reuse")
+	if !ok || decision.Strategy != "range_self_join" {
+		t.Fatalf("expected row_source_reuse=range_self_join decision, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerBinaryVectorJoinDoesNotReuseLeafArithmetic(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `up * up`)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsRange()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if got := strings.Count(rq.SQL, "ARRAY JOIN time_series AS point"); got != 2 {
+		t.Fatalf("ARRAY JOIN count = %d, want 2 for non-range-function leaf reuse in SQL:\n%s", got, rq.SQL)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "row_source_reuse")
+	if !ok || decision.Strategy != "not_reused" {
+		t.Fatalf("expected row_source_reuse=not_reused decision, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerBinaryVectorJoinMarksInstantNotReusedForOnMatching(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[1h]) + on(job) rate(demo_cpu_usage_seconds_total[1h])`)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "row_source_reuse")
+	if !ok || decision.Strategy != "not_reused" || !strings.Contains(decision.Reason, "default one-to-one matching labels") {
+		t.Fatalf("expected row_source_reuse=not_reused with matching reason, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerBinaryVectorJoinMarksInstantNotReusedForDifferentRepeatedOperands(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[1h]) + rate(demo_cpu_usage_seconds_total[6h])`)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "row_source_reuse")
+	if !ok || decision.Strategy != "not_reused" || !strings.Contains(decision.Reason, "different repeated subtree candidates") {
+		t.Fatalf("expected row_source_reuse=not_reused for different repeated operands, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerBinaryVectorJoinMarksRangeNotReusedForDifferentRepeatedOperands(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[1h]) + rate(demo_cpu_usage_seconds_total[6h])`)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsRange()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "row_source_reuse")
+	if !ok || decision.Strategy != "not_reused" || !strings.Contains(decision.Reason, "different repeated subtree candidates") {
+		t.Fatalf("expected row_source_reuse=not_reused for range different repeated operands, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func findPhysicalDecisionByKind(decisions []physical.Decision, kind string) (physical.Decision, bool) {
+	for _, decision := range decisions {
+		if decision.Kind == kind {
+			return decision, true
+		}
+	}
+	return physical.Decision{}, false
 }
 
 // TestLowerBinaryVectorJoinNilErrors exercises the defensive nil guard in

@@ -84,6 +84,7 @@ func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalp
 	}
 	baseDecisions := appendRenderedQueryPhysicalDecisions(nil, histograms.ExtraPhysicalDecisions...)
 	baseDecisions = appendRenderedQueryPhysicalDecisions(baseDecisions, histogramFunctionChildPhysicalDecision(childNode, params.Mode))
+	baseDecisions = appendRenderedQueryPhysicalDecisions(baseDecisions, physical.HistogramPreparationDecision(funcName, string(params.Mode), histogramChildUsesOnlyLETagsLogical(childNode)))
 
 	switch funcName {
 	case "histogram_quantile":

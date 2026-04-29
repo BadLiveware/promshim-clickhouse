@@ -100,6 +100,42 @@ func TestLowerHistogramQuantileKeepsNonBucketGroupingLabels(t *testing.T) {
 	}
 }
 
+func TestLowerHistogramFunctionEmitsPreparationShapeDecision(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsRange(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "histogram_preparation_shape")
+	if !ok {
+		t.Fatalf("expected histogram preparation shape decision, got %#v", rq.PhysicalDecisions)
+	}
+	if decision.Strategy != "classic_histogram_preparation_le_only" {
+		t.Fatalf("unexpected histogram preparation strategy: %#v", decision)
+	}
+}
+
+func TestLowerNonHistogramDoesNotEmitPreparationShapeDecision(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `avg_over_time(memory_usage_bytes[1h])`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsRange(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "histogram_preparation_shape"); ok {
+		t.Fatalf("non-histogram query unexpectedly emitted histogram preparation decision: %#v", decision)
+	}
+}
+
 func TestLowerHistogramQuantileCoalescesGroupedRateDirectly(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `histogram_quantile(0.95, sum by (job, le) (rate(http_request_duration_seconds_bucket[5m])))`)
 	rq, err := Lower(LoweringCtx{

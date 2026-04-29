@@ -72,6 +72,15 @@ func HistogramPreparationDecision(functionName, renderMode string, leOnly bool) 
 	}
 }
 
+func HistogramNativeGridRowsDecision() Decision {
+	return Decision{
+		Kind:     "histogram_native_grid_rows_shape",
+		Strategy: "late_series_join",
+		Reason:   "histogram preparation computes native-grid rows per id before joining tags",
+		Guards:   []string{"histogram_preparation", "le_only_tags", "native_grid_rows"},
+	}
+}
+
 func ThreadPreferenceDecision(threads ThreadPreference) (Decision, bool) {
 	switch threads.Mode {
 	case ThreadPreferenceSet:

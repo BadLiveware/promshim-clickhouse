@@ -276,16 +276,17 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 					childRequiredStartMS, childRequiredEndMS := logicalRangeRequiredBoundsForChild(child, params.StartMS, params.EndMS)
 					childCtx := ctx
 					childCtx.Params = RenderParams{
-						Mode:                native.RenderModeRange,
-						StartMS:             params.StartMS,
-						EndMS:               params.EndMS,
-						StepMS:              params.StepMS,
-						RequiredStartMS:     childRequiredStartMS,
-						RequiredEndMS:       childRequiredEndMS,
-						ResolveSourcePromQL: params.ResolveSourcePromQL,
-						RequireFullTags:     params.RequireFullTags,
-						RequiredTagLabels:   params.RequiredTagLabels,
-						Physical:            preferRangeInstantSelectorStrategy(params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
+						Mode:                 native.RenderModeRange,
+						StartMS:              params.StartMS,
+						EndMS:                params.EndMS,
+						StepMS:               params.StepMS,
+						RequiredStartMS:      childRequiredStartMS,
+						RequiredEndMS:        childRequiredEndMS,
+						ResolveSourcePromQL:  params.ResolveSourcePromQL,
+						RequireFullTags:      params.RequireFullTags,
+						RequiredTagLabels:    params.RequiredTagLabels,
+						HistogramPreparation: params.HistogramPreparation,
+						Physical:             preferRangeInstantSelectorStrategy(params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
 					}
 					childRendered, err := Lower(childCtx, child)
 					if err != nil {
@@ -327,16 +328,17 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 				// step-grid over the outer range envelope.
 				childCtx := ctx
 				childCtx.Params = RenderParams{
-					Mode:                native.RenderModeRange,
-					StartMS:             params.StartMS,
-					EndMS:               params.EndMS,
-					StepMS:              params.StepMS,
-					RequiredStartMS:     params.RequiredStartMS,
-					RequiredEndMS:       params.RequiredEndMS,
-					ResolveSourcePromQL: params.ResolveSourcePromQL,
-					RequireFullTags:     params.RequireFullTags,
-					RequiredTagLabels:   params.RequiredTagLabels,
-					Physical:            preferRangeInstantSelectorStrategy(params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
+					Mode:                 native.RenderModeRange,
+					StartMS:              params.StartMS,
+					EndMS:                params.EndMS,
+					StepMS:               params.StepMS,
+					RequiredStartMS:      params.RequiredStartMS,
+					RequiredEndMS:        params.RequiredEndMS,
+					ResolveSourcePromQL:  params.ResolveSourcePromQL,
+					RequireFullTags:      params.RequireFullTags,
+					RequiredTagLabels:    params.RequiredTagLabels,
+					HistogramPreparation: params.HistogramPreparation,
+					Physical:             preferRangeInstantSelectorStrategy(params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
 				}
 				childRendered, err := Lower(childCtx, child)
 				if err != nil {

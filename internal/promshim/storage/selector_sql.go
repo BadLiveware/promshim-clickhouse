@@ -422,6 +422,31 @@ func BuildRangeRateSelectorNativeGridRowsQuerySQLWithFinalTags(cfg QueryConfig, 
 	return BuildRangeNativeGridSelectorRowsQuerySQLWithFinalTags(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, "rate", finalTagsSQL)
 }
 
+func BuildHistogramRangeNativeGridSelectorRowsLateTagsQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, finalTagsSQL string) (string, map[string]string, error) {
+	inner, params, finalTagsExpr, err := buildRangeNativeGridSelectorLateTagsInner(cfg, selector, requiredStartMS, requiredEndMS, startMS, endMS, stepMS, fn, finalTagsSQL)
+	if err != nil {
+		return "", nil, err
+	}
+	points := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: finalTagsExpr, Alias: "tags"},
+			{Expr: sqlb.RawLit{V: "point.1"}, Alias: "timestamp"},
+			{Expr: sqlb.RawLit{V: "toFloat64(assumeNotNull(point.2))"}, Alias: "value"},
+		},
+		From: sqlb.ArrayJoin{
+			Base:  sqlb.SubSelect{S: inner},
+			Expr:  sqlb.RawLit{V: nativeGridTimestampValueZipExpr()},
+			Alias: "point",
+		},
+		Where: sqlb.RawLit{V: "isNotNull(point.2)"},
+	}
+	sql, _, err := points.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql + schema.QuerySuffix, params, nil
+}
+
 func buildRangeNativeGridSelectorInner(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, finalTagsSQL string) (*sqlb.Select, map[string]string, sqlb.Expr, error) {
 	if selector.Kind != SelectorKindRangeVector {
 		return nil, nil, nil, fmt.Errorf("native-grid %s selector SQL requires a range-vector selector, got %q", fn, selector.Kind)
@@ -460,6 +485,59 @@ func buildRangeNativeGridSelectorInner(cfg QueryConfig, selector SelectorSource,
 		},
 		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value")},
 		GroupBy: []sqlb.Expr{sqlb.Ident("series.id")},
+	}
+	return inner, params, resolvedFinalTagsExpr, nil
+}
+
+func buildRangeNativeGridSelectorLateTagsInner(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, startMS, endMS, stepMS int64, fn, finalTagsSQL string) (*sqlb.Select, map[string]string, sqlb.Expr, error) {
+	if selector.Kind != SelectorKindRangeVector {
+		return nil, nil, nil, fmt.Errorf("native-grid %s selector SQL requires a range-vector selector, got %q", fn, selector.Kind)
+	}
+	if stepMS <= 0 {
+		return nil, nil, nil, fmt.Errorf("native-grid %s selector SQL requires a positive step", fn)
+	}
+	chFunction, ok := nativeGridRangeFunctionName(fn)
+	if !ok {
+		return nil, nil, nil, fmt.Errorf("native-grid selector SQL does not support range function %q", fn)
+	}
+	matchedSeriesSQL, params, err := buildMatchedSeriesSQL(cfg, selector, "histogram_native_grid_"+fn, requiredStartMS, requiredEndMS, true)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
+	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
+	params["param_step_ms"] = strconv.FormatInt(stepMS, 10)
+	params["param_lookback_ms"] = strconv.FormatInt(selector.LookbackMS, 10)
+
+	resolvedFinalTagsExpr := sqlb.Expr(sqlb.RawLit{V: emit.StripMetricName("tags")})
+	if strings.TrimSpace(finalTagsSQL) != "" {
+		resolvedFinalTagsExpr = sqlb.RawLit{V: finalTagsSQL}
+	}
+
+	matchedSeriesSource := rawSubquerySQL(matchedSeriesSQL)
+	grid := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("d.id"), Alias: "id"},
+			{Expr: sqlb.RawLit{V: chFunction + "(fromUnixTimestamp64Milli({start_ms:Int64}), fromUnixTimestamp64Milli({end_ms:Int64}), toDecimal64({step_ms:Int64}, 3) / 1000, toDecimal64({lookback_ms:Int64}, 3) / 1000)(d.timestamp, d.value)"}, Alias: "values"},
+		},
+		From:    sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND d.id IN (SELECT id FROM " + matchedSeriesSource + ")"},
+		GroupBy: []sqlb.Expr{sqlb.Ident("d.id")},
+	}
+
+	inner := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("grid.id"), Alias: "id"},
+			{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("series.tags")}}, Alias: "tags"},
+			{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("grid.values")}}, Alias: "values"},
+		},
+		From: sqlb.Join{
+			Left:  sqlb.SubSelect{S: grid, Alias: "grid"},
+			Right: sqlb.RawSource{SQL: matchedSeriesSource, Alias: "series"},
+			Kind:  "INNER",
+			On:    sqlb.RawLit{V: "grid.id = series.id"},
+		},
+		GroupBy: []sqlb.Expr{sqlb.Ident("grid.id")},
 	}
 	return inner, params, resolvedFinalTagsExpr, nil
 }

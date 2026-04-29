@@ -120,6 +120,33 @@ func TestLowerHistogramFunctionEmitsPreparationShapeDecision(t *testing.T) {
 	}
 }
 
+func TestLowerHistogramFunctionCanUseLateTagNativeGridRows(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))`)
+	cfg := testRenderConfig()
+	cfg.EnableNativeGridFunctions = true
+	rq, err := Lower(LoweringCtx{
+		Config:         cfg,
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsRange(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "histogram_native_grid_rows_shape")
+	if !ok {
+		t.Fatalf("expected histogram native-grid rows shape decision, got %#v", rq.PhysicalDecisions)
+	}
+	if decision.Strategy != "late_series_join" {
+		t.Fatalf("unexpected histogram native-grid rows strategy: %#v", decision)
+	}
+	for _, expected := range []string{"d.id IN (SELECT id FROM", "INNER JOIN", "series"} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected late-tag native-grid SQL to contain %q, got:\n%s", expected, rq.SQL)
+		}
+	}
+}
+
 func TestLowerNonHistogramDoesNotEmitPreparationShapeDecision(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `avg_over_time(memory_usage_bytes[1h])`)
 	rq, err := Lower(LoweringCtx{

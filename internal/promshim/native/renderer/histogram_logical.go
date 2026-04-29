@@ -30,6 +30,7 @@ func renderHistogramProjectionLogical(cfg storage.QueryConfig, logicalAnalysis *
 		requireFull, labels := decideHistogramChildNarrowing(aggChild)
 		childParams.RequireFullTags = requireFull
 		childParams.RequiredTagLabels = labels
+		childParams.HistogramPreparation = true
 	}
 
 	histograms, err := renderClassicHistogramGroupsQueryLogical(cfg, n.Child, logicalAnalysis, analysis, childParams, "histogram_projection_child")
@@ -76,6 +77,7 @@ func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalp
 		requireFull, labels := decideHistogramChildNarrowing(aggChild)
 		childParams.RequireFullTags = requireFull
 		childParams.RequiredTagLabels = labels
+		childParams.HistogramPreparation = true
 	}
 
 	histograms, err := renderClassicHistogramGroupsQueryLogical(cfg, childNode, logicalAnalysis, analysis, childParams, "histogram_function_child")
@@ -85,6 +87,9 @@ func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalp
 	baseDecisions := appendRenderedQueryPhysicalDecisions(nil, histograms.ExtraPhysicalDecisions...)
 	baseDecisions = appendRenderedQueryPhysicalDecisions(baseDecisions, histogramFunctionChildPhysicalDecision(childNode, params.Mode))
 	baseDecisions = appendRenderedQueryPhysicalDecisions(baseDecisions, physical.HistogramPreparationDecision(funcName, string(params.Mode), histogramChildUsesOnlyLETagsLogical(childNode)))
+	if histogramFunctionUsesNativeGridLateTags(cfg, childNode, params.Mode) {
+		baseDecisions = appendRenderedQueryPhysicalDecisions(baseDecisions, physical.HistogramNativeGridRowsDecision())
+	}
 
 	switch funcName {
 	case "histogram_quantile":
@@ -198,6 +203,14 @@ func histogramChildUsesOnlyLETagsLogical(childNode logicalpkg.Node) bool {
 		return false
 	}
 	return childAggregationUsesOnlyLETags(agg)
+}
+
+func histogramFunctionUsesNativeGridLateTags(cfg storage.QueryConfig, childNode logicalpkg.Node, mode native.RenderMode) bool {
+	if mode != native.RenderModeRange || !cfg.EnableNativeGridFunctions || !histogramChildUsesOnlyLETagsLogical(childNode) {
+		return false
+	}
+	agg, ok := childNode.(*logicalpkg.AggregationPlan)
+	return ok && agg != nil && canFuseRangeAggregationLogicalDirect(agg, RenderParams{Mode: mode})
 }
 
 func histogramFunctionChildPhysicalDecision(childNode logicalpkg.Node, mode native.RenderMode) physical.Decision {

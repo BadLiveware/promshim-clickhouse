@@ -20,7 +20,7 @@
     {
       "profile": "7d",
       "path": "harness/corpus/bench-native-lowering-7d.json",
-      "rows": 34,
+      "rows": 37,
       "evalTime": "2026-03-22T21:45:42Z",
       "use": "Default fast active-series sweep corpus; includes the broadest routing/CBE benchmark shape coverage."
     },

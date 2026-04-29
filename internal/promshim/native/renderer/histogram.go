@@ -276,7 +276,7 @@ func histogramOutputFragment(histograms renderedFragment, valueExpr sqlb.Expr, m
 		From: histogramsSource,
 	}
 	if mode != native.RenderModeRange {
-		return renderedFragment{Select: innerSelect, ExtraParams: histograms.ExtraParams}
+		return renderedFragment{Select: innerSelect, ExtraParams: histograms.ExtraParams, ExtraPhysicalDecisions: histograms.ExtraPhysicalDecisions}
 	}
 	innerSelect.OrderBy = []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}, {Expr: sqlb.Ident("timestamp")}}
 	outerSelect := &sqlb.Select{
@@ -288,7 +288,7 @@ func histogramOutputFragment(histograms renderedFragment, valueExpr sqlb.Expr, m
 		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
 		OrderBy: []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}},
 	}
-	return renderedFragment{Select: outerSelect, ExtraParams: histograms.ExtraParams}
+	return renderedFragment{Select: outerSelect, ExtraParams: histograms.ExtraParams, ExtraPhysicalDecisions: histograms.ExtraPhysicalDecisions}
 }
 
 // bucketCountsExpr yields arrayMap(bucket -> toFloat64(tupleElement(bucket, 2)), buckets).

@@ -94,6 +94,14 @@ Latest compliance signal: prefer-mode clean (`537 passed + 1 accepted tolerance,
 - Iteration 38: telemetry snapshot for `processing_sum_rate_5m_by_job_range_24h_7d` confirms current good decision pattern `fused_range_aggregation=native_grid_sum_aggregation,query_settings=set_max_threads`; use this as a concrete reference when evaluating future strategy-level changes.
 - Iteration 39: telemetry-directed cumulative-avg ASOF thread-guardrail variant (`query_settings=set_max_threads`) severely regressed p50 (~+51.5%); do not retry as-is.
 - Iteration 40 accepted: fused sum-rate 5m path now prefers `query_settings=no_thread_cap` (telemetry-verified) with large p50 win and clean compliance. Treat as current baseline for this shape.
+- Iteration 42 validation: same no-thread-cap fused-rate decision transfers to 1h sum-rate sibling row with large p50 improvement (~-71.8% vs iter23 reference).
+- Iteration 43 telemetry refresh: full processing corpus rerun confirms sum-rate improvements hold; primary remaining bottleneck is `processing_avg_memory_1h_by_job_type_range_24h_7d` (~6771ms p50). Next edits should target avg-memory with materially new structural hypothesis only.
+- Iteration 44 defer: shortlisted avg-memory structural candidate is selector-id source dedup/hoist (currently repeated identical `SELECT DISTINCT id` tags scans). No safe micro-change applied yet; implement as dedicated bounded renderer/planner slice next.
+- Iteration 45 rejected/reverted: cumulative-avg matched-series CTE hoist attempt triggered served failure (`force_supported/strict: warmup 1: HTTP 502`) on target row; no retry of this exact CTE shape.
+- Iteration 47 rejected/reverted: diagnostic final-series-only CTE hoist also reproduces `HTTP 502`; treat CTE-hoist family for this avg-memory cumulative path as unsafe until deeper CH compatibility evidence exists.
+- Iteration 48 rejected/reverted: histogram-range rate no-thread-cap probe produced only noise-level shift (~-1.3%) and no thread-setting telemetry evidence for that row; no retry as-is.
+- Iteration 49 defer/pivot: no safe high-EV code change selected; avg-memory path remains unsafe (recent `HTTP 502` family), and histogram-range tuning is telemetry-blind. Next step is histogram-path decision telemetry prerequisite before more perf probes.
+- Iteration 50 accepted: histogram-range row now emits path telemetry (`histogram_child_path=fused_range_aggregation_child_le_only`), enabling decision-grounded tuning for this shape.
 - Do not retry the cumulative-avg states-stream `d.id IN (matchedSeries)` rewrite from iteration 22 as-is: despite large scan/join reductions it regressed p50 latency (+3.8%) and memory (+0.7%) on the representative row.
 - Do not retry the cumulative-avg states-subquery `ORDER BY` removal from iteration 24 as-is: p50 still regressed (+2.4%) with no material scan/join win.
 

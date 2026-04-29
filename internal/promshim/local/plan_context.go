@@ -5,8 +5,11 @@ import (
 )
 
 const (
-	DefaultMaxRangePointsPerSeries   int64 = 50000
-	DefaultRangeChunkPointsPerSeries int64 = 5000
+	DefaultMaxRangePointsPerSeries         int64 = 50000
+	DefaultRangeChunkPointsPerSeries       int64 = 5000
+	DefaultNativeRangeChunkPointsPerSeries int64 = 289
+	DefaultNativeRangeChunkMaxDuration           = 24 * time.Hour
+	DefaultNativeRangeChunkMaxChunks       int64 = 12
 )
 
 type PlanContext struct {
@@ -22,6 +25,9 @@ type PlanContext struct {
 	EnableCumulativeAvgOverTime     bool
 	MaxRangePointsPerSeries         int64
 	RangeChunkPointsPerSeries       int64
+	NativeRangeChunkPointsPerSeries int64
+	NativeRangeChunkMaxDuration     time.Duration
+	NativeRangeChunkMaxChunks       int64
 	NativeSubtreeRenderTagHint      bool
 	NativeSubtreeRequireFullTags    bool
 	NativeSubtreeRequiredTagLabels  []string
@@ -44,5 +50,8 @@ func DefaultPlanContext(mode EvalMode) PlanContext {
 		PreferNativeAggregationPushdown: false,
 		MaxRangePointsPerSeries:         DefaultMaxRangePointsPerSeries,
 		RangeChunkPointsPerSeries:       DefaultRangeChunkPointsPerSeries,
+		NativeRangeChunkPointsPerSeries: DefaultNativeRangeChunkPointsPerSeries,
+		NativeRangeChunkMaxDuration:     DefaultNativeRangeChunkMaxDuration,
+		NativeRangeChunkMaxChunks:       DefaultNativeRangeChunkMaxChunks,
 	}
 }

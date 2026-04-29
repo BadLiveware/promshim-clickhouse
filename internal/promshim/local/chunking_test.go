@@ -75,6 +75,82 @@ func TestBuildPlanWithContextWrapsLargeLocalRangePlanInChunkedRangePlan(t *testi
 	}
 }
 
+func TestBuildPlanWithContextWrapsLargeNativeRangePlanInChunkedRangePlan(t *testing.T) {
+	expr, err := logical.ParseExpression(`sum by (job) (rate(up[5m]))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := buildPlanWithContext(expr, PlanContext{
+		Mode:                            EvalModeRange,
+		Start:                           time.Unix(0, 0).UTC(),
+		End:                             time.Unix(600, 0).UTC(),
+		Step:                            time.Minute,
+		NativeLoweringMode:              NativeLoweringModeForceSupported,
+		EnableNativeGridFunctions:       true,
+		MaxRangePointsPerSeries:         100,
+		RangeChunkPointsPerSeries:       5000,
+		NativeRangeChunkPointsPerSeries: 5,
+	})
+	if err != nil {
+		t.Fatalf("expected chunked native plan, got error: %v", err)
+	}
+	chunked, ok := plan.(*chunkedRangePlan)
+	if !ok {
+		t.Fatalf("expected chunkedRangePlan, got %T", plan)
+	}
+	nativeChild, ok := chunked.Child.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan child, got %T", chunked.Child)
+	}
+	if nativeChild.LogicalRoot == nil || nativeChild.LogicalAnalysis == nil {
+		t.Fatalf("expected chunked native child to retain logical lowering metadata")
+	}
+	explain := chunked.explain()
+	if explain.Strategy != "chunked_native" {
+		t.Fatalf("chunked native strategy = %q, want chunked_native", explain.Strategy)
+	}
+	if explain.ChunkPointsPerSeries != 5 {
+		t.Fatalf("chunked native explain chunk points = %d, want 5", explain.ChunkPointsPerSeries)
+	}
+}
+
+func TestNativeRangeChunkPointsUsesDurationCap(t *testing.T) {
+	got := nativeRangeChunkPointsPerSeries(PlanContext{
+		Step:                            15 * time.Minute,
+		NativeRangeChunkPointsPerSeries: 289,
+		NativeRangeChunkMaxDuration:     24 * time.Hour,
+		NativeRangeChunkMaxChunks:       12,
+	}, &planEstimate{PointsPerSeries: 673})
+	if got != 97 {
+		t.Fatalf("native chunk points = %d, want 97", got)
+	}
+}
+
+func TestNativeRangeChunkPointsRespectsMaxChunks(t *testing.T) {
+	got := nativeRangeChunkPointsPerSeries(PlanContext{
+		Step:                            15 * time.Minute,
+		NativeRangeChunkPointsPerSeries: 289,
+		NativeRangeChunkMaxDuration:     24 * time.Hour,
+		NativeRangeChunkMaxChunks:       12,
+	}, &planEstimate{PointsPerSeries: 2881})
+	if got != 241 {
+		t.Fatalf("native chunk points = %d, want 241", got)
+	}
+}
+
+func TestNativeRangeChunkPointsCanBeDisabled(t *testing.T) {
+	got := nativeRangeChunkPointsPerSeries(PlanContext{
+		Step:                            15 * time.Minute,
+		NativeRangeChunkPointsPerSeries: 0,
+		NativeRangeChunkMaxDuration:     24 * time.Hour,
+		NativeRangeChunkMaxChunks:       12,
+	}, &planEstimate{PointsPerSeries: 673})
+	if got != 0 {
+		t.Fatalf("native chunk points = %d, want disabled", got)
+	}
+}
+
 func TestChunkedRangePlanExecutesAndMergesChunks(t *testing.T) {
 	plan := &chunkedRangePlan{
 		Child:                syntheticRangePlan{},

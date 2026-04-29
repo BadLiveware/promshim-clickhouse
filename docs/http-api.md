@@ -30,7 +30,10 @@ Normal query responses use the Prometheus response envelope:
 Successful query responses also include advisory headers:
 
 - `X-Promshim-Strategy` — root execution strategy, such as `delegated_promql`,
-  `native_sql`, `local`, or `chunked_local`.
+  `native_sql`, `local`, `chunked_local`, or `chunked_native`. Native range
+  auto-chunking uses `chunked_native` so benchmark and response headers make the
+  resource-safety path visible; explain output also includes the selected
+  `chunkPointsPerSeries` for range chunk plans.
 - `X-Promshim-Fallback-Reason` — why a lower-priority strategy was used, when
   available.
 - `X-Promshim-CH-Roundtrips` — ClickHouse request count observed while serving

@@ -252,10 +252,13 @@ func BuildPlanWithContextAndAnalysis(expr parser.Expr, ctx PlanContext) (Plan, *
 // fields on a top-level nativeSubtreePlan so execute() can route
 // through renderer.Lower. No-op if plan isn't a nativeSubtreePlan.
 func attachLogicalRootForLower(plan Plan, logical logicalPlan, logicalAnalysis *logicalpkg.Analysis, trace *logicalopt.Trace) {
-	if native, ok := plan.(*nativeSubtreePlan); ok {
-		native.LogicalRoot = logical
-		native.LogicalAnalysis = logicalAnalysis
-		native.LogicalOptimizationTrace = trace
+	switch typed := plan.(type) {
+	case *nativeSubtreePlan:
+		typed.LogicalRoot = logical
+		typed.LogicalAnalysis = logicalAnalysis
+		typed.LogicalOptimizationTrace = trace
+	case *chunkedRangePlan:
+		attachLogicalRootForLower(typed.Child, logical, logicalAnalysis, trace)
 	}
 }
 

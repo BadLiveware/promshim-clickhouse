@@ -50,15 +50,15 @@ Tradeoff: the heavy range rows are still large ClickHouse jobs, with current mem
 
 Native range auto-chunking trades latency and extra ClickHouse work for lower peak memory on native-grid range aggregation rows. The current default uses a safe point cap plus duration cap (`PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES=289`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS=86400`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS=12`) so coarse-step long-range queries do not scan multiple days per chunk by default.
 
-The table below captures the fixed point-cap benchmark that motivated the duration cap. Conditions: focused hit-set run, `prefer`, `strict`, 3 repeats, 1 warmup, memory and ClickHouse profile summaries enabled; Prometheus comparison used the same hit set with Prom timings enabled.
+Conditions: focused hit-set run, `prefer`, `strict`, 3 repeats, 1 warmup, memory and ClickHouse profile summaries enabled; Prometheus comparison used the same hit set with Prom timings enabled. Artifact: `harness/artifacts/bench/standalone/pr14-native-chunking-duration-cap/`.
 
-| Query | No-chunk p50 | Auto-chunk p50 | Auto vs Prom | No-chunk mem p95 | Auto mem p95 | Read rows/logical request |
+| Query | No-chunk p50 | Duration-cap p50 | Duration-cap vs Prom | No-chunk mem p95 | Duration-cap mem p95 | Read rows/logical request |
 |---|---:|---:|---:|---:|---:|---:|
-| `sum rate 5m / 24h @1m` | `1,257 ms` | `1,917 ms` | `0.43×` | `3.59 GiB` | `0.78 GiB` | `0.34B → 0.56B` |
-| `sum rate 1h / 7d @15m` | `4,519 ms` | `5,221 ms` | `0.24×` | `18.98 GiB` | `8.26 GiB` | `0.93B → 1.27B` |
-| `sum rate 1h / 7d @5m` | `4,494 ms` | `6,370 ms` | `0.24×` | `15.41 GiB` | `2.35 GiB` | `0.93B → 1.87B` |
+| `sum rate 5m / 24h @1m` | `1,257 ms` | `1,725 ms` | `0.41×` | `3.59 GiB` | `0.77 GiB` | `0.34B → 0.56B` |
+| `sum rate 1h / 7d @15m` | `4,519 ms` | `5,954 ms` | `0.31×` | `18.98 GiB` | `2.86 GiB` | `0.93B → 1.77B` |
+| `sum rate 1h / 7d @5m` | `4,494 ms` | `5,464 ms` | `0.25×` | `15.41 GiB` | `2.36 GiB` | `0.93B → 1.87B` |
 
-Across the hit set, auto-chunking was `1.36×` slower by geomean p50, but reduced ClickHouse memory p95 to `0.24×` of the non-chunked path; read rows rose `1.66×` and user CPU rose `1.27×`. The strategy is visible as `chunked_native` in benchmark output, response headers, and explain plans.
+Across the hit set, duration-capped auto-chunking reduced ClickHouse memory p95 substantially, including the coarse-step `sum rate 1h / 7d @15m` row from `18.98 GiB` without chunking and `8.26 GiB` with the old point cap to `2.86 GiB`. The strategy is visible as `chunked_native` in benchmark output, response headers, and explain plans.
 
 ### 7d sparse CBE category matrix (strict vs cost_prefer)
 

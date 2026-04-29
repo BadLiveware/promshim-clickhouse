@@ -106,8 +106,12 @@ func TestBuildPlanWithContextWrapsLargeNativeRangePlanInChunkedRangePlan(t *test
 	if nativeChild.LogicalRoot == nil || nativeChild.LogicalAnalysis == nil {
 		t.Fatalf("expected chunked native child to retain logical lowering metadata")
 	}
-	if strategy := chunked.explain().Strategy; strategy != "chunked_native" {
-		t.Fatalf("chunked native strategy = %q, want chunked_native", strategy)
+	explain := chunked.explain()
+	if explain.Strategy != "chunked_native" {
+		t.Fatalf("chunked native strategy = %q, want chunked_native", explain.Strategy)
+	}
+	if explain.ChunkPointsPerSeries != 5 {
+		t.Fatalf("chunked native explain chunk points = %d, want 5", explain.ChunkPointsPerSeries)
 	}
 }
 

@@ -48,11 +48,12 @@ func (p *chunkedRangePlan) explain() ExplainNode {
 		strategy = "chunked_native"
 	}
 	return ExplainNode{
-		Kind:     "range_chunk",
-		Strategy: strategy,
-		Reason:   p.Reason,
-		Estimate: p.Estimate,
-		Children: []ExplainNode{child},
+		Kind:                 "range_chunk",
+		Strategy:             strategy,
+		Reason:               p.Reason,
+		Estimate:             p.Estimate,
+		ChunkPointsPerSeries: p.ChunkPointsPerSeries,
+		Children:             []ExplainNode{child},
 	}
 }
 

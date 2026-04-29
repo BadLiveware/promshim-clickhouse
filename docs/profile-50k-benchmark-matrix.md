@@ -75,13 +75,13 @@ The remaining heavy rows are resource-heavy despite the p50 gains: current Click
 
 Native range auto-chunking is a resource-safety path for native-grid range aggregation rows. It is not a latency optimization. The current default combines a point cap with a safe output-duration cap (`PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES=289`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS=86400`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS=12`) so coarse-step long-range queries do not keep multi-day chunks only because they have fewer output points.
 
-The fixed point-cap benchmark below showed geomean p50 `1.36×` slower than the single-query native path, while ClickHouse memory p95 dropped to `0.24×`; read rows rose `1.66×` and user CPU rose `1.27×`. It also showed `sum rate 1h / 7d @15m` still at `8.26 GiB`, which is why the safer duration cap is now part of the default.
+The current duration-cap hit-set benchmark (`harness/artifacts/bench/standalone/pr14-native-chunking-duration-cap/`) keeps the high-risk rows faster than Prometheus while lowering ClickHouse peak memory. It also fixes the coarse-step `sum rate 1h / 7d @15m` case that was still `8.26 GiB` with the earlier point-only cap.
 
-| Query | No-chunk p50 | Auto-chunk p50 | Prom p50 | Auto S/P | No-chunk mem p95 | Auto mem p95 |
+| Query | No-chunk p50 | Duration-cap p50 | Prom p50 | Duration-cap S/P | No-chunk mem p95 | Duration-cap mem p95 |
 |---|---:|---:|---:|---:|---:|---:|
-| `sum rate 5m / 24h @1m` | `1,257 ms` | `1,917 ms` | `4,238 ms` | `0.43×` | `3.59 GiB` | `0.78 GiB` |
-| `sum rate 1h / 7d @15m` | `4,519 ms` | `5,221 ms` | `19,194 ms` | `0.24×` | `18.98 GiB` | `8.26 GiB` |
-| `sum rate 1h / 7d @5m` | `4,494 ms` | `6,370 ms` | `21,839 ms` | `0.24×` | `15.41 GiB` | `2.35 GiB` |
+| `sum rate 5m / 24h @1m` | `1,257 ms` | `1,725 ms` | `4,226 ms` | `0.41×` | `3.59 GiB` | `0.77 GiB` |
+| `sum rate 1h / 7d @15m` | `4,519 ms` | `5,954 ms` | `19,074 ms` | `0.31×` | `18.98 GiB` | `2.86 GiB` |
+| `sum rate 1h / 7d @5m` | `4,494 ms` | `5,464 ms` | `21,956 ms` | `0.25×` | `15.41 GiB` | `2.36 GiB` |
 
 The selected path is visible as `chunked_native` in `X-Promshim-Strategy`, benchmark strategy columns, and explain plans so regressions can be correlated with the resource-safety route.
 

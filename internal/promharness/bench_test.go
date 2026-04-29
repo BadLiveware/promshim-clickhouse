@@ -2,13 +2,16 @@ package promharness
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestPercentile(t *testing.T) {
@@ -431,5 +434,69 @@ func TestRunBenchV2RoutingPolicyAxis(t *testing.T) {
 	}
 	if row.Shim["prefer@cost_shadow"].RoutingPolicy != "cost_shadow" {
 		t.Fatalf("cost_shadow policy result missing: %+v", row.Shim)
+	}
+}
+
+func TestRunBenchV2PrometheusRuntimeProfile(t *testing.T) {
+	var metricTick atomic.Int64
+	promServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/metrics":
+			tick := metricTick.Add(1)
+			fmt.Fprintf(w, "process_resident_memory_bytes %d\n", 1000+tick*100)
+			fmt.Fprintf(w, "process_cpu_seconds_total %.3f\n", float64(tick)/10)
+			fmt.Fprintf(w, "go_memstats_heap_alloc_bytes %d\n", 2000+tick*200)
+			fmt.Fprintf(w, "go_memstats_heap_inuse_bytes %d\n", 3000+tick*300)
+			fmt.Fprintf(w, "go_memstats_heap_sys_bytes %d\n", 4000+tick*400)
+			fmt.Fprintf(w, "go_memstats_alloc_bytes_total %d\n", 5000+tick*500)
+			fmt.Fprintf(w, "go_memstats_mallocs_total %d\n", 6000+tick*6)
+			fmt.Fprintf(w, "go_memstats_frees_total %d\n", 7000+tick*7)
+		case "/debug/pprof/heap":
+			w.WriteHeader(http.StatusOK)
+		case "/api/v1/query":
+			time.Sleep(30 * time.Millisecond)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "success", "data": map[string]any{"resultType": "vector", "result": []any{}}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer promServer.Close()
+
+	shimServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Promshim-Strategy", "native_sql")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "success", "data": map[string]any{"resultType": "vector", "result": []any{}}})
+	}))
+	defer shimServer.Close()
+
+	corpusPath := filepath.Join(t.TempDir(), "corpus.json")
+	payload, _ := json.Marshal([]QuerySpec{{Name: "t", Endpoint: "query", Query: "up"}})
+	if err := os.WriteFile(corpusPath, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := RunBenchV2(BenchConfig{
+		PromURL:                   promServer.URL,
+		ShimURL:                   shimServer.URL,
+		CorpusPath:                corpusPath,
+		Repeats:                   1,
+		WarmupRepeats:             0,
+		ShimModes:                 []string{"prefer"},
+		PromProfileMode:           "runtime",
+		PromProfileSampleInterval: 5 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("RunBenchV2: %v", err)
+	}
+	profile := report.Rows[0].PromProfile
+	if profile == nil {
+		t.Fatal("missing prometheus runtime profile")
+	}
+	if profile.Mode != "runtime" || profile.SampleCount == 0 {
+		t.Fatalf("unexpected profile metadata: %+v", profile)
+	}
+	if profile.RSSMaxDeltaBytes <= 0 || profile.HeapInuseMaxDeltaBytes <= 0 || profile.ProcessCPUSeconds <= 0 {
+		t.Fatalf("profile did not capture metric deltas: %+v", profile)
 	}
 }

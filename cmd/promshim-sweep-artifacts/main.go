@@ -31,6 +31,7 @@ func main() {
 	flag.StringVar(&opts.ClickHouseURL, "ch-url", "", "ClickHouse endpoint recorded in manifest.")
 	flag.StringVar(&opts.MemoryMode, "memory-mode", "", "Memory capture mode.")
 	flag.StringVar(&opts.ClickHouseProfileMode, "clickhouse-profile-mode", "", "ClickHouse profile capture mode.")
+	flag.StringVar(&opts.PrometheusProfileMode, "prometheus-profile-mode", "", "Prometheus profile capture mode.")
 	flag.StringVar(&opts.ClickHouseReferenceProfile, "clickhouse-reference-profile", "", "ClickHouse reference profile label.")
 	flag.StringVar(&opts.SettingsProfile, "settings-profile", "", "promshim ClickHouse settings profile label.")
 	flag.Parse()

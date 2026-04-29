@@ -34,6 +34,7 @@ type SweepArtifactOptions struct {
 	ClickHouseURL              string
 	MemoryMode                 string
 	ClickHouseProfileMode      string
+	PrometheusProfileMode      string
 	ClickHouseReferenceProfile string
 	SettingsProfile            string
 	Now                        time.Time
@@ -104,6 +105,7 @@ type SweepAxes struct {
 	IncludeProm                string   `json:"includeProm"`
 	MemoryMode                 string   `json:"memoryMode"`
 	ClickHouseProfileMode      string   `json:"clickHouseProfileMode"`
+	PrometheusProfileMode      string   `json:"prometheusProfileMode"`
 	ClickHouseReferenceProfile string   `json:"clickHouseReferenceProfile"`
 	PromshimSettingsProfile    string   `json:"promshimSettingsProfile"`
 	CorpusSet                  string   `json:"corpusSet"`
@@ -234,6 +236,7 @@ func BuildSweepArtifacts(opts SweepArtifactOptions) error {
 			IncludeProm:                opts.IncludeProm,
 			MemoryMode:                 opts.MemoryMode,
 			ClickHouseProfileMode:      opts.ClickHouseProfileMode,
+			PrometheusProfileMode:      opts.PrometheusProfileMode,
 			ClickHouseReferenceProfile: opts.ClickHouseReferenceProfile,
 			PromshimSettingsProfile:    opts.SettingsProfile,
 			CorpusSet:                  opts.CorpusSet,
@@ -504,6 +507,7 @@ func renderSweepSummaryMarkdown(opts SweepArtifactOptions, c *sweepCollector) st
 		fmt.Sprintf("- Cost routing local families: `%s`", valueOr(opts.CostRoutingLocalFamilies, "none")),
 		fmt.Sprintf("- Memory mode: `%s`", opts.MemoryMode),
 		fmt.Sprintf("- ClickHouse profile mode: `%s`", opts.ClickHouseProfileMode),
+		fmt.Sprintf("- Prometheus profile mode: `%s`", opts.PrometheusProfileMode),
 		fmt.Sprintf("- ClickHouse reference profile: `%s`", opts.ClickHouseReferenceProfile),
 		fmt.Sprintf("- promshim settings profile: `%s`", opts.SettingsProfile),
 		fmt.Sprintf("- Memory summaries: `%d`", len(c.memoryReports)),

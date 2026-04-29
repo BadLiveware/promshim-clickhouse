@@ -89,7 +89,10 @@ Seed policies:
 Artifacts live under `harness/artifacts/bench/sweeps/<run-name>/` and include
 `manifest.json`, `summary.md`, `summary.json`, v2 benchmark reports named by
 profile/active-series/corpus, `memory-summary-*.json`, and optional `memory-detail-*/`
-pprof snapshots for `--memory detailed`. Build matrix views with:
+pprof snapshots for `--memory detailed`. `run-bench.sh --prometheus-profile runtime`
+adds per-row Prometheus runtime samples to v2 benchmark reports (`promProfile`),
+including process RSS, Go heap, allocation, and CPU deltas sampled from
+Prometheus `/metrics` around one measured Prometheus query. Build matrix views with:
 
 ```bash
 ./scripts/bench-matrix.sh --sweep harness/artifacts/bench/sweeps/local-default/manifest.json

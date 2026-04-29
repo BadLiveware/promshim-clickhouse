@@ -20,23 +20,25 @@ import (
 )
 
 type BenchConfig struct {
-	PromURL         string
-	ShimURL         string
-	CorpusPath      string
-	ArtifactDir     string
-	ArtifactName    string
-	Manifest        Manifest
-	Repeats         int
-	WarmupRepeats   int
-	BaselinePath    string
-	UpdateBaseline  bool
-	Timeout         time.Duration
-	ShimModes       []string
-	RoutingPolicies []string
-	IncludeProm     bool
-	IncludePromSet  bool
-	RunLabels       map[string]string
-	MemoryMode      string
+	PromURL                   string
+	ShimURL                   string
+	CorpusPath                string
+	ArtifactDir               string
+	ArtifactName              string
+	Manifest                  Manifest
+	Repeats                   int
+	WarmupRepeats             int
+	BaselinePath              string
+	UpdateBaseline            bool
+	Timeout                   time.Duration
+	ShimModes                 []string
+	RoutingPolicies           []string
+	IncludeProm               bool
+	IncludePromSet            bool
+	RunLabels                 map[string]string
+	MemoryMode                string
+	PromProfileMode           string
+	PromProfileSampleInterval time.Duration
 }
 
 type BenchRow struct {
@@ -108,20 +110,22 @@ type BenchRowV2 struct {
 	TargetPromP50MS *TargetPromP50MS               `json:"targetPromP50Ms,omitempty"`
 	PromBand        string                         `json:"promBand,omitempty"`
 	Prom            *BenchTiming                   `json:"prom,omitempty"`
+	PromProfile     *BenchPrometheusRuntimeProfile `json:"promProfile,omitempty"`
 	Shim            map[string]BenchShimModeResult `json:"shim"`
 	Ratios          map[string]float64             `json:"ratios,omitempty"`
 	Error           string                         `json:"error,omitempty"`
 }
 
 type BenchReportV2 struct {
-	SchemaVersion int               `json:"schemaVersion"`
-	CorpusPath    string            `json:"corpusPath"`
-	Manifest      Manifest          `json:"manifest"`
-	GeneratedAt   string            `json:"generatedAt"`
-	RunLabels     map[string]string `json:"runLabels,omitempty"`
-	MemoryMode    string            `json:"memoryMode,omitempty"`
-	Rows          []BenchRowV2      `json:"rows"`
-	Summary       BenchSummary      `json:"summary"`
+	SchemaVersion   int               `json:"schemaVersion"`
+	CorpusPath      string            `json:"corpusPath"`
+	Manifest        Manifest          `json:"manifest"`
+	GeneratedAt     string            `json:"generatedAt"`
+	RunLabels       map[string]string `json:"runLabels,omitempty"`
+	MemoryMode      string            `json:"memoryMode,omitempty"`
+	PromProfileMode string            `json:"promProfileMode,omitempty"`
+	Rows            []BenchRowV2      `json:"rows"`
+	Summary         BenchSummary      `json:"summary"`
 }
 
 type BenchReport struct {
@@ -183,20 +187,31 @@ func RunBench(cfg BenchConfig) (BenchReport, error) {
 
 func RunBenchV2(cfg BenchConfig) (BenchReportV2, error) {
 	cfg = normalizeBenchConfig(cfg)
+	if cfg.PromProfileMode != "off" && cfg.PromProfileMode != "runtime" {
+		return BenchReportV2{}, fmt.Errorf("prometheus profile mode must be off|runtime (got %q)", cfg.PromProfileMode)
+	}
+	if cfg.PromProfileMode != "off" && !cfg.IncludeProm {
+		return BenchReportV2{}, fmt.Errorf("prometheus profile mode %q requires include-prom=true", cfg.PromProfileMode)
+	}
 	queries, err := LoadQueryCorpus(cfg.CorpusPath)
 	if err != nil {
 		return BenchReportV2{}, fmt.Errorf("load corpus %q: %w", cfg.CorpusPath, err)
 	}
 	client := &http.Client{Timeout: cfg.Timeout}
+	reportPromProfileMode := ""
+	if cfg.PromProfileMode != "off" {
+		reportPromProfileMode = cfg.PromProfileMode
+	}
 	report := BenchReportV2{
-		SchemaVersion: 2,
-		CorpusPath:    cfg.CorpusPath,
-		Manifest:      cfg.Manifest,
-		GeneratedAt:   time.Now().UTC().Format(time.RFC3339),
-		RunLabels:     cloneStringMap(cfg.RunLabels),
-		MemoryMode:    cfg.MemoryMode,
-		Rows:          make([]BenchRowV2, 0, len(queries)),
-		Summary:       BenchSummary{StrategyHistogram: map[string]int{}},
+		SchemaVersion:   2,
+		CorpusPath:      cfg.CorpusPath,
+		Manifest:        cfg.Manifest,
+		GeneratedAt:     time.Now().UTC().Format(time.RFC3339),
+		RunLabels:       cloneStringMap(cfg.RunLabels),
+		MemoryMode:      cfg.MemoryMode,
+		PromProfileMode: reportPromProfileMode,
+		Rows:            make([]BenchRowV2, 0, len(queries)),
+		Summary:         BenchSummary{StrategyHistogram: map[string]int{}},
 	}
 	for _, spec := range queries {
 		row := benchOneQueryV2(client, cfg, spec)
@@ -242,6 +257,13 @@ func normalizeBenchConfig(cfg BenchConfig) BenchConfig {
 	if strings.TrimSpace(cfg.RunLabels["run"]) == "" {
 		cfg.RunLabels["run"] = "bench-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	}
+	cfg.PromProfileMode = strings.ToLower(strings.TrimSpace(cfg.PromProfileMode))
+	if cfg.PromProfileMode == "" {
+		cfg.PromProfileMode = "off"
+	}
+	if cfg.PromProfileSampleInterval <= 0 {
+		cfg.PromProfileSampleInterval = defaultPromProfileSampleInterval
+	}
 	if !cfg.IncludePromSet {
 		cfg.IncludeProm = true
 	}
@@ -262,6 +284,10 @@ func benchOneQueryV2(client *http.Client, cfg BenchConfig, spec QuerySpec) Bench
 			row.Prom = &timing
 			promP50 = row.Prom.P50MS
 			row.PromBand = classifyPromBand(promP50, spec.TargetPromP50MS)
+		}
+		if cfg.PromProfileMode == "runtime" {
+			profile := capturePrometheusRuntimeProfile(client, cfg, promSpec)
+			row.PromProfile = &profile
 		}
 	}
 

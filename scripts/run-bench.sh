@@ -52,6 +52,12 @@ Options:
                      summary writes query-log/ProfileEvents and native SQL samples;
                      auto also captures processor rollups for slow/heavy rows;
                      processors captures processor rollups for every row.
+  --prometheus-profile MODE
+                     Prometheus resource profiling for v2 reports: off|runtime.
+                     runtime samples Prometheus /metrics around one measured
+                     Prometheus query per row and stores results in bench-report.json.
+  --prometheus-profile-sample-interval D
+                     Sampling interval for --prometheus-profile=runtime (default 20ms).
   --legacy-report    Force legacy v1 report output.
   --repeats N        Timed repeats per (query, mode) (default: 10).
   --warmup N         Warmup repeats per (query, mode) (default: 2).
@@ -115,6 +121,8 @@ ARTIFACT_NAME=""
 RUN_LABELS=()
 MEMORY_MODE=""
 CLICKHOUSE_PROFILE_MODE="off"
+PROMETHEUS_PROFILE_MODE="off"
+PROMETHEUS_PROFILE_SAMPLE_INTERVAL="20ms"
 LEGACY_REPORT=0
 
 while [[ $# -gt 0 ]]; do
@@ -137,6 +145,8 @@ while [[ $# -gt 0 ]]; do
     --run-label)       RUN_LABELS+=("$2"); shift 2 ;;
     --memory)          MEMORY_MODE="$2"; shift 2 ;;
     --clickhouse-profile) CLICKHOUSE_PROFILE_MODE="$2"; shift 2 ;;
+    --prometheus-profile) PROMETHEUS_PROFILE_MODE="$2"; shift 2 ;;
+    --prometheus-profile-sample-interval) PROMETHEUS_PROFILE_SAMPLE_INTERVAL="$2"; shift 2 ;;
     --legacy-report)   LEGACY_REPORT=1; shift ;;
     --repeats)         REPEATS="$2"; shift 2 ;;
     --warmup)          WARMUP="$2"; shift 2 ;;
@@ -180,6 +190,7 @@ if [[ -n "$LONG_RANGE" ]]; then
       if [[ -n "$ARTIFACT_NAME" ]]; then PASSTHROUGH+=(--artifact-name "$ARTIFACT_NAME"); fi
       if [[ -n "$MEMORY_MODE" ]];   then PASSTHROUGH+=(--memory "$MEMORY_MODE"); fi
       if [[ "$CLICKHOUSE_PROFILE_MODE" != "off" ]]; then PASSTHROUGH+=(--clickhouse-profile "$CLICKHOUSE_PROFILE_MODE"); fi
+      if [[ "$PROMETHEUS_PROFILE_MODE" != "off" ]]; then PASSTHROUGH+=(--prometheus-profile "$PROMETHEUS_PROFILE_MODE" --prometheus-profile-sample-interval "$PROMETHEUS_PROFILE_SAMPLE_INTERVAL"); fi
       for label in "${RUN_LABELS[@]}"; do PASSTHROUGH+=(--run-label "$label"); done
       set +e
       "$SELF" "${PASSTHROUGH[@]}"
@@ -210,6 +221,10 @@ fi
 case "$CLICKHOUSE_PROFILE_MODE" in
   off|summary|auto|processors) ;;
   *) fatal "--clickhouse-profile must be off|summary|auto|processors (got: $CLICKHOUSE_PROFILE_MODE)" ;;
+esac
+case "$PROMETHEUS_PROFILE_MODE" in
+  off|runtime) ;;
+  *) fatal "--prometheus-profile must be off|runtime (got: $PROMETHEUS_PROFILE_MODE)" ;;
 esac
 
 ensure_command go
@@ -294,13 +309,16 @@ fi
 if [[ -n "$MEMORY_MODE" ]]; then
   ARGS+=(--memory "$MEMORY_MODE")
 fi
-if [[ "$CLICKHOUSE_PROFILE_MODE" != "off" ]]; then
+if [[ "$CLICKHOUSE_PROFILE_MODE" != "off" || "$PROMETHEUS_PROFILE_MODE" != "off" ]]; then
   if (( LEGACY_REPORT == 1 )); then
-    fatal "--clickhouse-profile requires v2 reports; remove --legacy-report"
+    fatal "profiling options require v2 reports; remove --legacy-report"
   fi
   if [[ -z "$SHIM_MODES" ]]; then
     ARGS+=(--shim-modes prefer)
   fi
+fi
+if [[ "$PROMETHEUS_PROFILE_MODE" != "off" ]]; then
+  ARGS+=(--prometheus-profile "$PROMETHEUS_PROFILE_MODE" --prometheus-profile-sample-interval "$PROMETHEUS_PROFILE_SAMPLE_INTERVAL")
 fi
 if (( LEGACY_REPORT == 1 )); then
   ARGS+=(--legacy-report)

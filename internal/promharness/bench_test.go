@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -443,14 +444,14 @@ func TestRunBenchV2PrometheusRuntimeProfile(t *testing.T) {
 		switch r.URL.Path {
 		case "/metrics":
 			tick := metricTick.Add(1)
-			fmt.Fprintf(w, "process_resident_memory_bytes %d\n", 1000+tick*100)
-			fmt.Fprintf(w, "process_cpu_seconds_total %.3f\n", float64(tick)/10)
-			fmt.Fprintf(w, "go_memstats_heap_alloc_bytes %d\n", 2000+tick*200)
-			fmt.Fprintf(w, "go_memstats_heap_inuse_bytes %d\n", 3000+tick*300)
-			fmt.Fprintf(w, "go_memstats_heap_sys_bytes %d\n", 4000+tick*400)
-			fmt.Fprintf(w, "go_memstats_alloc_bytes_total %d\n", 5000+tick*500)
-			fmt.Fprintf(w, "go_memstats_mallocs_total %d\n", 6000+tick*6)
-			fmt.Fprintf(w, "go_memstats_frees_total %d\n", 7000+tick*7)
+			_, _ = fmt.Fprintf(w, "process_resident_memory_bytes %d\n", 1000+tick*100)
+			_, _ = fmt.Fprintf(w, "process_cpu_seconds_total %.3f\n", float64(tick)/10)
+			_, _ = fmt.Fprintf(w, "go_memstats_heap_alloc_bytes %d\n", 2000+tick*200)
+			_, _ = fmt.Fprintf(w, "go_memstats_heap_inuse_bytes %d\n", 3000+tick*300)
+			_, _ = fmt.Fprintf(w, "go_memstats_heap_sys_bytes %d\n", 4000+tick*400)
+			_, _ = fmt.Fprintf(w, "go_memstats_alloc_bytes_total %d\n", 5000+tick*500)
+			_, _ = fmt.Fprintf(w, "go_memstats_mallocs_total %d\n", 6000+tick*6)
+			_, _ = fmt.Fprintf(w, "go_memstats_frees_total %d\n", 7000+tick*7)
 		case "/debug/pprof/heap":
 			w.WriteHeader(http.StatusOK)
 		case "/api/v1/query":
@@ -498,5 +499,50 @@ func TestRunBenchV2PrometheusRuntimeProfile(t *testing.T) {
 	}
 	if profile.RSSMaxDeltaBytes <= 0 || profile.HeapInuseMaxDeltaBytes <= 0 || profile.ProcessCPUSeconds <= 0 {
 		t.Fatalf("profile did not capture metric deltas: %+v", profile)
+	}
+}
+
+func TestPrometheusRuntimeProfileEndScrapeFailureDoesNotReportNegativeDeltas(t *testing.T) {
+	var metricsRequests atomic.Int64
+	promServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/metrics":
+			if metricsRequests.Add(1) > 1 {
+				http.Error(w, "metrics unavailable", http.StatusInternalServerError)
+				return
+			}
+			_, _ = fmt.Fprint(w, strings.Join([]string{
+				"process_resident_memory_bytes 1000",
+				"process_cpu_seconds_total 10",
+				"go_memstats_heap_alloc_bytes 2000",
+				"go_memstats_heap_inuse_bytes 3000",
+				"go_memstats_heap_sys_bytes 4000",
+				"go_memstats_alloc_bytes_total 5000",
+				"go_memstats_mallocs_total 6000",
+				"go_memstats_frees_total 7000",
+			}, "\n"))
+		case "/debug/pprof/heap":
+			w.WriteHeader(http.StatusOK)
+		case "/api/v1/query":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "success", "data": map[string]any{"resultType": "vector", "result": []any{}}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer promServer.Close()
+
+	profile := capturePrometheusRuntimeProfile(promServer.Client(), BenchConfig{
+		PromURL:                   promServer.URL,
+		PromProfileSampleInterval: time.Hour,
+	}, QuerySpec{Name: "t", Endpoint: "query", Query: "up"})
+	if !strings.Contains(profile.Error, "end metrics") {
+		t.Fatalf("expected end metrics error, got profile: %+v", profile)
+	}
+	if profile.ProcessCPUSeconds < 0 || profile.AllocBytesDelta < 0 || profile.MallocsDelta < 0 || profile.FreesDelta < 0 {
+		t.Fatalf("end scrape failure produced negative deltas: %+v", profile)
+	}
+	if profile.ProcessCPUSeconds != 0 || profile.AllocBytesDelta != 0 || profile.MallocsDelta != 0 || profile.FreesDelta != 0 {
+		t.Fatalf("end scrape failure should leave end-derived deltas unset: %+v", profile)
 	}
 }

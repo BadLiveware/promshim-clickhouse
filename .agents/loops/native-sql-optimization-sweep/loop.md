@@ -90,6 +90,10 @@ Latest compliance signal: prefer-mode clean (`537 passed + 1 accepted tolerance,
 - Iteration 33: deferred again pending benchmark-visible physical-decision telemetry/explain capture for heavy rows; next code attempt must be grounded in strategy-level evidence (not inferred from aggregate counters alone).
 - Iteration 34: verified bench harness currently lacks per-row physical-decision telemetry despite rich counter capture; defer code optimizations until this evidence channel exists to avoid further speculative/noisy variants.
 - Iteration 35: added `X-Promshim-Physical-Decisions` header emission + bench artifact capture (`physicalDecisions` in v2 shim result rows). Telemetry prerequisite is now satisfied for strategy-level hypothesis selection.
+- Iteration 37: telemetry-directed no-thread-cap variant for cumulative avg path reached intended decision pattern (`query_settings=no_thread_cap`) but delivered no p50 gain (~+0.33% vs baseline); do not retry as-is.
+- Iteration 38: telemetry snapshot for `processing_sum_rate_5m_by_job_range_24h_7d` confirms current good decision pattern `fused_range_aggregation=native_grid_sum_aggregation,query_settings=set_max_threads`; use this as a concrete reference when evaluating future strategy-level changes.
+- Iteration 39: telemetry-directed cumulative-avg ASOF thread-guardrail variant (`query_settings=set_max_threads`) severely regressed p50 (~+51.5%); do not retry as-is.
+- Iteration 40 accepted: fused sum-rate 5m path now prefers `query_settings=no_thread_cap` (telemetry-verified) with large p50 win and clean compliance. Treat as current baseline for this shape.
 - Do not retry the cumulative-avg states-stream `d.id IN (matchedSeries)` rewrite from iteration 22 as-is: despite large scan/join reductions it regressed p50 latency (+3.8%) and memory (+0.7%) on the representative row.
 - Do not retry the cumulative-avg states-subquery `ORDER BY` removal from iteration 24 as-is: p50 still regressed (+2.4%) with no material scan/join win.
 

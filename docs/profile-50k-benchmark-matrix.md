@@ -6,6 +6,8 @@
 
 On the successfully served rows, promshim in `prefer` mode is usually faster than Prometheus on the 7d/50k fixture: median shim/Prometheus p50 is `0.59×` across comparable rows. The result is not cleanly green because several range-function rows failed warmup or timed out, and two served rows are materially slower than Prometheus.
 
+The latest PR #14 processing refresh shows the 8-row processing corpus improved on every representative `prefer` row versus this baseline: geometric mean p50 is `0.60×` of baseline (`~40%` lower), and current median shim/Prometheus p50 is `0.31×`.
+
 | Scope | Value |
 |---|---:|
 | Sweep artifact | `harness/artifacts/bench/sweeps/profile-50k-baseline/` |
@@ -39,6 +41,35 @@ Lower S/P is better for promshim; `0.59×` means shim p50 is 59% of Prometheus p
 | Geomean S/P excluding tiny-query outlier | `0.61×` |
 
 The tiny-query outlier is `absent_or_vector_default_instant`: Prometheus p50 was `0.24 ms`, so promshim's `18.68 ms` absolute latency becomes a `78.8×` ratio.
+
+## PR #14 processing refresh
+
+Focused current-branch processing run on the same `7d` / `profile-50k` fixture. Lower p50 is better; S/P is current shim p50 divided by current Prometheus p50. This is a focused processing-corpus update, not a replacement for the full broad matrix below.
+
+| Scope | Value |
+|---|---:|
+| Current artifact | `harness/artifacts/bench/standalone/pr14-current-processing-focused/` |
+| Baseline artifact | `harness/artifacts/bench/sweeps/profile-50k-baseline/` |
+| Command family | `run-bench.sh` focused processing corpus |
+| Active series | `50,024` |
+| Modes | `prefer,force_supported` |
+| Routing policy | `strict` |
+| Repeats / warmup | `3 / 1` |
+| Memory / CH profile | `summary / summary` |
+| Query-log coverage | `16` rows, `0` missing log comments |
+
+| Query | Baseline prefer p50 ms | Current prefer p50 ms | Δ vs baseline | Current Prom p50 ms | Current S/P |
+|---|---:|---:|---:|---:|---:|
+| `sum rate 1h instant` | `123.95` | `77.47` | `-37.5%` | `241.96` | `0.32×` |
+| `sum rate 6h instant` | `487.30` | `294.05` | `-39.7%` | `888.35` | `0.33×` |
+| `avg memory 6h instant` | `476.47` | `225.68` | `-52.6%` | `893.96` | `0.25×` |
+| `histogram quantile instant` | `217.95` | `217.58` | `-0.2%` | `402.12` | `0.54×` |
+| `sum rate 5m / 24h range` | `1,977.16` | `1,263.25` | `-36.1%` | `4,360.70` | `0.29×` |
+| `sum rate 1h / 7d range` | `10,337.95` | `4,249.01` | `-58.9%` | `21,952.81` | `0.19×` |
+| `avg memory 1h / 24h range` | `13,997.08` | `6,531.18` | `-53.3%` | `14,010.09` | `0.47×` |
+| `histogram quantile / 24h range` | `2,151.60` | `1,635.32` | `-24.0%` | `5,402.51` | `0.30×` |
+
+The remaining heavy rows are resource-heavy despite the p50 gains: current ClickHouse profile highlights show `avg memory 1h / 24h range` at `8.2 GiB` memory p95 and `710.1M` read rows, `sum rate 1h / 7d range` at `15.4 GiB` memory p95 and `931.4M` read rows, and `histogram quantile / 24h range` at `3.9 GiB` memory p95 and `437.4M` read rows.
 
 ## Category matrix
 

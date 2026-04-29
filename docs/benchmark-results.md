@@ -6,6 +6,12 @@ Benchmark matrices below were refreshed from live sweep artifacts on this branch
 For the newer 7d/50k active-series comparison against Prometheus, see
 [`profile-50k-benchmark-matrix.md`](profile-50k-benchmark-matrix.md).
 
+Latest focused PR #14 processing refresh:
+
+- `harness/artifacts/bench/standalone/pr14-current-processing-focused`
+
+Historical matrix artifacts:
+
 - `harness/artifacts/bench/sweeps/readme-refresh-20260426-7d-sparse`
 - `harness/artifacts/bench/sweeps/readme-refresh-20260426-long-range-sparse`
 - `harness/artifacts/bench/sweeps/readme-refresh-20260426-7d-dense-processing`
@@ -22,6 +28,23 @@ default. They therefore reflect the explicit rollback behavior
 separately as a focused before/after check:
 `harness/artifacts/bench/sweeps/native-grid-focused-baseline` and
 `harness/artifacts/bench/sweeps/native-grid-focused-candidate`.
+
+### PR #14 processing refresh
+
+On the `7d` / `profile-50k` fixture, the current PR branch improved all 8 processing-corpus `prefer` rows versus the original `profile-50k-baseline`: geometric mean p50 is `0.60×` of baseline (`~40%` lower), and current median shim/Prometheus p50 is `0.31×`. Conditions: focused `run-bench.sh` processing run, `prefer,force_supported`, `strict`, 3 repeats, 1 warmup, memory and ClickHouse profile summaries enabled.
+
+| Query | Baseline prefer p50 ms | Current prefer p50 ms | Δ vs baseline | Current Prom p50 ms | Current S/P |
+|---|---:|---:|---:|---:|---:|
+| `sum rate 1h instant` | `123.95` | `77.47` | `-37.5%` | `241.96` | `0.32×` |
+| `sum rate 6h instant` | `487.30` | `294.05` | `-39.7%` | `888.35` | `0.33×` |
+| `avg memory 6h instant` | `476.47` | `225.68` | `-52.6%` | `893.96` | `0.25×` |
+| `histogram quantile instant` | `217.95` | `217.58` | `-0.2%` | `402.12` | `0.54×` |
+| `sum rate 5m / 24h range` | `1,977.16` | `1,263.25` | `-36.1%` | `4,360.70` | `0.29×` |
+| `sum rate 1h / 7d range` | `10,337.95` | `4,249.01` | `-58.9%` | `21,952.81` | `0.19×` |
+| `avg memory 1h / 24h range` | `13,997.08` | `6,531.18` | `-53.3%` | `14,010.09` | `0.47×` |
+| `histogram quantile / 24h range` | `2,151.60` | `1,635.32` | `-24.0%` | `5,402.51` | `0.30×` |
+
+Tradeoff: the heavy range rows are still large ClickHouse jobs, with current memory p95 up to `15.4 GiB` and read volume up to `931.4M` rows; treat these numbers as local harness evidence, not broad production claims.
 
 ### 7d sparse CBE category matrix (strict vs cost_prefer)
 

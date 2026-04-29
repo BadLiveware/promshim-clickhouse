@@ -119,14 +119,14 @@ func capturePrometheusRuntimeProfile(client *http.Client, cfg BenchConfig, spec 
 	}
 	if endErr != nil {
 		profile.Error = appendProfileError(profile.Error, fmt.Sprintf("end metrics: %v", endErr))
-		endMetrics = map[string]float64{}
-	}
-	for key, value := range endMetrics {
-		if current, ok := profile.MetricMax[key]; !ok || value > current {
-			profile.MetricMax[key] = value
+	} else {
+		for key, value := range endMetrics {
+			if current, ok := profile.MetricMax[key]; !ok || value > current {
+				profile.MetricMax[key] = value
+			}
 		}
+		profile.Metrics = cloneFloatMap(endMetrics)
 	}
-	profile.Metrics = cloneFloatMap(endMetrics)
 	profile.MetricMaxDeltas = map[string]float64{}
 	for _, name := range prometheusRuntimeMetricNames {
 		base, ok := baseline[name]
@@ -137,14 +137,16 @@ func capturePrometheusRuntimeProfile(client *http.Client, cfg BenchConfig, spec 
 			profile.MetricMaxDeltas[name] = maxValue - base
 		}
 	}
-	profile.ProcessCPUSeconds = endMetrics["process_cpu_seconds_total"] - baseline["process_cpu_seconds_total"]
+	if endErr == nil {
+		profile.ProcessCPUSeconds = metricDelta(endMetrics, baseline, "process_cpu_seconds_total")
+		profile.AllocBytesDelta = metricDelta(endMetrics, baseline, "go_memstats_alloc_bytes_total")
+		profile.MallocsDelta = metricDelta(endMetrics, baseline, "go_memstats_mallocs_total")
+		profile.FreesDelta = metricDelta(endMetrics, baseline, "go_memstats_frees_total")
+	}
 	profile.RSSMaxDeltaBytes = profile.MetricMaxDeltas["process_resident_memory_bytes"]
 	profile.HeapAllocMaxDeltaBytes = profile.MetricMaxDeltas["go_memstats_heap_alloc_bytes"]
 	profile.HeapInuseMaxDeltaBytes = profile.MetricMaxDeltas["go_memstats_heap_inuse_bytes"]
 	profile.HeapSysMaxDeltaBytes = profile.MetricMaxDeltas["go_memstats_heap_sys_bytes"]
-	profile.AllocBytesDelta = endMetrics["go_memstats_alloc_bytes_total"] - baseline["go_memstats_alloc_bytes_total"]
-	profile.MallocsDelta = endMetrics["go_memstats_mallocs_total"] - baseline["go_memstats_mallocs_total"]
-	profile.FreesDelta = endMetrics["go_memstats_frees_total"] - baseline["go_memstats_frees_total"]
 	return profile
 }
 
@@ -216,6 +218,15 @@ func parsePrometheusMetricLine(line string) (string, float64, bool) {
 		return "", 0, false
 	}
 	return name, value, true
+}
+
+func metricDelta(current, baseline map[string]float64, name string) float64 {
+	currentValue, currentOK := current[name]
+	baselineValue, baselineOK := baseline[name]
+	if !currentOK || !baselineOK {
+		return 0
+	}
+	return currentValue - baselineValue
 }
 
 func cloneFloatMap(in map[string]float64) map[string]float64 {

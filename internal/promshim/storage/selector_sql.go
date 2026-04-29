@@ -69,10 +69,18 @@ func BuildRangeSelectorRowsQuerySQL(cfg QueryConfig, selector SelectorSource, re
 }
 
 func BuildRangeMatrixSelectorRowsQuerySQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
+	return buildRangeMatrixSelectorRowsQuerySQL(cfg, selector, requiredStartMS, requiredEndMS, false)
+}
+
+func BuildRangeMatrixSelectorRowsQuerySQLWithSeriesID(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
+	return buildRangeMatrixSelectorRowsQuerySQL(cfg, selector, requiredStartMS, requiredEndMS, true)
+}
+
+func buildRangeMatrixSelectorRowsQuerySQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64, includeSeriesID bool) (string, map[string]string, error) {
 	if selector.Kind != SelectorKindRangeVector {
 		return "", nil, fmt.Errorf("range matrix selector rows SQL requires a range-vector selector, got %q", selector.Kind)
 	}
-	sql, params, err := buildRangeMatrixSelectorRowsSQL(cfg, selector, requiredStartMS, requiredEndMS)
+	sql, params, err := buildRangeMatrixSelectorRowsSQL(cfg, selector, requiredStartMS, requiredEndMS, includeSeriesID)
 	if err != nil {
 		return "", nil, err
 	}
@@ -1177,7 +1185,7 @@ func shouldFilterSparseRangeInstantSelectorSamples(lookbackMS, stepMS int64) boo
 }
 
 func buildRangeMatrixSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
-	innerSQL, params, err := buildRangeMatrixSelectorRowsSQL(cfg, selector, requiredStartMS, requiredEndMS)
+	innerSQL, params, err := buildRangeMatrixSelectorRowsSQL(cfg, selector, requiredStartMS, requiredEndMS, false)
 	if err != nil {
 		return "", nil, err
 	}
@@ -1196,7 +1204,7 @@ func buildRangeMatrixSelectorSourceSQL(cfg QueryConfig, selector SelectorSource,
 	return sql, params, nil
 }
 
-func buildRangeMatrixSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
+func buildRangeMatrixSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64, includeSeriesID bool) (string, map[string]string, error) {
 	matchedSeriesSQL, params, err := buildMatchedSeriesSQL(cfg, selector, "range_matrix", requiredStartMS, requiredEndMS, true)
 	if err != nil {
 		return "", nil, err
@@ -1205,12 +1213,16 @@ func buildRangeMatrixSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, r
 	if !selector.NeedTags {
 		selectTagsExpr = emit.EmptyTagsArray()
 	}
+	columns := []sqlb.ColExpr{
+		{Expr: selectTagsExpr, Alias: "tags"},
+		{Expr: sqlb.Ident("d.timestamp"), Alias: "timestamp"},
+		{Expr: sqlb.Ident("d.value"), Alias: "value"},
+	}
+	if includeSeriesID {
+		columns = append([]sqlb.ColExpr{{Expr: sqlb.Ident("d.id"), Alias: "id"}}, columns...)
+	}
 	inner := &sqlb.Select{
-		Columns: []sqlb.ColExpr{
-			{Expr: selectTagsExpr, Alias: "tags"},
-			{Expr: sqlb.Ident("d.timestamp"), Alias: "timestamp"},
-			{Expr: sqlb.Ident("d.value"), Alias: "value"},
-		},
+		Columns: columns,
 		From: sqlb.Join{
 			Left:  sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"},
 			Right: sqlb.RawSource{SQL: rawSubquerySQL(matchedSeriesSQL), Alias: "series"},

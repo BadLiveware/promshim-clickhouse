@@ -103,7 +103,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						if err != nil {
 							return renderedFragment{}, err
 						}
-						rowsSQL, rowParams, err := storage.BuildRangeMatrixSelectorRowsQuerySQL(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS)
+						rowsSQL, rowParams, err := storage.BuildRangeMatrixSelectorRowsQuerySQLWithSeriesID(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS)
 						if err != nil {
 							return renderedFragment{}, err
 						}
@@ -119,12 +119,12 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						if err != nil {
 							return renderedFragment{}, err
 						}
-						rowsSQL, rowParams, err := storage.BuildRangeMatrixSelectorRowsQuerySQL(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS)
+						rowsSQL, rowParams, err := storage.BuildRangeMatrixSelectorRowsQuerySQLWithSeriesID(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS)
 						if err != nil {
 							return renderedFragment{}, err
 						}
 						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
-						sql, err := buildInstantRangeFunctionOverRowsSQL(trimRenderedQuerySQL(rowsSQL), fn, tagsExpr, params.EvaluationTimeMS)
+						sql, err := buildInstantRangeFunctionOverRowsSQL(trimRenderedQuerySQL(rowsSQL), fn, tagsExpr, params.EvaluationTimeMS, true)
 						if err != nil {
 							return renderedFragment{}, err
 						}
@@ -143,7 +143,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 				if childRowsSQL, childParams, ok, err := tryRenderSubqueryRowsSourceLogical(ctx, child); err != nil {
 					return renderedFragment{}, err
 				} else if ok {
-					sql, err := buildInstantRangeFunctionOverRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, subqueryRowsOutputTagsExprLogical(child, fn), params.EvaluationTimeMS)
+					sql, err := buildInstantRangeFunctionOverRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, subqueryRowsOutputTagsExprLogical(child, fn), params.EvaluationTimeMS, false)
 					if err != nil {
 						return renderedFragment{}, err
 					}

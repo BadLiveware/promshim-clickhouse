@@ -533,6 +533,22 @@ func TestSubqueryRateOverAggregationSuppressesThreadGuardrail(t *testing.T) {
 	}
 }
 
+func TestAggregationByInstantRateNarrowsLabelsAfterPerSeriesRate(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (rate(http_requests_total[5m]))`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if !strings.Contains(rq.SQL, "src.tags['job']") || strings.Contains(rq.SQL, "arrayMap((k, v) -> tuple(k, v), mapKeys(src.tags), mapValues(src.tags))") {
+		t.Fatalf("expected instant range-function aggregation to narrow carried labels after per-series rate, got:\n%s", rq.SQL)
+	}
+}
+
 func TestAggregationByKeepsFullLabelsForRangeFunctions(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum by (job) (rate(http_requests_total[5m]))`)
 	rq, err := Lower(LoweringCtx{

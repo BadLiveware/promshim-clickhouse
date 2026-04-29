@@ -8,7 +8,8 @@ For the newer 7d/50k active-series comparison against Prometheus, see
 
 Latest focused PR #14 processing refresh:
 
-- `harness/artifacts/bench/standalone/pr14-current-processing-focused`
+- `harness/artifacts/bench/standalone/pr14-current-processing-prom-profile`
+- prior focused refresh: `harness/artifacts/bench/standalone/pr14-current-processing-focused`
 
 Historical matrix artifacts:
 
@@ -31,20 +32,37 @@ separately as a focused before/after check:
 
 ### PR #14 processing refresh
 
-On the `7d` / `profile-50k` fixture, the current PR branch improved all 8 processing-corpus `prefer` rows versus the original `profile-50k-baseline`: geometric mean p50 is `0.60×` of baseline (`~40%` lower), and current median shim/Prometheus p50 is `0.31×`. Conditions: focused `run-bench.sh` processing run, `prefer,force_supported`, `strict`, 3 repeats, 1 warmup, memory and ClickHouse profile summaries enabled.
+On the `7d` / `profile-50k` fixture, the current PR branch improved all 8 processing-corpus `prefer` rows versus the original `profile-50k-baseline`: geometric mean p50 is `0.63×` of baseline (`~37%` lower), and current median shim/Prometheus p50 is `0.32×`. Conditions: focused `run-bench.sh` processing run, `prefer`, `strict`, 3 repeats, 1 warmup, memory and ClickHouse profile summaries enabled, and `--prometheus-profile runtime` enabled.
 
 | Query | Baseline prefer p50 ms | Current prefer p50 ms | Δ vs baseline | Current Prom p50 ms | Current S/P |
 |---|---:|---:|---:|---:|---:|
-| `sum rate 1h instant` | `123.95` | `77.47` | `-37.5%` | `241.96` | `0.32×` |
-| `sum rate 6h instant` | `487.30` | `294.05` | `-39.7%` | `888.35` | `0.33×` |
-| `avg memory 6h instant` | `476.47` | `225.68` | `-52.6%` | `893.96` | `0.25×` |
-| `histogram quantile instant` | `217.95` | `217.58` | `-0.2%` | `402.12` | `0.54×` |
-| `sum rate 5m / 24h range` | `1,977.16` | `1,263.25` | `-36.1%` | `4,360.70` | `0.29×` |
-| `sum rate 1h / 7d range` | `10,337.95` | `4,249.01` | `-58.9%` | `21,952.81` | `0.19×` |
-| `avg memory 1h / 24h range` | `13,997.08` | `6,531.18` | `-53.3%` | `14,010.09` | `0.47×` |
-| `histogram quantile / 24h range` | `2,151.60` | `1,635.32` | `-24.0%` | `5,402.51` | `0.30×` |
+| `sum rate 1h instant` | `123.95` | `76.95` | `-37.9%` | `248.85` | `0.31×` |
+| `sum rate 6h instant` | `487.30` | `286.70` | `-41.2%` | `874.57` | `0.33×` |
+| `avg memory 6h instant` | `476.47` | `218.75` | `-54.1%` | `880.17` | `0.25×` |
+| `histogram quantile instant` | `217.95` | `217.27` | `-0.3%` | `397.27` | `0.55×` |
+| `sum rate 5m / 24h range` | `1,977.16` | `1,757.74` | `-11.1%` | `4,297.77` | `0.41×` |
+| `sum rate 1h / 7d range` | `10,337.95` | `5,478.87` | `-47.0%` | `21,956.91` | `0.25×` |
+| `avg memory 1h / 24h range` | `13,997.08` | `6,444.00` | `-54.0%` | `13,810.35` | `0.47×` |
+| `histogram quantile / 24h range` | `2,151.60` | `1,480.99` | `-31.2%` | `5,339.24` | `0.28×` |
 
-Tradeoff: the heavy range rows are still large ClickHouse jobs, with current memory p95 up to `15.4 GiB` and read volume up to `931.4M` rows; treat these numbers as local harness evidence, not broad production claims.
+Tradeoff: the heavy range rows are still large ClickHouse jobs, but duration-capped native chunking moved the `sum rate` range rows down substantially. The current worst processing row is `avg memory 1h / 24h range` at `8.23 GiB` memory p95 and `710.1M` read rows; treat these numbers as local harness evidence, not broad production claims.
+
+### Resource vs Prometheus runtime profile
+
+The latest processing run also enabled `--prometheus-profile runtime`, which records process/Go-runtime Prometheus samples around one measured Prometheus query per row. This is directional process-level telemetry, not exact per-query accounting like ClickHouse `system.query_log`. Lower S/P ratios are better. Weighted total uses a rough geometric score: latency `50%`, memory `30%`, CPU `20%`.
+
+| Query | Strategy | Lat S/P | Mem S/P | CPU S/P | Weighted total | CH mem p95 | Prom heap Δ | CH CPU | Prom CPU |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `sum rate 1h instant` | `native_sql` | `0.31×` | `0.5×` | `3.5×` | `0.6×` | `0.02 GiB` | `35 MiB` | `1.0s` | `0.3s` |
+| `sum rate 6h instant` | `native_sql` | `0.33×` | `2.1×` | `5.9×` | `1.0×` | `0.14 GiB` | `70 MiB` | `6.8s` | `1.2s` |
+| `avg memory 6h instant` | `native_sql` | `0.25×` | `0.3×` | `4.3×` | `0.4×` | `0.02 GiB` | `77 MiB` | `5.1s` | `1.2s` |
+| `histogram quantile instant` | `native_sql` | `0.55×` | `0.7×` | `2.6×` | `0.8×` | `0.03 GiB` | `42 MiB` | `1.5s` | `0.6s` |
+| `sum rate 5m / 24h range` | `chunked_native` | `0.41×` | `4.2×` | `1.3×` | `1.0×` | `0.78 GiB` | `190 MiB` | `6.6s` | `5.1s` |
+| `sum rate 1h / 7d range` | `chunked_native` | `0.25×` | `6.3×` | `0.7×` | `0.8×` | `2.36 GiB` | `386 MiB` | `19.0s` | `25.9s` |
+| `avg memory 1h / 24h range` | `native_sql` | `0.47×` | `26.7×` | `2.3×` | `2.2×` | `8.23 GiB` | `315 MiB` | `37.6s` | `16.5s` |
+| `histogram quantile / 24h range` | `native_sql` | `0.28×` | `31.4×` | `5.2×` | `2.1×` | `3.89 GiB` | `127 MiB` | `33.8s` | `6.5s` |
+
+Aggregate geomeans: all 8 rows latency `0.34×`, memory `2.80×`, CPU `2.67×`, weighted total `0.97×`; range rows latency `0.34×`, memory `12.20×`, CPU `1.83×`, weighted total `1.39×`.
 
 ### Native range auto-chunking check
 

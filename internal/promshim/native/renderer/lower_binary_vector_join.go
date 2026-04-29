@@ -145,33 +145,6 @@ func lowerBinaryVectorJoin(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQ
 	}
 }
 
-// lowerBinaryVectorJoinSide lowers one side of a vector-vector binary
-// join and namespaces the result under the given alias ("lhs" or "rhs")
-// so the rendered SQL is embeddable as a FROM source inside the join
-// body.
-func binaryVectorSelfReuseEligible(n *logicalpkg.BinaryPlan, joinShape string) bool {
-	if n == nil || nativeRepeatedSubexpressionReuseDisabled() || !isSelfReuseSupportedOp(n.Op) || joinShape != "one_to_one" {
-		return false
-	}
-	if n.ReturnBool && !isSelfReuseComparisonOp(n.Op) {
-		return false
-	}
-	if n.VectorMatching != nil && (n.VectorMatching.On || len(n.VectorMatching.MatchingLabels) > 0 || len(n.VectorMatching.Include) > 0) {
-		return false
-	}
-	lhsExpr := nodeExprString(n.LHS)
-	rhsExpr := nodeExprString(n.RHS)
-	if lhsExpr == "" || lhsExpr != rhsExpr {
-		return false
-	}
-	lhsKey, lhsOK := cseSubtreeKey(n.LHS)
-	rhsKey, rhsOK := cseSubtreeKey(n.RHS)
-	if !lhsOK || !rhsOK || lhsKey != rhsKey {
-		return false
-	}
-	return true
-}
-
 func buildSelfReuseDecision(n *logicalpkg.BinaryPlan, joinShape string, mode native.RenderMode) (physical.Decision, bool) {
 	lhsExpr := nodeExprString(n.LHS)
 	rhsExpr := nodeExprString(n.RHS)
@@ -270,6 +243,10 @@ func nativeRepeatedSubexpressionReuseDisabled() bool {
 	}
 }
 
+// lowerBinaryVectorJoinSide lowers one side of a vector-vector binary
+// join and namespaces the result under the given alias ("lhs" or "rhs")
+// so the rendered SQL is embeddable as a FROM source inside the join
+// body.
 func lowerBinaryVectorJoinSide(ctx LoweringCtx, child logicalpkg.Node, prefix string) (string, map[string]string, error) {
 	rendered, err := Lower(ctx, child)
 	if err != nil {

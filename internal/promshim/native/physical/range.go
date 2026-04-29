@@ -119,7 +119,7 @@ func ChooseRangeWindowAggregate(input RangeWindowAggregateInput) RangeWindowAggr
 	if (input.Preferences.RangeWindowAggregate.Strategy == RangeWindowAggregateStrategyDirectAggregate || input.Preferences.RangeWindowAggregate.Strategy == RangeWindowAggregateStrategySparseDirectAggregate) && !SupportsDirectSelectorWindowAggregate(input.Func) {
 		rejected = append(rejected, Alternative{Strategy: string(RangeWindowAggregateStrategyDirectAggregate), Reason: "function does not support direct selector-window aggregate"})
 	}
-	if input.Preferences.RangeWindowAggregate.Strategy == RangeWindowAggregateStrategyCumulativeAvg && !(input.EnableCumulativeAvgOverTime && input.Func == "avg_over_time") {
+	if input.Preferences.RangeWindowAggregate.Strategy == RangeWindowAggregateStrategyCumulativeAvg && (!input.EnableCumulativeAvgOverTime || input.Func != "avg_over_time") {
 		rejected = append(rejected, Alternative{Strategy: string(RangeWindowAggregateStrategyCumulativeAvg), Reason: "requires enabled avg_over_time cumulative path"})
 	}
 

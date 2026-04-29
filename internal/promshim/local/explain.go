@@ -10,7 +10,6 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 )
 
-
 type LogicalOptimizationExplain struct {
 	Disabled  bool                     `json:"disabled,omitempty"`
 	EnvGate   string                   `json:"envGate,omitempty"`

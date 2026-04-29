@@ -48,7 +48,9 @@ Tradeoff: the heavy range rows are still large ClickHouse jobs, with current mem
 
 ### Native range auto-chunking check
 
-Default native range auto-chunking (`PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES=289`) trades latency and extra ClickHouse work for lower peak memory on native-grid range aggregation rows. Conditions: focused hit-set run, `prefer`, `strict`, 3 repeats, 1 warmup, memory and ClickHouse profile summaries enabled; Prometheus comparison used the same hit set with Prom timings enabled.
+Native range auto-chunking trades latency and extra ClickHouse work for lower peak memory on native-grid range aggregation rows. The current default uses a safe point cap plus duration cap (`PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES=289`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS=86400`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS=12`) so coarse-step long-range queries do not scan multiple days per chunk by default.
+
+The table below captures the fixed point-cap benchmark that motivated the duration cap. Conditions: focused hit-set run, `prefer`, `strict`, 3 repeats, 1 warmup, memory and ClickHouse profile summaries enabled; Prometheus comparison used the same hit set with Prom timings enabled.
 
 | Query | No-chunk p50 | Auto-chunk p50 | Auto vs Prom | No-chunk mem p95 | Auto mem p95 | Read rows/logical request |
 |---|---:|---:|---:|---:|---:|---:|

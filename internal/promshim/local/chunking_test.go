@@ -111,6 +111,42 @@ func TestBuildPlanWithContextWrapsLargeNativeRangePlanInChunkedRangePlan(t *test
 	}
 }
 
+func TestNativeRangeChunkPointsUsesDurationCap(t *testing.T) {
+	got := nativeRangeChunkPointsPerSeries(PlanContext{
+		Step:                            15 * time.Minute,
+		NativeRangeChunkPointsPerSeries: 289,
+		NativeRangeChunkMaxDuration:     24 * time.Hour,
+		NativeRangeChunkMaxChunks:       12,
+	}, &planEstimate{PointsPerSeries: 673})
+	if got != 97 {
+		t.Fatalf("native chunk points = %d, want 97", got)
+	}
+}
+
+func TestNativeRangeChunkPointsRespectsMaxChunks(t *testing.T) {
+	got := nativeRangeChunkPointsPerSeries(PlanContext{
+		Step:                            15 * time.Minute,
+		NativeRangeChunkPointsPerSeries: 289,
+		NativeRangeChunkMaxDuration:     24 * time.Hour,
+		NativeRangeChunkMaxChunks:       12,
+	}, &planEstimate{PointsPerSeries: 2881})
+	if got != 241 {
+		t.Fatalf("native chunk points = %d, want 241", got)
+	}
+}
+
+func TestNativeRangeChunkPointsCanBeDisabled(t *testing.T) {
+	got := nativeRangeChunkPointsPerSeries(PlanContext{
+		Step:                            15 * time.Minute,
+		NativeRangeChunkPointsPerSeries: 0,
+		NativeRangeChunkMaxDuration:     24 * time.Hour,
+		NativeRangeChunkMaxChunks:       12,
+	}, &planEstimate{PointsPerSeries: 673})
+	if got != 0 {
+		t.Fatalf("native chunk points = %d, want disabled", got)
+	}
+}
+
 func TestChunkedRangePlanExecutesAndMergesChunks(t *testing.T) {
 	plan := &chunkedRangePlan{
 		Child:                syntheticRangePlan{},

@@ -73,7 +73,9 @@ The remaining heavy rows are resource-heavy despite the p50 gains: current Click
 
 ## Native range auto-chunking tradeoff
 
-Default native range auto-chunking (`PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES=289`) is a resource-safety path for native-grid range aggregation rows. It is not a latency optimization: on the focused hit set, geomean p50 was `1.36×` slower than the single-query native path, while ClickHouse memory p95 dropped to `0.24×`; read rows rose `1.66×` and user CPU rose `1.27×`.
+Native range auto-chunking is a resource-safety path for native-grid range aggregation rows. It is not a latency optimization. The current default combines a point cap with a safe output-duration cap (`PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES=289`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS=86400`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS=12`) so coarse-step long-range queries do not keep multi-day chunks only because they have fewer output points.
+
+The fixed point-cap benchmark below showed geomean p50 `1.36×` slower than the single-query native path, while ClickHouse memory p95 dropped to `0.24×`; read rows rose `1.66×` and user CPU rose `1.27×`. It also showed `sum rate 1h / 7d @15m` still at `8.26 GiB`, which is why the safer duration cap is now part of the default.
 
 | Query | No-chunk p50 | Auto-chunk p50 | Prom p50 | Auto S/P | No-chunk mem p95 | Auto mem p95 |
 |---|---:|---:|---:|---:|---:|---:|

@@ -42,6 +42,8 @@ type Options struct {
 	MaxRangePointsPerSeries         int64
 	RangeChunkPointsPerSeries       int64
 	NativeRangeChunkPointsPerSeries int64
+	NativeRangeChunkMaxDuration     time.Duration
+	NativeRangeChunkMaxChunks       int64
 	MaxResponseSeries               int64
 	MaxResponsePoints               int64
 	MaxMetadataItems                int64
@@ -78,6 +80,8 @@ func LoadOptionsFromEnv() (Options, error) {
 		MaxRangePointsPerSeries:         getenvInt64("PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES", local.DefaultMaxRangePointsPerSeries),
 		RangeChunkPointsPerSeries:       getenvInt64("PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES", local.DefaultRangeChunkPointsPerSeries),
 		NativeRangeChunkPointsPerSeries: getenvInt64("PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES", local.DefaultNativeRangeChunkPointsPerSeries),
+		NativeRangeChunkMaxDuration:     time.Second * time.Duration(getenvInt64("PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS", int64(local.DefaultNativeRangeChunkMaxDuration/time.Second))),
+		NativeRangeChunkMaxChunks:       getenvInt64("PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS", local.DefaultNativeRangeChunkMaxChunks),
 		MaxResponseSeries:               getenvInt64("PROM_SHIM_MAX_RESPONSE_SERIES", defaultMaxResponseSeries),
 		MaxResponsePoints:               getenvInt64("PROM_SHIM_MAX_RESPONSE_POINTS", defaultMaxResponsePoints),
 		MaxMetadataItems:                getenvInt64("PROM_SHIM_MAX_METADATA_ITEMS", defaultMaxMetadataItems),
@@ -225,6 +229,12 @@ func normalizeOptions(opts Options) Options {
 	}
 	if opts.NativeRangeChunkPointsPerSeries < 0 {
 		opts.NativeRangeChunkPointsPerSeries = local.DefaultNativeRangeChunkPointsPerSeries
+	}
+	if opts.NativeRangeChunkMaxDuration < 0 {
+		opts.NativeRangeChunkMaxDuration = local.DefaultNativeRangeChunkMaxDuration
+	}
+	if opts.NativeRangeChunkMaxChunks < 0 {
+		opts.NativeRangeChunkMaxChunks = local.DefaultNativeRangeChunkMaxChunks
 	}
 	if opts.MaxResponseSeries <= 0 {
 		opts.MaxResponseSeries = defaultMaxResponseSeries

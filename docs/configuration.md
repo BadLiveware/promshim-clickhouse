@@ -37,6 +37,8 @@
 | `PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES` | `50000` | Reject range queries above this point count per series. |
 | `PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES` | `5000` | Chunk eligible local range plans above this point count per series. |
 | `PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES` | `289` | Auto-chunk eligible native-grid range aggregation plans above this point count per series to cap ClickHouse peak memory. Set `0` to disable native range auto-chunking. Explain output and `X-Promshim-Strategy` report `chunked_native` when this path is selected. |
+| `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS` | `86400` | Further cap eligible native range chunks by output duration. The default `86400` keeps chunks at about one day for coarse-step long-range queries where the point cap alone would still scan multiple days per chunk. Set `0` to disable the duration cap. |
+| `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS` | `12` | Guardrail that enlarges native range chunks when the point/duration caps would create too many ClickHouse subqueries. Set `0` for no max-chunk guardrail. |
 | `PROM_SHIM_MAX_RESPONSE_SERIES` | `5000` | Reject query responses and `/series` metadata responses with more series than this limit. |
 | `PROM_SHIM_MAX_RESPONSE_POINTS` | `500000` | Reject query responses with more total points than this limit. |
 | `PROM_SHIM_MAX_METADATA_ITEMS` | `50000` | Reject `/labels` and label-values metadata responses with more items than this limit. |

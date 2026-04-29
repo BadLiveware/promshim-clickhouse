@@ -760,7 +760,7 @@ func buildRangeWindowSelectorCumulativeAvgPerStepSQL(cfg QueryConfig, selector S
 	gridSQL := "SELECT id, eval_ts, boundary.1 AS boundary_kind, boundary.2 AS boundary_ts FROM " +
 		"(SELECT series.id AS id, arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64}))) AS eval_ts, " +
 		"eval_ts - toIntervalMillisecond({offset_ms:Int64}) AS upper_bound, " +
-		"eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64} + 1) AS lower_prev_bound " +
+		"greatest(eval_ts - toIntervalMillisecond({offset_ms:Int64} + {lookback_ms:Int64} + 1), fromUnixTimestamp64Milli({required_start_ms:Int64}) - toIntervalMillisecond(1)) AS lower_prev_bound " +
 		"FROM " + matchedSeries + " AS series) AS eval_grid " +
 		"ARRAY JOIN [(1, upper_bound), (0, lower_prev_bound)] AS boundary ORDER BY id, boundary_ts"
 	boundarySQL := "SELECT grid.id AS id, grid.eval_ts AS eval_ts, grid.boundary_kind AS boundary_kind, " +

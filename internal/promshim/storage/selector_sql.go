@@ -723,12 +723,11 @@ func buildRangeWindowSelectorCumulativeAvgPerStepSQL(cfg QueryConfig, selector S
 	}
 	finalMatchedSeriesSQL := matchedSeriesSQL
 	if selector.NeedTags {
-		var tagParams map[string]string
-		finalMatchedSeriesSQL, tagParams, err = buildMatchedSeriesSQL(cfg, selector, "range_window_cumulative_avg_tags", requiredStartMS, requiredEndMS, true)
+		finalMatchedSeriesSQL, params, err = buildMatchedSeriesSQL(cfg, selector, "range_window_cumulative_avg_tags", requiredStartMS, requiredEndMS, true)
 		if err != nil {
 			return "", nil, nil, err
 		}
-		mergeParams(params, tagParams)
+		matchedSeriesSQL = "SELECT DISTINCT id FROM (" + finalMatchedSeriesSQL + ") AS range_window_cumulative_avg_ids_from_tags"
 	}
 	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
 	params["param_end_ms"] = strconv.FormatInt(endMS, 10)

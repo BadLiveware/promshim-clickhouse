@@ -30,6 +30,9 @@ type Response struct {
 	FallbackReason  string
 	SettingsProfile string
 	Routing         *RoutingInfo
+	// PhysicalDecisions is a compact strategy-decision summary emitted as
+	// X-Promshim-Physical-Decisions for bench/evidence workflows.
+	PhysicalDecisions string
 }
 
 type EstimateState struct {
@@ -43,37 +46,39 @@ type EstimateState struct {
 }
 
 type QueryCostClass struct {
-	Endpoint              string        `json:"endpoint"`
-	Family                string        `json:"family"`
-	RootStrategyStrict    string        `json:"rootStrategyStrict"`
-	OutputKind            string        `json:"outputKind"`
-	EstimateState         EstimateState `json:"estimateState"`
-	HasAggregation        bool          `json:"hasAggregation"`
-	HasRangeFunction      bool          `json:"hasRangeFunction"`
-	HasRepeatedRangeFunc  bool          `json:"hasRepeatedRangeFunction"`
-	HasVectorJoin         bool          `json:"hasVectorJoin"`
-	HasHistogram          bool          `json:"hasHistogram"`
-	HasSubquery           bool          `json:"hasSubquery"`
-	HasLabelMutation      bool          `json:"hasLabelMutation"`
-	HasSelectionAgg       bool          `json:"hasSelectionAgg"`
-	DropsAllLabels        bool          `json:"dropsAllLabels"`
-	SelectorCount         int           `json:"selectorCount"`
-	EstimatedSeries       int64         `json:"estimatedSeries"`
-	EstimatedInputSamples int64         `json:"estimatedInputSamples"`
-	EstimatedOutputPoints int64         `json:"estimatedOutputPoints"`
-	RangePointsPerSeries  int64         `json:"rangePointsPerSeries"`
-	LookbackMS            int64         `json:"lookbackMs"`
-	StepMS                int64         `json:"stepMs"`
-	SubqueryRangeMS       int64         `json:"subqueryRangeMs,omitempty"`
-	SubqueryStepMS        int64         `json:"subqueryStepMs,omitempty"`
-	SubqueryPointsPerEval int64         `json:"subqueryPointsPerEval,omitempty"`
-	SubqueryOverlapSlots  float64       `json:"subqueryOverlapSlots,omitempty"`
-	SubqueryWorkUnits      int64         `json:"subqueryWorkUnits,omitempty"`
-	SubqueryTemporalFanout int64         `json:"subqueryTemporalFanout,omitempty"`
-	SubqueryComplexityBand string        `json:"subqueryComplexityBand,omitempty"`
-	OverlapSlots           float64       `json:"overlapSlots"`
-	NativeRoundTrips      int           `json:"nativeRoundTrips"`
-	LocalRoundTrips       int           `json:"localRoundTrips"`
+	Endpoint                     string        `json:"endpoint"`
+	Family                       string        `json:"family"`
+	RootStrategyStrict           string        `json:"rootStrategyStrict"`
+	OutputKind                   string        `json:"outputKind"`
+	EstimateState                EstimateState `json:"estimateState"`
+	HasAggregation               bool          `json:"hasAggregation"`
+	HasRangeFunction             bool          `json:"hasRangeFunction"`
+	HasRepeatedRangeFunc         bool          `json:"hasRepeatedRangeFunction"`
+	HasVectorJoin                bool          `json:"hasVectorJoin"`
+	HasHistogram                 bool          `json:"hasHistogram"`
+	HasSubquery                  bool          `json:"hasSubquery"`
+	HasLabelMutation             bool          `json:"hasLabelMutation"`
+	HasSelectionAgg              bool          `json:"hasSelectionAgg"`
+	DropsAllLabels               bool          `json:"dropsAllLabels"`
+	HistogramChildGroupingLabels []string      `json:"histogramChildGroupingLabels,omitempty"`
+	HistogramChildGroupsByLeOnly bool          `json:"histogramChildGroupsByLeOnly,omitempty"`
+	SelectorCount                int           `json:"selectorCount"`
+	EstimatedSeries              int64         `json:"estimatedSeries"`
+	EstimatedInputSamples        int64         `json:"estimatedInputSamples"`
+	EstimatedOutputPoints        int64         `json:"estimatedOutputPoints"`
+	RangePointsPerSeries         int64         `json:"rangePointsPerSeries"`
+	LookbackMS                   int64         `json:"lookbackMs"`
+	StepMS                       int64         `json:"stepMs"`
+	SubqueryRangeMS              int64         `json:"subqueryRangeMs,omitempty"`
+	SubqueryStepMS               int64         `json:"subqueryStepMs,omitempty"`
+	SubqueryPointsPerEval        int64         `json:"subqueryPointsPerEval,omitempty"`
+	SubqueryOverlapSlots         float64       `json:"subqueryOverlapSlots,omitempty"`
+	SubqueryWorkUnits            int64         `json:"subqueryWorkUnits,omitempty"`
+	SubqueryTemporalFanout       int64         `json:"subqueryTemporalFanout,omitempty"`
+	SubqueryComplexityBand       string        `json:"subqueryComplexityBand,omitempty"`
+	OverlapSlots                 float64       `json:"overlapSlots"`
+	NativeRoundTrips             int           `json:"nativeRoundTrips"`
+	LocalRoundTrips              int           `json:"localRoundTrips"`
 }
 
 type RoutingCost struct {
@@ -90,6 +95,14 @@ type RoutingCapEvaluation struct {
 	OverBy   int64   `json:"overBy,omitempty"`
 	Usage    float64 `json:"usage"`
 	Unit     string  `json:"unit"`
+	Scope    string  `json:"scope,omitempty"`
+}
+
+type CandidateEstimate struct {
+	Name  string `json:"name"`
+	Value int64  `json:"value"`
+	Unit  string `json:"unit"`
+	Scope string `json:"scope,omitempty"`
 }
 
 type CandidateCost struct {
@@ -98,20 +111,23 @@ type CandidateCost struct {
 }
 
 type ExecutionCandidate struct {
-	ID                 string         `json:"id"`
-	Tier               string         `json:"tier"`
-	Strategy           string         `json:"strategy"`
-	Family             string         `json:"family"`
-	Strict             bool           `json:"strict"`
-	Selected           bool           `json:"selected"`
-	Served             bool           `json:"served"`
-	Supported          bool           `json:"supported"`
-	KnownCorrect       bool           `json:"knownCorrect"`
-	Eligible           bool           `json:"eligible"`
-	RejectReasons      []string       `json:"rejectReasons,omitempty"`
-	EstimatesAvailable bool           `json:"estimatesAvailable"`
-	EstimatedCost      *CandidateCost `json:"estimatedCost,omitempty"`
-	SettingsProfile    string         `json:"settingsProfile,omitempty"`
+	ID                 string                 `json:"id"`
+	Tier               string                 `json:"tier"`
+	Strategy           string                 `json:"strategy"`
+	Family             string                 `json:"family"`
+	Strict             bool                   `json:"strict"`
+	Selected           bool                   `json:"selected"`
+	Served             bool                   `json:"served"`
+	Supported          bool                   `json:"supported"`
+	KnownCorrect       bool                   `json:"knownCorrect"`
+	Eligible           bool                   `json:"eligible"`
+	RejectReasons      []string               `json:"rejectReasons,omitempty"`
+	EstimatesAvailable bool                   `json:"estimatesAvailable"`
+	EstimatedCost      *CandidateCost         `json:"estimatedCost,omitempty"`
+	Estimates          []CandidateEstimate    `json:"estimates,omitempty"`
+	CapEvaluations     []RoutingCapEvaluation `json:"capEvaluations,omitempty"`
+	Advisory           []string               `json:"advisory,omitempty"`
+	SettingsProfile    string                 `json:"settingsProfile,omitempty"`
 }
 
 type CandidateDecision struct {
@@ -344,6 +360,9 @@ func setPromshimHeaders(w http.ResponseWriter, resp *Response, metrics *obs.CHMe
 	}
 	if resp.SettingsProfile != "" {
 		w.Header().Set("X-Promshim-Settings-Profile", resp.SettingsProfile)
+	}
+	if resp.PhysicalDecisions != "" {
+		w.Header().Set("X-Promshim-Physical-Decisions", resp.PhysicalDecisions)
 	}
 	if resp.Routing != nil {
 		w.Header().Set("X-Promshim-Routing-Policy", resp.Routing.Policy)

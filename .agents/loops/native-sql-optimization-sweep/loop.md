@@ -80,6 +80,18 @@ Latest compliance signal: prefer-mode clean (`537 passed + 1 accepted tolerance,
 - Do not retry the overlapping-window `max_over_time` window-join preference override as implemented in iteration 18 without materially different structural evidence. Post-change strict native warmup still failed with the same `HTTP 502`, so served-outcome reliability did not improve.
 - Do not retry the native-grid rows late-series-join rewrite (`d.id IN (matchedSeries)` + late tag join) as implemented in iteration 19 without a concrete correctness fix and targeted semantics evidence. It improved row-level benchmark counters but caused broad compliance regressions (`32 unexpected 502 failures`).
 - A scoped late-join rewrite in the native-grid **sum aggregation** path (`BuildRangeNativeGridSelectorSumAggregationQuerySQLWithFinalTags`) is now accepted with clean compliance and should be treated as current baseline behavior.
+- Iteration 23 validation (no new code) confirms that optimization carries over to `processing_sum_rate_1h_by_job_range_7d` with large gains (p50 ~-32.2%, read rows ~-53.8%, read bytes ~-50.8%).
+- Iteration 25 validation (no new code) shows that this optimization does not positively carry over to `processing_histogram_quantile_1h_range_24h_7d` (p50 regressed ~+13.8%); do not assume cross-shape benefit from sum-rate wins.
+- Do not retry the native-grid sum-aggregation id/tag matched-series split from iteration 27 as-is; effect was noise-level (~-0.13% p50) with no meaningful resource change.
+- Do not retry the explicit join-filter replacement for the sum-rate 1h native-grid path from iteration 28 as-is. It caused severe regression (p50 ~+46.4%, join probe ballooned to ~465.5M).
+- Iteration 29: deferred code changes after candidate scan; no safe materially new structural lever identified from current evidence. Next attempt should start from fresh explain/profile-derived operator-elimination hypothesis, not another micro-variant of already rejected shapes.
+- Iteration 30: repeated explain/profile scan confirmed high residual CH cost on `processing_sum_rate_1h_by_job_range_7d` but still no safe materially new lever from current evidence; defer until a narrower operator-specific hypothesis is identified.
+- Iteration 32: operator-focused shortlist across remaining heavy rows still found no candidate meeting safety + novelty + p50-upside criteria; defer and require finer operator decomposition before next code edit.
+- Iteration 33: deferred again pending benchmark-visible physical-decision telemetry/explain capture for heavy rows; next code attempt must be grounded in strategy-level evidence (not inferred from aggregate counters alone).
+- Iteration 34: verified bench harness currently lacks per-row physical-decision telemetry despite rich counter capture; defer code optimizations until this evidence channel exists to avoid further speculative/noisy variants.
+- Iteration 35: added `X-Promshim-Physical-Decisions` header emission + bench artifact capture (`physicalDecisions` in v2 shim result rows). Telemetry prerequisite is now satisfied for strategy-level hypothesis selection.
+- Do not retry the cumulative-avg states-stream `d.id IN (matchedSeries)` rewrite from iteration 22 as-is: despite large scan/join reductions it regressed p50 latency (+3.8%) and memory (+0.7%) on the representative row.
+- Do not retry the cumulative-avg states-subquery `ORDER BY` removal from iteration 24 as-is: p50 still regressed (+2.4%) with no material scan/join win.
 
 ## Operating rules
 

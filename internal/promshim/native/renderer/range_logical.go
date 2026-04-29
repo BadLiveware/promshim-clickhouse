@@ -119,16 +119,12 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						if err != nil {
 							return renderedFragment{}, err
 						}
-						rowsSQL, rowParams, err := storage.BuildRangeMatrixSelectorRowsQuerySQLWithSeriesID(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS)
-						if err != nil {
-							return renderedFragment{}, err
-						}
 						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
-						sql, err := buildInstantRangeFunctionOverRowsSQL(trimRenderedQuerySQL(rowsSQL), fn, tagsExpr, params.EvaluationTimeMS, true)
+						sql, queryParams, err := storage.BuildInstantScalarRangeFunctionSelectorQuerySQLWithFinalTags(cfg, *source.Selector, params.RequiredStartMS, params.RequiredEndMS, params.EvaluationTimeMS, fn, tagsExpr)
 						if err != nil {
 							return renderedFragment{}, err
 						}
-						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: rowParams}, nil
+						return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 					}
 				}
 			}

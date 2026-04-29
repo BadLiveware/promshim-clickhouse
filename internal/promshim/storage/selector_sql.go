@@ -76,6 +76,102 @@ func BuildRangeMatrixSelectorRowsQuerySQLWithSeriesID(cfg QueryConfig, selector 
 	return buildRangeMatrixSelectorRowsQuerySQL(cfg, selector, requiredStartMS, requiredEndMS, true)
 }
 
+func BuildInstantScalarRangeFunctionSelectorQuerySQLWithFinalTags(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, evaluationTimeMS int64, fn, finalTagsSQL string) (string, map[string]string, error) {
+	if selector.Kind != SelectorKindRangeVector {
+		return "", nil, fmt.Errorf("instant scalar range-function selector SQL requires a range-vector selector, got %q", selector.Kind)
+	}
+	idSelector := selector
+	idSelector.NeedTags = false
+	idSelector.RequireFullTags = false
+	idSelector.RequiredTagLabels = nil
+	matchedIDsSQL, params, err := buildMatchedSeriesSQL(cfg, idSelector, "instant_range_ids", requiredStartMS, requiredEndMS, true)
+	if err != nil {
+		return "", nil, err
+	}
+	taggedSeriesSQL := matchedIDsSQL
+	if selector.NeedTags {
+		var tagParams map[string]string
+		taggedSeriesSQL, tagParams, err = buildMatchedSeriesSQL(cfg, selector, "instant_range_tags", requiredStartMS, requiredEndMS, true)
+		if err != nil {
+			return "", nil, err
+		}
+		mergeParams(params, tagParams)
+	}
+
+	valueExpr := emit.NullableFloatCoerce("d.value")
+	aggregateExpr, err := instantScalarRangeAggregateValueExpr(fn, valueExpr)
+	if err != nil {
+		return "", nil, err
+	}
+	grouped := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("d.id"), Alias: "id"},
+			{Expr: sqlb.RawLit{V: aggregateExpr}, Alias: "value"},
+		},
+		From: sqlb.Join{
+			Left:  sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"},
+			Right: sqlb.RawSource{SQL: rawSubquerySQL(matchedIDsSQL), Alias: "series"},
+			Kind:  "INNER",
+			On:    sqlb.RawLit{V: "d.id = series.id"},
+		},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value")},
+		GroupBy: []sqlb.Expr{sqlb.Ident("d.id")},
+	}
+
+	perSeriesFrom := sqlb.Source(sqlb.SubSelect{S: grouped})
+	if selector.NeedTags {
+		tagged := &sqlb.Select{
+			Columns: []sqlb.ColExpr{
+				{Expr: sqlb.Ident("series.tags"), Alias: "tags"},
+				{Expr: sqlb.Ident("grouped.value"), Alias: "value"},
+			},
+			From: sqlb.Join{
+				Left:  sqlb.SubSelect{S: grouped, Alias: "grouped"},
+				Right: sqlb.RawSource{SQL: rawSubquerySQL(taggedSeriesSQL), Alias: "series"},
+				Kind:  "INNER",
+				On:    sqlb.RawLit{V: "grouped.id = series.id"},
+			},
+		}
+		perSeriesFrom = sqlb.SubSelect{S: tagged}
+	}
+	resolvedFinalTagsExpr := sqlb.Expr(emit.EmptyTagsArray())
+	orderBy := []sqlb.OrderExpr(nil)
+	if selector.NeedTags {
+		resolvedFinalTagsExpr = sqlb.RawLit{V: emit.StripMetricName("tags")}
+		orderBy = []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}}
+		if strings.TrimSpace(finalTagsSQL) != "" {
+			resolvedFinalTagsExpr = sqlb.RawLit{V: finalTagsSQL}
+		}
+	}
+	outer := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: resolvedFinalTagsExpr, Alias: "tags"},
+			{Expr: sqlb.RawLit{V: "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"}, Alias: "timestamp"},
+			{Expr: sqlb.Ident("value"), Alias: "value"},
+		},
+		From:    perSeriesFrom,
+		OrderBy: orderBy,
+	}
+	sql, _, err := outer.Build()
+	if err != nil {
+		return "", nil, err
+	}
+	return sql + schema.QuerySuffix, params, nil
+}
+
+func instantScalarRangeAggregateValueExpr(fn, valueExpr string) (string, error) {
+	switch fn {
+	case "sum_over_time":
+		return "if(countIf(isNaN(" + valueExpr + ")) > 0, nan, sumIf(" + valueExpr + ", NOT isNaN(" + valueExpr + ")))", nil
+	case "avg_over_time":
+		return "if(countIf(isNaN(" + valueExpr + ")) > 0 OR countIf(NOT isNaN(" + valueExpr + ")) = 0, nan, avgIf(" + valueExpr + ", NOT isNaN(" + valueExpr + ")))", nil
+	case "max_over_time":
+		return "if(countIf(isNaN(" + valueExpr + ")) > 0 OR countIf(NOT isNaN(" + valueExpr + ")) = 0, nan, maxIf(" + valueExpr + ", NOT isNaN(" + valueExpr + ")))", nil
+	default:
+		return "", fmt.Errorf("instant scalar range-function selector SQL does not support %q", fn)
+	}
+}
+
 func buildRangeMatrixSelectorRowsQuerySQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64, includeSeriesID bool) (string, map[string]string, error) {
 	if selector.Kind != SelectorKindRangeVector {
 		return "", nil, fmt.Errorf("range matrix selector rows SQL requires a range-vector selector, got %q", selector.Kind)

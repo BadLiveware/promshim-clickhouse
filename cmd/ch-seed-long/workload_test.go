@@ -5,6 +5,22 @@ import (
 	"time"
 )
 
+func TestDensitySlotMatchesRealisticPresetSlots(t *testing.T) {
+	cases := map[string]int{
+		"fast-5k":         0,
+		"profile-50k":     1,
+		"profile-500k":    2,
+		"dashboard-50k":   3,
+		"envoy-heavy-50k": 4,
+		"churn-50k":       5,
+	}
+	for label, want := range cases {
+		if got := densitySlot(label); got != want {
+			t.Fatalf("densitySlot(%q) = %d, want %d", label, got, want)
+		}
+	}
+}
+
 func TestBuildWorkloadSeriesEnvoyHeavyIsHistogramDominant(t *testing.T) {
 	start := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	end := start.Add(24 * time.Hour)

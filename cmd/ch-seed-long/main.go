@@ -220,10 +220,14 @@ func densitySlot(density string) int {
 		return 1
 	case "stress-50k", "profile-500k":
 		return 2
-	case "stress-500k":
+	case "stress-500k", "dashboard-50k":
 		return 3
+	case "envoy-heavy-50k":
+		return 4
+	case "churn-50k":
+		return 5
 	default:
-		return 3
+		return 6
 	}
 }
 

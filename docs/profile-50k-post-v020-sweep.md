@@ -7,17 +7,17 @@ summary ratios.
 
 ## Artifacts
 
-Completed sweep artifacts:
+Raw sweep artifacts were written locally and are not checked into the repository:
 
 - `harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/`
 - `harness/artifacts/bench/sweeps/post-v020-30d-50k-prom-profile/`
 
-Rendered local matrices:
+Curated rendered matrices are checked in under `docs/assets/benchmarks/post-v020-profile-50k/`:
 
-- `outputs/post-v020-7d-50k-matrix.md`
-- `outputs/post-v020-7d-50k-per-query.md`
-- `outputs/post-v020-30d-50k-matrix.md`
-- `outputs/post-v020-30d-50k-per-query.md`
+- [`7d-matrix.md`](assets/benchmarks/post-v020-profile-50k/7d-matrix.md)
+- [`7d-per-query.md`](assets/benchmarks/post-v020-profile-50k/7d-per-query.md)
+- [`30d-matrix.md`](assets/benchmarks/post-v020-profile-50k/30d-matrix.md)
+- [`30d-per-query.md`](assets/benchmarks/post-v020-profile-50k/30d-per-query.md)
 
 Both sweeps used:
 

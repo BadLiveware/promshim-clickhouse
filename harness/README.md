@@ -86,6 +86,24 @@ Seed policies:
 - `always` — deliberately write selected data again.
 - `never` — skip seed checks and writes.
 
+Active-series / workload presets:
+
+- `fast` — default, targets about 5k active series with the legacy dense generator.
+- `profile-50k` — legacy dense stress fixture targeting about 50k active series.
+- `profile-500k` — legacy dense stress fixture targeting about 500k active series.
+- `dashboard-50k` — histogram-heavy mixed workload modeled from production-shape profiling: mostly HTTP/API bucket series, mixed 15s/60s/5m sample intervals, and series that start during the window.
+- `envoy-heavy-50k` — Envoy-dominated histogram stress shape with 15s bucket series, skewed labels, and tail-spike/bimodal histogram value patterns.
+- `churn-50k` — mixed workload with sparse counters and series lifetimes that start/end inside the benchmark window.
+
+The realistic presets keep the existing `demo_*` metric names so current
+benchmark corpora still query them, but they change label skew, histogram bucket
+fanout, sample intervals, lifetimes, and value shapes. `1y` remains a legacy
+stress-only horizon; realistic workload presets intentionally reject 1y seeding
+because representative 1y data is too large or too downsampled to be meaningful.
+Use `--estimate` before setup. Estimates report conservative headroom plus an
+observed ClickHouse compressed-size approximation based on the current seeded
+benchmark stack; measured storage after seeding remains authoritative.
+
 Artifacts live under `harness/artifacts/bench/sweeps/<run-name>/` and include
 `manifest.json`, `summary.md`, `summary.json`, v2 benchmark reports named by
 profile/active-series/corpus, `memory-summary-*.json`, and optional `memory-detail-*/`

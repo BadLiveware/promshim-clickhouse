@@ -70,6 +70,12 @@ type workloadBuilder struct {
 }
 
 func (b *workloadBuilder) add(metric, kind string, lbls map[string]string, base, amp float64, leIdx, bucketCount int, interval time.Duration, activeFraction, endedFraction float64, shape string) {
+	idx := len(b.out)
+	activeStart, activeEnd := b.activeWindow(activeFraction, endedFraction, idx)
+	b.addWithWindow(metric, kind, lbls, base, amp, leIdx, bucketCount, interval, shape, activeStart, activeEnd, -1)
+}
+
+func (b *workloadBuilder) addWithWindow(metric, kind string, lbls map[string]string, base, amp float64, leIdx, bucketCount int, interval time.Duration, shape string, activeStart, activeEnd time.Time, sampleOffset int) {
 	if len(b.out) >= b.target {
 		return
 	}
@@ -78,7 +84,12 @@ func (b *workloadBuilder) add(metric, kind string, lbls map[string]string, base,
 		full[k] = v
 	}
 	idx := len(b.out)
-	activeStart, activeEnd := b.activeWindow(activeFraction, endedFraction, idx)
+	every := sampleEvery(interval, b.baseStep)
+	if sampleOffset < 0 {
+		sampleOffset = idx % max(1, every)
+	} else {
+		sampleOffset %= max(1, every)
+	}
 	b.out = append(b.out, seriesDesc{
 		labels:       sortedLabels(full),
 		kind:         kind,
@@ -88,8 +99,8 @@ func (b *workloadBuilder) add(metric, kind string, lbls map[string]string, base,
 		bucketCount:  bucketCount,
 		seriesIndex:  idx,
 		shape:        shape,
-		sampleEvery:  sampleEvery(interval, b.baseStep),
-		sampleOffset: idx % max(1, sampleEvery(interval, b.baseStep)),
+		sampleEvery:  every,
+		sampleOffset: sampleOffset,
 		activeStart:  activeStart,
 		activeEnd:    activeEnd,
 	})
@@ -144,9 +155,13 @@ func (b *workloadBuilder) addHistogramFamily(seriesBudget int, interval time.Dur
 			"upstream":  fmt.Sprintf("cluster-%03d", i%256),
 		}
 		shape := shapes[i%len(shapes)]
+		entityIndex := len(b.out)
+		activeStart, activeEnd := b.activeWindow(activeFraction, endedFraction, entityIndex)
+		every := sampleEvery(interval, b.baseStep)
+		sampleOffset := entityIndex % max(1, every)
 		for leIdx, le := range realisticBucketLE {
 			lbls := cloneWith(common, "le", le)
-			b.add("demo_api_request_duration_seconds_bucket", "histogram_bucket", lbls, 0, 0, leIdx, bucketCount, interval, activeFraction, endedFraction, shape)
+			b.addWithWindow("demo_api_request_duration_seconds_bucket", "histogram_bucket", lbls, 0, 0, leIdx, bucketCount, interval, shape, activeStart, activeEnd, sampleOffset)
 		}
 	}
 }
@@ -242,11 +257,4 @@ func estimateGeneratedSamples(series []seriesDesc, start, end time.Time, step ti
 		total += (points + int64(every) - 1) / int64(every)
 	}
 	return total
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

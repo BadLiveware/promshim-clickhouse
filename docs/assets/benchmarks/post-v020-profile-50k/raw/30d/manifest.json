@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "runName": "post-v020-30d-50k-prom-profile",
+  "generatedAt": "2026-04-30T00:52:38.581044234Z",
+  "artifactDir": "harness/artifacts/bench/sweeps/post-v020-30d-50k-prom-profile",
+  "axes": {
+    "profile": "30d",
+    "activeSeries": "profile-50k",
+    "transport": "native",
+    "seedPolicy": "reuse",
+    "shimModes": [
+      "prefer",
+      "force_supported",
+      "off"
+    ],
+    "routingPolicies": [
+      "strict"
+    ],
+    "warmupRoutingPolicies": [],
+    "costRoutingLocalFamilies": [],
+    "includeProm": "true",
+    "memoryMode": "summary",
+    "clickHouseProfileMode": "summary",
+    "prometheusProfileMode": "runtime",
+    "clickHouseReferenceProfile": "default-benchmark-compose",
+    "promshimSettingsProfile": "default_safe",
+    "corpusSet": "both"
+  },
+  "endpoints": {
+    "prometheus": "http://localhost:29190",
+    "promshim": "http://localhost:29191",
+    "clickhouse": "http://localhost:28124"
+  },
+  "benchmarkStack": {
+    "composeBuildRequested": true,
+    "composeFiles": [
+      "docker-compose.yml"
+    ],
+    "git": {
+      "dirty": true,
+      "revision": "43de12ba47a44acea1d573ec56f91ef31bddbbbf",
+      "statusPorcelain": [
+        "?? .agents/loops/",
+        "?? fresh-promshim-optimizations-verification.md",
+        "?? harness/compliance/scripts/__pycache__/",
+        "?? scripts/__pycache__/"
+      ]
+    },
+    "promshim": {
+      "available": true,
+      "containerCreatedAt": "2026-04-29T23:47:15.593003477Z",
+      "containerId": "87949aaf230cf658e6f95375adf56208983ec296baaee5c51e30d0826f598185",
+      "containerName": "bench-promshim-1",
+      "image": "bench-promshim",
+      "imageId": "sha256:0a3844a5937ea66fed59cd24e2ba93f53528d0d5dab2b737d413d0bd29875932"
+    }
+  },
+  "compliance": {
+    "status": "skipped",
+    "log": null
+  },
+  "bench": {
+    "status": "passed",
+    "reports": [
+      {
+        "path": "harness/artifacts/bench/sweeps/post-v020-30d-50k-prom-profile/bench-report-30d-profile-50k-bench-native-lowering-30d.json",
+        "corpusPath": "harness/corpus/bench-native-lowering-30d.json",
+        "profile": "30d",
+        "activeSeries": "profile-50k",
+        "transport": "native",
+        "routingPolicies": [
+          "strict"
+        ],
+        "rowCount": 16
+      },
+      {
+        "path": "harness/artifacts/bench/sweeps/post-v020-30d-50k-prom-profile/bench-report-30d-profile-50k-bench-processing-30d.json",
+        "corpusPath": "harness/corpus/bench-processing-30d.json",
+        "profile": "30d",
+        "activeSeries": "profile-50k",
+        "transport": "native",
+        "routingPolicies": [
+          "strict"
+        ],
+        "rowCount": 8
+      }
+    ],
+    "memoryReports": [
+      "harness/artifacts/bench/sweeps/post-v020-30d-50k-prom-profile/memory-summary-bench-report-30d-profile-50k-bench-native-lowering-30d.json",
+      "harness/artifacts/bench/sweeps/post-v020-30d-50k-prom-profile/memory-summary-bench-report-30d-profile-50k-bench-processing-30d.json"
+    ],
+    "memoryDetailManifests": [],
+    "clickHouseProfiles": [
+      "harness/artifacts/bench/sweeps/post-v020-30d-50k-prom-profile/clickhouse-profile-bench-report-30d-profile-50k-bench-native-lowering-30d.json",
+      "harness/artifacts/bench/sweeps/post-v020-30d-50k-prom-profile/clickhouse-profile-bench-report-30d-profile-50k-bench-processing-30d.json"
+    ]
+  },
+  "summaries": {
+    "markdown": "harness/artifacts/bench/sweeps/post-v020-30d-50k-prom-profile/summary.md",
+    "json": "harness/artifacts/bench/sweeps/post-v020-30d-50k-prom-profile/summary.json"
+  }
+}

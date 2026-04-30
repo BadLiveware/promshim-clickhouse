@@ -19,6 +19,11 @@ Curated rendered matrices are checked in under `docs/assets/benchmarks/post-v020
 - [`30d-matrix.md`](assets/benchmarks/post-v020-profile-50k/30d-matrix.md)
 - [`30d-per-query.md`](assets/benchmarks/post-v020-profile-50k/30d-per-query.md)
 
+Raw top-level JSON artifacts are also checked in for provenance, but are not the primary reader-facing format:
+
+- [`raw/7d/`](assets/benchmarks/post-v020-profile-50k/raw/7d/)
+- [`raw/30d/`](assets/benchmarks/post-v020-profile-50k/raw/30d/)
+
 Both sweeps used:
 
 - `profile-50k` active-series preset

@@ -6,6 +6,12 @@ Benchmark matrices below were refreshed from live sweep artifacts on this branch
 For the newer 7d/50k active-series comparison against Prometheus, see
 [`profile-50k-benchmark-matrix.md`](profile-50k-benchmark-matrix.md).
 
+Latest post-v0.2.0 profile-50k sweep notes:
+
+- [`profile-50k-post-v020-sweep.md`](profile-50k-post-v020-sweep.md)
+- `harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/`
+- `harness/artifacts/bench/sweeps/post-v020-30d-50k-prom-profile/`
+
 Latest focused PR #14 processing refresh:
 
 - `harness/artifacts/bench/standalone/pr14-current-processing-prom-profile`

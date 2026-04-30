@@ -280,7 +280,18 @@ Use `run-sweep.sh` for benchmark/compliance sweeps. It keeps long-range benchmar
 ./scripts/run-sweep.sh --name pr-42-default
 ```
 
-Recent benchmark snapshots and CBE/native-grid interpretation live in [`docs/benchmark-results.md`](docs/benchmark-results.md). Harness architecture and artifact contracts live in [`docs/harness-architecture.md`](docs/harness-architecture.md).
+Post-`v0.2.0` profile-50k sweeps completed for 7d and 30d with native + processing corpora, strict routing, ClickHouse profile summaries, memory summaries, and Prometheus runtime profiling:
+
+| Profile/corpus | Prefer rows with Prometheus ratio | Prefer shim/Prometheus p50 geomean | Main resource conclusion |
+|---|---:|---:|---|
+| 7d native-lowering | 36 | `0.36×` | Native SQL is broadly faster than Prometheus; range comparisons around 1d are the main latency exceptions. |
+| 7d processing | 8 | `0.26×` | Fast overall; `chunked_native` appears on two rows, while ClickHouse CPU remains higher than Prometheus. |
+| 30d native-lowering | 7 | `0.33×` | Many successful comparisons are faster, but several Prometheus range rows timed out. |
+| 30d processing | 6 | `0.29×` | Faster where Prometheus completes; 30d range/subquery shapes reveal the largest ClickHouse memory hotspots. |
+
+Largest observed ClickHouse memory p95 rows in those sweeps were `subquery_rate_over_aggregate_1h_range_30d` at about `35.5 GiB` and `rate_1h_range_30d` at about `20.7 GiB`. That makes long-range range/subquery resource use, not short processing latency, the clearest next optimization target. The 1y/profile-50k setup did not complete; the active-series-only density label is not enough to describe benchmark feasibility, because total samples and points per series dominate setup and query cost.
+
+Detailed results and caveats: [`docs/profile-50k-post-v020-sweep.md`](docs/profile-50k-post-v020-sweep.md). Recent benchmark snapshots and CBE/native-grid interpretation live in [`docs/benchmark-results.md`](docs/benchmark-results.md). Harness architecture and artifact contracts live in [`docs/harness-architecture.md`](docs/harness-architecture.md).
 
 ## Why this exists
 
@@ -334,7 +345,10 @@ Promshim is a working compatibility bridge for the repository's ClickHouse
 the full upstream compliance suite plus repo-owned differential/dashboard
 harnesses, with only narrow documented deviations for behavior that cannot be
 reproduced exactly outside Prometheus internals. The main native SQL path has
-broad PromQL family coverage, but the project should still be read as an active
-migration/compatibility layer rather than a general-purpose Prometheus
-replacement. The benchmark snapshot in [`docs/benchmark-results.md`](docs/benchmark-results.md) is used as both a regression tripwire and a CBE calibration source. Cost-based routing is implemented but narrowly served; strict
-tier-priority routing remains the default today.
+broad PromQL family coverage and is materially faster than Prometheus on the
+completed 7d/30d profile-50k sweeps where Prometheus returned results. The
+project should still be read as an active migration/compatibility layer rather
+than a general-purpose Prometheus replacement: long-range range/subquery and
+histogram shapes can still consume tens of GiB of ClickHouse memory, CPU is the
+main cross-engine tradeoff, and 1y/profile-50k is not yet a practical routine
+benchmark target. The benchmark snapshots in [`docs/benchmark-results.md`](docs/benchmark-results.md) and [`docs/profile-50k-post-v020-sweep.md`](docs/profile-50k-post-v020-sweep.md) are used as regression tripwires and CBE calibration sources. Cost-based routing is implemented but narrowly served; strict tier-priority routing remains the default today.

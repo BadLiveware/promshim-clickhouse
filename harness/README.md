@@ -106,6 +106,45 @@ harness promshim containers enable `PROM_SHIM_ENABLE_PPROF=1` so detailed memory
 snapshots can be collected; production deployments should leave pprof disabled
 unless access is protected.
 
+### Profiling a real Prometheus workload shape
+
+Use `scripts/profile-prometheus-workload.py` to collect bounded evidence for a
+more realistic synthetic seed mix. The script is conservative by default: it runs
+sequential HTTP requests, waits between requests, caps lookback windows to the
+configured retention horizon, and does not run PromQL top-k probes unless asked.
+This matters for production HA pairs where broad `count({__name__!=""})` or
+`topk(count by (...))` queries can take about a minute.
+
+Safe metadata/status capture:
+
+```bash
+PROM_URL=https://prometheus.example.com \
+  ./scripts/profile-prometheus-workload.py \
+    --out harness/artifacts/prometheus-workload/prod-ha-a
+```
+
+Bounded PromQL capture for a 15d-retention Prometheus:
+
+```bash
+PROM_URL=https://prometheus.example.com \
+  ./scripts/profile-prometheus-workload.py \
+    --out harness/artifacts/prometheus-workload/prod-ha-a-promql \
+    --include-promql \
+    --max-top-metrics 15 \
+    --max-top-label-values 15 \
+    --density-metrics 3 \
+    --density-window 1h \
+    --density-window 24h \
+    --retention 15d \
+    --delay 10
+```
+
+Run it against one member of an HA pair first; if both members scrape the same
+targets, do not sum their active-series counts as distinct workload. The output
+contains raw responses plus `summary.md`. Use the summary to design seed profiles
+with separate knobs for active series at evaluation time, series seen over the
+window, samples per series, histogram bucket mix, scrape interval, and churn.
+
 ### Manual workflow
 
 ```bash

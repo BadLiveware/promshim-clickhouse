@@ -41,6 +41,7 @@
 #                             (deterministic, useful when benchmarking the
 #                             seeder itself).
 #   --probe-interval D        Health-probe poll cadence (default 5s).
+#   --stream-timeout D        Per-target sample streaming timeout (default 30m).
 #   --enable-probes           Turn on CH/Prom kill-switch probes (ch-probe-url
 #                             and prom-probe-url default to --ch-url/--prom-url).
 #   --max-host-load-pct N     Throttle when host CPU exceeds N%% (default 50,
@@ -88,6 +89,7 @@ PROBE_INTERVAL=""
 ENABLE_PROBES=""
 MAX_HOST_LOAD_PCT=""
 WORKLOAD_PROFILE=""
+STREAM_TIMEOUT=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -113,6 +115,7 @@ while [[ $# -gt 0 ]]; do
     --initial-concurrency) INITIAL_CONCURRENCY="$2"; shift 2 ;;
     --no-adaptive)         NO_ADAPTIVE="1"; shift ;;
     --probe-interval)      PROBE_INTERVAL="$2"; shift 2 ;;
+    --stream-timeout)      STREAM_TIMEOUT="$2"; shift 2 ;;
     --enable-probes)       ENABLE_PROBES="1"; shift ;;
     --max-host-load-pct)   MAX_HOST_LOAD_PCT="$2"; shift 2 ;;
     -h|--help)             sed -n '1,/^set -e/p' "$0" | head -n 30; exit 0 ;;
@@ -143,6 +146,7 @@ if [[ "$PROFILE" == "all" ]]; then
     [[ -n "$INITIAL_CONCURRENCY" ]] && args+=(--initial-concurrency "$INITIAL_CONCURRENCY")
     [[ -n "$NO_ADAPTIVE" ]] && args+=(--no-adaptive)
     [[ -n "$PROBE_INTERVAL" ]] && args+=(--probe-interval "$PROBE_INTERVAL")
+    [[ -n "$STREAM_TIMEOUT" ]] && args+=(--stream-timeout "$STREAM_TIMEOUT")
     [[ -n "$ENABLE_PROBES" ]] && args+=(--enable-probes)
     [[ -n "$MAX_HOST_LOAD_PCT" ]] && args+=(--max-host-load-pct "$MAX_HOST_LOAD_PCT")
     [[ -n "$WORKLOAD_PROFILE" ]] && args+=(--workload-profile "$WORKLOAD_PROFILE")
@@ -193,6 +197,7 @@ if [[ -n "$MAX_CONCURRENCY" ]]; then COMMON_ARGS+=(--max-concurrency "$MAX_CONCU
 if [[ -n "$INITIAL_CONCURRENCY" ]]; then COMMON_ARGS+=(--initial-concurrency "$INITIAL_CONCURRENCY"); fi
 if [[ -n "$NO_ADAPTIVE" ]]; then COMMON_ARGS+=(--no-adaptive); fi
 if [[ -n "$PROBE_INTERVAL" ]]; then COMMON_ARGS+=(--probe-interval "$PROBE_INTERVAL"); fi
+if [[ -n "$STREAM_TIMEOUT" ]]; then COMMON_ARGS+=(--stream-timeout "$STREAM_TIMEOUT"); fi
 if [[ -n "$MAX_HOST_LOAD_PCT" ]]; then COMMON_ARGS+=(--max-host-load-pct "$MAX_HOST_LOAD_PCT"); fi
 if [[ -n "$WORKLOAD_PROFILE" ]]; then COMMON_ARGS+=(--workload-profile "$WORKLOAD_PROFILE"); fi
 

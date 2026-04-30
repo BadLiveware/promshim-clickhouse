@@ -63,6 +63,7 @@ func main() {
 		initConcurrent     = flag.Int("initial-concurrency", 2, "Starting concurrency for the AIMD regulator. Ignored when --no-adaptive is set.")
 		noAdaptive         = flag.Bool("no-adaptive", false, "Disable the AIMD regulator and run with fixed --max-concurrency workers (deterministic mode).")
 		probeInterval      = flag.Duration("probe-interval", 5*time.Second, "How often the health-probe goroutine polls signals (host load, CH, Prom). Zero disables all probes.")
+		streamTimeout      = flag.Duration("stream-timeout", 30*time.Minute, "Maximum wall-clock time for streaming samples before writing the seed marker. Increase for large realistic/Prometheus seeds.")
 		chProbeURL         = flag.String("ch-probe-url", "", "ClickHouse HTTP URL for health probes (e.g. http://localhost:28124). Empty disables CH probing.")
 		promProbeURL       = flag.String("prom-probe-url", "", "Prometheus HTTP URL for health probes (e.g. http://localhost:29190). Empty disables Prom probing.")
 		maxHostLoadPct     = flag.Float64("max-host-load-pct", 50.0, "Throttle when 1-min load average exceeds this percentage of NumCPU. Default 50 leaves the machine usable for other work; raise to 80–90 in CI or on dedicated bench hosts. Set to 0 to disable host-load probing.")
@@ -152,7 +153,10 @@ func main() {
 
 	fullEndpoint := withBasicAuth(*endpoint, *username, *password)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	if *streamTimeout <= 0 {
+		log.Fatalf("--stream-timeout must be > 0")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), *streamTimeout)
 	defer cancel()
 
 	rng := rand.New(rand.NewSource(*seed))

@@ -63,6 +63,7 @@ Options:
   --target {both|ch|prom}        Seed/check target (default: both).
   --seed {reuse|missing|always|never}
                                   Seed policy (normal default: reuse; --setup default: missing).
+  --stream-timeout D             Per-target seed streaming timeout (default 30m).
   --transport {native|http}      Benchmark promshim transport when stack is started.
   --yes                          Confirm destructive actions such as --bench-reset.
   -h, --help                     Show this help.
@@ -104,6 +105,7 @@ ACTIVE_SERIES=""
 ACTIVE_SERIES_PRESET=""
 TARGET="both"
 SEED_POLICY=""
+STREAM_TIMEOUT=""
 TRANSPORT="native"
 RUN_NAME=""
 DRY_RUN=0
@@ -155,6 +157,7 @@ while [[ $# -gt 0 ]]; do
     --density)      DENSITY="$2"; shift 2 ;;
     --target)       TARGET="$2"; shift 2 ;;
     --seed)         SEED_POLICY="$2"; shift 2 ;;
+    --stream-timeout) STREAM_TIMEOUT="$2"; shift 2 ;;
     --transport)    TRANSPORT="$2"; shift 2 ;;
     --yes)          YES=1; shift ;;
     -h|--help)      usage; exit 0 ;;
@@ -461,14 +464,17 @@ seed_dataset() {
   local size_args=()
   mapfile -t size_args < <(seed_size_args_for "$density")
   log "Seeding profile=${profile} active-series=${density} target=${target} into isolated benchmark stack."
-  "${REPO_ROOT}/scripts/seed-long-range.sh" \
-    --profile "$profile" \
-    "${size_args[@]}" \
-    --target "$target" \
-    --ch-url "$BENCH_CH_URL" \
-    --prom-url "$BENCH_PROM_URL" \
-    --ch-endpoint "$BENCH_CH_WRITE_ENDPOINT" \
+  local seed_args=(
+    --profile "$profile"
+    "${size_args[@]}"
+    --target "$target"
+    --ch-url "$BENCH_CH_URL"
+    --prom-url "$BENCH_PROM_URL"
+    --ch-endpoint "$BENCH_CH_WRITE_ENDPOINT"
     --prom-endpoint "$BENCH_PROM_WRITE_ENDPOINT"
+  )
+  [[ -n "$STREAM_TIMEOUT" ]] && seed_args+=(--stream-timeout "$STREAM_TIMEOUT")
+  "${REPO_ROOT}/scripts/seed-long-range.sh" "${seed_args[@]}"
 }
 
 setup_selected() {

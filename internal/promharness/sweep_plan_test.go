@@ -48,7 +48,7 @@ func TestBuildSweepPlanExpandsAxesAndCorpora(t *testing.T) {
 	}
 }
 
-func TestActiveSeriesSelectionAcceptsCustomAndLegacy(t *testing.T) {
+func TestActiveSeriesSelectionAcceptsCustomLegacyAndRealistic(t *testing.T) {
 	custom, err := ActiveSeriesSelections("12k", "", "")
 	if err != nil {
 		t.Fatal(err)
@@ -62,6 +62,13 @@ func TestActiveSeriesSelectionAcceptsCustomAndLegacy(t *testing.T) {
 	}
 	if legacy[0].Target != 50000 || legacy[0].Label != "profile-50k" {
 		t.Fatalf("legacy selection = %#v", legacy[0])
+	}
+	realistic, err := ActiveSeriesSelections("", "envoy-heavy-50k", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if realistic[0].Target != 50000 || realistic[0].Label != "envoy-heavy-50k" {
+		t.Fatalf("realistic selection = %#v", realistic[0])
 	}
 }
 
@@ -85,5 +92,24 @@ func TestEstimateSamplesActiveSeries(t *testing.T) {
 	}
 	if !strings.Contains(got, "actual_series≈50,024") || !strings.Contains(got, "samples≈2,016,967,680") {
 		t.Fatalf("estimate = %s", got)
+	}
+}
+
+func TestEstimateSamplesRealisticProfile(t *testing.T) {
+	got, err := EstimateSamples("7d", ActiveSeriesSelection{Label: "envoy-heavy-50k", Target: 50000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"workload=envoy-heavy", "mixed_intervals=15s/60s/300s", "ch_compressed"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("estimate missing %q: %s", want, got)
+		}
+	}
+	got, err = EstimateSamples("1y", ActiveSeriesSelection{Label: "envoy-heavy-50k", Target: 50000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "1y-realistic=non-routine") {
+		t.Fatalf("1y realistic estimate = %s", got)
 	}
 }

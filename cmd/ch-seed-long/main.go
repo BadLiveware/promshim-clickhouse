@@ -58,6 +58,7 @@ func main() {
 		instancesFlag      = flag.Int("instances-per-job", 5, "Number of instance label values per job.")
 		batchSamples       = flag.Int("batch-samples", 50000, "Approximate samples per remote-write POST.")
 		seed               = flag.Int64("seed", 42, "PRNG seed for gauge jitter (output is deterministic for a given seed).")
+		workloadProfile    = flag.String("workload-profile", "auto", "Series workload profile: auto | legacy | dashboard | envoy-heavy | churn. auto derives from --active-series-preset.")
 		maxConcurrent      = flag.Int("max-concurrency", 8, "Maximum number of in-flight remote-write POSTs.")
 		initConcurrent     = flag.Int("initial-concurrency", 2, "Starting concurrency for the AIMD regulator. Ignored when --no-adaptive is set.")
 		noAdaptive         = flag.Bool("no-adaptive", false, "Disable the AIMD regulator and run with fixed --max-concurrency workers (deterministic mode).")
@@ -86,19 +87,26 @@ func main() {
 	activeSelection := selection[0]
 	*density = activeSelection.Label
 
+	workload := resolveWorkloadProfile(*workloadProfile, activeSelection.Label)
 	if *profile != "" {
 		p, ok := profiles[*profile]
 		if !ok {
 			log.Fatalf("unknown --profile %q (want: 7d | 30d | 1y)", *profile)
 		}
+		if workload != "legacy" && *profile == "1y" {
+			log.Fatalf("workload profile %q intentionally supports 7d/30d only; 1y is non-routine stress and should use --workload-profile legacy", workload)
+		}
 		*endTimeFlag = profileEndTime(p, *density)
 		*duration = p.duration
 		*step = p.step
+		if workload != "legacy" && *step > 15*time.Second {
+			*step = 15 * time.Second
+		}
 		if !instancesExplicit {
 			*instancesFlag = promharness.InstancesPerJobForActiveSeries(activeSelection.Target)
 		}
-		log.Printf("[seed-long] profile=%s active_series=%s target=%d actual=%d end_time=%s duration=%s step=%s instances_per_job=%d",
-			*profile, *density, activeSelection.Target, promharness.ActualActiveSeries(activeSelection.Target), *endTimeFlag, p.duration, p.step, *instancesFlag)
+		log.Printf("[seed-long] profile=%s active_series=%s workload=%s target=%d legacy_actual=%d end_time=%s duration=%s step=%s instances_per_job=%d",
+			*profile, *density, workload, activeSelection.Target, promharness.ActualActiveSeries(activeSelection.Target), *endTimeFlag, *duration, *step, *instancesFlag)
 	} else if !instancesExplicit {
 		*instancesFlag = promharness.InstancesPerJobForActiveSeries(activeSelection.Target)
 	}
@@ -131,8 +139,16 @@ func main() {
 	// batches. Streaming (rather than buffering everything) keeps memory
 	// bounded for 30-day windows.
 	series := buildSeriesDescriptors(jobs, *instancesFlag)
-	log.Printf("[seed-long] %d series, %d points/series ≈ %d total samples",
-		len(series), totalPoints, len(series)*totalPoints)
+	if workload != "legacy" {
+		var err error
+		series, err = buildWorkloadSeries(workload, activeSelection.Target, jobs, startTime, endTime, *duration, *step, *seed)
+		if err != nil {
+			log.Fatalf("[seed-long] workload profile: %v", err)
+		}
+	}
+	estimatedSamples := estimateGeneratedSamples(series, startTime, endTime, *step)
+	log.Printf("[seed-long] %d series, %d base points/series, estimated_samples≈%d",
+		len(series), totalPoints, estimatedSamples)
 
 	fullEndpoint := withBasicAuth(*endpoint, *username, *password)
 
@@ -167,7 +183,7 @@ func main() {
 	// Single-threaded marker post — runs after the parallel stream drains so
 	// it's guaranteed to be the latest sample for the marker series.
 	markerClient := &http.Client{Timeout: 30 * time.Second}
-	marker := seedMarkerRequest(*profile, *density, jobs, *instancesFlag, *duration, *step, *seed, endTime)
+	marker := seedMarkerRequest(*profile, *density, workload, jobs, *instancesFlag, *duration, *step, *seed, endTime)
 	if err := promharness.WriteToRemoteWriteEndpoint(ctx, markerClient, fullEndpoint, marker); err != nil {
 		log.Fatalf("[seed-long] remote-write seed marker: %v", err)
 	}
@@ -211,7 +227,7 @@ func densitySlot(density string) int {
 	}
 }
 
-func seedMarkerRequest(profile, density string, jobs []string, instancesPerJob int, duration, step time.Duration, seed int64, endTime time.Time) *prompb.WriteRequest {
+func seedMarkerRequest(profile, density, workload string, jobs []string, instancesPerJob int, duration, step time.Duration, seed int64, endTime time.Time) *prompb.WriteRequest {
 	if profile == "" {
 		profile = "custom"
 	}
@@ -220,6 +236,7 @@ func seedMarkerRequest(profile, density string, jobs []string, instancesPerJob i
 		"profile":           profile,
 		"density":           density,
 		"generator":         "ch-seed-long",
+		"workload_profile":  workload,
 		"seed":              fmt.Sprintf("%d", seed),
 		"jobs":              fmt.Sprintf("%d", len(jobs)),
 		"job_values":        strings.Join(jobs, ","),
@@ -244,6 +261,17 @@ type seriesDesc struct {
 	base   float64
 	amp    float64
 	leIdx  int // only used for histogram buckets
+
+	// Optional workload-shape controls. Zero values preserve the legacy dense
+	// generator so existing benchmark fixtures remain byte-for-byte stable in
+	// shape and cardinality.
+	bucketCount  int
+	seriesIndex  int
+	shape        string
+	sampleEvery  int
+	sampleOffset int
+	activeStart  time.Time
+	activeEnd    time.Time
 }
 
 type seriesState struct {
@@ -314,24 +342,75 @@ func advanceSeries(desc *seriesDesc, state *seriesState, start, end time.Time, s
 	}
 	points := make([]prompb.Sample, 0, n)
 	for ts := start; ts.Before(end); ts = ts.Add(step) {
+		if !desc.activeStart.IsZero() && ts.Before(desc.activeStart) {
+			continue
+		}
+		if !desc.activeEnd.IsZero() && !ts.Before(desc.activeEnd) {
+			continue
+		}
+		if desc.sampleEvery > 1 {
+			stepMillis := step.Milliseconds()
+			if stepMillis <= 0 || (int(ts.UnixMilli()/stepMillis)+desc.sampleOffset)%desc.sampleEvery != 0 {
+				continue
+			}
+		}
 		var value float64
 		switch desc.kind {
 		case "counter":
-			// Deterministic non-negative increment; occasional larger bump for
-			// realism. No resets by default — adding a rare reset would help
-			// test counter_reset handling but adds variance to scan-work numbers.
-			state.counter += 0.5 + float64(ts.Unix()%7)*0.1
+			inc := 0.5 + float64(ts.Unix()%7)*0.1
+			switch desc.shape {
+			case "bursty_counter":
+				if (ts.Unix()/300+int64(desc.seriesIndex))%24 == 0 {
+					inc *= 12
+				}
+			case "resetting_counter":
+				if (ts.Unix()/3600+int64(desc.seriesIndex))%97 == 0 {
+					state.counter = 0
+				}
+			case "sparse_counter":
+				if (ts.Unix()/int64(step.Seconds())+int64(desc.seriesIndex))%8 != 0 {
+					inc = 0
+				}
+			}
+			state.counter += inc
 			value = state.counter
 		case "histogram_bucket":
-			// Cumulative bucket counts grow faster for lower-latency buckets.
-			weight := 1.0 + float64(len(bucketLE)-desc.leIdx)
+			if desc.bucketCount <= 0 {
+				// Legacy behavior: keep the original shape stable for existing data.
+				weight := 1.0 + float64(len(bucketLE)-desc.leIdx)
+				state.counter += weight * (0.2 + float64(ts.Unix()%5)*0.05)
+				value = state.counter
+				break
+			}
+			// For new workload profiles, buckets are cumulative: higher le buckets
+			// receive at least as many observations as lower le buckets.
+			weight := float64(desc.leIdx+1) / float64(desc.bucketCount)
+			switch desc.shape {
+			case "tail_spike_histogram":
+				if (ts.Unix()/900+int64(desc.seriesIndex))%16 == 0 {
+					weight = math.Pow(weight, 0.45)
+				}
+			case "bimodal_histogram":
+				if desc.leIdx > desc.bucketCount/2 {
+					weight *= 1.35
+				}
+			}
 			state.counter += weight * (0.2 + float64(ts.Unix()%5)*0.05)
 			value = state.counter
 		case "gauge":
-			// Smooth sine wave with period = 1h so `rate`/`avg_over_time` over
-			// multi-hour windows see meaningful variation.
-			phase := float64(ts.Unix()) * 2 * math.Pi / 3600.0
-			value = desc.base + desc.amp*math.Sin(phase)
+			phase := float64(ts.Unix()+int64(desc.seriesIndex*17)) * 2 * math.Pi / 3600.0
+			switch desc.shape {
+			case "sawtooth_gauge":
+				period := int64(6 * 3600)
+				value = desc.base + desc.amp*(float64((ts.Unix()+int64(desc.seriesIndex))%period)/float64(period))
+			case "plateau_gauge":
+				value = desc.base
+				if (ts.Unix()/3600+int64(desc.seriesIndex))%12 < 3 {
+					value += desc.amp
+				}
+			default:
+				value = desc.base + desc.amp*math.Sin(phase)
+			}
 		}
 		points = append(points, prompb.Sample{
 			Timestamp: ts.UnixMilli(),

@@ -17,7 +17,7 @@
 #
 # Usage:
 #   ./scripts/seed-long-range.sh --profile 7d | 30d | 1y | all
-#   ./scripts/seed-long-range.sh --active-series-preset fast|profile-50k|profile-500k
+#   ./scripts/seed-long-range.sh --active-series-preset fast|profile-50k|profile-500k|dashboard-50k|envoy-heavy-50k|churn-50k
 #   ./scripts/seed-long-range.sh --active-series 50000
 #   ./scripts/seed-long-range.sh --density sparse|dense|stress-50k|stress-500k  (deprecated)
 #   ./scripts/seed-long-range.sh --target ch|prom|both  (default: both)
@@ -25,6 +25,7 @@
 #                                [--end-time 2026-03-22T21:45:42Z]
 #                                [--instances-per-job 5]
 #                                [--jobs demo-api,demo-worker]
+#                                [--workload-profile auto|legacy|dashboard|envoy-heavy|churn]
 #                                [--ch-url http://localhost:28123]
 #                                [--prom-url http://localhost:29090]
 #                                [--ch-endpoint http://localhost:29092/write]
@@ -53,7 +54,9 @@
 #   1y   → 2025-03-22T21:45:42Z - 1y @ 300s step (~14M samples, ~15s wall)
 # Each profile's end-time is distinct so the three datasets don't overlap
 # inside the same observability.prometheus table. Step grows with duration
-# so bench-time sample counts stay comparable across profiles.
+# so bench-time sample counts stay comparable across legacy dense profiles.
+# Realistic workload profiles intentionally use 15s as the base step for 7d/30d
+# so per-family sample intervals can model 15s, 60s, and 5m series.
 set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -84,6 +87,7 @@ NO_ADAPTIVE=""
 PROBE_INTERVAL=""
 ENABLE_PROBES=""
 MAX_HOST_LOAD_PCT=""
+WORKLOAD_PROFILE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -96,6 +100,7 @@ while [[ $# -gt 0 ]]; do
     --end-time)            END_TIME="$2"; shift 2 ;;
     --instances-per-job)   INSTANCES_PER_JOB="$2"; shift 2 ;;
     --jobs)                JOBS="$2"; shift 2 ;;
+    --workload-profile)    WORKLOAD_PROFILE="$2"; shift 2 ;;
     --target)              TARGET="$2"; shift 2 ;;
     --ch-url)              CH_URL="$2"; shift 2 ;;
     --prom-url)            PROM_URL="$2"; shift 2 ;;
@@ -140,6 +145,7 @@ if [[ "$PROFILE" == "all" ]]; then
     [[ -n "$PROBE_INTERVAL" ]] && args+=(--probe-interval "$PROBE_INTERVAL")
     [[ -n "$ENABLE_PROBES" ]] && args+=(--enable-probes)
     [[ -n "$MAX_HOST_LOAD_PCT" ]] && args+=(--max-host-load-pct "$MAX_HOST_LOAD_PCT")
+    [[ -n "$WORKLOAD_PROFILE" ]] && args+=(--workload-profile "$WORKLOAD_PROFILE")
     "$0" "${args[@]}"
   done
   exit 0
@@ -188,6 +194,7 @@ if [[ -n "$INITIAL_CONCURRENCY" ]]; then COMMON_ARGS+=(--initial-concurrency "$I
 if [[ -n "$NO_ADAPTIVE" ]]; then COMMON_ARGS+=(--no-adaptive); fi
 if [[ -n "$PROBE_INTERVAL" ]]; then COMMON_ARGS+=(--probe-interval "$PROBE_INTERVAL"); fi
 if [[ -n "$MAX_HOST_LOAD_PCT" ]]; then COMMON_ARGS+=(--max-host-load-pct "$MAX_HOST_LOAD_PCT"); fi
+if [[ -n "$WORKLOAD_PROFILE" ]]; then COMMON_ARGS+=(--workload-profile "$WORKLOAD_PROFILE"); fi
 
 # CH probe URL: --enable-probes turns it on with the same CH_URL we ping.
 CH_PROBE_ARGS=()

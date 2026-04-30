@@ -113,12 +113,18 @@ func activeSeriesSelectionsForPreset(preset string) ([]ActiveSeriesSelection, er
 		}, nil
 	case "fast", "5k", "fast-5k":
 		return []ActiveSeriesSelection{{Label: "fast-5k", Target: 5000, Preset: "fast"}}, nil
-	case "profile-50k", "50k", "low-realistic", "low-realistic-50k":
+	case "profile-50k", "50k", "low-realistic", "low-realistic-50k", "dense-50k":
 		return []ActiveSeriesSelection{{Label: "profile-50k", Target: 50000, Preset: "profile-50k"}}, nil
 	case "profile-500k", "500k", "medium-realistic", "medium-realistic-500k":
 		return []ActiveSeriesSelection{{Label: "profile-500k", Target: 500000, Preset: "profile-500k"}}, nil
+	case "dashboard-50k", "realistic-50k":
+		return []ActiveSeriesSelection{{Label: "dashboard-50k", Target: 50000, Preset: "dashboard-50k"}}, nil
+	case "envoy-heavy-50k", "envoy-50k":
+		return []ActiveSeriesSelection{{Label: "envoy-heavy-50k", Target: 50000, Preset: "envoy-heavy-50k"}}, nil
+	case "churn-50k":
+		return []ActiveSeriesSelection{{Label: "churn-50k", Target: 50000, Preset: "churn-50k"}}, nil
 	default:
-		return nil, fmt.Errorf("--active-series-preset must be fast|profile-50k|profile-500k|all (got: %s)", preset)
+		return nil, fmt.Errorf("--active-series-preset must be fast|profile-50k|profile-500k|dashboard-50k|envoy-heavy-50k|churn-50k|all (got: %s)", preset)
 	}
 }
 
@@ -200,8 +206,14 @@ func activeSeriesSlot(label string) int {
 		return 1
 	case "profile-500k":
 		return 2
-	default:
+	case "dashboard-50k":
 		return 3
+	case "envoy-heavy-50k":
+		return 4
+	case "churn-50k":
+		return 5
+	default:
+		return 6
 	}
 }
 
@@ -230,15 +242,57 @@ func CorpusPathsFor(profile, set string) ([]string, error) {
 }
 
 func EstimateSamples(profile string, selection ActiveSeriesSelection) (string, error) {
-	prof := map[string][2]int{"7d": {7 * 24 * 3600, 15}, "30d": {30 * 24 * 3600, 60}, "1y": {365 * 24 * 3600, 300}}
-	p, ok := prof[profile]
+	prof := map[string]int{"7d": 7 * 24 * 3600, "30d": 30 * 24 * 3600, "1y": 365 * 24 * 3600}
+	duration, ok := prof[profile]
 	if !ok {
 		return "", fmt.Errorf("unknown profile %s", profile)
 	}
-	points := p[0] / p[1]
+	if workloadProfileForActiveLabel(selection.Label) != "legacy" {
+		return estimateRealisticSamples(profile, duration, selection), nil
+	}
+	legacyStep := map[string]int{"7d": 15, "30d": 60, "1y": 300}[profile]
+	points := duration / legacyStep
 	actual := ActualActiveSeries(selection.Target)
 	samples := actual * points
-	return fmt.Sprintf("target_series≈%s actual_series≈%s instances/job=%s points/series≈%s samples≈%s disk≈%.1fGiB-headroom", comma(selection.Target), comma(actual), comma(InstancesPerJobForActiveSeries(selection.Target)), comma(points), comma(samples), float64(samples)*60/1024/1024/1024), nil
+	return fmt.Sprintf("target_series≈%s actual_series≈%s instances/job=%s points/series≈%s samples≈%s disk≈%.1fGiB-headroom ch_compressed≈%.1fGiB-observed", comma(selection.Target), comma(actual), comma(InstancesPerJobForActiveSeries(selection.Target)), comma(points), comma(samples), float64(samples)*60/1024/1024/1024, float64(samples)*2.9/1024/1024/1024), nil
+}
+
+func workloadProfileForActiveLabel(label string) string {
+	switch label {
+	case "dashboard-50k":
+		return "dashboard"
+	case "envoy-heavy-50k":
+		return "envoy-heavy"
+	case "churn-50k":
+		return "churn"
+	default:
+		return "legacy"
+	}
+}
+
+func estimateRealisticSamples(profile string, duration int, selection ActiveSeriesSelection) string {
+	if profile == "1y" {
+		return fmt.Sprintf("target_series≈%s workload=%s samples≈n/a 1y-realistic=non-routine-use-legacy-stress-only", comma(selection.Target), workloadProfileForActiveLabel(selection.Label))
+	}
+	type family struct {
+		fraction       float64
+		intervalSecond int
+		activeFraction float64
+	}
+	families := []family{}
+	switch workloadProfileForActiveLabel(selection.Label) {
+	case "dashboard":
+		families = []family{{0.65, 60, 0.70}, {0.12, 15, 1.0}, {0.18, 60, 0.75}, {0.05, 300, 0.25}}
+	case "envoy-heavy":
+		families = []family{{0.82, 15, 1.0}, {0.10, 60, 0.85}, {0.05, 15, 1.0}, {0.03, 300, 0.25}}
+	case "churn":
+		families = []family{{0.50, 15, 0.40}, {0.15, 15, 0.55}, {0.25, 60, 0.45}, {0.10, 300, 0.25}}
+	}
+	var samples float64
+	for _, f := range families {
+		samples += float64(selection.Target) * f.fraction * (float64(duration) / float64(f.intervalSecond)) * f.activeFraction
+	}
+	return fmt.Sprintf("target_series≈%s workload=%s mixed_intervals=15s/60s/300s samples≈%s disk≈%.1fGiB-headroom ch_compressed≈%.1fGiB-observed", comma(selection.Target), workloadProfileForActiveLabel(selection.Label), comma(int(samples)), samples*60/1024/1024/1024, samples*2.9/1024/1024/1024)
 }
 
 func BuildSweepPlan(opts SweepPlanOptions) (SweepPlan, error) {

@@ -56,7 +56,8 @@ Options:
                                   optimization currently supports only --profile 7d.
   --profile {7d|30d|1y|all}      Profile to inspect/seed (default for setup: all).
   --active-series N              Target active series count, e.g. 5000, 50k, 500k.
-  --active-series-preset NAME    fast (~5k), profile-50k (~50k), profile-500k (~500k), or all.
+  --active-series-preset NAME    fast (~5k), profile-50k (~50k dense), profile-500k (~500k),
+                                  dashboard-50k, envoy-heavy-50k, churn-50k, or all.
   --named-active-series NAME     Alias for --active-series-preset.
   --density NAME                 Deprecated compatibility alias: sparse, dense, stress-50k, stress-500k, all.
   --target {both|ch|prom}        Seed/check target (default: both).
@@ -245,9 +246,12 @@ PY
     case "$ACTIVE_SERIES_PRESET" in
       all) printf '%s\n' fast-5k profile-50k profile-500k ;;
       fast|5k|fast-5k) printf '%s\n' fast-5k ;;
-      profile-50k|50k|low-realistic|low-realistic-50k) printf '%s\n' profile-50k ;;
+      profile-50k|50k|low-realistic|low-realistic-50k|dense-50k) printf '%s\n' profile-50k ;;
       profile-500k|500k|medium-realistic|medium-realistic-500k) printf '%s\n' profile-500k ;;
-      *) fatal "--active-series-preset must be fast|profile-50k|profile-500k|all (got: $ACTIVE_SERIES_PRESET)" ;;
+      dashboard-50k|realistic-50k) printf '%s\n' dashboard-50k ;;
+      envoy-heavy-50k|envoy-50k) printf '%s\n' envoy-heavy-50k ;;
+      churn-50k) printf '%s\n' churn-50k ;;
+      *) fatal "--active-series-preset must be fast|profile-50k|profile-500k|dashboard-50k|envoy-heavy-50k|churn-50k|all (got: $ACTIVE_SERIES_PRESET)" ;;
     esac
     return
   fi
@@ -265,7 +269,7 @@ active_series_target_for() {
     sparse) echo 130 ;;
     dense) echo 2600 ;;
     fast-5k) echo 5000 ;;
-    profile-50k) echo 50000 ;;
+    profile-50k|dashboard-50k|envoy-heavy-50k|churn-50k) echo 50000 ;;
     profile-500k) echo 500000 ;;
     custom-*)
       local raw="${1#custom-}"
@@ -285,6 +289,7 @@ seed_size_args_text_for() {
     fast-5k) printf -- '--active-series-preset fast' ;;
     profile-50k) printf -- '--active-series-preset profile-50k' ;;
     profile-500k) printf -- '--active-series-preset profile-500k' ;;
+    dashboard-50k|envoy-heavy-50k|churn-50k) printf -- '--active-series-preset %s' "$1" ;;
     custom-*) printf -- '--active-series %s' "$(active_series_target_for "$1")" ;;
     *) fatal "unknown active-series label: $1" ;;
   esac
@@ -296,6 +301,7 @@ seed_size_args_for() {
     fast-5k) printf '%s\n' --active-series-preset fast ;;
     profile-50k) printf '%s\n' --active-series-preset profile-50k ;;
     profile-500k) printf '%s\n' --active-series-preset profile-500k ;;
+    dashboard-50k|envoy-heavy-50k|churn-50k) printf '%s\n' --active-series-preset "$1" ;;
     custom-*) printf '%s\n' --active-series "$(active_series_target_for "$1")" ;;
     *) fatal "unknown active-series label: $1" ;;
   esac
@@ -321,7 +327,7 @@ profiles = {
 }
 end, duration = profiles[profile]
 dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
-slots = {"sparse": 0, "fast-5k": 0, "dense": 1, "profile-50k": 1, "profile-500k": 2}
+slots = {"sparse": 0, "fast-5k": 0, "dense": 1, "profile-50k": 1, "profile-500k": 2, "dashboard-50k": 3, "envoy-heavy-50k": 4, "churn-50k": 5}
 slot = slots.get(active_label, 3)
 if slot > 0:
     dt = dt - slot * duration - slot * timedelta(days=1)

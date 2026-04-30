@@ -368,7 +368,8 @@ func advanceSeries(desc *seriesDesc, state *seriesState, start, end time.Time, s
 					state.counter = 0
 				}
 			case "sparse_counter":
-				if (ts.Unix()/int64(step.Seconds())+int64(desc.seriesIndex))%8 != 0 {
+				stepNanos := step.Nanoseconds()
+				if stepNanos <= 0 || (ts.UnixNano()/stepNanos+int64(desc.seriesIndex))%8 != 0 {
 					inc = 0
 				}
 			}

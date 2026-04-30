@@ -123,6 +123,17 @@ PROM_URL=https://prometheus.example.com \
     --out harness/artifacts/prometheus-workload/prod-ha-a
 ```
 
+For IAP-fronted Prometheus, pass the browser cookie through `PROM_COOKIE` or
+`--cookie`. A full Cookie header is sent as-is; a bare token is sent as
+`GCP_IAAP_AUTH_TOKEN=<token>` unless `--cookie-name` is set.
+
+```bash
+PROM_URL=https://prometheus.example.com \
+PROM_COOKIE='GCP_IAAP_AUTH_TOKEN=...' \
+  ./scripts/profile-prometheus-workload.py \
+    --out harness/artifacts/prometheus-workload/prod-ha-a
+```
+
 Bounded PromQL capture for a 15d-retention Prometheus:
 
 ```bash

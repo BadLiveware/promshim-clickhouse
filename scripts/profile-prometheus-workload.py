@@ -116,17 +116,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-top-label-values", type=int, default=20, help="Top label values per label when --include-promql is enabled.")
     parser.add_argument("--density-metrics", type=int, default=5, help="Number of top metrics to use for count_over_time density probes.")
     parser.add_argument("--density-window", action="append", default=[], help="Density windows. Repeatable. Defaults to 1h and 24h. Capped by --retention.")
-    parser.add_argument("--cookie", default=os.environ.get("PROM_COOKIE", ""), help="Cookie header. May also use PROM_COOKIE.")
+    parser.add_argument("--cookie", default=os.environ.get("PROM_COOKIE", ""), help="Cookie header for IAP or other browser-authenticated access. May also use PROM_COOKIE. A bare token is sent as GCP_IAAP_AUTH_TOKEN=<value>; a value containing '=' is sent as-is.")
+    parser.add_argument("--cookie-name", default=os.environ.get("PROM_COOKIE_NAME", "GCP_IAAP_AUTH_TOKEN"), help="Cookie name to use when --cookie/PROM_COOKIE is a bare token.")
     parser.add_argument("--bearer-token", default=os.environ.get("PROM_BEARER_TOKEN", ""), help="Bearer token. May also use PROM_BEARER_TOKEN.")
     parser.add_argument("--basic-auth", default=os.environ.get("PROM_BASIC_AUTH", ""), help="Pre-encoded Basic auth value or user:pass. May also use PROM_BASIC_AUTH.")
     parser.add_argument("--insecure-note", action="store_true", help="Only records that TLS verification may be handled externally; urllib still uses default verification.")
     return parser.parse_args()
 
 
+def build_cookie_header(raw: str, cookie_name: str) -> str:
+    raw = raw.strip()
+    if not raw:
+        return ""
+    if "=" in raw:
+        return raw
+    return f"{cookie_name}={raw}"
+
+
 def build_headers(args: argparse.Namespace) -> dict[str, str]:
     headers: dict[str, str] = {"User-Agent": "promshim-workload-profiler/1"}
     if args.cookie:
-        headers["Cookie"] = args.cookie
+        headers["Cookie"] = build_cookie_header(args.cookie, args.cookie_name)
     if args.bearer_token:
         headers["Authorization"] = f"Bearer {args.bearer_token}"
     if args.basic_auth:

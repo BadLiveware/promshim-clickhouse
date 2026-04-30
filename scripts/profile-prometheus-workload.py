@@ -45,20 +45,33 @@ HISTOGRAM_RE = re.compile(r"_bucket$")
 COUNTER_RE = re.compile(r"(_total|_count|_sum)$")
 
 
+def log(message: str, *, quiet: bool = False) -> None:
+    if quiet:
+        return
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%H:%M:%SZ")
+    print(f"[{stamp}] {message}", file=sys.stderr, flush=True)
+
+
 class PromClient:
-    def __init__(self, base: str, headers: dict[str, str], timeout: float, delay: float, out: Path):
+    def __init__(self, base: str, headers: dict[str, str], timeout: float, delay: float, out: Path, *, quiet: bool = False):
         self.base = base.rstrip("/")
         self.headers = headers
         self.timeout = timeout
         self.delay = delay
         self.out = out
+        self.quiet = quiet
         self.requests: list[dict[str, Any]] = []
         self._last_request = 0.0
+
+    def _write_requests_log(self) -> None:
+        (self.out / "requests.json").write_text(json.dumps(self.requests, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     def _sleep_if_needed(self) -> None:
         elapsed = time.monotonic() - self._last_request
         if self._last_request and elapsed < self.delay:
-            time.sleep(self.delay - elapsed)
+            wait = self.delay - elapsed
+            log(f"waiting {wait:.1f}s before next request", quiet=self.quiet)
+            time.sleep(wait)
 
     def get_json(self, path: str, *, params: dict[str, str] | None = None, name: str) -> Any:
         self._sleep_if_needed()
@@ -69,6 +82,7 @@ class PromClient:
         started = time.monotonic()
         status = "ok"
         error = ""
+        log(f"request start: {name} {path}", quiet=self.quiet)
         try:
             req = urllib.request.Request(url, headers={**self.headers, "Accept": "application/json"})
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
@@ -92,6 +106,11 @@ class PromClient:
             "status": status,
             "error": error,
         })
+        self._write_requests_log()
+        if status == "ok":
+            log(f"request done: {name} in {elapsed:.1f}s", quiet=self.quiet)
+        else:
+            log(f"request failed: {name} in {elapsed:.1f}s: {error}", quiet=self.quiet)
         return payload
 
     def query(self, expr: str, *, name: str) -> Any:
@@ -120,6 +139,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cookie-name", default=os.environ.get("PROM_COOKIE_NAME", "GCP_IAAP_AUTH_TOKEN"), help="Cookie name to use when --cookie/PROM_COOKIE is a bare token.")
     parser.add_argument("--bearer-token", default=os.environ.get("PROM_BEARER_TOKEN", ""), help="Bearer token. May also use PROM_BEARER_TOKEN.")
     parser.add_argument("--basic-auth", default=os.environ.get("PROM_BASIC_AUTH", ""), help="Pre-encoded Basic auth value or user:pass. May also use PROM_BASIC_AUTH.")
+    parser.add_argument("--quiet", action="store_true", help="Suppress progress logging to stderr. Artifacts are still written incrementally.")
     parser.add_argument("--insecure-note", action="store_true", help="Only records that TLS verification may be handled externally; urllib still uses default verification.")
     return parser.parse_args()
 
@@ -158,8 +178,9 @@ def ensure_out(path: str) -> Path:
     return out
 
 
-def write_json(path: Path, data: Any) -> None:
+def write_json(path: Path, data: Any, *, quiet: bool = False) -> None:
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    log(f"wrote artifact: {path}", quiet=quiet)
 
 
 def prom_result_vector(payload: Any) -> list[dict[str, Any]]:
@@ -329,36 +350,40 @@ def main() -> int:
     out = ensure_out(args.out)
     promql_dir = out / "promql"
     promql_dir.mkdir(exist_ok=True)
-    client = PromClient(args.url, build_headers(args), args.timeout, args.delay, out)
+    log(f"writing artifacts under {out}", quiet=args.quiet)
+    client = PromClient(args.url, build_headers(args), args.timeout, args.delay, out, quiet=args.quiet)
 
     collected: dict[str, Any] = {}
 
     status = client.get_json("/api/v1/status/tsdb", name="status-tsdb")
-    write_json(out / "status-tsdb.json", status)
+    write_json(out / "status-tsdb.json", status, quiet=args.quiet)
     if isinstance(status, dict):
         collected["status_tsdb_data"] = status.get("data") or {}
+    write_json(out / "workload-profile.json", collected, quiet=args.quiet)
 
     metadata: dict[str, Any] = {}
     if args.metadata_limit != 0:
         params = {"limit": str(args.metadata_limit)} if args.metadata_limit > 0 else None
         meta_payload = client.get_json("/api/v1/metadata", params=params, name="metadata")
-        write_json(out / "metadata.json", meta_payload)
+        write_json(out / "metadata.json", meta_payload, quiet=args.quiet)
         if isinstance(meta_payload, dict) and meta_payload.get("status") == "success":
             metadata = meta_payload.get("data") or {}
     else:
-        write_json(out / "metadata.json", {"status": "skipped"})
+        write_json(out / "metadata.json", {"status": "skipped"}, quiet=args.quiet)
 
     if args.include_promql:
         if args.include_active_count:
             payload = client.query('count({__name__!=""})', name="active-series-count")
-            write_json(promql_dir / "active-series-count.json", payload)
+            write_json(promql_dir / "active-series-count.json", payload, quiet=args.quiet)
             collected["active_series_count"] = prom_result_vector(payload)
+            write_json(out / "workload-profile.json", collected, quiet=args.quiet)
 
         top_metrics_expr = f'topk({args.max_top_metrics}, count by (__name__) ({{__name__!=""}}))'
         payload = client.query(top_metrics_expr, name="top-metrics")
-        write_json(promql_dir / "top-metrics.json", payload)
+        write_json(promql_dir / "top-metrics.json", payload, quiet=args.quiet)
         top_metrics = prom_result_vector(payload)
         collected["top_metrics"] = top_metrics
+        write_json(out / "workload-profile.json", collected, quiet=args.quiet)
 
         labels = args.top_label or DEFAULT_LABELS
         top_label_values: dict[str, list[dict[str, Any]]] = {}
@@ -368,8 +393,10 @@ def main() -> int:
                 continue
             expr = f'topk({args.max_top_label_values}, count by ({label}) ({{__name__!=""}}))'
             payload = client.query(expr, name=f"top-label-{label}")
-            write_json(promql_dir / f"top-label-{label}.json", payload)
+            write_json(promql_dir / f"top-label-{label}.json", payload, quiet=args.quiet)
             top_label_values[label] = compact_top_values(payload, label)
+            collected["top_label_values"] = top_label_values
+            write_json(out / "workload-profile.json", collected, quiet=args.quiet)
         collected["top_label_values"] = top_label_values
 
         windows = cap_windows(args.density_window or DEFAULT_WINDOWS, args.retention)
@@ -385,8 +412,8 @@ def main() -> int:
                 p50_payload = client.query(p50_expr, name=f"density-{metric}-{window}-p50")
                 p90_payload = client.query(p90_expr, name=f"density-{metric}-{window}-p90")
                 safe_metric = re.sub(r"[^a-zA-Z0-9_.:-]+", "_", metric)
-                write_json(promql_dir / f"density-{safe_metric}-{window}-p50.json", p50_payload)
-                write_json(promql_dir / f"density-{safe_metric}-{window}-p90.json", p90_payload)
+                write_json(promql_dir / f"density-{safe_metric}-{window}-p50.json", p50_payload, quiet=args.quiet)
+                write_json(promql_dir / f"density-{safe_metric}-{window}-p90.json", p90_payload, quiet=args.quiet)
                 p50_values = prom_result_vector(p50_payload)
                 p90_values = prom_result_vector(p90_payload)
                 density_rows.append({
@@ -395,13 +422,16 @@ def main() -> int:
                     "p50": value_float(p50_values[0]) if p50_values else None,
                     "p90": value_float(p90_values[0]) if p90_values else None,
                 })
+                collected["density"] = density_rows
+                write_json(out / "workload-profile.json", collected, quiet=args.quiet)
         collected["density"] = density_rows
     else:
-        write_json(promql_dir / "README.json", {"status": "skipped", "reason": "run with --include-promql to enable bounded PromQL probes"})
+        write_json(promql_dir / "README.json", {"status": "skipped", "reason": "run with --include-promql to enable bounded PromQL probes"}, quiet=args.quiet)
 
-    write_json(out / "requests.json", client.requests)
-    write_json(out / "workload-profile.json", collected)
+    write_json(out / "requests.json", client.requests, quiet=args.quiet)
+    write_json(out / "workload-profile.json", collected, quiet=args.quiet)
     (out / "summary.md").write_text(summarize(args, out, collected, metadata), encoding="utf-8")
+    log(f"wrote artifact: {out / 'summary.md'}", quiet=args.quiet)
     print(f"wrote {out}")
     print(f"requests: {len(client.requests)}; see {out / 'requests.json'}")
     return 0

@@ -328,7 +328,7 @@ profiles = {
 end, duration = profiles[profile]
 dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
 slots = {"sparse": 0, "fast-5k": 0, "dense": 1, "profile-50k": 1, "profile-500k": 2, "dashboard-50k": 3, "envoy-heavy-50k": 4, "churn-50k": 5}
-slot = slots.get(active_label, 3)
+slot = slots.get(active_label, 6)
 if slot > 0:
     dt = dt - slot * duration - slot * timedelta(days=1)
 print(dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))

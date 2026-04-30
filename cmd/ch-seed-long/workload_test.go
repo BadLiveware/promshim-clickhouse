@@ -32,6 +32,31 @@ func TestBuildWorkloadSeriesEnvoyHeavyIsHistogramDominant(t *testing.T) {
 	}
 }
 
+func TestHistogramBucketsShareWindowAndCadence(t *testing.T) {
+	start := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+	series, err := buildWorkloadSeries("churn", 600, []string{"demo-api", "demo-worker"}, start, end, end.Sub(start), 15*time.Second, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := series[0]
+	if first.kind != "histogram_bucket" {
+		t.Fatalf("first series kind = %s", first.kind)
+	}
+	for i := 1; i < len(realisticBucketLE); i++ {
+		got := series[i]
+		if got.kind != "histogram_bucket" {
+			t.Fatalf("series[%d] kind = %s", i, got.kind)
+		}
+		if !got.activeStart.Equal(first.activeStart) || !got.activeEnd.Equal(first.activeEnd) {
+			t.Fatalf("bucket %d window = %s..%s, first = %s..%s", i, got.activeStart, got.activeEnd, first.activeStart, first.activeEnd)
+		}
+		if got.sampleEvery != first.sampleEvery || got.sampleOffset != first.sampleOffset {
+			t.Fatalf("bucket %d cadence = every %d offset %d, first = every %d offset %d", i, got.sampleEvery, got.sampleOffset, first.sampleEvery, first.sampleOffset)
+		}
+	}
+}
+
 func TestWorkloadActiveWindowReducesSampleEstimate(t *testing.T) {
 	start := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	end := start.Add(24 * time.Hour)

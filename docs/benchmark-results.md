@@ -9,8 +9,8 @@ For the newer 7d/50k active-series comparison against Prometheus, see
 Latest post-v0.2.0 profile-50k sweep notes:
 
 - [`profile-50k-post-v020-sweep.md`](profile-50k-post-v020-sweep.md)
-- checked-in matrices under [`assets/benchmarks/post-v020-profile-50k/`](assets/benchmarks/post-v020-profile-50k/)
-- raw local artifacts, not checked in: `harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/`, `harness/artifacts/bench/sweeps/post-v020-30d-50k-prom-profile/`
+- checked-in matrices and raw JSON provenance under [`assets/benchmarks/post-v020-profile-50k/`](assets/benchmarks/post-v020-profile-50k/)
+- raw local artifact directories, not checked in: `harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/`, `harness/artifacts/bench/sweeps/post-v020-30d-50k-prom-profile/`
 
 Latest focused PR #14 processing refresh:
 

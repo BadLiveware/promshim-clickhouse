@@ -1,0 +1,250 @@
+{
+  "schemaVersion": 1,
+  "runName": "post-v020-7d-50k-prom-profile",
+  "complianceStatus": "passed",
+  "benchStatus": "passed",
+  "reportCount": 2,
+  "memoryReportCount": 2,
+  "memoryDetailCount": 0,
+  "clickHouseProfileCount": 2,
+  "strategyHistogram": {
+    "force_supported:native_sql": 43,
+    "off:delegated_promql": 2,
+    "off:local": 21,
+    "prefer:chunked_native": 2,
+    "prefer:delegated_promql": 2,
+    "prefer:native_sql": 41
+  },
+  "routingPolicyHistogram": {
+    "strict": 135
+  },
+  "targetBands": {
+    "in_band": 2,
+    "n/a": 37,
+    "too_slow": 6
+  },
+  "clickHouseReferenceProfile": "default-benchmark-compose",
+  "promshimSettingsProfile": "default_safe",
+  "topSlowRows": [
+    {
+      "query": "rate_1d_instant",
+      "category": "instant_rate_long",
+      "mode": "off",
+      "routingPolicy": "strict",
+      "strategy": "local",
+      "promP50Ms": 2933.749,
+      "shimP50Ms": 21870.08,
+      "shimPromRatio": 7.454652732732079,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-native-lowering-7d.json"
+    },
+    {
+      "query": "avg_over_time_1d_instant",
+      "category": "instant_avg_over_time",
+      "mode": "off",
+      "routingPolicy": "strict",
+      "strategy": "local",
+      "promP50Ms": 2980.736,
+      "shimP50Ms": 21558.718,
+      "shimPromRatio": 7.2326828004895445,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-native-lowering-7d.json"
+    },
+    {
+      "query": "rate_ge_rate_5m_range_1d",
+      "category": "range_repeated_subexpr",
+      "mode": "force_supported",
+      "routingPolicy": "strict",
+      "strategy": "native_sql",
+      "promP50Ms": 7716.176,
+      "shimP50Ms": 8847.228,
+      "shimPromRatio": 1.1465819338490981,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-native-lowering-7d.json"
+    },
+    {
+      "query": "rate_ge_rate_5m_range_1d",
+      "category": "range_repeated_subexpr",
+      "mode": "prefer",
+      "routingPolicy": "strict",
+      "strategy": "native_sql",
+      "promP50Ms": 7716.176,
+      "shimP50Ms": 8733.424,
+      "shimPromRatio": 1.131833177470291,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-native-lowering-7d.json"
+    },
+    {
+      "query": "rate_plus_rate_5m_range_1d",
+      "category": "range_repeated_subexpr",
+      "mode": "force_supported",
+      "routingPolicy": "strict",
+      "strategy": "native_sql",
+      "promP50Ms": 7821.197,
+      "shimP50Ms": 8731.936,
+      "shimPromRatio": 1.1164449636033973,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-native-lowering-7d.json"
+    },
+    {
+      "query": "rate_plus_rate_5m_range_1d",
+      "category": "range_repeated_subexpr",
+      "mode": "prefer",
+      "routingPolicy": "strict",
+      "strategy": "native_sql",
+      "promP50Ms": 7821.197,
+      "shimP50Ms": 8701.788,
+      "shimPromRatio": 1.112590310664723,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-native-lowering-7d.json"
+    },
+    {
+      "query": "rate_ge_bool_rate_5m_range_1d",
+      "category": "range_repeated_subexpr",
+      "mode": "force_supported",
+      "routingPolicy": "strict",
+      "strategy": "native_sql",
+      "promP50Ms": 7513.117,
+      "shimP50Ms": 8699.194,
+      "shimPromRatio": 1.1578675002665337,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-native-lowering-7d.json"
+    },
+    {
+      "query": "rate_ge_bool_rate_5m_range_1d",
+      "category": "range_repeated_subexpr",
+      "mode": "prefer",
+      "routingPolicy": "strict",
+      "strategy": "native_sql",
+      "promP50Ms": 7513.117,
+      "shimP50Ms": 8520.038,
+      "shimPromRatio": 1.1340217382479203,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-native-lowering-7d.json"
+    },
+    {
+      "query": "avg_over_time_gauge_by_3labels_1h_range_7d",
+      "category": "range_avg_over_time_gauge",
+      "mode": "force_supported",
+      "routingPolicy": "strict",
+      "strategy": "native_sql",
+      "promP50Ms": 18342.285,
+      "shimP50Ms": 6173.186,
+      "shimPromRatio": 0.3365549057819132,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-native-lowering-7d.json"
+    },
+    {
+      "query": "max_over_time_gauge_by_3labels_1h_range_7d",
+      "category": "range_max_over_time_gauge",
+      "mode": "force_supported",
+      "routingPolicy": "strict",
+      "strategy": "native_sql",
+      "promP50Ms": 17920.47,
+      "shimP50Ms": 6167.828,
+      "shimPromRatio": 0.3441778033723446,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-native-lowering-7d.json"
+    },
+    {
+      "query": "max_over_time_gauge_by_3labels_1h_range_7d",
+      "category": "range_max_over_time_gauge",
+      "mode": "prefer",
+      "routingPolicy": "strict",
+      "strategy": "native_sql",
+      "promP50Ms": 17920.47,
+      "shimP50Ms": 6026.098,
+      "shimPromRatio": 0.33626897062409633,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-native-lowering-7d.json"
+    },
+    {
+      "query": "avg_over_time_gauge_by_3labels_1h_range_7d",
+      "category": "range_avg_over_time_gauge",
+      "mode": "prefer",
+      "routingPolicy": "strict",
+      "strategy": "native_sql",
+      "promP50Ms": 18342.285,
+      "shimP50Ms": 6008.465,
+      "shimPromRatio": 0.32757450884663497,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-native-lowering-7d.json"
+    },
+    {
+      "query": "processing_avg_memory_1h_by_job_type_range_24h_7d",
+      "category": "processing_range_avg_over_time",
+      "mode": "prefer",
+      "routingPolicy": "strict",
+      "strategy": "native_sql",
+      "promP50Ms": 13646.804,
+      "shimP50Ms": 5698.926,
+      "shimPromRatio": 0.4176015131454955,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-processing-7d.json"
+    },
+    {
+      "query": "rate_6h_instant",
+      "category": "instant_rate_short",
+      "mode": "off",
+      "routingPolicy": "strict",
+      "strategy": "local",
+      "promP50Ms": 1069.556,
+      "shimP50Ms": 5621.798,
+      "shimPromRatio": 5.256197898941243,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-native-lowering-7d.json"
+    },
+    {
+      "query": "processing_avg_memory_1h_by_job_type_range_24h_7d",
+      "category": "processing_range_avg_over_time",
+      "mode": "force_supported",
+      "routingPolicy": "strict",
+      "strategy": "native_sql",
+      "promP50Ms": 13646.804,
+      "shimP50Ms": 5554.41,
+      "shimPromRatio": 0.4070117809268749,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-processing-7d.json"
+    },
+    {
+      "query": "repeated_sum_rate_average_by_job_mul_6h_instant",
+      "category": "instant_repeated_aggregation_subexpr",
+      "mode": "off",
+      "routingPolicy": "strict",
+      "strategy": "local",
+      "promP50Ms": 2449.073,
+      "shimP50Ms": 5486.452,
+      "shimPromRatio": 2.240215787769495,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-native-lowering-7d.json"
+    },
+    {
+      "query": "sum_rate_by_job_6h_instant",
+      "category": "instant_sum_rate",
+      "mode": "off",
+      "routingPolicy": "strict",
+      "strategy": "local",
+      "promP50Ms": 1042.98,
+      "shimP50Ms": 5479.307,
+      "shimPromRatio": 5.2535110932136755,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-native-lowering-7d.json"
+    },
+    {
+      "query": "repeated_sum_rate_average_by_job_6h_instant",
+      "category": "instant_repeated_aggregation_subexpr",
+      "mode": "off",
+      "routingPolicy": "strict",
+      "strategy": "local",
+      "promP50Ms": 2425.562,
+      "shimP50Ms": 5456.361,
+      "shimPromRatio": 2.2495244401091377,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-native-lowering-7d.json"
+    },
+    {
+      "query": "processing_sum_rate_6h_by_job_mode_instant_7d",
+      "category": "processing_instant_sum_rate",
+      "mode": "off",
+      "routingPolicy": "strict",
+      "strategy": "local",
+      "promP50Ms": 1036.715,
+      "shimP50Ms": 5436.951,
+      "shimPromRatio": 5.244402752926311,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-processing-7d.json"
+    },
+    {
+      "query": "processing_avg_memory_6h_by_job_type_instant_7d",
+      "category": "processing_instant_avg_over_time",
+      "mode": "off",
+      "routingPolicy": "strict",
+      "strategy": "local",
+      "promP50Ms": 1055.073,
+      "shimP50Ms": 5388.22,
+      "shimPromRatio": 5.106964162669312,
+      "report": "harness/artifacts/bench/sweeps/post-v020-7d-50k-prom-profile/bench-report-7d-profile-50k-bench-processing-7d.json"
+    }
+  ]
+}

@@ -110,10 +110,11 @@ unless access is protected.
 
 Use `scripts/profile-prometheus-workload.py` to collect bounded evidence for a
 more realistic synthetic seed mix. The script is conservative by default: it runs
-sequential HTTP requests, waits between requests, caps lookback windows to the
-configured retention horizon, and does not run PromQL top-k probes unless asked.
-This matters for production HA pairs where broad `count({__name__!=""})` or
-`topk(count by (...))` queries can take about a minute.
+sequential HTTP requests, logs each request and artifact write to stderr, writes
+JSON artifacts as each request completes, waits between requests, caps lookback
+windows to the configured retention horizon, and does not run PromQL top-k probes
+unless asked. This matters for production HA pairs where broad
+`count({__name__!=""})` or `topk(count by (...))` queries can take about a minute.
 
 Safe metadata/status capture:
 

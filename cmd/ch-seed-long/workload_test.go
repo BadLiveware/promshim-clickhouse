@@ -57,6 +57,17 @@ func TestHistogramBucketsShareWindowAndCadence(t *testing.T) {
 	}
 }
 
+func TestSparseCounterSupportsSubsecondStep(t *testing.T) {
+	start := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(2 * time.Second)
+	desc := seriesDesc{kind: "counter", shape: "sparse_counter", seriesIndex: 3}
+	state := seriesState{}
+	points := advanceSeries(&desc, &state, start, end, 500*time.Millisecond)
+	if len(points) != 4 {
+		t.Fatalf("points = %d, want 4", len(points))
+	}
+}
+
 func TestWorkloadActiveWindowReducesSampleEstimate(t *testing.T) {
 	start := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	end := start.Add(24 * time.Hour)

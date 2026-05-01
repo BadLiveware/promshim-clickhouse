@@ -77,6 +77,9 @@ func aggregatePlanParam(expr *parser.AggregateExpr) (*float64, string, error) {
 		if !commonmodel.UTF8Validation.IsValidLabelName(label) {
 			return nil, "", NewBadDataErrorf("invalid destination label name in count_values(): %s", label)
 		}
+		if strings.TrimSpace(label) == "" {
+			return nil, "", NewBadDataErrorf("invalid destination label name in count_values(): %s", label)
+		}
 		return nil, label, nil
 	default:
 		return nil, "", nil

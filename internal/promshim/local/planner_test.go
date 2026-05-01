@@ -2060,6 +2060,24 @@ func TestBuildPlanRejectsInvalidCountValuesLabel(t *testing.T) {
 	}
 }
 
+func TestBuildPlanRejectsWhitespaceCountValuesLabel(t *testing.T) {
+	expr, err := logical.ParseExpression(`count_values(" ", up)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = buildPlan(expr)
+	if err == nil {
+		t.Fatal("expected bad data build error")
+	}
+	if internalErrorKindOf(err) != internalErrorKindBadData {
+		t.Fatalf("expected bad_data error kind, got %v (%v)", internalErrorKindOf(err), err)
+	}
+	if !strings.Contains(err.Error(), "invalid destination label name in count_values") {
+		t.Fatalf("expected count_values label validation context in error, got %q", err.Error())
+	}
+}
+
 func TestBuildPlanRejectsUnsupportedAggregationParameterExpression(t *testing.T) {
 	expr, err := logical.ParseExpression("topk(1 + 2, up)")
 	if err != nil {

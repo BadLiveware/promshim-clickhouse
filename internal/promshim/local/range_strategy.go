@@ -144,6 +144,12 @@ func nativeRangeChunkDecisionReason(kind string, decision *nativeRangeChunkDecis
 		return ""
 	}
 	if !decision.Chunked {
+		if decision.Policy == "explicit_chunk_points" {
+			if decision.RequestedChunkPoints <= 0 {
+				return "native range chunking disabled by explicit chunk point override"
+			}
+			return "explicit native range chunk point cap does not require chunking"
+		}
 		if kind == "native_grid_sum_aggregation" {
 			return "native-grid sum aggregation is memory-light; default policy leaves it unchunked within duration cap"
 		}

@@ -240,6 +240,24 @@ func TestNativeRangeChunkPointsCanBeDisabled(t *testing.T) {
 	}
 }
 
+func TestNativeRangeChunkDecisionExplainsExplicitDisable(t *testing.T) {
+	decision := decideNativeRangeChunking("native_grid_sum_aggregation", PlanContext{
+		Step:                            time.Minute,
+		NativeRangeChunkPointsPerSeries: 0,
+		NativeRangeChunkMaxDuration:     24 * time.Hour,
+		NativeRangeChunkMaxChunks:       12,
+	}, &planEstimate{PointsPerSeries: 1441})
+	if decision.Policy != "explicit_chunk_points" {
+		t.Fatalf("policy = %q", decision.Policy)
+	}
+	if decision.Chunked {
+		t.Fatal("expected explicit zero chunk points to disable chunking")
+	}
+	if decision.Reason != "native range chunking disabled by explicit chunk point override" {
+		t.Fatalf("reason = %q", decision.Reason)
+	}
+}
+
 func TestChunkedRangePlanExecutesAndMergesChunks(t *testing.T) {
 	plan := &chunkedRangePlan{
 		Child:                syntheticRangePlan{},

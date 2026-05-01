@@ -2,7 +2,6 @@ package exec
 
 import (
 	"math"
-	"sort"
 
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 )
@@ -13,6 +12,14 @@ func ApplyIncreaseInstant(input model.RuntimeValue) (model.VectorValue, error) {
 		return model.VectorValue{}, unsupportedf("increase requires matrix input, got %T", input)
 	}
 	return applyIncreaseMatrix(matrix)
+}
+
+func ApplyIncreaseInstantWithBounds(input model.RuntimeValue, rangeStart, rangeEnd float64) (model.VectorValue, error) {
+	matrix, ok := input.(model.MatrixValue)
+	if !ok {
+		return model.VectorValue{}, unsupportedf("increase requires matrix input, got %T", input)
+	}
+	return applyExtrapolatedCounterMatrix(matrix, rangeStart, rangeEnd, false)
 }
 
 func applyIncreaseMatrix(matrix model.MatrixValue) (model.VectorValue, error) {
@@ -47,13 +54,6 @@ func applyIncreaseMatrix(matrix model.MatrixValue) (model.VectorValue, error) {
 		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: increase})
 	}
 
-	sort.Slice(out, func(i, j int) bool {
-		left := model.LabelsKey(out[i].Metric)
-		right := model.LabelsKey(out[j].Metric)
-		if left == right {
-			return out[i].Timestamp < out[j].Timestamp
-		}
-		return left < right
-	})
+	sortInstantSamples(out)
 	return model.VectorValue{Samples: out}, nil
 }

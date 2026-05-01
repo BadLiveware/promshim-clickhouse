@@ -25,10 +25,10 @@ func TestBuildCHProfileCommentsMatchesBenchLogComments(t *testing.T) {
 	if len(comments) != 2 {
 		t.Fatalf("comments = %#v", comments)
 	}
-	if comments[0].LogComment != "promshim-bench run=dense_run_1 query=sum_by_job_rate mode=off" {
+	if comments[0].LogComment != "promshim-bench_run_dense_run_1_query_sum_by_job_rate_mode_off" {
 		t.Fatalf("unexpected first comment: %#v", comments[0])
 	}
-	if comments[1].LogComment != "promshim-bench run=dense_run_1 query=sum_by_job_rate mode=prefer policy=strict" {
+	if comments[1].LogComment != "promshim-bench_run_dense_run_1_query_sum_by_job_rate_mode_prefer_policy_strict" {
 		t.Fatalf("unexpected second comment: %#v", comments[1])
 	}
 	if comments[1].ShimPromRatio == nil || *comments[1].ShimPromRatio != 4 {

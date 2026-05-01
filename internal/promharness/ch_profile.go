@@ -139,6 +139,7 @@ func BuildCHProfileComments(report BenchReportV2) []CHProfileComment {
 			if result.RoutingPolicy != "" {
 				comment += " policy=" + safeCHProfilePart(result.RoutingPolicy)
 			}
+			comment = safeCHProfileLogComment(comment)
 			var promP50 *float64
 			var ratio *float64
 			if row.Prom != nil {
@@ -175,6 +176,10 @@ func BuildCHProfileComments(report BenchReportV2) []CHProfileComment {
 
 func CHProfileDirectoryName(queryName, mode, routingPolicy string) string {
 	return safeCHProfilePart(valueOr(queryName, "unknown") + "__" + valueOr(mode, "unknown") + "__" + valueOr(routingPolicy, "strict"))
+}
+
+func safeCHProfileLogComment(comment string) string {
+	return safeCHProfilePart(comment)
 }
 
 func CHProfileNeedsProcessors(profileMode string, row CHProfileRow) bool {

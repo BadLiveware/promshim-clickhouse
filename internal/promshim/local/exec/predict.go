@@ -12,7 +12,7 @@ func ApplyPredictLinear(duration float64, input model.RuntimeValue, params EvalP
 	if !ok {
 		return model.VectorValue{}, unsupportedf("predict_linear requires matrix input, got %T", input)
 	}
-	evalTS := float64(params.EvaluationTime.UnixMilli())
+	evalTS := float64(params.EvaluationTime.UnixNano()) / float64(1e9)
 	out := make([]model.InstantSample, 0, len(matrix.Series))
 	for _, series := range matrix.Series {
 		if len(series.Values) < 2 {
@@ -45,7 +45,7 @@ func linearRegression(samples []model.RangePoint, interceptTime float64) (slope,
 			constY = false
 		}
 		n += 1.0
-		x := (sample.Timestamp - interceptTime) / 1e3
+		x := sample.Timestamp - interceptTime
 		sumX, cX = kahansum.Inc(x, sumX, cX)
 		sumY, cY = kahansum.Inc(sample.Value, sumY, cY)
 		sumXY, cXY = kahansum.Inc(x*sample.Value, sumXY, cXY)

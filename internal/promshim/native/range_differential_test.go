@@ -218,16 +218,16 @@ func nativeQuantileOverTime(quantile float64, values []float64) float64 {
 
 func TestPredictLinearNativeSemanticsMatchLocalOracle(t *testing.T) {
 	matrix := model.MatrixValue{Series: []model.RangeSeries{
-		{Metric: map[string]string{"__name__": "up", "job": "api"}, Values: []model.RangePoint{{Timestamp: 1000, Value: 1}, {Timestamp: 2000, Value: 2}, {Timestamp: 3000, Value: 3}}},
-		{Metric: map[string]string{"__name__": "up", "job": "worker"}, Values: []model.RangePoint{{Timestamp: 1000, Value: 9}, {Timestamp: 2000, Value: 9}, {Timestamp: 3000, Value: 9}}},
-		{Metric: map[string]string{"__name__": "up", "job": "inf"}, Values: []model.RangePoint{{Timestamp: 1000, Value: math.Inf(1)}, {Timestamp: 2000, Value: math.Inf(1)}}},
+		{Metric: map[string]string{"__name__": "up", "job": "api"}, Values: []model.RangePoint{{Timestamp: 1, Value: 1}, {Timestamp: 2, Value: 2}, {Timestamp: 3, Value: 3}}},
+		{Metric: map[string]string{"__name__": "up", "job": "worker"}, Values: []model.RangePoint{{Timestamp: 1, Value: 9}, {Timestamp: 2, Value: 9}, {Timestamp: 3, Value: 9}}},
+		{Metric: map[string]string{"__name__": "up", "job": "inf"}, Values: []model.RangePoint{{Timestamp: 1, Value: math.Inf(1)}, {Timestamp: 2, Value: math.Inf(1)}}},
 	}}
-	params := exec.EvalParams{Mode: exec.EvalModeInstant, EvaluationTime: time.UnixMilli(4000).UTC()}
+	params := exec.EvalParams{Mode: exec.EvalModeInstant, EvaluationTime: time.Unix(4, 0).UTC()}
 	localValue, err := exec.ApplyPredictLinear(60, matrix, params)
 	if err != nil {
 		t.Fatalf("local oracle for predict_linear returned error: %v", err)
 	}
-	nativeValue, err := applyNativePredictLinearForTest(60, matrix, 4000)
+	nativeValue, err := applyNativePredictLinearForTest(60, matrix, 4)
 	if err != nil {
 		t.Fatalf("native semantic helper for predict_linear returned error: %v", err)
 	}
@@ -577,14 +577,14 @@ func applyNativeCounterFamilyForTest(name string, matrix model.MatrixValue) (mod
 	}
 }
 
-func applyNativePredictLinearForTest(duration float64, matrix model.MatrixValue, evaluationTimeMS float64) (model.VectorValue, error) {
+func applyNativePredictLinearForTest(duration float64, matrix model.MatrixValue, evaluationTimeSeconds float64) (model.VectorValue, error) {
 	out := make([]model.InstantSample, 0, len(matrix.Series))
 	for _, series := range matrix.Series {
 		if len(series.Values) < 2 {
 			continue
 		}
-		slope, intercept := nativeLinearRegression(series.Values, evaluationTimeMS)
-		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: evaluationTimeMS, Value: slope*duration + intercept})
+		slope, intercept := nativeLinearRegression(series.Values, evaluationTimeSeconds)
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: evaluationTimeSeconds, Value: slope*duration + intercept})
 	}
 	return model.VectorValue{Samples: out}, nil
 }
@@ -606,7 +606,7 @@ func nativeLinearRegression(samples []model.RangePoint, interceptTime float64) (
 			constY = false
 		}
 		n += 1.0
-		x := (sample.Timestamp - interceptTime) / 1e3
+		x := sample.Timestamp - interceptTime
 		sumX, cX = kahanInc(x, sumX, cX)
 		sumY, cY = kahanInc(sample.Value, sumY, cY)
 		sumXY, cXY = kahanInc(x*sample.Value, sumXY, cXY)

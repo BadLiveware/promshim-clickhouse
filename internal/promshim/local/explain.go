@@ -96,6 +96,7 @@ type ExplainNode struct {
 	FallbackReason       string                          `json:"fallbackReason,omitempty"`
 	Estimate             *planEstimate                   `json:"estimate,omitempty"`
 	ChunkPointsPerSeries int64                           `json:"chunkPointsPerSeries,omitempty"`
+	NativeRangeChunking  *nativeRangeChunkDecision       `json:"nativeRangeChunking,omitempty"`
 	Lowering             *nativeplan.ExplainInfo         `json:"lowering,omitempty"`
 	RulesApplied         []string                        `json:"rulesApplied,omitempty"`
 	PushedPredicates     []string                        `json:"pushedPredicates,omitempty"`

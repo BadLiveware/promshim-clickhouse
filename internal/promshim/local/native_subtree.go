@@ -49,6 +49,7 @@ type nativeSubtreePlan struct {
 	NativeSubtreeRenderTagHint   bool
 	NativeSubtreeRequireFullTags bool
 	NativeSubtreeRequiredLabels  []string
+	NativeRangeChunkDecision     *nativeRangeChunkDecision
 }
 
 // rootLogicalNode returns the logical plan root for this subtree: the
@@ -270,6 +271,7 @@ func (p *nativeSubtreePlan) explain() ExplainNode {
 		MaterializedColumns:  append([]string(nil), report.MaterializedColumns...),
 		SemanticBarriers:     append([]string(nil), report.SemanticBarriers...),
 		PhysicalDecisions:    append([]physical.Decision(nil), report.PhysicalDecisions...),
+		NativeRangeChunking:  p.NativeRangeChunkDecision,
 		RequiredInputStartMS: report.RequiredInputStartMS,
 		RequiredInputEndMS:   report.RequiredInputEndMS,
 		RenderedSQL:          report.RenderedSQL,

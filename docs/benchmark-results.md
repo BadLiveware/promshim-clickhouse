@@ -72,7 +72,7 @@ Aggregate geomeans: all 8 rows latency `0.34×`, memory `2.80×`, CPU `2.67×`, 
 
 ### Native range auto-chunking check
 
-Native range auto-chunking trades latency and extra ClickHouse work for lower peak memory on native-grid range aggregation rows. The current default uses a safe point cap plus duration cap (`PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES=289`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS=86400`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS=12`) so coarse-step long-range queries do not scan multiple days per chunk by default.
+Native range auto-chunking trades latency and extra ClickHouse work for lower peak memory on range shapes that need it. The current default is shape-aware: high-overlap window paths use the point/duration guardrails (`PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES=289`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS=86400`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS=12`), while low-memory native-grid sums only use the duration cap so 24h/1m rate ranges can stay single-query.
 
 Conditions: focused hit-set run, `prefer`, `strict`, 3 repeats, 1 warmup, memory and ClickHouse profile summaries enabled; Prometheus comparison used the same hit set with Prom timings enabled. Artifact: `harness/artifacts/bench/standalone/pr14-native-chunking-duration-cap/`.
 

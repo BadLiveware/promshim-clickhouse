@@ -90,7 +90,7 @@ Aggregate geomeans: all 8 rows latency `0.34×`, memory `2.80×`, CPU `2.67×`, 
 
 ## Native range auto-chunking tradeoff
 
-Native range auto-chunking is a resource-safety path for native-grid range aggregation rows. It is not a latency optimization. The current default combines a point cap with a safe output-duration cap (`PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES=289`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS=86400`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS=12`) so coarse-step long-range queries do not keep multi-day chunks only because they have fewer output points.
+Native range auto-chunking is a resource-safety path for native range rows that need bounded ClickHouse memory. It is not a latency optimization. The current default is shape-aware: high-overlap window paths use the point and duration guardrails (`PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES=289`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS=86400`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS=12`), while low-memory native-grid sums only use the duration cap so shorter rate ranges avoid unnecessary roundtrips.
 
 The current duration-cap hit-set benchmark (`harness/artifacts/bench/standalone/pr14-native-chunking-duration-cap/`) keeps the high-risk rows faster than Prometheus while lowering ClickHouse peak memory. It also fixes the coarse-step `sum rate 1h / 7d @15m` case that was still `8.26 GiB` with the earlier point-only cap.
 

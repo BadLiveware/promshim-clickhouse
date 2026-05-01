@@ -27,7 +27,12 @@ func ApplyNativeRangePreflight(ctx context.Context, client *storage.Client, cfg 
 		annotateNativeRangeChunkDecision(chunked.Child, decision)
 		return chunked
 	}
-	requiredStartMS, requiredEndMS := nativeRangePreflightBounds(chunked.Child, selector)
+	requiredStartMS, requiredEndMS, ok := nativeRangePreflightBounds(chunked.Child)
+	if !ok {
+		decision.PreflightError = "preflight required input bounds unavailable"
+		annotateNativeRangeChunkDecision(chunked.Child, decision)
+		return chunked
+	}
 	probeCtx := ctx
 	if timeout := nativeRangePreflightTimeoutFromDecision(decision); timeout > 0 {
 		var cancel context.CancelFunc
@@ -89,20 +94,15 @@ func nativeRangePreflightSettings(decision *nativeRangeChunkDecision) map[string
 	return settings
 }
 
-func nativeRangePreflightBounds(plan Plan, selector storage.SelectorSource) (int64, int64) {
+func nativeRangePreflightBounds(plan Plan) (int64, int64, bool) {
 	if nativePlan, ok := plan.(*nativeSubtreePlan); ok && nativePlan != nil && nativePlan.OptimizationReport != nil {
 		start := nativePlan.OptimizationReport.RequiredInputStartMS
 		end := nativePlan.OptimizationReport.RequiredInputEndMS
 		if start != 0 || end != 0 {
-			return start, end
+			return start, end, true
 		}
 	}
-	// A selector-only fallback should be rare because native plans carry rendered
-	// required bounds, but keeping the lookback here makes the metadata probe safe
-	// in unit tests and degenerate plans.
-	end := time.Now().UnixMilli()
-	start := end - selector.LookbackMS
-	return start, end
+	return 0, 0, false
 }
 
 func nativeRangePreflightSelector(plan Plan) (storage.SelectorSource, bool) {

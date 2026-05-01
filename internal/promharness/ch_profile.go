@@ -3,12 +3,9 @@ package promharness
 import (
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 )
-
-var chProfileSafePartPattern = regexp.MustCompile(`[^A-Za-z0-9_.-]+`)
 
 type CHProfileComment struct {
 	LogComment    string
@@ -280,11 +277,7 @@ func RenderCHProfileTerminalHighlights(rows []CHProfileRow) string {
 }
 
 func safeCHProfilePart(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "unknown"
-	}
-	return chProfileSafePartPattern.ReplaceAllString(value, "_")
+	return sanitizeLogCommentPart(value)
 }
 
 func humanCHNumber(value float64) string {

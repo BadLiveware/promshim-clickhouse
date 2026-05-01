@@ -2844,6 +2844,53 @@ func TestLocalSubqueryPlanExecutesChildAcrossInstantWindow(t *testing.T) {
 	}
 }
 
+func TestLocalSubqueryPlanRejectsInnerPointCap(t *testing.T) {
+	expr := mustParseExpr(t, "(up * 100)[2m:1m]")
+	calls := 0
+	plan := &localSubqueryPlan{
+		Expr:               expr,
+		Range:              2 * time.Minute,
+		Step:               time.Minute,
+		MaxPointsPerSeries: 2,
+		Child: testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, _ EvalParams) (model.RuntimeValue, error) {
+			calls++
+			return model.VectorValue{}, nil
+		}},
+	}
+
+	_, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(180, 0).UTC()})
+	if err == nil || !strings.Contains(err.Error(), "exceeding configured limit 2") {
+		t.Fatalf("expected subquery point cap error, got %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("expected cap to reject before child execution, got %d calls", calls)
+	}
+}
+
+func TestLocalSubqueryPlanChecksContextCancellation(t *testing.T) {
+	expr := mustParseExpr(t, "(up * 100)[2m:1m]")
+	calls := 0
+	plan := &localSubqueryPlan{
+		Expr:  expr,
+		Range: 2 * time.Minute,
+		Step:  time.Minute,
+		Child: testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, _ EvalParams) (model.RuntimeValue, error) {
+			calls++
+			return model.VectorValue{}, nil
+		}},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := plan.execute(ctx, &Evaluator{}, EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(180, 0).UTC()})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected canceled context error, got %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("expected cancellation check before child execution, got %d calls", calls)
+	}
+}
+
 func TestScalarLiteralPlanRangeMode(t *testing.T) {
 	plan := &scalarLiteralPlan{Expr: "1", Value: 1}
 

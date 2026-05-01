@@ -156,6 +156,7 @@ type localSubqueryPlan struct {
 	Timestamp               *int64
 	StartOrEnd              parser.ItemType
 	DelegatedLeafCompatible bool
+	MaxPointsPerSeries      int64
 	Child                   Plan
 }
 
@@ -173,10 +174,17 @@ func (p *localSubqueryPlan) execute(ctx context.Context, Evaluator *Evaluator, p
 	if err != nil {
 		return nil, WithInternalContext(err, "preparing local subquery window for %q", p.Expr.String())
 	}
+	pointsPerSeries := countSubqueryEvaluationPoints(start, end, step)
+	if p.MaxPointsPerSeries > 0 && pointsPerSeries > p.MaxPointsPerSeries {
+		return nil, NewBadDataErrorf("subquery would evaluate %d inner points per series, exceeding configured limit %d; reduce the time range or increase the subquery step", pointsPerSeries, p.MaxPointsPerSeries)
+	}
 	seriesByKey := map[string]*model.RangeSeries{}
 	seriesOrder := make([]string, 0)
 
 	for ts := start; !ts.After(end); ts = ts.Add(step) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		childValue, err := p.Child.execute(ctx, Evaluator, EvalParams{Mode: EvalModeInstant, EvaluationTime: ts})
 		if err != nil {
 			return nil, WithInternalContext(err, "evaluating local subquery child at %s for %q", ts.UTC().Format(time.RFC3339Nano), p.Expr.String())
@@ -249,6 +257,13 @@ func alignLocalSubqueryStepStart(windowStartMS, stepMS int64) int64 {
 		alignedStartMS += stepMS
 	}
 	return alignedStartMS
+}
+
+func countSubqueryEvaluationPoints(start, end time.Time, step time.Duration) int64 {
+	if step <= 0 || end.Before(start) {
+		return 0
+	}
+	return int64(end.Sub(start)/step) + 1
 }
 
 func (p *localSubqueryPlan) explain() ExplainNode {

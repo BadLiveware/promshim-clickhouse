@@ -661,7 +661,7 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nati
 		if err != nil {
 			return nil, WithInternalContext(err, "building execution child plan for subquery %q", node.ExprString())
 		}
-		return annotateQueryPlan(&localSubqueryPlan{Expr: node.Expr, Range: node.Range, Step: node.Step, Offset: node.Offset, Timestamp: cloneInt64Pointer(node.Timestamp), StartOrEnd: node.StartOrEnd, DelegatedLeafCompatible: node.DelegatedLeafCompatible, Child: child}, analysis.InfoFor(node)), nil
+		return annotateQueryPlan(&localSubqueryPlan{Expr: node.Expr, Range: node.Range, Step: node.Step, Offset: node.Offset, Timestamp: cloneInt64Pointer(node.Timestamp), StartOrEnd: node.StartOrEnd, DelegatedLeafCompatible: node.DelegatedLeafCompatible, MaxPointsPerSeries: ctx.MaxRangePointsPerSeries, Child: child}, analysis.InfoFor(node)), nil
 	case *logicalLabelReplacePlan:
 		if ctx.AllowsNativePlanning() {
 			if nativePlan, ok, err := maybeBuildNativeLabelReplacePlan(node, ctx, analysis); err != nil {

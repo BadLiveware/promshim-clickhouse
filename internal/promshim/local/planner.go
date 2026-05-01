@@ -548,7 +548,7 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nati
 		if err != nil {
 			return nil, WithInternalContext(err, "building execution child plan for %s %q", node.Func, node.ExprString())
 		}
-		return annotateQueryPlan(&localRatePlan{Expr: node.ExprString(), Func: node.Func, Child: child}, analysis.InfoFor(node)), nil
+		return annotateQueryPlan(&localRatePlan{Expr: node.ExprString(), Func: node.Func, Range: rangeFunctionWindow(node.Expr), Child: child}, analysis.InfoFor(node)), nil
 	case *logicalIncreasePlan:
 		if ctx.AllowsNativePlanning() {
 			if nativePlan, ok, err := maybeBuildNativeIncreasePlan(node, ctx, analysis); err != nil {
@@ -561,7 +561,7 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nati
 		if err != nil {
 			return nil, WithInternalContext(err, "building execution child plan for increase %q", node.ExprString())
 		}
-		return annotateQueryPlan(&localIncreasePlan{Expr: node.ExprString(), Child: child}, analysis.InfoFor(node)), nil
+		return annotateQueryPlan(&localIncreasePlan{Expr: node.ExprString(), Range: rangeFunctionWindow(node.Expr), Child: child}, analysis.InfoFor(node)), nil
 	case *logicalDeltaPlan:
 		if ctx.AllowsNativePlanning() {
 			if nativePlan, ok, err := maybeBuildNativeDeltaPlan(node, ctx, analysis); err != nil {
@@ -690,6 +690,21 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nati
 		return annotateQueryPlan(&localLabelJoinPlan{Expr: node.ExprString(), Config: node.Config, Child: child}, analysis.InfoFor(node)), nil
 	default:
 		return nil, NewExecutionErrorf("execution planner cannot lower logical node %T", plan)
+	}
+}
+
+func rangeFunctionWindow(expr parser.Expr) time.Duration {
+	call, ok := expr.(*parser.Call)
+	if !ok || len(call.Args) == 0 {
+		return 0
+	}
+	switch arg := call.Args[0].(type) {
+	case *parser.MatrixSelector:
+		return arg.Range
+	case *parser.SubqueryExpr:
+		return arg.Range
+	default:
+		return 0
 	}
 }
 

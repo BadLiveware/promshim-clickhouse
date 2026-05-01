@@ -15,6 +15,14 @@ func ApplyRate(input model.RuntimeValue) (model.VectorValue, error) {
 	return applyRateMatrix(matrix)
 }
 
+func ApplyRateWithBounds(input model.RuntimeValue, rangeStart, rangeEnd float64) (model.VectorValue, error) {
+	matrix, ok := input.(model.MatrixValue)
+	if !ok {
+		return model.VectorValue{}, unsupportedf("rate requires matrix input, got %T", input)
+	}
+	return applyExtrapolatedCounterMatrix(matrix, rangeStart, rangeEnd, true)
+}
+
 func ApplyIRate(input model.RuntimeValue) (model.VectorValue, error) {
 	matrix, ok := input.(model.MatrixValue)
 	if !ok {
@@ -41,15 +49,71 @@ func applyRateMatrix(matrix model.MatrixValue) (model.VectorValue, error) {
 		}
 		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: timestamp, Value: value})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		left := model.LabelsKey(out[i].Metric)
-		right := model.LabelsKey(out[j].Metric)
+	sortInstantSamples(out)
+	return model.VectorValue{Samples: out}, nil
+}
+
+func applyExtrapolatedCounterMatrix(matrix model.MatrixValue, rangeStart, rangeEnd float64, isRate bool) (model.VectorValue, error) {
+	out := make([]model.InstantSample, 0, len(matrix.Series))
+	for _, series := range matrix.Series {
+		if len(series.Values) < 2 {
+			continue
+		}
+		value := extrapolatedCounterValue(series.Values, rangeStart, rangeEnd, isRate)
+		last := series.Values[len(series.Values)-1]
+		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: value})
+	}
+	sortInstantSamples(out)
+	return model.VectorValue{Samples: out}, nil
+}
+
+func extrapolatedCounterValue(values []model.RangePoint, rangeStart, rangeEnd float64, isRate bool) float64 {
+	if len(values) < 2 || rangeEnd <= rangeStart {
+		return math.NaN()
+	}
+	delta, hasNaN := increaseDelta(values)
+	if hasNaN {
+		return math.NaN()
+	}
+	first := values[0]
+	last := values[len(values)-1]
+	sampledInterval := last.Timestamp - first.Timestamp
+	if sampledInterval <= 0 {
+		return math.NaN()
+	}
+	numSamplesMinusOne := float64(len(values) - 1)
+	averageDurationBetweenSamples := sampledInterval / numSamplesMinusOne
+	durationToStart := first.Timestamp - rangeStart
+	durationToEnd := rangeEnd - last.Timestamp
+	extrapolationThreshold := averageDurationBetweenSamples * 1.1
+	if durationToStart >= extrapolationThreshold {
+		durationToStart = averageDurationBetweenSamples / 2
+	}
+	if delta > 0 && first.Value >= 0 {
+		durationToZero := sampledInterval * (first.Value / delta)
+		if durationToZero < durationToStart {
+			durationToStart = durationToZero
+		}
+	}
+	if durationToEnd >= extrapolationThreshold {
+		durationToEnd = averageDurationBetweenSamples / 2
+	}
+	factor := (sampledInterval + durationToStart + durationToEnd) / sampledInterval
+	if isRate {
+		factor /= rangeEnd - rangeStart
+	}
+	return delta * factor
+}
+
+func sortInstantSamples(samples []model.InstantSample) {
+	sort.Slice(samples, func(i, j int) bool {
+		left := model.LabelsKey(samples[i].Metric)
+		right := model.LabelsKey(samples[j].Metric)
 		if left == right {
-			return out[i].Timestamp < out[j].Timestamp
+			return samples[i].Timestamp < samples[j].Timestamp
 		}
 		return left < right
 	})
-	return model.VectorValue{Samples: out}, nil
 }
 
 func applyIRateMatrix(matrix model.MatrixValue) (model.VectorValue, error) {

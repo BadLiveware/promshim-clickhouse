@@ -34,6 +34,31 @@ func TestApplyRateRejectsNonMatrixInput(t *testing.T) {
 	}
 }
 
+func TestApplyRateWithBoundsExtrapolatesLikePrometheus(t *testing.T) {
+	matrix := model.MatrixValue{Series: []model.RangeSeries{{
+		Metric: map[string]string{"job": "api"},
+		Values: []model.RangePoint{
+			{Timestamp: 10, Value: 100},
+			{Timestamp: 20, Value: 102},
+			{Timestamp: 30, Value: 104},
+		},
+	}}}
+	vector, err := ApplyRateWithBounds(matrix, 0, 40)
+	if err != nil {
+		t.Fatalf("expected rate output, got error: %v", err)
+	}
+	if len(vector.Samples) != 1 {
+		t.Fatalf("expected one sample, got %#v", vector.Samples)
+	}
+	// Raw delta is 4 over 20s; samples are close enough to both 40s window
+	// boundaries for Prometheus extrapolation, so the increase doubles to 8
+	// and the rate is 8 / 40.
+	expected := 0.2
+	if math.Abs(vector.Samples[0].Value-expected) > 1e-12 {
+		t.Fatalf("expected extrapolated rate %v, got %v", expected, vector.Samples[0].Value)
+	}
+}
+
 func TestApplyRateComputesRate(t *testing.T) {
 	matrix := model.MatrixValue{Series: []model.RangeSeries{{
 		Metric: map[string]string{"job": "api"},

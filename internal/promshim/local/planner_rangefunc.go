@@ -69,6 +69,7 @@ func (p *localRangeFunctionPlan) explain() ExplainNode {
 type localRatePlan struct {
 	Expr  string
 	Func  string
+	Range time.Duration
 	Child Plan
 }
 
@@ -82,7 +83,12 @@ func (p *localRatePlan) execute(ctx context.Context, Evaluator *Evaluator, param
 		var vector model.VectorValue
 		switch p.Func {
 		case "rate":
-			vector, err = exec.ApplyRate(childValue)
+			if p.Range > 0 {
+				rangeEnd := float64(params.EvaluationTime.UnixNano()) / float64(time.Second)
+				vector, err = exec.ApplyRateWithBounds(childValue, rangeEnd-p.Range.Seconds(), rangeEnd)
+			} else {
+				vector, err = exec.ApplyRate(childValue)
+			}
 		case "irate":
 			vector, err = exec.ApplyIRate(childValue)
 		default:
@@ -105,6 +111,7 @@ func (p *localRatePlan) explain() ExplainNode {
 
 type localIncreasePlan struct {
 	Expr  string
+	Range time.Duration
 	Child Plan
 }
 
@@ -115,7 +122,13 @@ func (p *localIncreasePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 		if err != nil {
 			return nil, WithInternalContext(err, "evaluating increase child in instant mode")
 		}
-		vector, err := exec.ApplyIncreaseInstant(childValue)
+		rangeEnd := float64(params.EvaluationTime.UnixNano()) / float64(time.Second)
+		var vector model.VectorValue
+		if p.Range > 0 {
+			vector, err = exec.ApplyIncreaseInstantWithBounds(childValue, rangeEnd-p.Range.Seconds(), rangeEnd)
+		} else {
+			vector, err = exec.ApplyIncreaseInstant(childValue)
+		}
 		if err != nil {
 			return nil, WithInternalContext(FromExecError(err), "applying increase in instant mode")
 		}

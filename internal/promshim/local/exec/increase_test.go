@@ -28,6 +28,24 @@ func TestApplyIncreaseInstantUsesDeltaAcrossSamples(t *testing.T) {
 	}
 }
 
+func TestApplyIncreaseInstantWithBoundsExtrapolatesLikePrometheus(t *testing.T) {
+	input := model.MatrixValue{Series: []model.RangeSeries{{
+		Metric: map[string]string{"__name__": "harness_requests_total", "job": "api"},
+		Values: []model.RangePoint{{Timestamp: 10, Value: 100}, {Timestamp: 20, Value: 102}, {Timestamp: 30, Value: 104}},
+	}}}
+
+	vector, err := ApplyIncreaseInstantWithBounds(input, 0, 40)
+	if err != nil {
+		t.Fatalf("expected increase result, got error: %v", err)
+	}
+	if len(vector.Samples) != 1 {
+		t.Fatalf("expected one output sample, got %#v", vector.Samples)
+	}
+	if math.Abs(vector.Samples[0].Value-8) > 1e-12 {
+		t.Fatalf("expected extrapolated increase 8, got %#v", vector.Samples[0])
+	}
+}
+
 func TestApplyIncreaseInstantAccountsForCounterReset(t *testing.T) {
 	input := model.MatrixValue{Series: []model.RangeSeries{{
 		Metric: map[string]string{"__name__": "harness_requests_total", "job": "api", "instance": "a"},

@@ -1,5 +1,22 @@
 package local
 
+const (
+	nativeRangeMemoryClassHighOverlapWindow = "high_overlap_window"
+	nativeRangeMemoryClassLowMemoryGrid     = "low_memory_grid"
+)
+
+type nativeRangeChunkDecision struct {
+	MemoryClass          string `json:"memoryClass,omitempty"`
+	Policy               string `json:"policy,omitempty"`
+	Reason               string `json:"reason,omitempty"`
+	Chunked              bool   `json:"chunked"`
+	ChunkPointsPerSeries int64  `json:"chunkPointsPerSeries,omitempty"`
+	RequestedChunkPoints int64  `json:"requestedChunkPointsPerSeries,omitempty"`
+	DurationChunkPoints  int64  `json:"durationChunkPointsPerSeries,omitempty"`
+	MaxChunks            int64  `json:"maxChunks,omitempty"`
+	EstimatedRangePoints int64  `json:"estimatedRangePointsPerSeries,omitempty"`
+}
+
 func applyRangeExecutionStrategy(plan Plan, ctx PlanContext) (Plan, error) {
 	if ctx.Mode != EvalModeRange {
 		return plan, nil
@@ -12,25 +29,15 @@ func applyRangeExecutionStrategy(plan Plan, ctx PlanContext) (Plan, error) {
 		return nil, NewBadDataErrorf("range query would evaluate %d points per series, exceeding configured limit %d; reduce the time range or increase the step", estimate.PointsPerSeries, ctx.MaxRangePointsPerSeries)
 	}
 	if chunkKind, ok := autoNativeRangeChunkKind(plan); ok {
-		chunkPoints := nativeRangeChunkPointsPerSeries(ctx, estimate)
-		if ctx.NativeRangeChunkPointsPerSeries == DefaultNativeRangeChunkPointsPerSeries {
-			switch chunkKind {
-			case "cumulative_avg":
-				// For high-overlap cumulative avg_over_time, two chunks gave the best
-				// measured latency/memory compromise on realistic 24h/1m workloads.
-				chunkPoints = max(chunkPoints, ceilDivInt64(estimate.PointsPerSeries, 2))
-			case "native_grid_sum_aggregation":
-				// Native-grid sum aggregation is already memory-light for 24h/1m rate
-				// ranges; default chunking should only enforce the duration cap.
-				chunkPoints = nativeRangeDurationChunkPointsPerSeries(ctx, estimate)
-			}
-		}
-		if chunkPoints > 0 {
+		decision := decideNativeRangeChunking(chunkKind, ctx, estimate)
+		annotateNativeRangeChunkDecision(plan, decision)
+		if decision.Chunked {
 			return &chunkedRangePlan{
 				Child:                plan,
-				ChunkPointsPerSeries: chunkPoints,
-				Reason:               nativeRangeChunkReason(chunkKind),
+				ChunkPointsPerSeries: decision.ChunkPointsPerSeries,
+				Reason:               decision.Reason,
 				Estimate:             estimate,
+				Decision:             decision,
 			}, nil
 		}
 	}
@@ -54,6 +61,14 @@ func shouldChunkLocalRangePlan(plan Plan) bool {
 	}
 }
 
+func annotateNativeRangeChunkDecision(plan Plan, decision *nativeRangeChunkDecision) {
+	nativePlan, ok := plan.(*nativeSubtreePlan)
+	if !ok || nativePlan == nil || decision == nil {
+		return
+	}
+	nativePlan.NativeRangeChunkDecision = decision
+}
+
 func autoNativeRangeChunkKind(plan Plan) (string, bool) {
 	nativePlan, ok := plan.(*nativeSubtreePlan)
 	if !ok || nativePlan == nil || nativePlan.OptimizationReport == nil {
@@ -70,11 +85,77 @@ func autoNativeRangeChunkKind(plan Plan) (string, bool) {
 	return "", false
 }
 
-func nativeRangeChunkReason(kind string) string {
+func decideNativeRangeChunking(kind string, ctx PlanContext, estimate *planEstimate) *nativeRangeChunkDecision {
+	decision := &nativeRangeChunkDecision{
+		MemoryClass:          nativeRangeMemoryClass(kind),
+		Policy:               nativeRangeChunkPolicy(kind, ctx),
+		RequestedChunkPoints: ctx.NativeRangeChunkPointsPerSeries,
+		DurationChunkPoints:  nativeRangeDurationChunkPointLimit(ctx),
+		MaxChunks:            ctx.NativeRangeChunkMaxChunks,
+	}
+	if estimate != nil {
+		decision.EstimatedRangePoints = estimate.PointsPerSeries
+	}
+
+	chunkPoints := nativeRangeChunkPointsPerSeries(ctx, estimate)
+	if ctx.NativeRangeChunkPointsPerSeries == DefaultNativeRangeChunkPointsPerSeries {
+		switch kind {
+		case "cumulative_avg":
+			// For high-overlap cumulative avg_over_time, two chunks gave the best
+			// measured latency/memory compromise on realistic 24h/1m workloads.
+			if estimate != nil {
+				chunkPoints = max(chunkPoints, ceilDivInt64(estimate.PointsPerSeries, 2))
+			}
+		case "native_grid_sum_aggregation":
+			// Native-grid sum aggregation is already memory-light for 24h/1m rate
+			// ranges; default chunking should only enforce the duration cap.
+			chunkPoints = nativeRangeDurationChunkPointsPerSeries(ctx, estimate)
+		}
+	}
+	decision.ChunkPointsPerSeries = chunkPoints
+	decision.Chunked = chunkPoints > 0
+	decision.Reason = nativeRangeChunkDecisionReason(kind, decision)
+	return decision
+}
+
+func nativeRangeMemoryClass(kind string) string {
+	switch kind {
+	case "cumulative_avg":
+		return nativeRangeMemoryClassHighOverlapWindow
+	case "native_grid_sum_aggregation":
+		return nativeRangeMemoryClassLowMemoryGrid
+	default:
+		return "unknown_native_range"
+	}
+}
+
+func nativeRangeChunkPolicy(kind string, ctx PlanContext) string {
+	if ctx.NativeRangeChunkPointsPerSeries != DefaultNativeRangeChunkPointsPerSeries {
+		return "explicit_chunk_points"
+	}
+	if kind == "native_grid_sum_aggregation" {
+		return "duration_cap_only"
+	}
+	return "default_memory_guardrail"
+}
+
+func nativeRangeChunkDecisionReason(kind string, decision *nativeRangeChunkDecision) string {
+	if decision == nil {
+		return ""
+	}
+	if !decision.Chunked {
+		if kind == "native_grid_sum_aggregation" {
+			return "native-grid sum aggregation is memory-light; default policy leaves it unchunked within duration cap"
+		}
+		return "native range chunking not needed for estimated range"
+	}
 	if kind == "cumulative_avg" {
 		return "chunking cumulative avg_over_time range SQL to cap ClickHouse peak memory"
 	}
-	return "chunking native range SQL to cap ClickHouse peak memory for native-grid range aggregation"
+	if kind == "native_grid_sum_aggregation" && decision.Policy == "duration_cap_only" {
+		return "chunking native-grid sum aggregation because range exceeds duration cap"
+	}
+	return "chunking native range SQL to cap ClickHouse peak memory"
 }
 
 func nativeRangeChunkPointsPerSeries(ctx PlanContext, estimate *planEstimate) int64 {

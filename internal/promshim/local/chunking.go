@@ -13,6 +13,7 @@ type chunkedRangePlan struct {
 	ChunkPointsPerSeries int64
 	Reason               string
 	Estimate             *planEstimate
+	Decision             *nativeRangeChunkDecision
 }
 
 func (p *chunkedRangePlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
@@ -53,6 +54,7 @@ func (p *chunkedRangePlan) explain() ExplainNode {
 		Reason:               p.Reason,
 		Estimate:             p.Estimate,
 		ChunkPointsPerSeries: p.ChunkPointsPerSeries,
+		NativeRangeChunking:  p.Decision,
 		Children:             []ExplainNode{child},
 	}
 }

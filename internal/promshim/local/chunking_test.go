@@ -145,6 +145,16 @@ func TestBuildPlanWithContextChunksCumulativeAvgWithTwoChunkDefault(t *testing.T
 	if chunked.Reason != "chunking cumulative avg_over_time range SQL to cap ClickHouse peak memory" {
 		t.Fatalf("reason = %q", chunked.Reason)
 	}
+	explain := chunked.explain()
+	if explain.NativeRangeChunking == nil {
+		t.Fatal("expected native range chunking decision")
+	}
+	if explain.NativeRangeChunking.MemoryClass != nativeRangeMemoryClassHighOverlapWindow {
+		t.Fatalf("memory class = %q", explain.NativeRangeChunking.MemoryClass)
+	}
+	if !explain.NativeRangeChunking.Chunked {
+		t.Fatal("expected chunked native range decision")
+	}
 }
 
 func TestBuildPlanWithContextLeavesDefaultNativeGridSumUnchunkedWithinDurationCap(t *testing.T) {
@@ -178,6 +188,19 @@ func TestBuildPlanWithContextLeavesDefaultNativeGridSumUnchunkedWithinDurationCa
 	}
 	if nativeChild.OptimizationReport == nil {
 		t.Fatal("expected native optimization report")
+	}
+	explain := nativeChild.explain()
+	if explain.NativeRangeChunking == nil {
+		t.Fatal("expected native range chunking decision")
+	}
+	if explain.NativeRangeChunking.MemoryClass != nativeRangeMemoryClassLowMemoryGrid {
+		t.Fatalf("memory class = %q", explain.NativeRangeChunking.MemoryClass)
+	}
+	if explain.NativeRangeChunking.Chunked {
+		t.Fatal("expected low-memory native grid sum to remain unchunked")
+	}
+	if explain.NativeRangeChunking.Policy != "duration_cap_only" {
+		t.Fatalf("policy = %q", explain.NativeRangeChunking.Policy)
 	}
 }
 

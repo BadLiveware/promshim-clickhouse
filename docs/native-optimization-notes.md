@@ -32,7 +32,7 @@ Rejected SQL reshapes:
 
 Accepted mitigation:
 
-- Use native range auto-chunking for `native_grid_sum_aggregation` roots.
+- Use shape-aware native range auto-chunking: high-overlap window roots use the point/duration memory guardrails, while `native_grid_sum_aggregation` roots use the duration cap by default.
 - Prefer first-request safety based on query shape, output duration, and point count rather than learning from a prior unsafe execution.
 - Default knobs: `PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES=289`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS=86400`, `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS=12`.
 

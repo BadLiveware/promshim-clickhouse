@@ -7,6 +7,20 @@ import (
 	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 )
 
+func TestUpdateChunkedPreflightReasonKeepsExplainReasonsConsistent(t *testing.T) {
+	decision := &nativeRangeChunkDecision{Policy: "bounded_series_preflight", Chunked: true, ChunkPointsPerSeries: 10}
+	plan := &chunkedRangePlan{Child: &nativeSubtreePlan{}, Reason: "generic chunk reason", Decision: decision, ChunkPointsPerSeries: 10}
+
+	updateChunkedPreflightReason(plan, decision, "bounded series preflight exceeded threshold; keeping safe native range chunking")
+
+	if plan.Reason != decision.Reason {
+		t.Fatalf("chunk reason %q does not match decision reason %q", plan.Reason, decision.Reason)
+	}
+	if plan.explain().Reason != decision.Reason {
+		t.Fatalf("explain reason %q does not match decision reason %q", plan.explain().Reason, decision.Reason)
+	}
+}
+
 func TestNativeRangePreflightSelectorRejectsMultipleSelectors(t *testing.T) {
 	expr, err := logical.ParseExpression(`low_cardinality_metric + high_cardinality_metric`)
 	if err != nil {

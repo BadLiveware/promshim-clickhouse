@@ -281,12 +281,10 @@ func RenderCHProfileTerminalHighlights(rows []CHProfileRow) string {
 
 func safeCHProfilePart(value string) string {
 	value = strings.TrimSpace(value)
-	value = chProfileSafePartPattern.ReplaceAllString(value, "_")
-	value = strings.Trim(value, "_")
 	if value == "" {
 		return "unknown"
 	}
-	return value
+	return chProfileSafePartPattern.ReplaceAllString(value, "_")
 }
 
 func humanCHNumber(value float64) string {

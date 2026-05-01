@@ -36,6 +36,32 @@ func TestBuildCHProfileCommentsMatchesBenchLogComments(t *testing.T) {
 	}
 }
 
+func TestBuildCHProfileCommentsPreservesSanitizedEdgeUnderscores(t *testing.T) {
+	report := BenchReportV2{
+		RunLabels: map[string]string{"run": "edge"},
+		Rows: []BenchRowV2{{
+			Name:     "/edge query/",
+			Query:    "up",
+			Endpoint: "query_range",
+			Shim: map[string]BenchShimModeResult{
+				"prefer@strict": {NativeLoweringMode: "prefer", RoutingPolicy: "strict", Strategy: "native_sql"},
+			},
+		}},
+	}
+	comments := BuildCHProfileComments(report)
+	if len(comments) != 1 {
+		t.Fatalf("comments = %#v", comments)
+	}
+	want := benchLogComment(BenchConfig{RunLabels: map[string]string{"run": "edge"}}, QuerySpec{Name: "/edge query/", NativeLoweringMode: "prefer", RoutingPolicy: "strict"})
+	want = safeCHProfileLogComment(want)
+	if comments[0].LogComment != want {
+		t.Fatalf("log comment = %q, want %q", comments[0].LogComment, want)
+	}
+	if !strings.Contains(comments[0].LogComment, "query__edge_query_") {
+		t.Fatalf("expected edge underscores preserved, got %q", comments[0].LogComment)
+	}
+}
+
 func TestCHProfileUsesP50MetricsForMarkdown(t *testing.T) {
 	rows := []CHProfileRow{
 		{

@@ -147,6 +147,40 @@ func TestBuildPlanWithContextChunksCumulativeAvgWithTwoChunkDefault(t *testing.T
 	}
 }
 
+func TestBuildPlanWithContextLeavesDefaultNativeGridSumUnchunkedWithinDurationCap(t *testing.T) {
+	expr, err := logical.ParseExpression(`sum by (job) (rate(demo_cpu_usage_seconds_total[5m]))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := buildPlanWithContext(expr, PlanContext{
+		Mode:                            EvalModeRange,
+		Start:                           time.Unix(0, 0).UTC(),
+		End:                             time.Unix(1440*60, 0).UTC(),
+		Step:                            time.Minute,
+		NativeLoweringMode:              NativeLoweringModeForceSupported,
+		EnableNativeGridFunctions:       true,
+		MaxRangePointsPerSeries:         5000,
+		RangeChunkPointsPerSeries:       5000,
+		NativeRangeChunkPointsPerSeries: DefaultNativeRangeChunkPointsPerSeries,
+		NativeRangeChunkMaxDuration:     DefaultNativeRangeChunkMaxDuration,
+		NativeRangeChunkMaxChunks:       DefaultNativeRangeChunkMaxChunks,
+	})
+	if err != nil {
+		t.Fatalf("expected native grid sum plan, got error: %v", err)
+	}
+	if _, ok := plan.(*chunkedRangePlan); ok {
+		t.Fatalf("expected default native grid sum plan within duration cap to remain unchunked, got %T", plan)
+	}
+	nativeChild, ok := plan.(*nativeSubtreePlan)
+	if !ok {
+		t.Fatalf("expected nativeSubtreePlan, got %T", plan)
+	}
+	if nativeChild.OptimizationReport == nil {
+		t.Fatal("expected native optimization report")
+	}
+}
+
 func TestNativeRangeChunkPointsUsesDurationCap(t *testing.T) {
 	got := nativeRangeChunkPointsPerSeries(PlanContext{
 		Step:                            15 * time.Minute,

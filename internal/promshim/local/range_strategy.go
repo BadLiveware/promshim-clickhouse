@@ -93,14 +93,16 @@ func autoNativeRangeChunkKind(plan Plan) (string, bool) {
 
 func decideNativeRangeChunking(kind string, ctx PlanContext, estimate *planEstimate) *nativeRangeChunkDecision {
 	decision := &nativeRangeChunkDecision{
-		MemoryClass:             nativeRangeMemoryClass(kind),
-		Policy:                  nativeRangeChunkPolicy(kind, ctx),
-		RequestedChunkPoints:    ctx.NativeRangeChunkPointsPerSeries,
-		DurationChunkPoints:     nativeRangeDurationChunkPointLimit(ctx),
-		MaxChunks:               ctx.NativeRangeChunkMaxChunks,
-		PreflightThreshold:      ctx.NativeRangePreflightSeriesThreshold,
-		PreflightTimeoutMS:      ctx.NativeRangePreflightTimeout.Milliseconds(),
-		PreflightMaxMemoryBytes: ctx.NativeRangePreflightMaxMemoryUsage,
+		MemoryClass:          nativeRangeMemoryClass(kind),
+		Policy:               nativeRangeChunkPolicy(kind, ctx),
+		RequestedChunkPoints: ctx.NativeRangeChunkPointsPerSeries,
+		DurationChunkPoints:  nativeRangeDurationChunkPointLimit(ctx),
+		MaxChunks:            ctx.NativeRangeChunkMaxChunks,
+	}
+	if decision.Policy == "bounded_series_preflight" {
+		decision.PreflightThreshold = ctx.NativeRangePreflightSeriesThreshold
+		decision.PreflightTimeoutMS = ctx.NativeRangePreflightTimeout.Milliseconds()
+		decision.PreflightMaxMemoryBytes = ctx.NativeRangePreflightMaxMemoryUsage
 	}
 	if estimate != nil {
 		decision.EstimatedRangePoints = estimate.PointsPerSeries

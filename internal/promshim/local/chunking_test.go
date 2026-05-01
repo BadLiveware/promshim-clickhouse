@@ -202,6 +202,9 @@ func TestBuildPlanWithContextLeavesDefaultNativeGridSumUnchunkedWithinDurationCa
 	if explain.NativeRangeChunking.Policy != "duration_cap_only" {
 		t.Fatalf("policy = %q", explain.NativeRangeChunking.Policy)
 	}
+	if explain.NativeRangeChunking.PreflightThreshold != 0 || explain.NativeRangeChunking.PreflightTimeoutMS != 0 || explain.NativeRangeChunking.PreflightMaxMemoryBytes != 0 {
+		t.Fatalf("unexpected preflight fields for duration-cap policy: %+v", explain.NativeRangeChunking)
+	}
 }
 
 func TestNativeRangeChunkPointsUsesDurationCap(t *testing.T) {

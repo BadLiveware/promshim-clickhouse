@@ -13,10 +13,17 @@ func applyRangeExecutionStrategy(plan Plan, ctx PlanContext) (Plan, error) {
 	}
 	if chunkKind, ok := autoNativeRangeChunkKind(plan); ok {
 		chunkPoints := nativeRangeChunkPointsPerSeries(ctx, estimate)
-		if chunkKind == "cumulative_avg" && ctx.NativeRangeChunkPointsPerSeries == DefaultNativeRangeChunkPointsPerSeries {
-			// For high-overlap cumulative avg_over_time, two chunks gave the best
-			// measured latency/memory compromise on realistic 24h/1m workloads.
-			chunkPoints = maxInt64(chunkPoints, ceilDivInt64(estimate.PointsPerSeries, 2))
+		if ctx.NativeRangeChunkPointsPerSeries == DefaultNativeRangeChunkPointsPerSeries {
+			switch chunkKind {
+			case "cumulative_avg":
+				// For high-overlap cumulative avg_over_time, two chunks gave the best
+				// measured latency/memory compromise on realistic 24h/1m workloads.
+				chunkPoints = max(chunkPoints, ceilDivInt64(estimate.PointsPerSeries, 2))
+			case "native_grid_sum_aggregation":
+				// Native-grid sum aggregation is already memory-light for 24h/1m rate
+				// ranges; default chunking should only enforce the duration cap.
+				chunkPoints = nativeRangeDurationChunkPointsPerSeries(ctx, estimate)
+			}
 		}
 		if chunkPoints > 0 {
 			return &chunkedRangePlan{
@@ -75,14 +82,8 @@ func nativeRangeChunkPointsPerSeries(ctx PlanContext, estimate *planEstimate) in
 		return 0
 	}
 	chunkPoints := ctx.NativeRangeChunkPointsPerSeries
-	if ctx.NativeRangeChunkMaxDuration > 0 && ctx.Step > 0 {
-		durationPoints := int64(ctx.NativeRangeChunkMaxDuration/ctx.Step) + 1
-		if durationPoints < 1 {
-			durationPoints = 1
-		}
-		if durationPoints < chunkPoints {
-			chunkPoints = durationPoints
-		}
+	if durationPoints := nativeRangeDurationChunkPointLimit(ctx); durationPoints > 0 && durationPoints < chunkPoints {
+		chunkPoints = durationPoints
 	}
 	if chunkPoints < 1 {
 		chunkPoints = 1
@@ -99,16 +100,40 @@ func nativeRangeChunkPointsPerSeries(ctx PlanContext, estimate *planEstimate) in
 	return chunkPoints
 }
 
+func nativeRangeDurationChunkPointsPerSeries(ctx PlanContext, estimate *planEstimate) int64 {
+	if estimate == nil || estimate.PointsPerSeries <= 0 {
+		return 0
+	}
+	chunkPoints := nativeRangeDurationChunkPointLimit(ctx)
+	if chunkPoints <= 0 {
+		return 0
+	}
+	if ctx.NativeRangeChunkMaxChunks > 0 {
+		minChunkPoints := ceilDivInt64(estimate.PointsPerSeries, ctx.NativeRangeChunkMaxChunks)
+		if minChunkPoints > chunkPoints {
+			chunkPoints = minChunkPoints
+		}
+	}
+	if chunkPoints >= estimate.PointsPerSeries {
+		return 0
+	}
+	return chunkPoints
+}
+
+func nativeRangeDurationChunkPointLimit(ctx PlanContext) int64 {
+	if ctx.NativeRangeChunkMaxDuration <= 0 || ctx.Step <= 0 {
+		return 0
+	}
+	points := int64(ctx.NativeRangeChunkMaxDuration/ctx.Step) + 1
+	if points < 1 {
+		return 1
+	}
+	return points
+}
+
 func ceilDivInt64(n, d int64) int64 {
 	if d <= 0 {
 		return 0
 	}
 	return (n + d - 1) / d
-}
-
-func maxInt64(a, b int64) int64 {
-	if a > b {
-		return a
-	}
-	return b
 }

@@ -11,13 +11,18 @@ func applyRangeExecutionStrategy(plan Plan, ctx PlanContext) (Plan, error) {
 	if ctx.MaxRangePointsPerSeries > 0 && estimate.PointsPerSeries > ctx.MaxRangePointsPerSeries {
 		return nil, NewBadDataErrorf("range query would evaluate %d points per series, exceeding configured limit %d; reduce the time range or increase the step", estimate.PointsPerSeries, ctx.MaxRangePointsPerSeries)
 	}
-	if shouldAutoChunkNativeRangePlan(plan) {
+	if chunkKind, ok := autoNativeRangeChunkKind(plan); ok {
 		chunkPoints := nativeRangeChunkPointsPerSeries(ctx, estimate)
+		if chunkKind == "cumulative_avg" && ctx.NativeRangeChunkPointsPerSeries == DefaultNativeRangeChunkPointsPerSeries {
+			// For high-overlap cumulative avg_over_time, two chunks gave the best
+			// measured latency/memory compromise on realistic 24h/1m workloads.
+			chunkPoints = maxInt64(chunkPoints, ceilDivInt64(estimate.PointsPerSeries, 2))
+		}
 		if chunkPoints > 0 {
 			return &chunkedRangePlan{
 				Child:                plan,
 				ChunkPointsPerSeries: chunkPoints,
-				Reason:               "chunking native range SQL to cap ClickHouse peak memory for native-grid range aggregation",
+				Reason:               nativeRangeChunkReason(chunkKind),
 				Estimate:             estimate,
 			}, nil
 		}
@@ -42,17 +47,27 @@ func shouldChunkLocalRangePlan(plan Plan) bool {
 	}
 }
 
-func shouldAutoChunkNativeRangePlan(plan Plan) bool {
+func autoNativeRangeChunkKind(plan Plan) (string, bool) {
 	nativePlan, ok := plan.(*nativeSubtreePlan)
 	if !ok || nativePlan == nil || nativePlan.OptimizationReport == nil {
-		return false
+		return "", false
 	}
 	for _, decision := range nativePlan.OptimizationReport.PhysicalDecisions {
 		if decision.Kind == "fused_range_aggregation" && decision.Strategy == "native_grid_sum_aggregation" {
-			return true
+			return "native_grid_sum_aggregation", true
+		}
+		if decision.Kind == "range_window_aggregate" && decision.Strategy == "cumulative_avg" {
+			return "cumulative_avg", true
 		}
 	}
-	return false
+	return "", false
+}
+
+func nativeRangeChunkReason(kind string) string {
+	if kind == "cumulative_avg" {
+		return "chunking cumulative avg_over_time range SQL to cap ClickHouse peak memory"
+	}
+	return "chunking native range SQL to cap ClickHouse peak memory for native-grid range aggregation"
 }
 
 func nativeRangeChunkPointsPerSeries(ctx PlanContext, estimate *planEstimate) int64 {
@@ -89,4 +104,11 @@ func ceilDivInt64(n, d int64) int64 {
 		return 0
 	}
 	return (n + d - 1) / d
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }

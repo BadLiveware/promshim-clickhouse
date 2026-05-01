@@ -115,6 +115,38 @@ func TestBuildPlanWithContextWrapsLargeNativeRangePlanInChunkedRangePlan(t *test
 	}
 }
 
+func TestBuildPlanWithContextChunksCumulativeAvgWithTwoChunkDefault(t *testing.T) {
+	expr, err := logical.ParseExpression(`sum by (job, type) (avg_over_time(demo_memory_usage_bytes[1h]))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := buildPlanWithContext(expr, PlanContext{
+		Mode:                            EvalModeRange,
+		Start:                           time.Unix(0, 0).UTC(),
+		End:                             time.Unix(1440*60, 0).UTC(),
+		Step:                            time.Minute,
+		NativeLoweringMode:              NativeLoweringModeForceSupported,
+		EnableCumulativeAvgOverTime:     true,
+		MaxRangePointsPerSeries:         5000,
+		RangeChunkPointsPerSeries:       5000,
+		NativeRangeChunkPointsPerSeries: DefaultNativeRangeChunkPointsPerSeries,
+	})
+	if err != nil {
+		t.Fatalf("expected chunked cumulative native plan, got error: %v", err)
+	}
+	chunked, ok := plan.(*chunkedRangePlan)
+	if !ok {
+		t.Fatalf("expected chunkedRangePlan, got %T", plan)
+	}
+	if chunked.ChunkPointsPerSeries != 721 {
+		t.Fatalf("chunk points = %d, want 721", chunked.ChunkPointsPerSeries)
+	}
+	if chunked.Reason != "chunking cumulative avg_over_time range SQL to cap ClickHouse peak memory" {
+		t.Fatalf("reason = %q", chunked.Reason)
+	}
+}
+
 func TestNativeRangeChunkPointsUsesDurationCap(t *testing.T) {
 	got := nativeRangeChunkPointsPerSeries(PlanContext{
 		Step:                            15 * time.Minute,

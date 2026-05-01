@@ -110,8 +110,11 @@ func nativeRangePreflightSelector(plan Plan) (storage.SelectorSource, bool) {
 	if !ok || nativePlan == nil {
 		return storage.SelectorSource{}, false
 	}
-	expr := firstSelectorExpr(nativePlan.rootLogicalNode())
-	selector, err := native.BuildSelectorSource(expr)
+	exprs := selectorExprs(nativePlan.rootLogicalNode())
+	if len(exprs) != 1 {
+		return storage.SelectorSource{}, false
+	}
+	selector, err := native.BuildSelectorSource(exprs[0])
 	if err != nil || selector == nil {
 		return storage.SelectorSource{}, false
 	}
@@ -125,49 +128,43 @@ func nativeRangePreflightSelector(plan Plan) (storage.SelectorSource, bool) {
 	}, true
 }
 
-func firstSelectorExpr(node logical.Node) parser.Expr {
+func selectorExprs(node logical.Node) []parser.Expr {
 	switch n := node.(type) {
 	case *logical.AggregationPlan:
-		return firstSelectorExpr(n.Child)
+		return selectorExprs(n.Child)
 	case *logical.RangeFunctionPlan:
-		return firstSelectorExpr(n.Child)
+		return selectorExprs(n.Child)
 	case *logical.UnaryPlan:
-		return firstSelectorExpr(n.Child)
+		return selectorExprs(n.Child)
 	case *logical.BinaryPlan:
-		if expr := firstSelectorExpr(n.LHS); expr != nil {
-			return expr
-		}
-		return firstSelectorExpr(n.RHS)
+		return append(selectorExprs(n.LHS), selectorExprs(n.RHS)...)
 	case *logical.VectorPlan:
-		return firstSelectorExpr(n.Child)
+		return selectorExprs(n.Child)
 	case *logical.LeafExprPlan:
-		return firstSelectorParserExpr(n.Expr)
+		return parserSelectorExprs(n.Expr)
 	default:
 		return nil
 	}
 }
 
-func firstSelectorParserExpr(expr parser.Expr) parser.Expr {
+func parserSelectorExprs(expr parser.Expr) []parser.Expr {
 	switch n := expr.(type) {
 	case *parser.MatrixSelector, *parser.VectorSelector:
-		return n
+		return []parser.Expr{n}
 	case *parser.Call:
+		var exprs []parser.Expr
 		for _, arg := range n.Args {
-			if found := firstSelectorParserExpr(arg); found != nil {
-				return found
-			}
+			exprs = append(exprs, parserSelectorExprs(arg)...)
 		}
+		return exprs
 	case *parser.AggregateExpr:
-		return firstSelectorParserExpr(n.Expr)
+		return parserSelectorExprs(n.Expr)
 	case *parser.ParenExpr:
-		return firstSelectorParserExpr(n.Expr)
+		return parserSelectorExprs(n.Expr)
 	case *parser.UnaryExpr:
-		return firstSelectorParserExpr(n.Expr)
+		return parserSelectorExprs(n.Expr)
 	case *parser.BinaryExpr:
-		if found := firstSelectorParserExpr(n.LHS); found != nil {
-			return found
-		}
-		return firstSelectorParserExpr(n.RHS)
+		return append(parserSelectorExprs(n.LHS), parserSelectorExprs(n.RHS)...)
 	}
 	return nil
 }

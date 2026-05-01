@@ -3,8 +3,23 @@ package local
 import (
 	"testing"
 
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 )
+
+func TestNativeRangePreflightSelectorRejectsMultipleSelectors(t *testing.T) {
+	expr, err := logical.ParseExpression(`low_cardinality_metric + high_cardinality_metric`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := logical.ToLogical(expr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := nativeRangePreflightSelector(&nativeSubtreePlan{LogicalRoot: root}); ok {
+		t.Fatal("expected multi-selector native range plan to skip preflight")
+	}
+}
 
 func TestNativeRangePreflightBoundsFailClosedWhenUnavailable(t *testing.T) {
 	if _, _, ok := nativeRangePreflightBounds(&nativeSubtreePlan{}); ok {

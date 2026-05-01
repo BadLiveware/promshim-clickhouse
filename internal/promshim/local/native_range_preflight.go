@@ -54,8 +54,7 @@ func ApplyNativeRangePreflight(ctx context.Context, client *storage.Client, cfg 
 	decision.PreflightMatched = stats.MatchedSeries
 	decision.PreflightCapped = stats.MatchedSeries > decision.PreflightThreshold
 	if decision.PreflightCapped {
-		decision.Reason = "bounded series preflight exceeded threshold; keeping safe native range chunking"
-		annotateNativeRangeChunkDecision(chunked.Child, decision)
+		updateChunkedPreflightReason(chunked, decision, "bounded series preflight exceeded threshold; keeping safe native range chunking")
 		return chunked
 	}
 	decision.Chunked = false
@@ -63,6 +62,16 @@ func ApplyNativeRangePreflight(ctx context.Context, client *storage.Client, cfg 
 	decision.Reason = "bounded series preflight stayed under threshold; native range chunking skipped"
 	annotateNativeRangeChunkDecision(chunked.Child, decision)
 	return chunked.Child
+}
+
+func updateChunkedPreflightReason(chunked *chunkedRangePlan, decision *nativeRangeChunkDecision, reason string) {
+	if decision != nil {
+		decision.Reason = reason
+	}
+	if chunked != nil {
+		chunked.Reason = reason
+		annotateNativeRangeChunkDecision(chunked.Child, decision)
+	}
 }
 
 func cloneNativeRangeChunkDecision(decision *nativeRangeChunkDecision) *nativeRangeChunkDecision {

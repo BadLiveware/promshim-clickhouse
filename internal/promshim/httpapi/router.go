@@ -194,6 +194,7 @@ type Service interface {
 	Labels(context.Context, MetadataRequest) (*Response, *APIError)
 	LabelValues(context.Context, LabelValuesRequest) (*Response, *APIError)
 	Series(context.Context, MetadataRequest) (*Response, *APIError)
+	Ready(context.Context) error
 }
 
 type clickHouseTransporter interface {
@@ -232,7 +233,11 @@ func (h *Handler) handleHealthy(w http.ResponseWriter, _ *http.Request) {
 	writePlain(w, http.StatusOK, "ok")
 }
 
-func (h *Handler) handleReady(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.Ready(r.Context()); err != nil {
+		writePlain(w, http.StatusServiceUnavailable, "not ready")
+		return
+	}
 	writePlain(w, http.StatusOK, "ready")
 }
 

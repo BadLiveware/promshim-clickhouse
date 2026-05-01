@@ -13,7 +13,8 @@ Promshim currently implements these HTTP surfaces:
 | `GET /api/v1/query_explain` | Plan-only instant-query explain output |
 | `GET /api/v1/query_range_explain` | Plan-only range-query explain output |
 | `GET /metrics` | Prometheus-format promshim process/shadow-mode metrics |
-| `GET /health`, `GET /-/healthy`, `GET /-/ready` | Health/readiness probes |
+| `GET /health`, `GET /-/healthy` | Process health probes |
+| `GET /-/ready` | Readiness probe; returns 200 only when promshim can run a lightweight ClickHouse query |
 
 Normal query responses use the Prometheus response envelope:
 

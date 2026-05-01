@@ -14,6 +14,7 @@ import (
 type stubService struct {
 	response  *Response
 	apiErr    *APIError
+	readyErr  error
 	transport string
 	// observeOnCall, if non-nil, is called on every service method with the
 	// passed context so the stub can simulate ClickHouse round-trips against
@@ -64,6 +65,38 @@ func (s *stubService) LabelValues(ctx context.Context, _ LabelValuesRequest) (*R
 func (s *stubService) Series(ctx context.Context, _ MetadataRequest) (*Response, *APIError) {
 	s.obs(ctx)
 	return s.response, s.apiErr
+}
+
+func (s *stubService) Ready(context.Context) error {
+	return s.readyErr
+}
+
+func TestHandleReadyChecksServiceReadiness(t *testing.T) {
+	handler := NewHandler(&stubService{})
+	req := httptest.NewRequest(http.MethodGet, "/-/ready", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/-/ready status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if strings.TrimSpace(rec.Body.String()) != "ready" {
+		t.Fatalf("/-/ready body = %q", rec.Body.String())
+	}
+}
+
+func TestHandleReadyReturnsUnavailableWhenBackendFails(t *testing.T) {
+	handler := NewHandler(&stubService{readyErr: context.DeadlineExceeded})
+	req := httptest.NewRequest(http.MethodGet, "/-/ready", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("/-/ready status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+	if strings.TrimSpace(rec.Body.String()) != "not ready" {
+		t.Fatalf("/-/ready body = %q", rec.Body.String())
+	}
 }
 
 func TestHandleQuerySetsPromshimHeaders(t *testing.T) {

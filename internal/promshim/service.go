@@ -34,6 +34,22 @@ func (h *queryService) ClickHouseTransport() string {
 	return string(h.opts.ClickHouseTransport)
 }
 
+func (h *queryService) Ready(ctx context.Context) error {
+	if h == nil || h.client == nil {
+		return fmt.Errorf("clickhouse client is not initialized")
+	}
+	if h.opts.RequestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, h.opts.RequestTimeout)
+		defer cancel()
+	}
+	rows, err := h.client.Query(ctx, storage.QueryRequest{SQL: "SELECT 1", Format: storage.ResultFormatJSONEachRow})
+	if err != nil {
+		return err
+	}
+	return rows.Close()
+}
+
 func (h *queryService) queryConfig() storage.QueryConfig {
 	return storage.QueryConfig{Database: h.opts.Database, Table: h.opts.Table, PromotedTagColumns: h.promotedTagColumns, EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxMetadataSeries: h.opts.MaxResponseSeries, MaxMetadataItems: h.opts.MaxMetadataItems}
 }

@@ -27,6 +27,21 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck yamllint
+          go install gotest.tools/gotestsum@latest
+          shellcheck --version
+          yamllint --version
+          gotestsum --version
+
+      - name: Run release validation checks
+        run: make fmt-check tidy-check script-check config-check build vet test-report
+
+      - name: Run release compliance gate
+        run: scripts/run-compliance.sh --run-integration-tests
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 

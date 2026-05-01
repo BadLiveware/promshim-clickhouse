@@ -21,8 +21,18 @@ func ApplyNativeRangePreflight(ctx context.Context, client *storage.Client, cfg 
 	decision := cloneNativeRangeChunkDecision(chunked.Decision)
 	chunked.Decision = decision
 	selector, ok := nativeRangePreflightSelector(chunked.Child)
-	if !ok || client == nil || decision.PreflightThreshold <= 0 {
+	if !ok {
 		decision.PreflightError = "preflight selector unavailable"
+		annotateNativeRangeChunkDecision(chunked.Child, decision)
+		return chunked
+	}
+	if decision.PreflightThreshold <= 0 {
+		decision.PreflightError = "preflight series threshold disabled"
+		annotateNativeRangeChunkDecision(chunked.Child, decision)
+		return chunked
+	}
+	if client == nil {
+		decision.PreflightError = "preflight ClickHouse client unavailable"
 		annotateNativeRangeChunkDecision(chunked.Child, decision)
 		return chunked
 	}

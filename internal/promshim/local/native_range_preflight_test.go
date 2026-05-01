@@ -5,6 +5,7 @@ import (
 
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 )
 
 func TestUpdateChunkedPreflightReasonKeepsExplainReasonsConsistent(t *testing.T) {
@@ -19,6 +20,64 @@ func TestUpdateChunkedPreflightReasonKeepsExplainReasonsConsistent(t *testing.T)
 	if plan.explain().Reason != decision.Reason {
 		t.Fatalf("explain reason %q does not match decision reason %q", plan.explain().Reason, decision.Reason)
 	}
+}
+
+func TestNativeRangePreflightFailureReasonsAreSpecific(t *testing.T) {
+	base := func(threshold int64) *chunkedRangePlan {
+		return &chunkedRangePlan{
+			Child: &nativeSubtreePlan{},
+			Decision: &nativeRangeChunkDecision{
+				Policy:               "bounded_series_preflight",
+				Chunked:              true,
+				ChunkPointsPerSeries: 10,
+				PreflightThreshold:   threshold,
+			},
+			ChunkPointsPerSeries: 10,
+		}
+	}
+
+	cases := []struct {
+		name      string
+		plan      *chunkedRangePlan
+		wantError string
+	}{
+		{name: "selector", plan: base(1), wantError: "preflight selector unavailable"},
+		{name: "threshold", plan: func() *chunkedRangePlan {
+			p := base(0)
+			p.Child = singleSelectorNativeSubtreeForPreflightTest(t)
+			return p
+		}(), wantError: "preflight series threshold disabled"},
+		{name: "client", plan: func() *chunkedRangePlan {
+			p := base(1)
+			p.Child = singleSelectorNativeSubtreeForPreflightTest(t)
+			return p
+		}(), wantError: "preflight ClickHouse client unavailable"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			updated := ApplyNativeRangePreflight(t.Context(), nil, storage.QueryConfig{}, tc.plan)
+			chunked, ok := updated.(*chunkedRangePlan)
+			if !ok {
+				t.Fatalf("expected chunkedRangePlan, got %T", updated)
+			}
+			if chunked.Decision.PreflightError != tc.wantError {
+				t.Fatalf("preflight error = %q, want %q", chunked.Decision.PreflightError, tc.wantError)
+			}
+		})
+	}
+}
+
+func singleSelectorNativeSubtreeForPreflightTest(t *testing.T) *nativeSubtreePlan {
+	t.Helper()
+	expr, err := logical.ParseExpression(`up[5m]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := logical.ToLogical(expr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &nativeSubtreePlan{LogicalRoot: root}
 }
 
 func TestNativeRangePreflightSelectorRejectsMultipleSelectors(t *testing.T) {

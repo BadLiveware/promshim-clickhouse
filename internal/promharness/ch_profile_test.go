@@ -25,10 +25,10 @@ func TestBuildCHProfileCommentsMatchesBenchLogComments(t *testing.T) {
 	if len(comments) != 2 {
 		t.Fatalf("comments = %#v", comments)
 	}
-	if comments[0].LogComment != "promshim-bench_run_dense_run_1_query_sum_by_job_rate_mode_off" {
+	if comments[0].LogComment != "promshim-bench_run_dense_run_1_query_sum_by_job__rate_mode_off" {
 		t.Fatalf("unexpected first comment: %#v", comments[0])
 	}
-	if comments[1].LogComment != "promshim-bench_run_dense_run_1_query_sum_by_job_rate_mode_prefer_policy_strict" {
+	if comments[1].LogComment != "promshim-bench_run_dense_run_1_query_sum_by_job__rate_mode_prefer_policy_strict" {
 		t.Fatalf("unexpected second comment: %#v", comments[1])
 	}
 	if comments[1].ShimPromRatio == nil || *comments[1].ShimPromRatio != 4 {
@@ -36,11 +36,11 @@ func TestBuildCHProfileCommentsMatchesBenchLogComments(t *testing.T) {
 	}
 }
 
-func TestBuildCHProfileCommentsPreservesSanitizedEdgeUnderscores(t *testing.T) {
+func TestBuildCHProfileCommentsPreservesPerRuneSanitization(t *testing.T) {
 	report := BenchReportV2{
 		RunLabels: map[string]string{"run": "edge"},
 		Rows: []BenchRowV2{{
-			Name:     "/edge query/",
+			Name:     "/edge query[])/",
 			Query:    "up",
 			Endpoint: "query_range",
 			Shim: map[string]BenchShimModeResult{
@@ -52,12 +52,12 @@ func TestBuildCHProfileCommentsPreservesSanitizedEdgeUnderscores(t *testing.T) {
 	if len(comments) != 1 {
 		t.Fatalf("comments = %#v", comments)
 	}
-	want := benchLogComment(BenchConfig{RunLabels: map[string]string{"run": "edge"}}, QuerySpec{Name: "/edge query/", NativeLoweringMode: "prefer", RoutingPolicy: "strict"})
+	want := benchLogComment(BenchConfig{RunLabels: map[string]string{"run": "edge"}}, QuerySpec{Name: "/edge query[])/", NativeLoweringMode: "prefer", RoutingPolicy: "strict"})
 	want = safeCHProfileLogComment(want)
 	if comments[0].LogComment != want {
 		t.Fatalf("log comment = %q, want %q", comments[0].LogComment, want)
 	}
-	if !strings.Contains(comments[0].LogComment, "query__edge_query_") {
+	if !strings.Contains(comments[0].LogComment, "query__edge_query____") {
 		t.Fatalf("expected edge underscores preserved, got %q", comments[0].LogComment)
 	}
 }

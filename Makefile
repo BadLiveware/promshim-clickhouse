@@ -1,4 +1,4 @@
-.PHONY: build test test-report integration-test integration-test-report vet race test-race fmt fmt-check tidy tidy-check lint script-check config-check pre-commit check hooks-install hooks-uninstall harness compliance bench sweep sweep-smoke sweep-estimate-heavy bench-status release-check release-snapshot
+.PHONY: build test test-report fuzz-smoke integration-test integration-test-report vet race test-race fmt fmt-check tidy tidy-check lint script-check config-check pre-commit check hooks-install hooks-uninstall harness compliance bench sweep sweep-smoke sweep-estimate-heavy bench-status release-check release-snapshot
 
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
@@ -13,6 +13,8 @@ YAMLFILES := $(shell git ls-files '*.yml' '*.yaml' ':(exclude)harness/compliance
 JSONFILES := $(shell git ls-files '*.json' ':(exclude).agents/**' ':(exclude)harness/compliance/prom-compliance/**')
 UNIT_PKGS := $(shell $(GO) list ./... | grep -v '/integration/')
 UNIT_TEST_FLAGS ?= -skip Integration
+FUZZTIME ?= 10s
+FUZZPARALLEL ?= 1
 # integration/promshim currently expects a live scrape-style fixture; the
 # compliance stack reliably supports the ClickHouse storage integration suite.
 INTEGRATION_PKGS := ./internal/promshim/storage
@@ -31,6 +33,9 @@ test-report:
 	}
 	mkdir -p harness/artifacts/unit
 	$(GOTESTSUM) --junitfile harness/artifacts/unit/junit-go.xml -- $(UNIT_TEST_FLAGS) $(UNIT_PKGS)
+
+fuzz-smoke:
+	$(GO) test -run=^$$ -fuzz=FuzzPromQLPlanningModes -fuzztime=$(FUZZTIME) -parallel=$(FUZZPARALLEL) ./internal/promshim/local
 
 integration-test:
 	$(INTEGRATION_ENV) $(GO) test $(INTEGRATION_PKGS)

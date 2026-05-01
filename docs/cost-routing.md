@@ -8,8 +8,9 @@ whole-query delegation, native SQL, local with pushdown, then full local.
 `shadow` mode ignore cost routing so they continue to serve as native-only,
 local-baseline, tier-3-isolation, and native-shadow visibility modes.
 
-The global policy is controlled by `PROM_SHIM_ROUTING_POLICY` and can be
-overridden per request with `routing_policy=...`.
+The global policy is controlled by `PROM_SHIM_ROUTING_POLICY`. Trusted
+benchmark/debug clients can override it per request with `routing_policy=...`
+only when `PROM_SHIM_ALLOW_REQUEST_ROUTING_OVERRIDES=true`.
 
 | Policy | Served result | Use case |
 |---|---|---|

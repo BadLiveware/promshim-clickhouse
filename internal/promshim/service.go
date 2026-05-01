@@ -112,18 +112,21 @@ func (h *queryService) applySettingsProfileProvenance(routing *httpapi.RoutingIn
 func NewHandler(opts Options) (http.Handler, error) {
 	opts = normalizeOptions(opts)
 	client, err := storage.NewClient(storage.Config{
-		Endpoint:        opts.ClickHouseEndpoint,
-		NativeAddr:      opts.ClickHouseNativeAddr,
-		Database:        opts.Database,
-		Username:        opts.Username,
-		Password:        opts.Password,
-		Compression:     opts.ClickHouseCompression,
-		RequestTimeout:  opts.RequestTimeout,
-		Transport:       opts.ClickHouseTransport,
-		MaxOpenConns:    opts.ClickHouseMaxOpenConns,
-		MaxIdleConns:    opts.ClickHouseMaxIdleConns,
-		ConnMaxLifetime: opts.ClickHouseConnMaxLifetime,
-		SettingsProfile: hSettingsProfileConfig(opts),
+		Endpoint:              opts.ClickHouseEndpoint,
+		NativeAddr:            opts.ClickHouseNativeAddr,
+		Database:              opts.Database,
+		Username:              opts.Username,
+		Password:              opts.Password,
+		Compression:           opts.ClickHouseCompression,
+		RequestTimeout:        opts.RequestTimeout,
+		Transport:             opts.ClickHouseTransport,
+		MaxOpenConns:          opts.ClickHouseMaxOpenConns,
+		MaxIdleConns:          opts.ClickHouseMaxIdleConns,
+		ConnMaxLifetime:       opts.ClickHouseConnMaxLifetime,
+		NativeSecure:          opts.ClickHouseNativeSecure,
+		TLSInsecureSkipVerify: opts.ClickHouseTLSInsecureSkipVerify,
+		TLSServerName:         opts.ClickHouseTLSServerName,
+		SettingsProfile:       hSettingsProfileConfig(opts),
 	})
 	if err != nil {
 		return nil, err
@@ -183,6 +186,9 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 	routing := h.routingInfoForInstant(query, evaluationTime, mode, policy, explain.Strategy)
 	selectedPlan, _, selectedExplain, routing := h.selectInstantPlanForRouting(req, plan, analysis, routing)
 	settingsProfile := h.applySettingsProfileProvenance(&routing, &selectedExplain)
+	if err := enforceEstimatedResponseLimits(routing, h.opts); err != nil {
+		return nil, local.ApiErrorToHTTP(err)
+	}
 	evalStart := time.Now()
 	value, err := h.evaluator.Evaluate(ctx, selectedPlan, local.EvalParams{Mode: local.EvalModeInstant, EvaluationTime: evaluationTime})
 	strictEvalDuration := time.Since(evalStart)
@@ -236,6 +242,9 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 	routing := h.routingInfoForRange(query, start, end, step, mode, policy, explain.Strategy)
 	selectedPlan, _, selectedExplain, routing := h.selectRangePlanForRouting(req, plan, analysis, routing)
 	settingsProfile := h.applySettingsProfileProvenance(&routing, &selectedExplain)
+	if err := enforceEstimatedResponseLimits(routing, h.opts); err != nil {
+		return nil, local.ApiErrorToHTTP(err)
+	}
 	evalStart := time.Now()
 	value, err := h.evaluator.Evaluate(ctx, selectedPlan, local.EvalParams{Mode: local.EvalModeRange, Start: start, End: end, Step: step})
 	strictEvalDuration := time.Since(evalStart)
@@ -534,6 +543,19 @@ func (h *queryService) Series(ctx context.Context, req httpapi.MetadataRequest) 
 	return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{"status": "success", "data": rows}}, nil
 }
 
+func enforceEstimatedResponseLimits(routing httpapi.RoutingInfo, opts Options) error {
+	if !routing.EstimatesAvailable {
+		return nil
+	}
+	if opts.MaxResponseSeries > 0 && routing.Class.EstimatedSeries > opts.MaxResponseSeries {
+		return local.NewBadDataErrorf("query result is estimated to return %d series, exceeding configured limit %d", routing.Class.EstimatedSeries, opts.MaxResponseSeries)
+	}
+	if opts.MaxResponsePoints > 0 && routing.Class.EstimatedOutputPoints > opts.MaxResponsePoints {
+		return local.NewBadDataErrorf("query result is estimated to return %d points, exceeding configured limit %d", routing.Class.EstimatedOutputPoints, opts.MaxResponsePoints)
+	}
+	return nil
+}
+
 func enforceResponseLimits(value model.RuntimeValue, opts Options) error {
 	stats, err := httpapi.RuntimeValueResponseStats(value)
 	if err != nil {
@@ -558,6 +580,9 @@ func enforceMetadataItemLimit(kind string, got, limit int64) error {
 func (h *queryService) nativeLoweringModeForRequest(requestMode string) (local.NativeLoweringMode, *httpapi.APIError) {
 	mode := h.opts.NativeLoweringMode
 	if requestMode != "" {
+		if !h.opts.AllowRequestRoutingOverrides {
+			return "", local.BadRequestHTTPError("native_lowering_mode request override is disabled")
+		}
 		parsed, err := local.ParseNativeLoweringMode(requestMode)
 		if err != nil {
 			return "", local.BadRequestHTTPError(err.Error())
@@ -570,6 +595,9 @@ func (h *queryService) nativeLoweringModeForRequest(requestMode string) (local.N
 func (h *queryService) routingPolicyForRequest(requestPolicy string) (RoutingPolicy, *httpapi.APIError) {
 	policy := h.opts.RoutingPolicy
 	if requestPolicy != "" {
+		if !h.opts.AllowRequestRoutingOverrides {
+			return "", local.BadRequestHTTPError("routing_policy request override is disabled")
+		}
 		parsed, err := ParseRoutingPolicy(requestPolicy)
 		if err != nil {
 			return "", local.BadRequestHTTPError(err.Error())

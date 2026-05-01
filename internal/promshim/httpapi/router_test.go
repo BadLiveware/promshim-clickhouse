@@ -166,6 +166,31 @@ func TestHandleQuerySetsPromshimHeaders(t *testing.T) {
 	}
 }
 
+func TestHandleQuerySanitizesHeaderLogComment(t *testing.T) {
+	var observedComment string
+	stub := &stubService{
+		response: &Response{StatusCode: http.StatusOK, Body: map[string]any{"status": "success"}},
+		observeOnCall: func(ctx context.Context) {
+			observedComment = obs.LogCommentFromContext(ctx)
+		},
+	}
+	handler := NewHandler(stub)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=up", nil)
+	req.Header.Set("X-Promshim-Log-Comment", strings.Repeat("unsafe comment\n", 40))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if observedComment == "" {
+		t.Fatal("expected log comment")
+	}
+	if strings.ContainsAny(observedComment, " \n\r\t") {
+		t.Fatalf("expected sanitized log comment, got %q", observedComment)
+	}
+	if len(observedComment) > maxRequestLogCommentLen {
+		t.Fatalf("expected bounded log comment, len=%d", len(observedComment))
+	}
+}
+
 func TestHandleQueryRangeSetsFallbackReason(t *testing.T) {
 	stub := &stubService{
 		response: &Response{

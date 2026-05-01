@@ -14,6 +14,9 @@
 | `PROM_SHIM_CLICKHOUSE_USERNAME` | `default` | ClickHouse user. |
 | `PROM_SHIM_CLICKHOUSE_PASSWORD` | `otel` | ClickHouse password. |
 | `PROM_SHIM_CLICKHOUSE_COMPRESSION` | `off` | Native driver compression: `off`, `lz4`, or `zstd`. |
+| `PROM_SHIM_CLICKHOUSE_NATIVE_SECURE` | `false` | Enables TLS for the native ClickHouse driver connection. |
+| `PROM_SHIM_CLICKHOUSE_TLS_SERVER_NAME` | empty | Optional TLS server name override for the native driver. |
+| `PROM_SHIM_CLICKHOUSE_TLS_INSECURE_SKIP_VERIFY` | `false` | Disables TLS certificate verification for native driver connections; use only for controlled test environments. |
 | `PROM_SHIM_CLICKHOUSE_MAX_OPEN_CONNS` | `10` | Native driver maximum open connections. |
 | `PROM_SHIM_CLICKHOUSE_MAX_IDLE_CONNS` | `10` | Native driver maximum idle connections. |
 | `PROM_SHIM_CLICKHOUSE_CONN_MAX_LIFETIME_SECONDS` | `3600` | Native driver connection maximum lifetime. |
@@ -29,6 +32,7 @@
 | `PROM_SHIM_CUMULATIVE_AVG_OVER_TIME` | `prefer` | High-overlap `avg_over_time` lowering gate. `prefer` uses cumulative per-series state plus ASOF boundary lookups to avoid dense grid-to-data join fanout; set `off` to roll back to the direct grouped aggregate path. |
 | `PROM_SHIM_NATIVE_LOWERING_MODE` | `prefer` | Global lowering mode; see execution modes above. |
 | `PROM_SHIM_ROUTING_POLICY` | `strict` | Global cost-routing policy; see cost routing policies above. |
+| `PROM_SHIM_ALLOW_REQUEST_ROUTING_OVERRIDES` | `false` | Allows per-request `native_lowering_mode` and `routing_policy` overrides. Keep disabled on shared production endpoints; enable only for trusted benchmark/debug clients. |
 | `PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES` | empty | Comma-separated family gates eligible for `cost_prefer` local overrides, e.g. `selector_instant,rate_instant`. |
 | `PROM_SHIM_DISABLE_OPTIMIZED_IR` | unset / false | Rollback/differential-testing gate that disables logical IR rewrite passes while preserving baseline planning. |
 | `PROM_SHIM_DISABLE_NATIVE_AGGREGATION_LABEL_PROJECTION` | unset / false | Rollback/differential-testing gate that disables native `by(...)` aggregation child label projection and restores full selector tag materialization. |
@@ -39,14 +43,14 @@
 | `PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES` | `289` | Auto-chunk eligible native-grid range aggregation plans above this point count per series to cap ClickHouse peak memory. Set `0` to disable native range auto-chunking. Explain output and `X-Promshim-Strategy` report `chunked_native` when this path is selected. |
 | `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS` | `86400` | Further cap eligible native range chunks by output duration. The default `86400` keeps chunks at about one day for coarse-step long-range queries where the point cap alone would still scan multiple days per chunk. Set `0` to disable the duration cap. |
 | `PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS` | `12` | Guardrail that enlarges native range chunks when the point/duration caps would create too many ClickHouse subqueries. Set `0` for no max-chunk guardrail. |
-| `PROM_SHIM_MAX_RESPONSE_SERIES` | `5000` | Reject query responses and `/series` metadata responses with more series than this limit. |
-| `PROM_SHIM_MAX_RESPONSE_POINTS` | `500000` | Reject query responses with more total points than this limit. |
+| `PROM_SHIM_MAX_RESPONSE_SERIES` | `5000` | Reject query responses and `/series` metadata responses with more series than this limit. Query endpoints reject before execution when fresh estimates prove the cap would be exceeded, and still enforce the exact cap after evaluation. Metadata queries push a `limit+1` cap into ClickHouse and return an error when the extra sentinel row is present. |
+| `PROM_SHIM_MAX_RESPONSE_POINTS` | `500000` | Reject query responses with more total points than this limit. Query endpoints reject before execution when fresh estimates prove the cap would be exceeded, and still enforce the exact cap after evaluation. |
 | `PROM_SHIM_MAX_METADATA_ITEMS` | `50000` | Reject `/labels` and label-values metadata responses with more items than this limit. |
 
 Per-request knobs:
 
-- `native_lowering_mode=off|prefer|explain|shadow|force_supported|local_pushdown`
-- `routing_policy=strict|cost_shadow|cost_prefer`
+- `native_lowering_mode=off|prefer|explain|shadow|force_supported|local_pushdown` when `PROM_SHIM_ALLOW_REQUEST_ROUTING_OVERRIDES=true`
+- `routing_policy=strict|cost_shadow|cost_prefer` when `PROM_SHIM_ALLOW_REQUEST_ROUTING_OVERRIDES=true`
 - `explain=1` or `explain=true`
 - `X-Promshim-Log-Comment: ...` to forward a ClickHouse `log_comment` for query
   log/profile correlation. When omitted, promshim generates a bounded comment

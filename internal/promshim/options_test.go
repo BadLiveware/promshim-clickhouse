@@ -56,6 +56,25 @@ func TestLoadOptionsFromEnvRejectsUnknownClickHouseCompression(t *testing.T) {
 	}
 }
 
+func TestLoadOptionsFromEnvRequestRoutingOverrides(t *testing.T) {
+	t.Setenv("PROM_SHIM_ALLOW_REQUEST_ROUTING_OVERRIDES", "")
+	opts, err := LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.AllowRequestRoutingOverrides {
+		t.Fatalf("AllowRequestRoutingOverrides = true, want default false")
+	}
+	t.Setenv("PROM_SHIM_ALLOW_REQUEST_ROUTING_OVERRIDES", "true")
+	opts, err = LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.AllowRequestRoutingOverrides {
+		t.Fatalf("AllowRequestRoutingOverrides = false, want true")
+	}
+}
+
 func TestLoadOptionsFromEnvRoutingPolicy(t *testing.T) {
 	t.Setenv("PROM_SHIM_ROUTING_POLICY", "cost_shadow")
 	opts, err := LoadOptionsFromEnv()
@@ -83,6 +102,25 @@ func TestLoadOptionsFromEnvCostRoutingLocalFamilies(t *testing.T) {
 	}
 	if len(opts.CostRoutingLocalFamilies) != 2 || opts.CostRoutingLocalFamilies[0] != "selector_instant" || opts.CostRoutingLocalFamilies[1] != "rate_instant" {
 		t.Fatalf("CostRoutingLocalFamilies = %+v", opts.CostRoutingLocalFamilies)
+	}
+}
+
+func TestLoadOptionsFromEnvNativeTLS(t *testing.T) {
+	t.Setenv("PROM_SHIM_CLICKHOUSE_NATIVE_SECURE", "true")
+	t.Setenv("PROM_SHIM_CLICKHOUSE_TLS_INSECURE_SKIP_VERIFY", "true")
+	t.Setenv("PROM_SHIM_CLICKHOUSE_TLS_SERVER_NAME", "clickhouse.example.com")
+	opts, err := LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.ClickHouseNativeSecure {
+		t.Fatalf("ClickHouseNativeSecure = false, want true")
+	}
+	if !opts.ClickHouseTLSInsecureSkipVerify {
+		t.Fatalf("ClickHouseTLSInsecureSkipVerify = false, want true")
+	}
+	if opts.ClickHouseTLSServerName != "clickhouse.example.com" {
+		t.Fatalf("ClickHouseTLSServerName = %q", opts.ClickHouseTLSServerName)
 	}
 }
 

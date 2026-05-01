@@ -111,8 +111,10 @@ As ClickHouse's native PromQL support matures, more queries should move upward i
 
 ## Execution modes
 
-The default mode is controlled by `PROM_SHIM_NATIVE_LOWERING_MODE` and can be
-overridden per request with `native_lowering_mode=...`.
+The default mode is controlled by `PROM_SHIM_NATIVE_LOWERING_MODE`. Trusted
+benchmark/debug clients can override it per request with
+`native_lowering_mode=...` only when
+`PROM_SHIM_ALLOW_REQUEST_ROUTING_OVERRIDES=true`.
 
 | Mode | Served result | Native/delegated behavior | Use case |
 |---|---|---|---|

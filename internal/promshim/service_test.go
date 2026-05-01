@@ -39,7 +39,7 @@ func TestPromotedTagColumnHelpersIgnoreEmptyNames(t *testing.T) {
 }
 
 func TestQueryExplainReturnsDelegatedWholeQueryPlanWhenClassifierAllowsIt(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestQueryExplainReturnsDelegatedWholeQueryPlanWhenClassifierAllowsIt(t *tes
 }
 
 func TestQueryRangeExplainReturnsNativeAggregationForLabelMutation(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestQueryRangeExplainReturnsNativeAggregationForLabelMutation(t *testing.T)
 }
 
 func TestQueryRangeExplainIncludesPhysicalDecisions(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestQueryRangeExplainIncludesPhysicalDecisions(t *testing.T) {
 }
 
 func TestQueryRangeExplainUsesRuntimePhysicalOptions(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true, CumulativeAvgOverTime: "prefer"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true, CumulativeAvgOverTime: "prefer"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func findExplainNodeByKind(node local.ExplainNode, kind string) (local.ExplainNo
 }
 
 func TestQueryRangeExplainIncludesSubqueryNodeThreadPreferenceDecision(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestQueryRangeExplainIncludesSubqueryNodeThreadPreferenceDecision(t *testin
 }
 
 func TestQueryRangeExplainBuildsClampPlan(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestQueryRangeExplainBuildsClampPlan(t *testing.T) {
 }
 
 func TestQueryRangeExplainBuildsVectorAndRoundPlans(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +367,7 @@ func TestQueryRangeExplainBuildsVectorAndRoundPlans(t *testing.T) {
 }
 
 func TestQueryExplainRejectsMissingQuery(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +403,7 @@ func TestMetadataResponseLimitErrors(t *testing.T) {
 }
 
 func TestQueryRangeRejectsNonPositiveStep(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +433,7 @@ func TestQueryRangeRejectsNonPositiveStep(t *testing.T) {
 }
 
 func TestQueryRangeExplainBuildsIncreasePlan(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -464,7 +464,7 @@ func TestQueryRangeExplainBuildsIncreasePlan(t *testing.T) {
 }
 
 func TestQueryRangeExplainBuildsNativeAggregateOverTimePlan(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,7 +495,7 @@ func TestQueryRangeExplainBuildsNativeAggregateOverTimePlan(t *testing.T) {
 }
 
 func TestQueryRangeExplainBuildsNativeCounterRangePlans(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,7 +528,7 @@ func TestQueryRangeExplainBuildsNativeCounterRangePlans(t *testing.T) {
 }
 
 func TestQueryRangeExplainBuildsNativeRangePlansForSubquery(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,7 +561,7 @@ func TestQueryRangeExplainBuildsNativeRangePlansForSubquery(t *testing.T) {
 }
 
 func TestQueryExplainBuildsIncreaseDeltaIDeltaChangesAndDerivPlansForSubquerySelector(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -608,7 +608,7 @@ func TestQueryExplainBuildsIncreaseDeltaIDeltaChangesAndDerivPlansForSubquerySel
 }
 
 func TestQueryExplainBuildsRateAndIratePlansForSubquerySelectors(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -649,7 +649,7 @@ func TestQueryExplainBuildsRateAndIratePlansForSubquerySelectors(t *testing.T) {
 }
 
 func TestQueryExplainBuildsInstantMaxOverTimeSubqueryRowsFastPath(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -695,7 +695,7 @@ func TestQueryExplainBuildsInstantMaxOverTimeSubqueryRowsFastPath(t *testing.T) 
 }
 
 func TestQueryRejectsMalformedHistogramFractionAsBadData(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -725,7 +725,7 @@ func TestQueryRejectsMalformedHistogramFractionAsBadData(t *testing.T) {
 }
 
 func TestQueryExplainBuildsHistogramProjectionNativePlan(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -759,7 +759,7 @@ func TestQueryExplainBuildsHistogramProjectionNativePlan(t *testing.T) {
 }
 
 func TestQueryExplainBuildsHistogramQuantileNativePlan(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -789,7 +789,7 @@ func TestQueryExplainBuildsHistogramQuantileNativePlan(t *testing.T) {
 }
 
 func TestQueryExplainBuildsHistogramQuantilesPlan(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -820,7 +820,7 @@ func TestQueryExplainBuildsHistogramQuantilesPlan(t *testing.T) {
 }
 
 func TestQueryExplainBuildsHistogramFractionPlan(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -854,7 +854,7 @@ func TestQueryExplainBuildsHistogramFractionPlan(t *testing.T) {
 }
 
 func TestQueryRejectsParseFailureAsBadData(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -883,7 +883,7 @@ func TestQueryRejectsParseFailureAsBadData(t *testing.T) {
 }
 
 func TestQueryWithExplainIncludesPlanAndNormalResult(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -922,7 +922,7 @@ func TestQueryWithExplainIncludesPlanAndNormalResult(t *testing.T) {
 }
 
 func TestQueryRangeWithExplainIncludesPlanAndNormalResult(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -958,7 +958,7 @@ func TestQueryRangeWithExplainIncludesPlanAndNormalResult(t *testing.T) {
 }
 
 func TestQueryExplainReportsEntireQueryDelegationEligibility(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", ClickHouseVersion: "26.3"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", ClickHouseVersion: "26.3"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -988,7 +988,7 @@ func TestQueryExplainReportsEntireQueryDelegationEligibility(t *testing.T) {
 }
 
 func TestQueryExplainReportsScalarRootAsNotEligibleForEntireQueryDelegation(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", ClickHouseVersion: "26.3"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", ClickHouseVersion: "26.3"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1018,7 +1018,7 @@ func TestQueryExplainReportsScalarRootAsNotEligibleForEntireQueryDelegation(t *t
 }
 
 func TestQueryExplainModeReturnsPlanWithoutExplainFlag(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModePrefer})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModePrefer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1048,7 +1048,7 @@ func TestQueryExplainModeReturnsPlanWithoutExplainFlag(t *testing.T) {
 }
 
 func TestMetricsEndpointExportsShadowRolloutMetrics(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1084,7 +1084,7 @@ func TestMetricsEndpointExportsShadowRolloutMetrics(t *testing.T) {
 }
 
 func TestQueryShadowModeReturnsServedPlanAndShadowReport(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1145,7 +1145,7 @@ func TestQueryShadowModeReturnsServedPlanAndShadowReport(t *testing.T) {
 }
 
 func TestQueryExplainHonorsNativeLoweringModeOff(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModePrefer})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModePrefer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1177,7 +1177,7 @@ func TestQueryExplainHonorsNativeLoweringModeOff(t *testing.T) {
 }
 
 func TestQueryRangeExplainLocalPushdownForcesLocalRootWithNativeChild(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1217,7 +1217,7 @@ func TestQueryRangeExplainLocalPushdownForcesLocalRootWithNativeChild(t *testing
 }
 
 func TestQueryRangeExplainPreferUsesNativeAggregationOverRangeFunction(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1249,7 +1249,7 @@ func TestQueryRangeExplainPreferUsesNativeAggregationOverRangeFunction(t *testin
 }
 
 func TestQueryRangeExplainForceSupportedAllowsAnchoredAggregationRoot(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1281,7 +1281,7 @@ func TestQueryRangeExplainForceSupportedAllowsAnchoredAggregationRoot(t *testing
 }
 
 func TestQueryExplainForceSupportedPrefersNativeRootOverDelegation(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1309,7 +1309,7 @@ func TestQueryExplainForceSupportedPrefersNativeRootOverDelegation(t *testing.T)
 }
 
 func TestQueryExplainForceSupportedAcceptsScalarLiteralNativeRoot(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1337,7 +1337,7 @@ func TestQueryExplainForceSupportedAcceptsScalarLiteralNativeRoot(t *testing.T) 
 }
 
 func TestQueryRangeExplainForceSupportedPrefersNativeRootOverDelegation(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1365,7 +1365,7 @@ func TestQueryRangeExplainForceSupportedPrefersNativeRootOverDelegation(t *testi
 }
 
 func TestQueryExplainForceSupportedAcceptsAbsentNativeRoot(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1393,7 +1393,7 @@ func TestQueryExplainForceSupportedAcceptsAbsentNativeRoot(t *testing.T) {
 }
 
 func TestQueryRangeExplainForceSupportedAcceptsAbsentOverTimeNativeRoot(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1421,7 +1421,7 @@ func TestQueryRangeExplainForceSupportedAcceptsAbsentOverTimeNativeRoot(t *testi
 }
 
 func TestQueryRangeExplainForceSupportedAcceptsRegexInfoNativeRoot(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1449,7 +1449,7 @@ func TestQueryRangeExplainForceSupportedAcceptsRegexInfoNativeRoot(t *testing.T)
 }
 
 func TestQueryExplainForceSupportedAcceptsNativeLabelJoinRoot(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1477,7 +1477,7 @@ func TestQueryExplainForceSupportedAcceptsNativeLabelJoinRoot(t *testing.T) {
 }
 
 func TestQueryRejectsInvalidNativeLoweringMode(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1505,7 +1505,7 @@ func TestQueryRejectsInvalidNativeLoweringMode(t *testing.T) {
 }
 
 func TestQueryRangeScalarQueryReturnsConstantMatrix(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1554,7 +1554,7 @@ func TestQueryRangeScalarQueryReturnsConstantMatrix(t *testing.T) {
 }
 
 func TestQueryRangeRejectsMatrixExpressionType(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1572,7 +1572,7 @@ func TestQueryRangeRejectsMatrixExpressionType(t *testing.T) {
 }
 
 func TestQueryHeadersIncludeStrictRoutingMetadata(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1600,7 +1600,7 @@ func TestQueryHeadersIncludeStrictRoutingMetadata(t *testing.T) {
 }
 
 func TestQueryRejectsInvalidRoutingPolicy(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1618,7 +1618,7 @@ func TestQueryRejectsInvalidRoutingPolicy(t *testing.T) {
 }
 
 func TestNativeLoweringOffIgnoresCostRoutingPolicy(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1639,7 +1639,7 @@ func TestNativeLoweringOffIgnoresCostRoutingPolicy(t *testing.T) {
 }
 
 func TestDedicatedExplainShadowModeShowsServedLocalPlan(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/"})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1669,7 +1669,7 @@ func TestDedicatedExplainShadowModeShowsServedLocalPlan(t *testing.T) {
 }
 
 func TestSelectInstantPlanForRoutingRebuildsLocalOverride(t *testing.T) {
-	service := &queryService{opts: Options{Database: "observability", Table: "prometheus", ClickHouseVersion: "26.3", DisableEntireQueryDelegation: true}}
+	service := &queryService{opts: Options{Database: "observability", Table: "prometheus", ClickHouseVersion: "26.3", DisableEntireQueryDelegation: true, AllowRequestRoutingOverrides: true}}
 	req := httpapi.InstantQueryRequest{Query: "up", Time: "300", NativeLoweringMode: string(local.NativeLoweringModeForceSupported)}
 	_, _, plan, analysis, apiErr := service.buildInstantPlan(req)
 	if apiErr != nil {
@@ -1687,7 +1687,7 @@ func TestSelectInstantPlanForRoutingRebuildsLocalOverride(t *testing.T) {
 }
 
 func TestQueryExplainIncludesRoutingCostClass(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1763,7 +1763,7 @@ func TestQueryExplainIncludesRoutingCostClass(t *testing.T) {
 }
 
 func TestQueryExplainIncludesSubqueryEstimateInputs(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1850,7 +1850,7 @@ func TestQueryCostClassUsesCachedSelectorEstimates(t *testing.T) {
 }
 
 func TestRoutingMissingEstimateMetricExposed(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1874,7 +1874,7 @@ func TestRoutingMissingEstimateMetricExposed(t *testing.T) {
 }
 
 func TestQueryExplainIncludesLogicalOptimizationMetadata(t *testing.T) {
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}

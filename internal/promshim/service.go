@@ -43,11 +43,7 @@ func (h *queryService) Ready(ctx context.Context) error {
 		ctx, cancel = context.WithTimeout(ctx, h.opts.RequestTimeout)
 		defer cancel()
 	}
-	rows, err := h.client.Query(ctx, storage.QueryRequest{SQL: "SELECT 1", Format: storage.ResultFormatJSONEachRow})
-	if err != nil {
-		return err
-	}
-	return rows.Close()
+	return h.client.Ping(ctx)
 }
 
 func (h *queryService) queryConfig() storage.QueryConfig {

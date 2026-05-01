@@ -89,6 +89,17 @@ func (c *Client) Query(ctx context.Context, req QueryRequest) (Rows, error) {
 	return c.transport.Query(ctx, prepared)
 }
 
+func (c *Client) Ping(ctx context.Context) error {
+	if transport, ok := c.transport.(interface{ Ping(context.Context) error }); ok {
+		return transport.Ping(ctx)
+	}
+	rows, err := c.Query(ctx, QueryRequest{SQL: "SELECT 1", Format: ResultFormatJSONEachRow})
+	if err != nil {
+		return err
+	}
+	return rows.Close()
+}
+
 func (c *Client) Execute(ctx context.Context, sql string, params map[string]string) (*http.Response, error) {
 	return c.ExecuteWithSettings(ctx, sql, params, nil)
 }

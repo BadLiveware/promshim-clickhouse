@@ -234,13 +234,13 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 	if mode == local.NativeLoweringModeShadow {
 		return h.rangeQueryShadow(ctx, req)
 	}
-	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(req)
+	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(ctx, req)
 	if apiErr != nil {
 		return nil, apiErr
 	}
 	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
 	routing := h.routingInfoForRange(query, start, end, step, mode, policy, explain.Strategy)
-	selectedPlan, _, selectedExplain, routing := h.selectRangePlanForRouting(req, plan, analysis, routing)
+	selectedPlan, _, selectedExplain, routing := h.selectRangePlanForRouting(ctx, req, plan, analysis, routing)
 	settingsProfile := h.applySettingsProfileProvenance(&routing, &selectedExplain)
 	if err := enforceEstimatedResponseLimits(routing, h.opts); err != nil {
 		return nil, local.ApiErrorToHTTP(err)
@@ -327,7 +327,7 @@ func (h *queryService) rangeQueryShadow(ctx context.Context, req httpapi.RangeQu
 	servedReq := req
 	servedReq.NativeLoweringMode = string(local.NativeLoweringModeOff)
 	planStart := time.Now()
-	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(servedReq)
+	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(ctx, servedReq)
 	servedPlanDuration := time.Since(planStart)
 	if apiErr != nil {
 		return nil, apiErr
@@ -405,7 +405,7 @@ func (h *queryService) ExplainInstant(_ context.Context, req httpapi.InstantQuer
 	}}, nil
 }
 
-func (h *queryService) ExplainRange(_ context.Context, req httpapi.RangeQueryRequest) (*httpapi.Response, *httpapi.APIError) {
+func (h *queryService) ExplainRange(ctx context.Context, req httpapi.RangeQueryRequest) (*httpapi.Response, *httpapi.APIError) {
 	mode, apiErr := h.nativeLoweringModeForRequest(req.NativeLoweringMode)
 	if apiErr != nil {
 		return nil, apiErr
@@ -418,13 +418,13 @@ func (h *queryService) ExplainRange(_ context.Context, req httpapi.RangeQueryReq
 	if mode == local.NativeLoweringModeShadow {
 		planReq.NativeLoweringMode = string(local.NativeLoweringModeOff)
 	}
-	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(planReq)
+	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(ctx, planReq)
 	if apiErr != nil {
 		return nil, apiErr
 	}
 	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
 	routing := h.routingInfoForRange(query, start, end, step, mode, policy, explain.Strategy)
-	_, _, explain, routing = h.selectRangePlanForRouting(req, plan, analysis, routing)
+	_, _, explain, routing = h.selectRangePlanForRouting(ctx, req, plan, analysis, routing)
 	settingsProfile := h.applySettingsProfileProvenance(&routing, &explain)
 	return &httpapi.Response{StatusCode: http.StatusOK, Strategy: explain.Strategy, FallbackReason: explain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Body: map[string]any{
 		"status": "success",
@@ -650,7 +650,7 @@ func (h *queryService) selectInstantPlanForRouting(req httpapi.InstantQueryReque
 	return selectedPlan, selectedAnalysis, selectedExplain, routing
 }
 
-func (h *queryService) selectRangePlanForRouting(req httpapi.RangeQueryRequest, plan local.Plan, analysis *nativeplan.Analysis, routing httpapi.RoutingInfo) (local.Plan, *nativeplan.Analysis, local.ExplainNode, httpapi.RoutingInfo) {
+func (h *queryService) selectRangePlanForRouting(ctx context.Context, req httpapi.RangeQueryRequest, plan local.Plan, analysis *nativeplan.Analysis, routing httpapi.RoutingInfo) (local.Plan, *nativeplan.Analysis, local.ExplainNode, httpapi.RoutingInfo) {
 	selectedPlan, selectedAnalysis := plan, analysis
 	selectedExplain := local.ExplainPlanWithLowering(selectedPlan, selectedAnalysis.Root)
 	if routing.Decision != "local_override" {
@@ -665,7 +665,7 @@ func (h *queryService) selectRangePlanForRouting(req httpapi.RangeQueryRequest, 
 	}
 	candidateReq := req
 	candidateReq.NativeLoweringMode = selectedMode
-	_, _, _, _, candidatePlan, candidateAnalysis, candidateErr := h.buildRangePlan(candidateReq)
+	_, _, _, _, candidatePlan, candidateAnalysis, candidateErr := h.buildRangePlan(ctx, candidateReq)
 	if candidateErr != nil {
 		routing.Decision = "strict_low_confidence"
 		routing.Reason = "local_plan_error"
@@ -753,7 +753,7 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 	return query, evaluationTime, queryPlan, analysis, nil
 }
 
-func (h *queryService) buildRangePlan(req httpapi.RangeQueryRequest) (string, time.Time, time.Time, time.Duration, local.Plan, *nativeplan.Analysis, *httpapi.APIError) {
+func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQueryRequest) (string, time.Time, time.Time, time.Duration, local.Plan, *nativeplan.Analysis, *httpapi.APIError) {
 	query := req.Query
 	if query == "" {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, local.BadRequestHTTPError("missing required parameter 'query'")
@@ -787,7 +787,7 @@ func (h *queryService) buildRangePlan(req httpapi.RangeQueryRequest) (string, ti
 	if apiErr != nil {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, apiErr
 	}
-	ctx := local.PlanContext{Mode: local.EvalModeRange, Start: start, End: end, Step: step, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries, NativeRangeChunkPointsPerSeries: h.opts.NativeRangeChunkPointsPerSeries, NativeRangeChunkMaxDuration: h.opts.NativeRangeChunkMaxDuration, NativeRangeChunkMaxChunks: h.opts.NativeRangeChunkMaxChunks, NativeRangePreflightSeriesThreshold: h.opts.NativeRangePreflightSeriesThreshold, NativeRangePreflightTimeout: h.opts.NativeRangePreflightTimeout, NativeRangePreflightMaxMemoryUsage: h.opts.NativeRangePreflightMaxMemoryUsage}
+	planCtx := local.PlanContext{Mode: local.EvalModeRange, Start: start, End: end, Step: step, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries, NativeRangeChunkPointsPerSeries: h.opts.NativeRangeChunkPointsPerSeries, NativeRangeChunkMaxDuration: h.opts.NativeRangeChunkMaxDuration, NativeRangeChunkMaxChunks: h.opts.NativeRangeChunkMaxChunks, NativeRangePreflightSeriesThreshold: h.opts.NativeRangePreflightSeriesThreshold, NativeRangePreflightTimeout: h.opts.NativeRangePreflightTimeout, NativeRangePreflightMaxMemoryUsage: h.opts.NativeRangePreflightMaxMemoryUsage}
 	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion)
 	var queryPlan local.Plan
 	var analysis *nativeplan.Analysis
@@ -797,12 +797,12 @@ func (h *queryService) buildRangePlan(req httpapi.RangeQueryRequest) (string, ti
 			return "", time.Time{}, time.Time{}, 0, nil, nil, local.ApiErrorToHTTP(err)
 		}
 	} else {
-		queryPlan, analysis, err = local.BuildPlanWithContextAndAnalysis(expr, ctx)
+		queryPlan, analysis, err = local.BuildPlanWithContextAndAnalysis(expr, planCtx)
 		if err != nil {
 			return "", time.Time{}, time.Time{}, 0, nil, nil, local.ApiErrorToHTTP(err)
 		}
 	}
-	queryPlan = local.ApplyNativeRangePreflight(context.Background(), h.client, h.queryConfig(), queryPlan)
+	queryPlan = local.ApplyNativeRangePreflight(ctx, h.client, h.queryConfig(), queryPlan)
 	if mode.ForcesNativeRoot() {
 		explain := local.ExplainPlan(queryPlan)
 		if explain.Strategy != "native_sql" {

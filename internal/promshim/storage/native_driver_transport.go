@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"strings"
@@ -28,15 +29,18 @@ const (
 var ErrNativeRowsNeedTypedDecoder = errors.New("native driver transport requires typed row decoding")
 
 type NativeDriverTransportConfig struct {
-	Addr            string
-	Database        string
-	Username        string
-	Password        string
-	Compression     string
-	RequestTimeout  time.Duration
-	MaxOpenConns    int
-	MaxIdleConns    int
-	ConnMaxLifetime time.Duration
+	Addr                  string
+	Database              string
+	Username              string
+	Password              string
+	Compression           string
+	RequestTimeout        time.Duration
+	MaxOpenConns          int
+	MaxIdleConns          int
+	ConnMaxLifetime       time.Duration
+	Secure                bool
+	TLSInsecureSkipVerify bool
+	TLSServerName         string
 }
 
 // NativeDriverTransport owns a ClickHouse native-protocol connection pool.
@@ -72,6 +76,9 @@ func NewNativeDriverTransport(cfg NativeDriverTransportConfig) (*NativeDriverTra
 	}
 	if compression != nil {
 		options.Compression = compression
+	}
+	if cfg.Secure {
+		options.TLS = &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: cfg.TLSInsecureSkipVerify, ServerName: cfg.TLSServerName}
 	}
 	conn, err := clickhouse.Open(options)
 	if err != nil {

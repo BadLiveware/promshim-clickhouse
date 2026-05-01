@@ -201,6 +201,8 @@ type clickHouseTransporter interface {
 	ClickHouseTransport() string
 }
 
+const maxRequestLogCommentLen = 256
+
 type Handler struct {
 	service Service
 	mux     *http.ServeMux
@@ -412,7 +414,7 @@ func wantsExplain(r *http.Request) bool {
 
 func requestLogComment(r *http.Request, endpoint string) string {
 	if header := r.Header.Get("X-Promshim-Log-Comment"); header != "" {
-		return header
+		return truncateLogPart(safeLogPart(header, "request"), maxRequestLogCommentLen)
 	}
 	hashInput := endpoint + "\x00" + r.URL.RawQuery
 	sum := sha256.Sum256([]byte(hashInput))
@@ -420,6 +422,13 @@ func requestLogComment(r *http.Request, endpoint string) string {
 	mode := safeLogPart(r.URL.Query().Get("native_lowering_mode"), "default")
 	policy := safeLogPart(r.URL.Query().Get("routing_policy"), "default")
 	return "promshim endpoint=" + safeLogPart(endpoint, "unknown") + " query_hash=" + queryHash + " mode=" + mode + " policy=" + policy
+}
+
+func truncateLogPart(value string, maxLen int) string {
+	if maxLen > 0 && len(value) > maxLen {
+		return value[:maxLen]
+	}
+	return value
 }
 
 func safeLogPart(value, fallback string) string {

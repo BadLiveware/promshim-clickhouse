@@ -855,6 +855,7 @@ func buildSeriesTagsSource(cfg QueryConfig, request *http.Request) (string, map[
 		query := &sqlb.Select{
 			Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: seriesTagsExpr}, Alias: "series_tags"}},
 			From:    sqlb.RawSource{SQL: "timeSeriesTags(" + tableRef + ")"},
+			Limit:   metadataLimit(cfg.MaxMetadataSeries),
 		}
 		if len(whereClauses) > 0 {
 			query.Where = sqlb.RawLit{V: strings.Join(whereClauses, " AND ")}

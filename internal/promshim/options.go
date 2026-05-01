@@ -31,6 +31,9 @@ type Options struct {
 	ClickHouseMaxOpenConns          int
 	ClickHouseMaxIdleConns          int
 	ClickHouseConnMaxLifetime       time.Duration
+	ClickHouseNativeSecure          bool
+	ClickHouseTLSInsecureSkipVerify bool
+	ClickHouseTLSServerName         string
 	ClickHouseVersion               string
 	ClickHouseSettingsProfile       string
 	ClickHouseMaxMemoryUsageBytes   int64
@@ -51,6 +54,7 @@ type Options struct {
 	DiscoverPromotedTagColumns      bool
 	NativeGridFunctions             string
 	CumulativeAvgOverTime           string
+	AllowRequestRoutingOverrides    bool
 
 	DisableEntireQueryDelegation bool
 }
@@ -69,6 +73,9 @@ func LoadOptionsFromEnv() (Options, error) {
 		ClickHouseMaxOpenConns:          getenvInt("PROM_SHIM_CLICKHOUSE_MAX_OPEN_CONNS", 10),
 		ClickHouseMaxIdleConns:          getenvInt("PROM_SHIM_CLICKHOUSE_MAX_IDLE_CONNS", 10),
 		ClickHouseConnMaxLifetime:       time.Second * time.Duration(getenvInt("PROM_SHIM_CLICKHOUSE_CONN_MAX_LIFETIME_SECONDS", 3600)),
+		ClickHouseNativeSecure:          getenvBool("PROM_SHIM_CLICKHOUSE_NATIVE_SECURE", false),
+		ClickHouseTLSInsecureSkipVerify: getenvBool("PROM_SHIM_CLICKHOUSE_TLS_INSECURE_SKIP_VERIFY", false),
+		ClickHouseTLSServerName:         getenv("PROM_SHIM_CLICKHOUSE_TLS_SERVER_NAME", ""),
 		ClickHouseVersion:               getenv("PROM_SHIM_CLICKHOUSE_VERSION", "26.3"),
 		ClickHouseSettingsProfile:       getenv("PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE", storage.SettingsProfileDefaultSafe),
 		ClickHouseMaxMemoryUsageBytes:   getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_MEMORY_USAGE_BYTES", 0),
@@ -89,6 +96,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		DiscoverPromotedTagColumns:      getenvBool("PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS", false),
 		NativeGridFunctions:             getenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "prefer"),
 		CumulativeAvgOverTime:           getenv("PROM_SHIM_CUMULATIVE_AVG_OVER_TIME", "prefer"),
+		AllowRequestRoutingOverrides:    getenvBool("PROM_SHIM_ALLOW_REQUEST_ROUTING_OVERRIDES", false),
 	}
 
 	if _, err := local.ParseNativeLoweringMode(string(opts.NativeLoweringMode)); err != nil {

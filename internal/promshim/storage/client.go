@@ -8,18 +8,21 @@ import (
 )
 
 type Config struct {
-	Endpoint        string
-	NativeAddr      string
-	Database        string
-	Username        string
-	Password        string
-	Compression     string
-	RequestTimeout  time.Duration
-	Transport       TransportKind
-	MaxOpenConns    int
-	MaxIdleConns    int
-	ConnMaxLifetime time.Duration
-	SettingsProfile SettingsProfileConfig
+	Endpoint              string
+	NativeAddr            string
+	Database              string
+	Username              string
+	Password              string
+	Compression           string
+	RequestTimeout        time.Duration
+	Transport             TransportKind
+	MaxOpenConns          int
+	MaxIdleConns          int
+	ConnMaxLifetime       time.Duration
+	NativeSecure          bool
+	TLSInsecureSkipVerify bool
+	TLSServerName         string
+	SettingsProfile       SettingsProfileConfig
 }
 
 type Client struct {
@@ -58,15 +61,18 @@ func NewClient(cfg Config) (*Client, error) {
 		return &Client{transportKind: TransportHTTP, transport: transport, settingsProfile: normalizeClientSettingsProfile(cfg)}, nil
 	case TransportNative:
 		transport, err := NewNativeDriverTransport(NativeDriverTransportConfig{
-			Addr:            cfg.NativeAddr,
-			Database:        cfg.Database,
-			Username:        cfg.Username,
-			Password:        cfg.Password,
-			Compression:     cfg.Compression,
-			RequestTimeout:  cfg.RequestTimeout,
-			MaxOpenConns:    cfg.MaxOpenConns,
-			MaxIdleConns:    cfg.MaxIdleConns,
-			ConnMaxLifetime: cfg.ConnMaxLifetime,
+			Addr:                  cfg.NativeAddr,
+			Database:              cfg.Database,
+			Username:              cfg.Username,
+			Password:              cfg.Password,
+			Compression:           cfg.Compression,
+			RequestTimeout:        cfg.RequestTimeout,
+			MaxOpenConns:          cfg.MaxOpenConns,
+			MaxIdleConns:          cfg.MaxIdleConns,
+			ConnMaxLifetime:       cfg.ConnMaxLifetime,
+			Secure:                cfg.NativeSecure,
+			TLSInsecureSkipVerify: cfg.TLSInsecureSkipVerify,
+			TLSServerName:         cfg.TLSServerName,
 		})
 		if err != nil {
 			return nil, err

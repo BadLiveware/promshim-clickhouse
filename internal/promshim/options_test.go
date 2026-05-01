@@ -196,6 +196,9 @@ func TestLoadOptionsFromEnvNativeRangeChunking(t *testing.T) {
 	t.Setenv("PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES", "")
 	t.Setenv("PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS", "")
 	t.Setenv("PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS", "")
+	t.Setenv("PROM_SHIM_NATIVE_RANGE_PREFLIGHT_SERIES_THRESHOLD", "")
+	t.Setenv("PROM_SHIM_NATIVE_RANGE_PREFLIGHT_TIMEOUT_MS", "")
+	t.Setenv("PROM_SHIM_NATIVE_RANGE_PREFLIGHT_MAX_MEMORY_BYTES", "")
 	opts, err := LoadOptionsFromEnv()
 	if err != nil {
 		t.Fatal(err)
@@ -209,10 +212,22 @@ func TestLoadOptionsFromEnvNativeRangeChunking(t *testing.T) {
 	if opts.NativeRangeChunkMaxChunks != local.DefaultNativeRangeChunkMaxChunks {
 		t.Fatalf("NativeRangeChunkMaxChunks = %d, want default %d", opts.NativeRangeChunkMaxChunks, local.DefaultNativeRangeChunkMaxChunks)
 	}
+	if opts.NativeRangePreflightSeriesThreshold != local.DefaultNativeRangePreflightSeriesThreshold {
+		t.Fatalf("NativeRangePreflightSeriesThreshold = %d, want default %d", opts.NativeRangePreflightSeriesThreshold, local.DefaultNativeRangePreflightSeriesThreshold)
+	}
+	if opts.NativeRangePreflightTimeout != local.DefaultNativeRangePreflightTimeout {
+		t.Fatalf("NativeRangePreflightTimeout = %s, want default %s", opts.NativeRangePreflightTimeout, local.DefaultNativeRangePreflightTimeout)
+	}
+	if opts.NativeRangePreflightMaxMemoryUsage != local.DefaultNativeRangePreflightMaxMemoryUsage {
+		t.Fatalf("NativeRangePreflightMaxMemoryUsage = %d, want default %d", opts.NativeRangePreflightMaxMemoryUsage, local.DefaultNativeRangePreflightMaxMemoryUsage)
+	}
 
 	t.Setenv("PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES", "123")
 	t.Setenv("PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS", "43200")
 	t.Setenv("PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS", "6")
+	t.Setenv("PROM_SHIM_NATIVE_RANGE_PREFLIGHT_SERIES_THRESHOLD", "456")
+	t.Setenv("PROM_SHIM_NATIVE_RANGE_PREFLIGHT_TIMEOUT_MS", "75")
+	t.Setenv("PROM_SHIM_NATIVE_RANGE_PREFLIGHT_MAX_MEMORY_BYTES", "1048576")
 	opts, err = LoadOptionsFromEnv()
 	if err != nil {
 		t.Fatal(err)
@@ -225,6 +240,15 @@ func TestLoadOptionsFromEnvNativeRangeChunking(t *testing.T) {
 	}
 	if opts.NativeRangeChunkMaxChunks != 6 {
 		t.Fatalf("NativeRangeChunkMaxChunks = %d, want 6", opts.NativeRangeChunkMaxChunks)
+	}
+	if opts.NativeRangePreflightSeriesThreshold != 456 {
+		t.Fatalf("NativeRangePreflightSeriesThreshold = %d, want 456", opts.NativeRangePreflightSeriesThreshold)
+	}
+	if opts.NativeRangePreflightTimeout != 75*time.Millisecond {
+		t.Fatalf("NativeRangePreflightTimeout = %s, want 75ms", opts.NativeRangePreflightTimeout)
+	}
+	if opts.NativeRangePreflightMaxMemoryUsage != 1048576 {
+		t.Fatalf("NativeRangePreflightMaxMemoryUsage = %d, want 1048576", opts.NativeRangePreflightMaxMemoryUsage)
 	}
 }
 

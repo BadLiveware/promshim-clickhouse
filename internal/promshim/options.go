@@ -19,84 +19,90 @@ const (
 )
 
 type Options struct {
-	ClickHouseEndpoint              string
-	ClickHouseNativeAddr            string
-	Database                        string
-	Table                           string
-	Username                        string
-	Password                        string
-	ClickHouseCompression           string
-	RequestTimeout                  time.Duration
-	ClickHouseTransport             storage.TransportKind
-	ClickHouseMaxOpenConns          int
-	ClickHouseMaxIdleConns          int
-	ClickHouseConnMaxLifetime       time.Duration
-	ClickHouseNativeSecure          bool
-	ClickHouseTLSInsecureSkipVerify bool
-	ClickHouseTLSServerName         string
-	ClickHouseVersion               string
-	ClickHouseSettingsProfile       string
-	ClickHouseMaxMemoryUsageBytes   int64
-	ClickHouseMaxRowsToRead         int64
-	ClickHouseMaxResultRows         int64
-	NativeLoweringMode              local.NativeLoweringMode
-	RoutingPolicy                   RoutingPolicy
-	CostRoutingLocalFamilies        []string
-	MaxRangePointsPerSeries         int64
-	RangeChunkPointsPerSeries       int64
-	NativeRangeChunkPointsPerSeries int64
-	NativeRangeChunkMaxDuration     time.Duration
-	NativeRangeChunkMaxChunks       int64
-	MaxResponseSeries               int64
-	MaxResponsePoints               int64
-	MaxMetadataItems                int64
-	PromotedTagColumns              []string
-	DiscoverPromotedTagColumns      bool
-	NativeGridFunctions             string
-	CumulativeAvgOverTime           string
-	AllowRequestRoutingOverrides    bool
+	ClickHouseEndpoint                  string
+	ClickHouseNativeAddr                string
+	Database                            string
+	Table                               string
+	Username                            string
+	Password                            string
+	ClickHouseCompression               string
+	RequestTimeout                      time.Duration
+	ClickHouseTransport                 storage.TransportKind
+	ClickHouseMaxOpenConns              int
+	ClickHouseMaxIdleConns              int
+	ClickHouseConnMaxLifetime           time.Duration
+	ClickHouseNativeSecure              bool
+	ClickHouseTLSInsecureSkipVerify     bool
+	ClickHouseTLSServerName             string
+	ClickHouseVersion                   string
+	ClickHouseSettingsProfile           string
+	ClickHouseMaxMemoryUsageBytes       int64
+	ClickHouseMaxRowsToRead             int64
+	ClickHouseMaxResultRows             int64
+	NativeLoweringMode                  local.NativeLoweringMode
+	RoutingPolicy                       RoutingPolicy
+	CostRoutingLocalFamilies            []string
+	MaxRangePointsPerSeries             int64
+	RangeChunkPointsPerSeries           int64
+	NativeRangeChunkPointsPerSeries     int64
+	NativeRangeChunkMaxDuration         time.Duration
+	NativeRangeChunkMaxChunks           int64
+	NativeRangePreflightSeriesThreshold int64
+	NativeRangePreflightTimeout         time.Duration
+	NativeRangePreflightMaxMemoryUsage  int64
+	MaxResponseSeries                   int64
+	MaxResponsePoints                   int64
+	MaxMetadataItems                    int64
+	PromotedTagColumns                  []string
+	DiscoverPromotedTagColumns          bool
+	NativeGridFunctions                 string
+	CumulativeAvgOverTime               string
+	AllowRequestRoutingOverrides        bool
 
 	DisableEntireQueryDelegation bool
 }
 
 func LoadOptionsFromEnv() (Options, error) {
 	opts := Options{
-		ClickHouseEndpoint:              getenv("PROM_SHIM_CLICKHOUSE_ENDPOINT", "http://127.0.0.1:8123/"),
-		ClickHouseNativeAddr:            getenv("PROM_SHIM_CLICKHOUSE_NATIVE_ADDR", "127.0.0.1:9000"),
-		Database:                        getenv("PROM_SHIM_CLICKHOUSE_DATABASE", "observability"),
-		Table:                           getenv("PROM_SHIM_CLICKHOUSE_TABLE", "prometheus"),
-		Username:                        getenv("PROM_SHIM_CLICKHOUSE_USERNAME", "default"),
-		Password:                        getenv("PROM_SHIM_CLICKHOUSE_PASSWORD", "otel"),
-		ClickHouseCompression:           getenv("PROM_SHIM_CLICKHOUSE_COMPRESSION", "off"),
-		RequestTimeout:                  time.Second * time.Duration(getenvInt("PROM_SHIM_REQUEST_TIMEOUT_SECONDS", 30)),
-		ClickHouseTransport:             storage.TransportKind(getenv("PROM_SHIM_CLICKHOUSE_TRANSPORT", string(storage.TransportNative))),
-		ClickHouseMaxOpenConns:          getenvInt("PROM_SHIM_CLICKHOUSE_MAX_OPEN_CONNS", 10),
-		ClickHouseMaxIdleConns:          getenvInt("PROM_SHIM_CLICKHOUSE_MAX_IDLE_CONNS", 10),
-		ClickHouseConnMaxLifetime:       time.Second * time.Duration(getenvInt("PROM_SHIM_CLICKHOUSE_CONN_MAX_LIFETIME_SECONDS", 3600)),
-		ClickHouseNativeSecure:          getenvBool("PROM_SHIM_CLICKHOUSE_NATIVE_SECURE", false),
-		ClickHouseTLSInsecureSkipVerify: getenvBool("PROM_SHIM_CLICKHOUSE_TLS_INSECURE_SKIP_VERIFY", false),
-		ClickHouseTLSServerName:         getenv("PROM_SHIM_CLICKHOUSE_TLS_SERVER_NAME", ""),
-		ClickHouseVersion:               getenv("PROM_SHIM_CLICKHOUSE_VERSION", "26.3"),
-		ClickHouseSettingsProfile:       getenv("PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE", storage.SettingsProfileDefaultSafe),
-		ClickHouseMaxMemoryUsageBytes:   getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_MEMORY_USAGE_BYTES", 0),
-		ClickHouseMaxRowsToRead:         getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_ROWS_TO_READ", 0),
-		ClickHouseMaxResultRows:         getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_RESULT_ROWS", 0),
-		NativeLoweringMode:              local.NativeLoweringMode(getenv("PROM_SHIM_NATIVE_LOWERING_MODE", string(local.NativeLoweringModePrefer))),
-		RoutingPolicy:                   RoutingPolicy(getenv("PROM_SHIM_ROUTING_POLICY", string(RoutingPolicyStrict))),
-		CostRoutingLocalFamilies:        splitCSVEnv(getenv("PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES", "")),
-		MaxRangePointsPerSeries:         getenvInt64("PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES", local.DefaultMaxRangePointsPerSeries),
-		RangeChunkPointsPerSeries:       getenvInt64("PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES", local.DefaultRangeChunkPointsPerSeries),
-		NativeRangeChunkPointsPerSeries: getenvInt64("PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES", local.DefaultNativeRangeChunkPointsPerSeries),
-		NativeRangeChunkMaxDuration:     time.Second * time.Duration(getenvInt64("PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS", int64(local.DefaultNativeRangeChunkMaxDuration/time.Second))),
-		NativeRangeChunkMaxChunks:       getenvInt64("PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS", local.DefaultNativeRangeChunkMaxChunks),
-		MaxResponseSeries:               getenvInt64("PROM_SHIM_MAX_RESPONSE_SERIES", defaultMaxResponseSeries),
-		MaxResponsePoints:               getenvInt64("PROM_SHIM_MAX_RESPONSE_POINTS", defaultMaxResponsePoints),
-		MaxMetadataItems:                getenvInt64("PROM_SHIM_MAX_METADATA_ITEMS", defaultMaxMetadataItems),
-		PromotedTagColumns:              splitCSVEnv(getenv("PROM_SHIM_PROMOTED_TAG_COLUMNS", "")),
-		DiscoverPromotedTagColumns:      getenvBool("PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS", false),
-		NativeGridFunctions:             getenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "prefer"),
-		CumulativeAvgOverTime:           getenv("PROM_SHIM_CUMULATIVE_AVG_OVER_TIME", "prefer"),
-		AllowRequestRoutingOverrides:    getenvBool("PROM_SHIM_ALLOW_REQUEST_ROUTING_OVERRIDES", false),
+		ClickHouseEndpoint:                  getenv("PROM_SHIM_CLICKHOUSE_ENDPOINT", "http://127.0.0.1:8123/"),
+		ClickHouseNativeAddr:                getenv("PROM_SHIM_CLICKHOUSE_NATIVE_ADDR", "127.0.0.1:9000"),
+		Database:                            getenv("PROM_SHIM_CLICKHOUSE_DATABASE", "observability"),
+		Table:                               getenv("PROM_SHIM_CLICKHOUSE_TABLE", "prometheus"),
+		Username:                            getenv("PROM_SHIM_CLICKHOUSE_USERNAME", "default"),
+		Password:                            getenv("PROM_SHIM_CLICKHOUSE_PASSWORD", "otel"),
+		ClickHouseCompression:               getenv("PROM_SHIM_CLICKHOUSE_COMPRESSION", "off"),
+		RequestTimeout:                      time.Second * time.Duration(getenvInt("PROM_SHIM_REQUEST_TIMEOUT_SECONDS", 30)),
+		ClickHouseTransport:                 storage.TransportKind(getenv("PROM_SHIM_CLICKHOUSE_TRANSPORT", string(storage.TransportNative))),
+		ClickHouseMaxOpenConns:              getenvInt("PROM_SHIM_CLICKHOUSE_MAX_OPEN_CONNS", 10),
+		ClickHouseMaxIdleConns:              getenvInt("PROM_SHIM_CLICKHOUSE_MAX_IDLE_CONNS", 10),
+		ClickHouseConnMaxLifetime:           time.Second * time.Duration(getenvInt("PROM_SHIM_CLICKHOUSE_CONN_MAX_LIFETIME_SECONDS", 3600)),
+		ClickHouseNativeSecure:              getenvBool("PROM_SHIM_CLICKHOUSE_NATIVE_SECURE", false),
+		ClickHouseTLSInsecureSkipVerify:     getenvBool("PROM_SHIM_CLICKHOUSE_TLS_INSECURE_SKIP_VERIFY", false),
+		ClickHouseTLSServerName:             getenv("PROM_SHIM_CLICKHOUSE_TLS_SERVER_NAME", ""),
+		ClickHouseVersion:                   getenv("PROM_SHIM_CLICKHOUSE_VERSION", "26.3"),
+		ClickHouseSettingsProfile:           getenv("PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE", storage.SettingsProfileDefaultSafe),
+		ClickHouseMaxMemoryUsageBytes:       getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_MEMORY_USAGE_BYTES", 0),
+		ClickHouseMaxRowsToRead:             getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_ROWS_TO_READ", 0),
+		ClickHouseMaxResultRows:             getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_RESULT_ROWS", 0),
+		NativeLoweringMode:                  local.NativeLoweringMode(getenv("PROM_SHIM_NATIVE_LOWERING_MODE", string(local.NativeLoweringModePrefer))),
+		RoutingPolicy:                       RoutingPolicy(getenv("PROM_SHIM_ROUTING_POLICY", string(RoutingPolicyStrict))),
+		CostRoutingLocalFamilies:            splitCSVEnv(getenv("PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES", "")),
+		MaxRangePointsPerSeries:             getenvInt64("PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES", local.DefaultMaxRangePointsPerSeries),
+		RangeChunkPointsPerSeries:           getenvInt64("PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES", local.DefaultRangeChunkPointsPerSeries),
+		NativeRangeChunkPointsPerSeries:     getenvInt64("PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES", local.DefaultNativeRangeChunkPointsPerSeries),
+		NativeRangeChunkMaxDuration:         time.Second * time.Duration(getenvInt64("PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS", int64(local.DefaultNativeRangeChunkMaxDuration/time.Second))),
+		NativeRangeChunkMaxChunks:           getenvInt64("PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS", local.DefaultNativeRangeChunkMaxChunks),
+		NativeRangePreflightSeriesThreshold: getenvInt64("PROM_SHIM_NATIVE_RANGE_PREFLIGHT_SERIES_THRESHOLD", local.DefaultNativeRangePreflightSeriesThreshold),
+		NativeRangePreflightTimeout:         time.Millisecond * time.Duration(getenvInt64("PROM_SHIM_NATIVE_RANGE_PREFLIGHT_TIMEOUT_MS", int64(local.DefaultNativeRangePreflightTimeout/time.Millisecond))),
+		NativeRangePreflightMaxMemoryUsage:  getenvInt64("PROM_SHIM_NATIVE_RANGE_PREFLIGHT_MAX_MEMORY_BYTES", local.DefaultNativeRangePreflightMaxMemoryUsage),
+		MaxResponseSeries:                   getenvInt64("PROM_SHIM_MAX_RESPONSE_SERIES", defaultMaxResponseSeries),
+		MaxResponsePoints:                   getenvInt64("PROM_SHIM_MAX_RESPONSE_POINTS", defaultMaxResponsePoints),
+		MaxMetadataItems:                    getenvInt64("PROM_SHIM_MAX_METADATA_ITEMS", defaultMaxMetadataItems),
+		PromotedTagColumns:                  splitCSVEnv(getenv("PROM_SHIM_PROMOTED_TAG_COLUMNS", "")),
+		DiscoverPromotedTagColumns:          getenvBool("PROM_SHIM_DISCOVER_PROMOTED_TAG_COLUMNS", false),
+		NativeGridFunctions:                 getenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "prefer"),
+		CumulativeAvgOverTime:               getenv("PROM_SHIM_CUMULATIVE_AVG_OVER_TIME", "prefer"),
+		AllowRequestRoutingOverrides:        getenvBool("PROM_SHIM_ALLOW_REQUEST_ROUTING_OVERRIDES", false),
 	}
 
 	if _, err := local.ParseNativeLoweringMode(string(opts.NativeLoweringMode)); err != nil {
@@ -243,6 +249,15 @@ func normalizeOptions(opts Options) Options {
 	}
 	if opts.NativeRangeChunkMaxChunks < 0 {
 		opts.NativeRangeChunkMaxChunks = local.DefaultNativeRangeChunkMaxChunks
+	}
+	if opts.NativeRangePreflightSeriesThreshold < 0 {
+		opts.NativeRangePreflightSeriesThreshold = local.DefaultNativeRangePreflightSeriesThreshold
+	}
+	if opts.NativeRangePreflightTimeout < 0 {
+		opts.NativeRangePreflightTimeout = local.DefaultNativeRangePreflightTimeout
+	}
+	if opts.NativeRangePreflightMaxMemoryUsage < 0 {
+		opts.NativeRangePreflightMaxMemoryUsage = local.DefaultNativeRangePreflightMaxMemoryUsage
 	}
 	if opts.MaxResponseSeries <= 0 {
 		opts.MaxResponseSeries = defaultMaxResponseSeries

@@ -6,15 +6,21 @@ const (
 )
 
 type nativeRangeChunkDecision struct {
-	MemoryClass          string `json:"memoryClass,omitempty"`
-	Policy               string `json:"policy,omitempty"`
-	Reason               string `json:"reason,omitempty"`
-	Chunked              bool   `json:"chunked"`
-	ChunkPointsPerSeries int64  `json:"chunkPointsPerSeries,omitempty"`
-	RequestedChunkPoints int64  `json:"requestedChunkPointsPerSeries,omitempty"`
-	DurationChunkPoints  int64  `json:"durationChunkPointsPerSeries,omitempty"`
-	MaxChunks            int64  `json:"maxChunks,omitempty"`
-	EstimatedRangePoints int64  `json:"estimatedRangePointsPerSeries,omitempty"`
+	MemoryClass             string `json:"memoryClass,omitempty"`
+	Policy                  string `json:"policy,omitempty"`
+	Reason                  string `json:"reason,omitempty"`
+	Chunked                 bool   `json:"chunked"`
+	ChunkPointsPerSeries    int64  `json:"chunkPointsPerSeries,omitempty"`
+	RequestedChunkPoints    int64  `json:"requestedChunkPointsPerSeries,omitempty"`
+	DurationChunkPoints     int64  `json:"durationChunkPointsPerSeries,omitempty"`
+	MaxChunks               int64  `json:"maxChunks,omitempty"`
+	EstimatedRangePoints    int64  `json:"estimatedRangePointsPerSeries,omitempty"`
+	PreflightThreshold      int64  `json:"preflightThreshold,omitempty"`
+	PreflightTimeoutMS      int64  `json:"preflightTimeoutMs,omitempty"`
+	PreflightMaxMemoryBytes int64  `json:"preflightMaxMemoryBytes,omitempty"`
+	PreflightMatched        int64  `json:"preflightMatchedSeries,omitempty"`
+	PreflightCapped         bool   `json:"preflightCapped,omitempty"`
+	PreflightError          string `json:"preflightError,omitempty"`
 }
 
 func applyRangeExecutionStrategy(plan Plan, ctx PlanContext) (Plan, error) {
@@ -87,11 +93,14 @@ func autoNativeRangeChunkKind(plan Plan) (string, bool) {
 
 func decideNativeRangeChunking(kind string, ctx PlanContext, estimate *planEstimate) *nativeRangeChunkDecision {
 	decision := &nativeRangeChunkDecision{
-		MemoryClass:          nativeRangeMemoryClass(kind),
-		Policy:               nativeRangeChunkPolicy(kind, ctx),
-		RequestedChunkPoints: ctx.NativeRangeChunkPointsPerSeries,
-		DurationChunkPoints:  nativeRangeDurationChunkPointLimit(ctx),
-		MaxChunks:            ctx.NativeRangeChunkMaxChunks,
+		MemoryClass:             nativeRangeMemoryClass(kind),
+		Policy:                  nativeRangeChunkPolicy(kind, ctx),
+		RequestedChunkPoints:    ctx.NativeRangeChunkPointsPerSeries,
+		DurationChunkPoints:     nativeRangeDurationChunkPointLimit(ctx),
+		MaxChunks:               ctx.NativeRangeChunkMaxChunks,
+		PreflightThreshold:      ctx.NativeRangePreflightSeriesThreshold,
+		PreflightTimeoutMS:      ctx.NativeRangePreflightTimeout.Milliseconds(),
+		PreflightMaxMemoryBytes: ctx.NativeRangePreflightMaxMemoryUsage,
 	}
 	if estimate != nil {
 		decision.EstimatedRangePoints = estimate.PointsPerSeries
@@ -136,6 +145,9 @@ func nativeRangeChunkPolicy(kind string, ctx PlanContext) string {
 	if kind == "native_grid_sum_aggregation" {
 		return "duration_cap_only"
 	}
+	if kind == "cumulative_avg" && ctx.NativeRangePreflightSeriesThreshold > 0 {
+		return "bounded_series_preflight"
+	}
 	return "default_memory_guardrail"
 }
 
@@ -144,6 +156,9 @@ func nativeRangeChunkDecisionReason(kind string, decision *nativeRangeChunkDecis
 		return ""
 	}
 	if !decision.Chunked {
+		if decision.Policy == "bounded_series_preflight" {
+			return "chunking native range SQL unless bounded series preflight proves the selector is small"
+		}
 		if decision.Policy == "explicit_chunk_points" {
 			if decision.RequestedChunkPoints <= 0 {
 				return "native range chunking disabled by explicit chunk point override"

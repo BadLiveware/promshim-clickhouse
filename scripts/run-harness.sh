@@ -192,11 +192,16 @@ run_compare() {
     env_args+=(-e "PROM_HARNESS_NATIVE_LOWERING_MODE=force_supported")
   fi
   log "Running compare: ${label}"
-  docker compose --profile jobs run --rm "${env_args[@]}" compare || true
-  if [[ "${report_dest}" != "${HARNESS_DIR}/artifacts/compare/compare-report.json" ]]; then
+  local status=0
+  set +e
+  docker compose --profile jobs run --rm "${env_args[@]}" compare
+  status=$?
+  set -e
+  if [[ -f "${HARNESS_DIR}/artifacts/compare/compare-report.json" && "${report_dest}" != "${HARNESS_DIR}/artifacts/compare/compare-report.json" ]]; then
     cp "${HARNESS_DIR}/artifacts/compare/compare-report.json" "${report_dest}"
   fi
   print_compare_summary "${report_dest}" "${label}"
+  return "$status"
 }
 
 start_main_stack_and_seed() {
@@ -287,7 +292,7 @@ run_compliance_suite() {
   fi
   args+=(--ready-timeout "$READY_TIMEOUT")
   log "Delegating to scripts/run-compliance.sh ${args[*]}"
-  "${REPO_ROOT}/scripts/run-compliance.sh" "${args[@]}" || true
+  "${REPO_ROOT}/scripts/run-compliance.sh" "${args[@]}"
 }
 
 run_bench_suite() {
@@ -301,7 +306,7 @@ run_bench_suite() {
     COMPLIANCE_STACK_STARTED=1
   fi
   log "Delegating to scripts/run-bench.sh ${args[*]}"
-  "${REPO_ROOT}/scripts/run-bench.sh" "${args[@]}" || true
+  "${REPO_ROOT}/scripts/run-bench.sh" "${args[@]}"
 }
 
 log "Suite: ${SUITE}"

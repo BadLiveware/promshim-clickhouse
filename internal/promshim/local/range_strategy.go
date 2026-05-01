@@ -156,9 +156,6 @@ func nativeRangeChunkDecisionReason(kind string, decision *nativeRangeChunkDecis
 		return ""
 	}
 	if !decision.Chunked {
-		if decision.Policy == "bounded_series_preflight" {
-			return "chunking native range SQL unless bounded series preflight proves the selector is small"
-		}
 		if decision.Policy == "explicit_chunk_points" {
 			if decision.RequestedChunkPoints <= 0 {
 				return "native range chunking disabled by explicit chunk point override"

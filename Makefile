@@ -78,7 +78,7 @@ script-check:
 		exit 127; \
 	}
 	$(SHELLCHECK) -x --severity=warning $(SHELLFILES)
-	$(PYTHON) -m py_compile $(PYFILES)
+	$(PYTHON) -c 'import pathlib, sys; [compile(pathlib.Path(path).read_text(encoding="utf-8"), path, "exec") for path in sys.argv[1:]]' $(PYFILES)
 
 config-check:
 	@command -v $(PYTHON) >/dev/null 2>&1 || { \

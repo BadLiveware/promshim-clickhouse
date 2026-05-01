@@ -234,7 +234,7 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 	if mode == local.NativeLoweringModeShadow {
 		return h.rangeQueryShadow(ctx, req)
 	}
-	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(ctx, req)
+	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(ctx, req, true)
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -327,7 +327,7 @@ func (h *queryService) rangeQueryShadow(ctx context.Context, req httpapi.RangeQu
 	servedReq := req
 	servedReq.NativeLoweringMode = string(local.NativeLoweringModeOff)
 	planStart := time.Now()
-	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(ctx, servedReq)
+	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(ctx, servedReq, false)
 	servedPlanDuration := time.Since(planStart)
 	if apiErr != nil {
 		return nil, apiErr
@@ -418,7 +418,7 @@ func (h *queryService) ExplainRange(ctx context.Context, req httpapi.RangeQueryR
 	if mode == local.NativeLoweringModeShadow {
 		planReq.NativeLoweringMode = string(local.NativeLoweringModeOff)
 	}
-	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(ctx, planReq)
+	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(ctx, planReq, true)
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -665,7 +665,7 @@ func (h *queryService) selectRangePlanForRouting(ctx context.Context, req httpap
 	}
 	candidateReq := req
 	candidateReq.NativeLoweringMode = selectedMode
-	_, _, _, _, candidatePlan, candidateAnalysis, candidateErr := h.buildRangePlan(ctx, candidateReq)
+	_, _, _, _, candidatePlan, candidateAnalysis, candidateErr := h.buildRangePlan(ctx, candidateReq, false)
 	if candidateErr != nil {
 		routing.Decision = "strict_low_confidence"
 		routing.Reason = "local_plan_error"
@@ -753,7 +753,7 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 	return query, evaluationTime, queryPlan, analysis, nil
 }
 
-func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQueryRequest) (string, time.Time, time.Time, time.Duration, local.Plan, *nativeplan.Analysis, *httpapi.APIError) {
+func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQueryRequest, applyPreflight bool) (string, time.Time, time.Time, time.Duration, local.Plan, *nativeplan.Analysis, *httpapi.APIError) {
 	query := req.Query
 	if query == "" {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, local.BadRequestHTTPError("missing required parameter 'query'")
@@ -802,7 +802,9 @@ func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQuer
 			return "", time.Time{}, time.Time{}, 0, nil, nil, local.ApiErrorToHTTP(err)
 		}
 	}
-	queryPlan = local.ApplyNativeRangePreflight(ctx, h.client, h.queryConfig(), queryPlan)
+	if applyPreflight {
+		queryPlan = local.ApplyNativeRangePreflight(ctx, h.client, h.queryConfig(), queryPlan)
+	}
 	if mode.ForcesNativeRoot() {
 		explain := local.ExplainPlan(queryPlan)
 		if explain.Strategy != "native_sql" {

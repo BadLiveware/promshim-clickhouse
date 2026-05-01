@@ -12,6 +12,15 @@ func TestNativeRangePreflightBoundsFailClosedWhenUnavailable(t *testing.T) {
 	}
 }
 
+func TestNativeRangePreflightBoundsRejectsPartialBounds(t *testing.T) {
+	if _, _, ok := nativeRangePreflightBounds(&nativeSubtreePlan{OptimizationReport: &nativeplan.OptimizationReport{RequiredInputEndMS: 2000}}); ok {
+		t.Fatal("expected missing start bound to disable preflight")
+	}
+	if _, _, ok := nativeRangePreflightBounds(&nativeSubtreePlan{OptimizationReport: &nativeplan.OptimizationReport{RequiredInputStartMS: 1000}}); ok {
+		t.Fatal("expected missing end bound to disable preflight")
+	}
+}
+
 func TestNativeRangePreflightBoundsUsesOptimizationReport(t *testing.T) {
 	start, end, ok := nativeRangePreflightBounds(&nativeSubtreePlan{OptimizationReport: &nativeplan.OptimizationReport{
 		RequiredInputStartMS: 1000,

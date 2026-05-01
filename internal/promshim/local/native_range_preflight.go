@@ -98,7 +98,7 @@ func nativeRangePreflightBounds(plan Plan) (int64, int64, bool) {
 	if nativePlan, ok := plan.(*nativeSubtreePlan); ok && nativePlan != nil && nativePlan.OptimizationReport != nil {
 		start := nativePlan.OptimizationReport.RequiredInputStartMS
 		end := nativePlan.OptimizationReport.RequiredInputEndMS
-		if start != 0 || end != 0 {
+		if start != 0 && end != 0 {
 			return start, end, true
 		}
 	}

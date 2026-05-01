@@ -7,7 +7,6 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
-	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -121,7 +120,7 @@ func nativeRangePreflightSelector(plan Plan) (storage.SelectorSource, bool) {
 	return storage.SelectorSource{
 		Kind:       storage.SelectorKind(selector.Kind),
 		MetricName: selector.MetricName,
-		Matchers:   cloneLabelMatchers(selector.Matchers),
+		Matchers:   native.CloneMatchers(selector.Matchers),
 		NeedTags:   false,
 		LookbackMS: selector.Lookback.Milliseconds(),
 		OffsetMS:   selector.Offset.Milliseconds(),
@@ -167,18 +166,4 @@ func parserSelectorExprs(expr parser.Expr) []parser.Expr {
 		return append(parserSelectorExprs(n.LHS), parserSelectorExprs(n.RHS)...)
 	}
 	return nil
-}
-
-func cloneLabelMatchers(matchers []*labels.Matcher) []*labels.Matcher {
-	if len(matchers) == 0 {
-		return nil
-	}
-	cloned := make([]*labels.Matcher, 0, len(matchers))
-	for _, matcher := range matchers {
-		if matcher == nil {
-			continue
-		}
-		cloned = append(cloned, labels.MustNewMatcher(matcher.Type, matcher.Name, matcher.Value))
-	}
-	return cloned
 }

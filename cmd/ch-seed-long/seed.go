@@ -79,6 +79,9 @@ type streamStats struct {
 //     remote-write protocol does not define a partial-success response, so
 //     we do not retry; instead we surface the error so the seeder fails fast).
 func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	if cfg.MaxConcurrency < 1 {
 		return streamStats{}, errors.New("MaxConcurrency must be >= 1")
 	}
@@ -227,6 +230,7 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 					rtt.observe(elapsed, true)
 					stash := err
 					generatorErr.CompareAndSwap(nil, &stash)
+					cancel()
 					return
 				}
 				rtt.observe(elapsed, false)
@@ -323,6 +327,9 @@ func runStream(ctx context.Context, cfg streamConfig) (streamStats, error) {
 	workerWG.Wait()
 	if errp := generatorErr.Load(); errp != nil {
 		return streamStats{}, fmt.Errorf("seed batch failed: %w", *errp)
+	}
+	if err := ctx.Err(); err != nil {
+		return streamStats{}, err
 	}
 
 	stats := streamStats{

@@ -16,10 +16,10 @@ func TestApplyPredictLinearRejectsNonMatrixInput(t *testing.T) {
 }
 
 func TestApplyPredictLinearComputesPredictionAtEvaluationTime(t *testing.T) {
-	params := EvalParams{Mode: EvalModeInstant, EvaluationTime: time.UnixMilli(4000).UTC()}
+	params := EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(4, 0).UTC()}
 	input := model.MatrixValue{Series: []model.RangeSeries{{
 		Metric: map[string]string{"__name__": "harness_queue_depth", "job": "api", "instance": "a"},
-		Values: []model.RangePoint{{Timestamp: 1000, Value: 1}, {Timestamp: 2000, Value: 2}, {Timestamp: 3000, Value: 3}},
+		Values: []model.RangePoint{{Timestamp: 1, Value: 1}, {Timestamp: 2, Value: 2}, {Timestamp: 3, Value: 3}},
 	}}}
 	vector, err := ApplyPredictLinear(2, input, params)
 	if err != nil {
@@ -28,7 +28,7 @@ func TestApplyPredictLinearComputesPredictionAtEvaluationTime(t *testing.T) {
 	if len(vector.Samples) != 1 {
 		t.Fatalf("expected one output sample, got %#v", vector.Samples)
 	}
-	if vector.Samples[0].Timestamp != 4000 {
+	if vector.Samples[0].Timestamp != 4 {
 		t.Fatalf("expected evaluation timestamp output, got %#v", vector.Samples[0])
 	}
 	if vector.Samples[0].Value != 6 {
@@ -39,11 +39,29 @@ func TestApplyPredictLinearComputesPredictionAtEvaluationTime(t *testing.T) {
 	}
 }
 
-func TestApplyPredictLinearDurationZeroReturnsInterceptNotLastSample(t *testing.T) {
-	params := EvalParams{Mode: EvalModeInstant, EvaluationTime: time.UnixMilli(4000).UTC()}
+func TestApplyPredictLinearUsesSecondBasedTimestamps(t *testing.T) {
+	params := EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(4, 0).UTC()}
 	input := model.MatrixValue{Series: []model.RangeSeries{{
 		Metric: map[string]string{"job": "api", "instance": "a"},
-		Values: []model.RangePoint{{Timestamp: 1000, Value: 1}, {Timestamp: 2000, Value: 2}, {Timestamp: 3000, Value: 3}},
+		Values: []model.RangePoint{{Timestamp: 1, Value: 1}, {Timestamp: 2, Value: 2}, {Timestamp: 3, Value: 3}},
+	}}}
+	vector, err := ApplyPredictLinear(0, input, params)
+	if err != nil {
+		t.Fatalf("expected predict_linear result, got error: %v", err)
+	}
+	if len(vector.Samples) != 1 {
+		t.Fatalf("expected one output sample, got %#v", vector.Samples)
+	}
+	if math.Abs(vector.Samples[0].Value-4) > 1e-9 {
+		t.Fatalf("expected intercept-at-eval result of 4, got %#v", vector.Samples[0])
+	}
+}
+
+func TestApplyPredictLinearDurationZeroReturnsInterceptNotLastSample(t *testing.T) {
+	params := EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(4, 0).UTC()}
+	input := model.MatrixValue{Series: []model.RangeSeries{{
+		Metric: map[string]string{"job": "api", "instance": "a"},
+		Values: []model.RangePoint{{Timestamp: 1, Value: 1}, {Timestamp: 2, Value: 2}, {Timestamp: 3, Value: 3}},
 	}}}
 	vector, err := ApplyPredictLinear(0, input, params)
 	if err != nil {

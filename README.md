@@ -153,8 +153,9 @@ PROM_SHIM_RECORDING_RULE_MODE=virtual
 PROM_SHIM_RECORDING_RULE_FILES=/etc/promshim/rules/*.yaml
 ```
 
-Promshim reloads rule files periodically and keeps serving the last valid rule
-registry if a reload fails. This is query-time compatibility, not alerting or
+Promshim reloads rule files before query planning after the configured reload
+interval and keeps serving the last valid rule registry if a reload fails. This
+is query-time compatibility, not alerting or
 materialized rule evaluation. Details: [`docs/recording-rules.md`](docs/recording-rules.md).
 
 ## Data model assumptions

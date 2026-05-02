@@ -40,7 +40,8 @@ PROM_SHIM_RECORDING_RULE_RELOAD_INTERVAL_SECONDS=30
 Reload behavior:
 
 1. promshim loads and validates the configured rule files at startup.
-2. every reload interval, promshim re-globs and re-parses the files;
+2. before query planning, once the reload interval has elapsed, promshim
+   re-globs and re-parses the files;
 3. if the new registry is valid, promshim atomically swaps it in;
 4. if reload fails, promshim logs the error and keeps serving the previous
    registry.

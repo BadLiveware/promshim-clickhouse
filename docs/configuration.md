@@ -37,7 +37,7 @@
 | `PROM_SHIM_ALLOW_REQUEST_ROUTING_OVERRIDES` | `false` | Allows per-request `native_lowering_mode` and `routing_policy` overrides. Keep disabled on shared production endpoints; enable only for trusted benchmark/debug clients. |
 | `PROM_SHIM_RECORDING_RULE_MODE` | `off` | Recording-rule compatibility mode. `off` ignores configured rule files. `virtual` expands configured recording-rule metric names just in time for instant-vector query contexts, including `/api/v1/query_range` evaluations of instant expressions. |
 | `PROM_SHIM_RECORDING_RULE_FILES` | empty | Comma-separated rendered Prometheus rule YAML files or glob patterns to load when `PROM_SHIM_RECORDING_RULE_MODE=virtual`. Alerting rules are ignored; conflicting recording-rule definitions are rejected at query time. |
-| `PROM_SHIM_RECORDING_RULE_RELOAD_INTERVAL_SECONDS` | `30` | Recording-rule file reload interval. In `virtual` mode, promshim periodically re-globs and parses configured files, atomically swaps in valid registries, and keeps serving the previous registry if reload fails. |
+| `PROM_SHIM_RECORDING_RULE_RELOAD_INTERVAL_SECONDS` | `30` | Recording-rule file reload interval. In `virtual` mode, promshim re-globs and parses configured files before query planning after this interval has elapsed, atomically swaps in valid registries, and keeps serving the previous registry if reload fails. |
 | `PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES` | empty | Comma-separated family gates eligible for `cost_prefer` local overrides, e.g. `selector_instant,rate_instant`. |
 | `PROM_SHIM_DISABLE_OPTIMIZED_IR` | unset / false | Rollback/differential-testing gate that disables logical IR rewrite passes while preserving baseline planning. |
 | `PROM_SHIM_DISABLE_NATIVE_AGGREGATION_LABEL_PROJECTION` | unset / false | Rollback/differential-testing gate that disables native `by(...)` aggregation child label projection and restores full selector tag materialization. |
@@ -70,8 +70,9 @@ The syncer is intentionally sidecar-oriented:
 promshim, mount a shared `emptyDir`, write rule files there, and configure
 promshim with a glob such as
 `PROM_SHIM_RECORDING_RULE_FILES=/etc/promshim/rules/*.yaml`. File writes use a
-temporary file plus atomic rename, and stale generated `.yaml` files are removed
-from the output directory.
+temporary file plus atomic rename, generated files are prefixed with
+`promshim-`, and stale generated `.yaml` files are removed from the output
+directory.
 
 Common flags and matching environment variables:
 

@@ -55,6 +55,23 @@ func TestExpandExprStaticLabelMismatchReturnsEmptyVector(t *testing.T) {
 	}
 }
 
+func TestExpandExprRejectsConflictOnlyRegistry(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  rules:
+  - record: same:rule
+    expr: up
+  - record: same:rule
+    expr: process_start_time_seconds
+`)
+	expr := parseExpr(t, `same:rule`)
+
+	_, err := ExpandExpr(expr, reg)
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("err = %v, want ambiguity error", err)
+	}
+}
+
 func TestExpandExprRejectsUnsupportedDynamicMatcher(t *testing.T) {
 	reg := registryForTest(t, `groups:
 - name: dashboard

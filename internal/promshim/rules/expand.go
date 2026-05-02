@@ -378,7 +378,7 @@ func applySelectorMatchers(expr parser.Expr, matchers []*labels.Matcher, staticL
 		if _, ok := staticLabels[m.Name]; ok {
 			continue
 		}
-		predicate := selectorMatcherPredicate(wrapped, m)
+		predicate := selectorMatcherPredicate(expr, m)
 		switch m.Type {
 		case labels.MatchEqual, labels.MatchRegexp:
 			wrapped = &parser.BinaryExpr{Op: parser.LAND, LHS: wrapped, RHS: predicate, VectorMatching: &parser.VectorMatching{Card: parser.CardManyToMany, MatchingLabels: []string{m.Name}, On: true}}

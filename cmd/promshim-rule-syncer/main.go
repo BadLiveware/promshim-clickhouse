@@ -74,8 +74,9 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	serverErrCh := make(chan error, 1)
 	if *listenAddr != "" && !*once {
-		server := &http.Server{Addr: *listenAddr}
+		server := &http.Server{Addr: *listenAddr, ReadHeaderTimeout: 10 * time.Second}
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", syncer.MetricsHandler())
 		mux.Handle("/health", syncer.HealthHandler())
@@ -91,14 +92,24 @@ func main() {
 		go func() {
 			logger.Info("serving rule syncer diagnostics", "addr", *listenAddr)
 			if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				logger.Error("serve diagnostics", "err", err)
+				select {
+				case serverErrCh <- err:
+				default:
+				}
 				stop()
 			}
 		}()
 	}
-	if err := syncer.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		logger.Error("run syncer", "err", err)
+	runErr := syncer.Run(ctx)
+	if runErr != nil && !errors.Is(runErr, context.Canceled) {
+		logger.Error("run syncer", "err", runErr)
 		os.Exit(1)
+	}
+	select {
+	case err := <-serverErrCh:
+		logger.Error("serve diagnostics", "err", err)
+		os.Exit(1)
+	default:
 	}
 }
 

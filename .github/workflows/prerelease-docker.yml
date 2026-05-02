@@ -1,0 +1,83 @@
+name: Pre-release Docker Artifacts
+
+on:
+  push:
+    branches-ignore:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker-prerelease:
+    name: Build pre-release images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve artifact tags
+        id: image-tags
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::8}"
+          branch="${GITHUB_REF_NAME}"
+          safe_branch="${branch,,}"
+          safe_branch="$(printf '%s' "$safe_branch" | sed -E 's#[^a-z0-9._-]#-#g' | sed -E 's/^-+|[-.]+$//g')"
+          if [ -z "$safe_branch" ]; then
+            safe_branch="branch"
+          fi
+          echo "base=branch-${safe_branch}" >> "$GITHUB_OUTPUT"
+          echo "sha=$short_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push pre-release Promshim images
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.prerelease
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          build-args: |
+            APP_PACKAGE=./cmd/promshim
+            APP_PORT=9090
+            APP_VERSION=${{ github.sha }}
+            APP_COMMIT=${{ github.sha }}
+            APP_DATE=${{ github.run_started_at }}
+          tags: |
+            ghcr.io/badliveware/promshim-clickhouse:${{ steps.image-tags.outputs.base }}
+            ghcr.io/badliveware/promshim-clickhouse:${{ steps.image-tags.outputs.base }}-${{ steps.image-tags.outputs.sha }}
+
+      - name: Build and push pre-release Promshim syncer images
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.prerelease
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          build-args: |
+            APP_PACKAGE=./cmd/promshim-rule-syncer
+            APP_PORT=9091
+            APP_VERSION=${{ github.sha }}
+            APP_COMMIT=${{ github.sha }}
+            APP_DATE=${{ github.run_started_at }}
+          tags: |
+            ghcr.io/badliveware/promshim-clickhouse-rule-syncer:${{ steps.image-tags.outputs.base }}
+            ghcr.io/badliveware/promshim-clickhouse-rule-syncer:${{ steps.image-tags.outputs.base }}-${{ steps.image-tags.outputs.sha }}

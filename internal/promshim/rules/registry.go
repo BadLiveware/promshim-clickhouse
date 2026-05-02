@@ -178,7 +178,7 @@ func (r *Registry) validateExpansions() {
 		if _, _, ok := r.CachedExpansion(rule.Name); ok {
 			continue
 		}
-		if _, _, err := state.expandRuleExpr(rule); err != nil {
+		if _, _, err := state.expandRuleExpr(rule, true); err != nil {
 			r.errors = append(r.errors, fmt.Errorf("validating recording rule %q expansion: %w", rule.Name, err))
 		}
 	}

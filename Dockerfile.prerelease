@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-ARG GO_BUILDER_IMAGE=golang:latest
+ARG GO_BUILDER_IMAGE=golang:1.26
 
 FROM --platform=$BUILDPLATFORM ${GO_BUILDER_IMAGE} AS builder
 
@@ -11,6 +11,11 @@ ARG APP_DATE=unknown
 
 WORKDIR /src
 ENV CGO_ENABLED=0
+
+ARG TARGETOS
+ARG TARGETARCH
+ENV GOOS=$TARGETOS
+ENV GOARCH=$TARGETARCH
 
 COPY go.mod go.sum ./
 RUN go mod download

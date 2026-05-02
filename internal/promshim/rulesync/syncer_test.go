@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -67,16 +68,18 @@ func TestSyncOnceUpdatesMetricsAndHealth(t *testing.T) {
 	metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	metricsRes := httptest.NewRecorder()
 	syncer.MetricsHandler().ServeHTTP(metricsRes, metricsReq)
-	body := metricsRes.Body.String()
-	for _, want := range []string{
-		"promshim_rule_syncer_selected_rules 1",
-		"promshim_rule_syncer_rendered_files 1",
-		"promshim_rule_syncer_sync_failures_total 0",
-		"promshim_rule_syncer_last_success_timestamp_seconds ",
-	} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("metrics = %s, want %s", body, want)
-		}
+	metrics := parsePromMetrics(t, metricsRes.Body.String())
+	if got := metrics["promshim_rule_syncer_selected_rules"]; got != 1 {
+		t.Fatalf("promshim_rule_syncer_selected_rules = %f, want 1", got)
+	}
+	if got := metrics["promshim_rule_syncer_rendered_files"]; got != 1 {
+		t.Fatalf("promshim_rule_syncer_rendered_files = %f, want 1", got)
+	}
+	if got := metrics["promshim_rule_syncer_sync_failures_total"]; got != 0 {
+		t.Fatalf("promshim_rule_syncer_sync_failures_total = %f, want 0", got)
+	}
+	if got := metrics["promshim_rule_syncer_last_success_timestamp_seconds"]; got <= 0 {
+		t.Fatalf("promshim_rule_syncer_last_success_timestamp_seconds = %f, want > 0", got)
 	}
 	healthReq := httptest.NewRequest(http.MethodGet, "/health", nil)
 	healthRes := httptest.NewRecorder()
@@ -114,6 +117,27 @@ func TestSyncOnceDeletesStaleRuleFilesOnly(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outDir, "notes.txt")); err != nil {
 		t.Fatalf("expected non-rule file kept: %v", err)
 	}
+}
+
+func parsePromMetrics(t *testing.T, body string) map[string]float64 {
+	t.Helper()
+	lines := strings.Split(strings.TrimSpace(body), "\n")
+	metrics := map[string]float64{}
+	for _, line := range lines {
+		if strings.HasPrefix(line, "#") || line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		value, err := strconv.ParseFloat(parts[1], 64)
+		if err != nil {
+			t.Fatalf("failed parsing metric value from %q: %v", line, err)
+		}
+		metrics[parts[0]] = value
+	}
+	return metrics
 }
 
 func promRule(namespace, name, uid string, ruleLabels map[string]string) runtime.Object {

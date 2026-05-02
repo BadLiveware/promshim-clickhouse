@@ -52,7 +52,7 @@ func ExpandExpr(expr parser.Expr, registry *Registry) (ExpandResult, error) {
 	if err != nil {
 		return ExpandResult{}, err
 	}
-	return ExpandResult{Expr: expanded, Expanded: changed, Expansions: expansions}, nil
+	return ExpandResult{Expr: unwrapRuleExpression(expanded), Expanded: changed, Expansions: expansions}, nil
 }
 
 func (s *expandState) expand(expr parser.Expr) (parser.Expr, []Expansion, bool, error) {
@@ -180,7 +180,7 @@ func (s *expandState) expandVectorSelector(sel *parser.VectorSelector) (ruleExpa
 	} else if empty {
 		return ruleExpansion{expr: emptyVectorExpr(), expansions: []Expansion{expansionForRule(rule, nil)}, rule: rule}, true, nil
 	}
-	child, childExps, err := s.expandRuleExpr(rule)
+	child, childExps, err := s.expandRuleExpr(rule, sel.Timestamp == nil && sel.StartOrEnd == 0)
 	if err != nil {
 		return ruleExpansion{}, false, err
 	}
@@ -189,28 +189,35 @@ func (s *expandState) expandVectorSelector(sel *parser.VectorSelector) (ruleExpa
 	if err != nil {
 		return ruleExpansion{}, false, err
 	}
+	if sel.Timestamp != nil || sel.StartOrEnd != 0 {
+		wrapped = applySelectorTimestamp(wrapped, sel.Timestamp, sel.StartOrEnd)
+	}
+	wrapped = markRuleExpansionBoundary(wrapped)
 	exps := append(childExps, expansionForRule(rule, childExps))
 	return ruleExpansion{expr: wrapped, expansions: exps, rule: rule}, true, nil
 }
 
-func (s *expandState) expandRuleExpr(rule RecordingRule) (parser.Expr, []Expansion, error) {
-	if expr, exps, ok := s.registry.CachedExpansion(rule.Name); ok {
-		return expr, exps, nil
+func (s *expandState) expandRuleExpr(rule RecordingRule, applyOffset bool) (parser.Expr, []Expansion, error) {
+	expanded, exps, ok := s.registry.CachedExpansion(rule.Name)
+	if !ok {
+		if len(s.visiting) >= maxExpansionDepth {
+			return nil, nil, fmt.Errorf("recording rule expansion exceeds maximum depth %d at %q", maxExpansionDepth, rule.Name)
+		}
+		if _, ok := s.visiting[rule.Name]; ok {
+			return nil, nil, fmt.Errorf("recording rule expansion cycle includes %q", rule.Name)
+		}
+		s.visiting[rule.Name] = struct{}{}
+		defer delete(s.visiting, rule.Name)
+
+		expanded, exps, _, err := s.expand(rule.Expr)
+		if err != nil {
+			return nil, nil, err
+		}
+		s.registry.storeCachedExpansion(rule.Name, expanded, exps)
 	}
-	if len(s.visiting) >= maxExpansionDepth {
-		return nil, nil, fmt.Errorf("recording rule expansion exceeds maximum depth %d at %q", maxExpansionDepth, rule.Name)
+	if applyOffset {
+		expanded = applyRuleQueryOffset(expanded, rule.QueryOffset)
 	}
-	if _, ok := s.visiting[rule.Name]; ok {
-		return nil, nil, fmt.Errorf("recording rule expansion cycle includes %q", rule.Name)
-	}
-	s.visiting[rule.Name] = struct{}{}
-	defer delete(s.visiting, rule.Name)
-	expanded, exps, _, err := s.expand(rule.Expr)
-	if err != nil {
-		return nil, nil, err
-	}
-	expanded = applyRuleQueryOffset(expanded, rule.QueryOffset)
-	s.registry.storeCachedExpansion(rule.Name, expanded, exps)
 	return expanded, exps, nil
 }
 
@@ -220,6 +227,9 @@ func applyRuleQueryOffset(expr parser.Expr, offset time.Duration) parser.Expr {
 	}
 	switch n := expr.(type) {
 	case *parser.VectorSelector:
+		if n.Timestamp != nil || n.StartOrEnd != 0 {
+			return n
+		}
 		clone := *n
 		clone.OriginalOffset += offset
 		clone.Offset += offset
@@ -229,6 +239,9 @@ func applyRuleQueryOffset(expr parser.Expr, offset time.Duration) parser.Expr {
 		clone.VectorSelector = applyRuleQueryOffset(clone.VectorSelector, offset)
 		return &clone
 	case *parser.SubqueryExpr:
+		if n.Timestamp != nil || n.StartOrEnd != 0 {
+			return n
+		}
 		clone := *n
 		clone.OriginalOffset += offset
 		clone.Offset += offset
@@ -259,8 +272,112 @@ func applyRuleQueryOffset(expr parser.Expr, offset time.Duration) parser.Expr {
 		clone.Expr = applyRuleQueryOffset(clone.Expr, offset)
 		return &clone
 	case *parser.StepInvariantExpr:
+		return n
+	default:
+		return expr
+	}
+}
+
+func applySelectorTimestamp(expr parser.Expr, timestamp *int64, startOrEnd parser.ItemType) parser.Expr {
+	switch n := expr.(type) {
+	case *parser.VectorSelector:
+		if n.Timestamp != nil || n.StartOrEnd != 0 {
+			return n
+		}
 		clone := *n
-		clone.Expr = applyRuleQueryOffset(clone.Expr, offset)
+		clone.Timestamp = cloneInt64Pointer(timestamp)
+		clone.StartOrEnd = startOrEnd
+		return &clone
+	case *parser.MatrixSelector:
+		clone := *n
+		if vector, ok := applySelectorTimestamp(clone.VectorSelector, timestamp, startOrEnd).(*parser.VectorSelector); ok {
+			clone.VectorSelector = vector
+		}
+		return &clone
+	case *parser.SubqueryExpr:
+		if n.Timestamp != nil || n.StartOrEnd != 0 {
+			return n
+		}
+		clone := *n
+		clone.Timestamp = cloneInt64Pointer(timestamp)
+		clone.StartOrEnd = startOrEnd
+		return &clone
+	case *parser.AggregateExpr:
+		clone := *n
+		clone.Expr = applySelectorTimestamp(clone.Expr, timestamp, startOrEnd)
+		return &clone
+	case *parser.BinaryExpr:
+		clone := *n
+		clone.LHS = applySelectorTimestamp(clone.LHS, timestamp, startOrEnd)
+		clone.RHS = applySelectorTimestamp(clone.RHS, timestamp, startOrEnd)
+		return &clone
+	case *parser.Call:
+		clone := *n
+		args := make(parser.Expressions, len(n.Args))
+		for i, arg := range n.Args {
+			args[i] = applySelectorTimestamp(arg, timestamp, startOrEnd)
+		}
+		clone.Args = args
+		return &clone
+	case *parser.UnaryExpr:
+		clone := *n
+		clone.Expr = applySelectorTimestamp(clone.Expr, timestamp, startOrEnd)
+		return &clone
+	case *parser.ParenExpr:
+		clone := *n
+		clone.Expr = applySelectorTimestamp(clone.Expr, timestamp, startOrEnd)
+		return &clone
+	case *parser.StepInvariantExpr:
+		clone := *n
+		clone.Expr = applySelectorTimestamp(clone.Expr, timestamp, startOrEnd)
+		return &clone
+	default:
+		return expr
+	}
+}
+
+func markRuleExpansionBoundary(expr parser.Expr) parser.Expr {
+	return &parser.StepInvariantExpr{Expr: expr}
+}
+
+func unwrapRuleExpression(expr parser.Expr) parser.Expr {
+	switch n := expr.(type) {
+	case *parser.StepInvariantExpr:
+		return unwrapRuleExpression(n.Expr)
+	case *parser.AggregateExpr:
+		clone := *n
+		clone.Expr = unwrapRuleExpression(clone.Expr)
+		return &clone
+	case *parser.BinaryExpr:
+		clone := *n
+		clone.LHS = unwrapRuleExpression(clone.LHS)
+		clone.RHS = unwrapRuleExpression(clone.RHS)
+		return &clone
+	case *parser.Call:
+		clone := *n
+		args := make(parser.Expressions, len(n.Args))
+		for i, arg := range n.Args {
+			args[i] = unwrapRuleExpression(arg)
+		}
+		clone.Args = args
+		return &clone
+	case *parser.UnaryExpr:
+		clone := *n
+		clone.Expr = unwrapRuleExpression(clone.Expr)
+		return &clone
+	case *parser.ParenExpr:
+		clone := *n
+		clone.Expr = unwrapRuleExpression(clone.Expr)
+		return &clone
+	case *parser.SubqueryExpr:
+		clone := *n
+		clone.Expr = unwrapRuleExpression(clone.Expr)
+		return &clone
+	case *parser.MatrixSelector:
+		clone := *n
+		if vector, ok := unwrapRuleExpression(clone.VectorSelector).(*parser.VectorSelector); ok {
+			clone.VectorSelector = vector
+		}
 		return &clone
 	default:
 		return expr

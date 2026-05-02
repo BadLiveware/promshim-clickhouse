@@ -61,7 +61,7 @@ jobs:
             APP_PORT=9090
             APP_VERSION=${{ github.sha }}
             APP_COMMIT=${{ github.sha }}
-            APP_DATE=${{ github.run_started_at }}
+            APP_DATE=${{ github.event.pull_request.updated_at }}
           tags: |
             ghcr.io/badliveware/promshim-clickhouse:${{ steps.image-tags.outputs.base }}
             ghcr.io/badliveware/promshim-clickhouse:${{ steps.image-tags.outputs.base }}-${{ steps.image-tags.outputs.sha }}
@@ -79,7 +79,7 @@ jobs:
             APP_PORT=9091
             APP_VERSION=${{ github.sha }}
             APP_COMMIT=${{ github.sha }}
-            APP_DATE=${{ github.run_started_at }}
+            APP_DATE=${{ github.event.pull_request.updated_at }}
           tags: |
             ghcr.io/badliveware/promshim-clickhouse-rule-syncer:${{ steps.image-tags.outputs.base }}
             ghcr.io/badliveware/promshim-clickhouse-rule-syncer:${{ steps.image-tags.outputs.base }}-${{ steps.image-tags.outputs.sha }}

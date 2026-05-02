@@ -205,6 +205,57 @@ func TestExpandExprRecursivelyExpandsNestedRecordingRules(t *testing.T) {
 	}
 }
 
+func TestExpandExprDoesNotDoubleApplyAncestorQueryOffset(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  query_offset: 5m
+  rules:
+  - record: base:rule
+    expr: up
+  - record: double:rule
+    expr: base:rule
+`)
+	expr := parseExpr(t, `double:rule`)
+
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Expanded || len(result.Expansions) != 2 {
+		t.Fatalf("result = %#v, want nested expansion chain with both rules", result)
+	}
+	got := result.Expr.String()
+	if !strings.Contains(got, `offset 5m`) {
+		t.Fatalf("expanded expr = %s, want base query_offset applied", got)
+	}
+	if strings.Contains(got, `offset 10m`) {
+		t.Fatalf("expanded expr = %s, want single query_offset application, got double offset", got)
+	}
+}
+
+func TestExpandExprSkipsOffsetOnAbsoluteTimestampSelectors(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  query_offset: 2m
+  rules:
+  - record: at:rule
+    expr: up
+`)
+	expr := parseExpr(t, `at:rule @ 1700000000`)
+
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := result.Expr.String()
+	if !strings.Contains(got, `@ 1700000000`) {
+		t.Fatalf("expanded expr = %s, want absolute timestamp to be preserved", got)
+	}
+	if strings.Contains(got, `offset 2m`) {
+		t.Fatalf("expanded expr = %s, want no query_offset for absolute @ timestamp", got)
+	}
+}
+
 func registryForTest(t *testing.T, content string) *Registry {
 	t.Helper()
 	reg, err := LoadFiles([]string{writeRulesFile(t, content)})

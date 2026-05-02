@@ -10,7 +10,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/obs"
+	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/promql/parser"
 )
 
 type APIError struct {
@@ -161,6 +164,10 @@ type RoutingInfo struct {
 type InstantQueryRequest struct {
 	Query              string
 	Time               string
+	Limit              string
+	Timeout            string
+	Stats              string
+	LookbackDelta      string
 	Explain            bool
 	NativeLoweringMode string
 	RoutingPolicy      string
@@ -171,6 +178,10 @@ type RangeQueryRequest struct {
 	Start              string
 	End                string
 	Step               string
+	Limit              string
+	Timeout            string
+	Stats              string
+	LookbackDelta      string
 	Explain            bool
 	NativeLoweringMode string
 	RoutingPolicy      string
@@ -211,6 +222,7 @@ type Handler struct {
 
 func NewHandler(service Service) http.Handler {
 	h := &Handler{service: service, mux: http.NewServeMux()}
+	h.mux.HandleFunc("OPTIONS /", h.handleOptions)
 	h.mux.HandleFunc("GET /health", h.handleHealth)
 	h.mux.HandleFunc("GET /-/healthy", h.handleHealthy)
 	h.mux.HandleFunc("GET /-/ready", h.handleReady)
@@ -223,13 +235,28 @@ func NewHandler(service Service) http.Handler {
 	h.mux.HandleFunc("GET /api/v1/query_range_explain", h.handleQueryRangeExplain)
 	h.mux.HandleFunc("POST /api/v1/query_range_explain", h.handleQueryRangeExplain)
 	h.mux.HandleFunc("GET /api/v1/labels", h.handleLabels)
+	h.mux.HandleFunc("POST /api/v1/labels", h.handleLabels)
 	h.mux.HandleFunc("GET /api/v1/label/{name}/values", h.handleLabelValues)
 	h.mux.HandleFunc("GET /api/v1/series", h.handleSeries)
+	h.mux.HandleFunc("POST /api/v1/series", h.handleSeries)
+	h.mux.HandleFunc("GET /api/v1/metadata", h.handleMetadata)
+	h.mux.HandleFunc("GET /api/v1/targets", h.handleTargets)
+	h.mux.HandleFunc("GET /api/v1/rules", h.handleRules)
+	h.mux.HandleFunc("GET /api/v1/alerts", h.handleAlerts)
+	h.mux.HandleFunc("GET /api/v1/format_query", h.handleFormatQuery)
+	h.mux.HandleFunc("POST /api/v1/format_query", h.handleFormatQuery)
+	h.mux.HandleFunc("GET /api/v1/parse_query", h.handleParseQuery)
+	h.mux.HandleFunc("POST /api/v1/parse_query", h.handleParseQuery)
 	return h
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mux.ServeHTTP(w, r)
+}
+
+func (h *Handler) handleOptions(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Allow", "GET, HEAD, OPTIONS, POST")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -257,6 +284,10 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 	resp, apiErr := h.service.InstantQuery(ctx, InstantQueryRequest{
 		Query:              values.Get("query"),
 		Time:               values.Get("time"),
+		Limit:              values.Get("limit"),
+		Timeout:            values.Get("timeout"),
+		Stats:              values.Get("stats"),
+		LookbackDelta:      values.Get("lookback_delta"),
 		Explain:            wantsExplain(values),
 		NativeLoweringMode: values.Get("native_lowering_mode"),
 		RoutingPolicy:      values.Get("routing_policy"),
@@ -275,6 +306,10 @@ func (h *Handler) handleQueryRange(w http.ResponseWriter, r *http.Request) {
 		Start:              values.Get("start"),
 		End:                values.Get("end"),
 		Step:               values.Get("step"),
+		Limit:              values.Get("limit"),
+		Timeout:            values.Get("timeout"),
+		Stats:              values.Get("stats"),
+		LookbackDelta:      values.Get("lookback_delta"),
 		Explain:            wantsExplain(values),
 		NativeLoweringMode: values.Get("native_lowering_mode"),
 		RoutingPolicy:      values.Get("routing_policy"),
@@ -291,6 +326,10 @@ func (h *Handler) handleQueryExplain(w http.ResponseWriter, r *http.Request) {
 	resp, apiErr := h.service.ExplainInstant(ctx, InstantQueryRequest{
 		Query:              values.Get("query"),
 		Time:               values.Get("time"),
+		Limit:              values.Get("limit"),
+		Timeout:            values.Get("timeout"),
+		Stats:              values.Get("stats"),
+		LookbackDelta:      values.Get("lookback_delta"),
 		Explain:            true,
 		NativeLoweringMode: values.Get("native_lowering_mode"),
 		RoutingPolicy:      values.Get("routing_policy"),
@@ -309,6 +348,10 @@ func (h *Handler) handleQueryRangeExplain(w http.ResponseWriter, r *http.Request
 		Start:              values.Get("start"),
 		End:                values.Get("end"),
 		Step:               values.Get("step"),
+		Limit:              values.Get("limit"),
+		Timeout:            values.Get("timeout"),
+		Stats:              values.Get("stats"),
+		LookbackDelta:      values.Get("lookback_delta"),
 		Explain:            true,
 		NativeLoweringMode: values.Get("native_lowering_mode"),
 		RoutingPolicy:      values.Get("routing_policy"),
@@ -317,36 +360,65 @@ func (h *Handler) handleQueryRangeExplain(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) handleLabels(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "labels", nil)))
-	resp, apiErr := h.service.Labels(ctx, MetadataRequest{
-		Matchers: readMatchers(r),
-		Start:    r.URL.Query().Get("start"),
-		End:      r.URL.Query().Get("end"),
-	})
+	values, ok := parseRequestValues(w, r)
+	if !ok {
+		return
+	}
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "labels", values)))
+	resp, apiErr := h.service.Labels(ctx, metadataRequestFromValues(values))
 	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
 }
 
 func (h *Handler) handleLabelValues(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "label_values", nil)))
+	values := r.URL.Query()
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "label_values", values)))
 	resp, apiErr := h.service.LabelValues(ctx, LabelValuesRequest{
-		Name: r.PathValue("name"),
-		MetadataRequest: MetadataRequest{
-			Matchers: readMatchers(r),
-			Start:    r.URL.Query().Get("start"),
-			End:      r.URL.Query().Get("end"),
-		},
+		Name:            r.PathValue("name"),
+		MetadataRequest: metadataRequestFromValues(values),
 	})
 	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
 }
 
 func (h *Handler) handleSeries(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "series", nil)))
-	resp, apiErr := h.service.Series(ctx, MetadataRequest{
-		Matchers: readMatchers(r),
-		Start:    r.URL.Query().Get("start"),
-		End:      r.URL.Query().Get("end"),
-	})
+	values, ok := parseRequestValues(w, r)
+	if !ok {
+		return
+	}
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "series", values)))
+	resp, apiErr := h.service.Series(ctx, metadataRequestFromValues(values))
 	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
+}
+
+func (h *Handler) handleMetadata(w http.ResponseWriter, _ *http.Request) {
+	writePromSuccess(w, map[string]any{})
+}
+
+func (h *Handler) handleTargets(w http.ResponseWriter, _ *http.Request) {
+	writePromSuccess(w, map[string]any{"activeTargets": []any{}, "droppedTargets": []any{}, "droppedTargetCounts": map[string]int{}})
+}
+
+func (h *Handler) handleRules(w http.ResponseWriter, _ *http.Request) {
+	writePromSuccess(w, map[string]any{"groups": []any{}})
+}
+
+func (h *Handler) handleAlerts(w http.ResponseWriter, _ *http.Request) {
+	writePromSuccess(w, map[string]any{"alerts": []any{}})
+}
+
+func (h *Handler) handleFormatQuery(w http.ResponseWriter, r *http.Request) {
+	expr, ok := parsePromQLRequestExpression(w, r)
+	if !ok {
+		return
+	}
+	writePromSuccess(w, expr.Pretty(0))
+}
+
+func (h *Handler) handleParseQuery(w http.ResponseWriter, r *http.Request) {
+	expr, ok := parsePromQLRequestExpression(w, r)
+	if !ok {
+		return
+	}
+	writePromSuccess(w, translatePromQLAST(expr))
 }
 
 func (h *Handler) clickHouseTransport() string {
@@ -416,12 +488,20 @@ func setPromshimHeaders(w http.ResponseWriter, resp *Response, metrics *obs.CHMe
 	}
 }
 
-func readMatchers(r *http.Request) []string {
-	matchers := r.URL.Query()["match[]"]
+func metadataRequestFromValues(values url.Values) MetadataRequest {
+	return MetadataRequest{
+		Matchers: readMatchers(values),
+		Start:    values.Get("start"),
+		End:      values.Get("end"),
+	}
+}
+
+func readMatchers(values url.Values) []string {
+	matchers := values["match[]"]
 	if len(matchers) > 0 {
 		return matchers
 	}
-	return r.URL.Query()["match"]
+	return values["match"]
 }
 
 func parseRequestValues(w http.ResponseWriter, r *http.Request) (url.Values, bool) {
@@ -430,6 +510,24 @@ func parseRequestValues(w http.ResponseWriter, r *http.Request) (url.Values, boo
 		return nil, false
 	}
 	return r.Form, true
+}
+
+func parsePromQLRequestExpression(w http.ResponseWriter, r *http.Request) (parser.Expr, bool) {
+	values, ok := parseRequestValues(w, r)
+	if !ok {
+		return nil, false
+	}
+	query := values.Get("query")
+	if query == "" {
+		writePromError(w, APIError{StatusCode: http.StatusBadRequest, ErrorType: "bad_data", Error: "missing required parameter 'query'"})
+		return nil, false
+	}
+	expr, err := logical.ParseExpression(query)
+	if err != nil {
+		writePromError(w, APIError{StatusCode: http.StatusBadRequest, ErrorType: "bad_data", Error: err.Error()})
+		return nil, false
+	}
+	return expr, true
 }
 
 func wantsExplain(values url.Values) bool {
@@ -456,6 +554,67 @@ func requestLogComment(r *http.Request, endpoint string, values url.Values) stri
 	return "promshim endpoint=" + safeLogPart(endpoint, "unknown") + " query_hash=" + queryHash + " mode=" + mode + " policy=" + policy
 }
 
+func translatePromQLAST(expr parser.Expr) any {
+	if expr == nil {
+		return nil
+	}
+	switch n := expr.(type) {
+	case *parser.AggregateExpr:
+		return map[string]any{"type": "aggregation", "op": n.Op.String(), "expr": translatePromQLAST(n.Expr), "param": translatePromQLAST(n.Param), "grouping": sanitizeStringList(n.Grouping), "without": n.Without}
+	case *parser.BinaryExpr:
+		var matching any
+		if m := n.VectorMatching; m != nil {
+			matching = map[string]any{"card": m.Card.String(), "labels": sanitizeStringList(m.MatchingLabels), "on": m.On, "include": sanitizeStringList(m.Include), "fillValues": map[string]*float64{"lhs": m.FillValues.LHS, "rhs": m.FillValues.RHS}}
+		}
+		return map[string]any{"type": "binaryExpr", "op": n.Op.String(), "lhs": translatePromQLAST(n.LHS), "rhs": translatePromQLAST(n.RHS), "matching": matching, "bool": n.ReturnBool}
+	case *parser.Call:
+		args := make([]any, 0, len(n.Args))
+		for _, arg := range n.Args {
+			args = append(args, translatePromQLAST(arg))
+		}
+		return map[string]any{"type": "call", "func": map[string]any{"name": n.Func.Name, "argTypes": n.Func.ArgTypes, "variadic": n.Func.Variadic, "returnType": n.Func.ReturnType}, "args": args}
+	case *parser.MatrixSelector:
+		vs := n.VectorSelector.(*parser.VectorSelector)
+		return map[string]any{"type": "matrixSelector", "name": vs.Name, "range": n.Range.Milliseconds(), "offset": vs.OriginalOffset.Milliseconds(), "matchers": translateMatchers(vs.LabelMatchers), "timestamp": vs.Timestamp, "startOrEnd": startOrEndString(vs.StartOrEnd), "anchored": vs.Anchored, "smoothed": vs.Smoothed}
+	case *parser.SubqueryExpr:
+		return map[string]any{"type": "subquery", "expr": translatePromQLAST(n.Expr), "range": n.Range.Milliseconds(), "offset": n.OriginalOffset.Milliseconds(), "step": n.Step.Milliseconds(), "timestamp": n.Timestamp, "startOrEnd": startOrEndString(n.StartOrEnd)}
+	case *parser.NumberLiteral:
+		return map[string]string{"type": "numberLiteral", "val": strconv.FormatFloat(n.Val, 'f', -1, 64)}
+	case *parser.ParenExpr:
+		return map[string]any{"type": "parenExpr", "expr": translatePromQLAST(n.Expr)}
+	case *parser.StringLiteral:
+		return map[string]any{"type": "stringLiteral", "val": n.Val}
+	case *parser.UnaryExpr:
+		return map[string]any{"type": "unaryExpr", "op": n.Op.String(), "expr": translatePromQLAST(n.Expr)}
+	case *parser.VectorSelector:
+		return map[string]any{"type": "vectorSelector", "name": n.Name, "offset": n.OriginalOffset.Milliseconds(), "matchers": translateMatchers(n.LabelMatchers), "timestamp": n.Timestamp, "startOrEnd": startOrEndString(n.StartOrEnd), "anchored": n.Anchored, "smoothed": n.Smoothed}
+	default:
+		return map[string]any{"type": "unsupported", "expr": expr.String()}
+	}
+}
+
+func sanitizeStringList(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
+}
+
+func translateMatchers(matchers []*labels.Matcher) []map[string]any {
+	out := make([]map[string]any, 0, len(matchers))
+	for _, matcher := range matchers {
+		out = append(out, map[string]any{"name": matcher.Name, "value": matcher.Value, "type": matcher.Type.String()})
+	}
+	return out
+}
+
+func startOrEndString(value parser.ItemType) any {
+	if value == 0 {
+		return nil
+	}
+	return value.String()
+}
+
 func truncateLogPart(value string, maxLen int) string {
 	if maxLen > 0 && len(value) > maxLen {
 		return value[:maxLen]
@@ -475,6 +634,10 @@ func safeLogPart(value, fallback string) string {
 		return '_'
 	}, value)
 	return value
+}
+
+func writePromSuccess(w http.ResponseWriter, data any) {
+	writeJSON(w, http.StatusOK, map[string]any{"status": "success", "data": data})
 }
 
 func writePromError(w http.ResponseWriter, apiErr APIError) {

@@ -7,16 +7,23 @@ Promshim currently implements these HTTP surfaces:
 |---|---|
 | `GET`, `POST /api/v1/query` | Prometheus instant query API |
 | `GET`, `POST /api/v1/query_range` | Prometheus range query API |
-| `GET /api/v1/labels` | Label-name metadata over the ClickHouse `TimeSeries` table |
+| `GET`, `POST /api/v1/labels` | Label-name metadata over the ClickHouse `TimeSeries` table |
 | `GET /api/v1/label/{name}/values` | Label-value metadata |
-| `GET /api/v1/series` | Series metadata |
+| `GET`, `POST /api/v1/series` | Series metadata |
 | `GET`, `POST /api/v1/query_explain` | Plan-only instant-query explain output |
 | `GET`, `POST /api/v1/query_range_explain` | Plan-only range-query explain output |
+| `GET`, `POST /api/v1/format_query` | Prometheus query formatting helper |
+| `GET`, `POST /api/v1/parse_query` | Prometheus query parse-tree helper |
+| `GET /api/v1/metadata` | Compatibility endpoint; returns empty metadata |
+| `GET /api/v1/targets` | Compatibility endpoint; returns empty target sets |
+| `GET /api/v1/rules` | Compatibility endpoint; returns empty rule groups |
+| `GET /api/v1/alerts` | Compatibility endpoint; returns empty alerts |
+| `OPTIONS /*` | Compatibility preflight handler |
 | `GET /metrics` | Prometheus-format promshim process/shadow-mode metrics |
 | `GET /health`, `GET /-/healthy` | Process health probes |
 | `GET /-/ready` | Readiness probe; returns 200 only when promshim can run a lightweight ClickHouse query |
 
-`POST` query endpoints accept Prometheus-compatible `application/x-www-form-urlencoded` parameters in the request body; form parameters take precedence over duplicate URL query parameters, matching Go/Prometheus form parsing behavior.
+`POST` endpoints accept Prometheus-compatible `application/x-www-form-urlencoded` parameters in the request body; form parameters take precedence over duplicate URL query parameters, matching Go/Prometheus form parsing behavior.
 
 Normal query responses use the Prometheus response envelope:
 

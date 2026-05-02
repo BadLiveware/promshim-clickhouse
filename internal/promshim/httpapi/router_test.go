@@ -21,6 +21,8 @@ type stubService struct {
 	rangeRequests          []RangeQueryRequest
 	explainInstantRequests []InstantQueryRequest
 	explainRangeRequests   []RangeQueryRequest
+	labelRequests          []MetadataRequest
+	seriesRequests         []MetadataRequest
 	// observeOnCall, if non-nil, is called on every service method with the
 	// passed context so the stub can simulate ClickHouse round-trips against
 	// the CHMetrics that the router attached to the context.
@@ -61,7 +63,8 @@ func (s *stubService) ExplainRange(ctx context.Context, req RangeQueryRequest) (
 	return s.response, s.apiErr
 }
 
-func (s *stubService) Labels(ctx context.Context, _ MetadataRequest) (*Response, *APIError) {
+func (s *stubService) Labels(ctx context.Context, req MetadataRequest) (*Response, *APIError) {
+	s.labelRequests = append(s.labelRequests, req)
 	s.obs(ctx)
 	return s.response, s.apiErr
 }
@@ -71,7 +74,8 @@ func (s *stubService) LabelValues(ctx context.Context, _ LabelValuesRequest) (*R
 	return s.response, s.apiErr
 }
 
-func (s *stubService) Series(ctx context.Context, _ MetadataRequest) (*Response, *APIError) {
+func (s *stubService) Series(ctx context.Context, req MetadataRequest) (*Response, *APIError) {
+	s.seriesRequests = append(s.seriesRequests, req)
 	s.obs(ctx)
 	return s.response, s.apiErr
 }
@@ -231,6 +235,10 @@ func TestHandleQuerySupportsPostForm(t *testing.T) {
 	form := url.Values{
 		"query":                {`up{job="api"}`},
 		"time":                 {"300"},
+		"limit":                {"10"},
+		"timeout":              {"5s"},
+		"stats":                {"all"},
+		"lookback_delta":       {"30s"},
 		"explain":              {"true"},
 		"native_lowering_mode": {"prefer"},
 		"routing_policy":       {"cost_prefer"},
@@ -247,7 +255,7 @@ func TestHandleQuerySupportsPostForm(t *testing.T) {
 		t.Fatalf("instant request count = %d, want 1", len(stub.instantRequests))
 	}
 	got := stub.instantRequests[0]
-	if got.Query != `up{job="api"}` || got.Time != "300" || !got.Explain || got.NativeLoweringMode != "prefer" || got.RoutingPolicy != "cost_prefer" {
+	if got.Query != `up{job="api"}` || got.Time != "300" || got.Limit != "10" || got.Timeout != "5s" || got.Stats != "all" || got.LookbackDelta != "30s" || !got.Explain || got.NativeLoweringMode != "prefer" || got.RoutingPolicy != "cost_prefer" {
 		t.Fatalf("instant request = %#v", got)
 	}
 }
@@ -260,6 +268,8 @@ func TestHandleQueryRangeSupportsPostForm(t *testing.T) {
 		"start":                {"0"},
 		"end":                  {"300"},
 		"step":                 {"60"},
+		"limit":                {"5"},
+		"timeout":              {"5s"},
 		"native_lowering_mode": {"shadow"},
 		"routing_policy":       {"cost_shadow"},
 	}
@@ -275,7 +285,7 @@ func TestHandleQueryRangeSupportsPostForm(t *testing.T) {
 		t.Fatalf("range request count = %d, want 1", len(stub.rangeRequests))
 	}
 	got := stub.rangeRequests[0]
-	if got.Query != "rate(up[5m])" || got.Start != "0" || got.End != "300" || got.Step != "60" || got.NativeLoweringMode != "shadow" || got.RoutingPolicy != "cost_shadow" {
+	if got.Query != "rate(up[5m])" || got.Start != "0" || got.End != "300" || got.Step != "60" || got.Limit != "5" || got.Timeout != "5s" || got.NativeLoweringMode != "shadow" || got.RoutingPolicy != "cost_shadow" {
 		t.Fatalf("range request = %#v", got)
 	}
 }
@@ -319,6 +329,101 @@ func TestHandleLabelsOmitsStrategyHeader(t *testing.T) {
 	}
 	if got := rec.Header().Get("X-Promshim-CH-Roundtrips"); got != "1" {
 		t.Fatalf("X-Promshim-CH-Roundtrips = %q, want 1", got)
+	}
+}
+
+func TestHandleLabelsSupportsPostForm(t *testing.T) {
+	stub := &stubService{response: &Response{StatusCode: http.StatusOK, Body: map[string]any{"status": "success"}}}
+	handler := NewHandler(stub)
+	form := url.Values{"match[]": {`up{job="api"}`, `process_cpu_seconds_total`}, "start": {"0"}, "end": {"300"}}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/labels", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /labels status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(stub.labelRequests) != 1 {
+		t.Fatalf("label request count = %d, want 1", len(stub.labelRequests))
+	}
+	got := stub.labelRequests[0]
+	if strings.Join(got.Matchers, ",") != `up{job="api"},process_cpu_seconds_total` || got.Start != "0" || got.End != "300" {
+		t.Fatalf("label request = %#v", got)
+	}
+}
+
+func TestHandleSeriesSupportsPostForm(t *testing.T) {
+	stub := &stubService{response: &Response{StatusCode: http.StatusOK, Body: map[string]any{"status": "success"}}}
+	handler := NewHandler(stub)
+	form := url.Values{"match[]": {`up{job="api"}`}, "start": {"0"}, "end": {"300"}}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/series", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /series status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(stub.seriesRequests) != 1 {
+		t.Fatalf("series request count = %d, want 1", len(stub.seriesRequests))
+	}
+	got := stub.seriesRequests[0]
+	if len(got.Matchers) != 1 || got.Matchers[0] != `up{job="api"}` || got.Start != "0" || got.End != "300" {
+		t.Fatalf("series request = %#v", got)
+	}
+}
+
+func TestHandlePrometheusCompatibilityDiscoveryEndpoints(t *testing.T) {
+	handler := NewHandler(&stubService{})
+	for _, path := range []string{"/api/v1/metadata", "/api/v1/targets", "/api/v1/rules", "/api/v1/alerts"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s status = %d: %s", path, rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), `"status":"success"`) {
+			t.Fatalf("GET %s body = %s", path, rec.Body.String())
+		}
+	}
+}
+
+func TestHandleFormatAndParseQuery(t *testing.T) {
+	handler := NewHandler(&stubService{})
+	form := url.Values{"query": {`sum by (job) (up)`}}
+	formatReq := httptest.NewRequest(http.MethodPost, "/api/v1/format_query", strings.NewReader(form.Encode()))
+	formatReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	formatRec := httptest.NewRecorder()
+	handler.ServeHTTP(formatRec, formatReq)
+	if formatRec.Code != http.StatusOK {
+		t.Fatalf("POST /format_query status = %d: %s", formatRec.Code, formatRec.Body.String())
+	}
+	if !strings.Contains(formatRec.Body.String(), "sum by") {
+		t.Fatalf("format response = %s", formatRec.Body.String())
+	}
+
+	parseReq := httptest.NewRequest(http.MethodGet, "/api/v1/parse_query?query=up%7Bjob%3D%22api%22%7D", nil)
+	parseRec := httptest.NewRecorder()
+	handler.ServeHTTP(parseRec, parseReq)
+	if parseRec.Code != http.StatusOK {
+		t.Fatalf("GET /parse_query status = %d: %s", parseRec.Code, parseRec.Body.String())
+	}
+	if !strings.Contains(parseRec.Body.String(), `"type":"vectorSelector"`) {
+		t.Fatalf("parse response = %s", parseRec.Body.String())
+	}
+}
+
+func TestHandleOptionsWildcard(t *testing.T) {
+	handler := NewHandler(&stubService{})
+	req := httptest.NewRequest(http.MethodOptions, "/api/v1/query_range", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("OPTIONS status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if got := rec.Header().Get("Allow"); !strings.Contains(got, "POST") || !strings.Contains(got, "GET") {
+		t.Fatalf("Allow = %q", got)
 	}
 }
 

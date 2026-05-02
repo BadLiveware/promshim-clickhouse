@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -167,6 +168,11 @@ func NewHandler(opts Options) (http.Handler, error) {
 }
 
 func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQueryRequest) (*httpapi.Response, *httpapi.APIError) {
+	ctx, cancel, apiErr := contextWithRequestTimeout(ctx, req.Timeout)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	defer cancel()
 	mode, apiErr := h.nativeLoweringModeForRequest(req.NativeLoweringMode)
 	if apiErr != nil {
 		return nil, apiErr
@@ -194,6 +200,10 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 	strictEvalDuration := time.Since(evalStart)
 	if err != nil {
 		return nil, local.ApiErrorToHTTP(err)
+	}
+	value, apiErr = applyQueryLimit(value, req.Limit)
+	if apiErr != nil {
+		return nil, apiErr
 	}
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, local.ApiErrorToHTTP(err)
@@ -223,6 +233,11 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 }
 
 func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryRequest) (*httpapi.Response, *httpapi.APIError) {
+	ctx, cancel, apiErr := contextWithRequestTimeout(ctx, req.Timeout)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	defer cancel()
 	mode, apiErr := h.nativeLoweringModeForRequest(req.NativeLoweringMode)
 	if apiErr != nil {
 		return nil, apiErr
@@ -250,6 +265,10 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 	strictEvalDuration := time.Since(evalStart)
 	if err != nil {
 		return nil, local.ApiErrorToHTTP(err)
+	}
+	value, apiErr = applyQueryLimit(value, req.Limit)
+	if apiErr != nil {
+		return nil, apiErr
 	}
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, local.ApiErrorToHTTP(err)
@@ -292,6 +311,10 @@ func (h *queryService) instantQueryShadow(ctx context.Context, req httpapi.Insta
 	servedEvalDuration := time.Since(evalStart)
 	if err != nil {
 		return nil, local.ApiErrorToHTTP(err)
+	}
+	value, apiErr = applyQueryLimit(value, req.Limit)
+	if apiErr != nil {
+		return nil, apiErr
 	}
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, local.ApiErrorToHTTP(err)
@@ -337,6 +360,10 @@ func (h *queryService) rangeQueryShadow(ctx context.Context, req httpapi.RangeQu
 	servedEvalDuration := time.Since(evalStart)
 	if err != nil {
 		return nil, local.ApiErrorToHTTP(err)
+	}
+	value, apiErr = applyQueryLimit(value, req.Limit)
+	if apiErr != nil {
+		return nil, apiErr
 	}
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, local.ApiErrorToHTTP(err)
@@ -554,6 +581,48 @@ func enforceEstimatedResponseLimits(routing httpapi.RoutingInfo, opts Options) e
 		return local.NewBadDataErrorf("query result is estimated to return %d points, exceeding configured limit %d", routing.Class.EstimatedOutputPoints, opts.MaxResponsePoints)
 	}
 	return nil
+}
+
+func contextWithRequestTimeout(ctx context.Context, rawTimeout string) (context.Context, context.CancelFunc, *httpapi.APIError) {
+	if rawTimeout == "" {
+		return ctx, func() {}, nil
+	}
+	timeout, err := model.ParsePrometheusDuration(rawTimeout)
+	if err != nil {
+		return nil, nil, local.BadRequestHTTPError(fmt.Sprintf("invalid parameter \"timeout\": %v", err))
+	}
+	if timeout <= 0 {
+		return nil, nil, local.BadRequestHTTPError("invalid parameter \"timeout\": timeout must be greater than zero")
+	}
+	child, cancel := context.WithTimeout(ctx, timeout)
+	return child, cancel, nil
+}
+
+func applyQueryLimit(value model.RuntimeValue, rawLimit string) (model.RuntimeValue, *httpapi.APIError) {
+	if rawLimit == "" || rawLimit == "0" {
+		return value, nil
+	}
+	limit, err := strconv.ParseInt(rawLimit, 10, 64)
+	if err != nil || limit < 0 {
+		return nil, local.BadRequestHTTPError("invalid parameter \"limit\": expected non-negative integer")
+	}
+	if limit == 0 {
+		return value, nil
+	}
+	switch typed := value.(type) {
+	case model.VectorValue:
+		if int64(len(typed.Samples)) > limit {
+			typed.Samples = typed.Samples[:int(limit)]
+		}
+		return typed, nil
+	case model.MatrixValue:
+		if int64(len(typed.Series)) > limit {
+			typed.Series = typed.Series[:int(limit)]
+		}
+		return typed, nil
+	default:
+		return value, nil
+	}
 }
 
 func enforceResponseLimits(value model.RuntimeValue, opts Options) error {

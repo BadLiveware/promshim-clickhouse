@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1
+
+FROM --platform=$BUILDPLATFORM golang:1.26 AS build
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG DATE=unknown
+
+WORKDIR /src
+
+COPY --link go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod <<-EOF
+	go mod download
+EOF
+
+COPY --link . .
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,id=go-build-rule-syncer-${TARGETARCH},target=/root/.cache/go-build <<-EOF
+	CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o /out/promshim-rule-syncer ./cmd/promshim-rule-syncer
+EOF
+
+FROM gcr.io/distroless/static-debian12:nonroot AS runtime
+
+LABEL org.opencontainers.image.title="promshim-rule-syncer"
+LABEL org.opencontainers.image.description="PrometheusRule CRD sidecar syncer for promshim-clickhouse"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.source="https://github.com/BadLiveware/promshim-clickhouse"
+
+COPY --link --from=build /out/promshim-rule-syncer /usr/local/bin/promshim-rule-syncer
+
+USER nonroot:nonroot
+ENTRYPOINT ["/usr/local/bin/promshim-rule-syncer"]

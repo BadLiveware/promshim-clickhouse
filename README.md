@@ -140,6 +140,23 @@ Promshim gates compatibility against upstream Prometheus compliance, repo-owned 
 
 Details: [`docs/promql-coverage.md`](docs/promql-coverage.md).
 
+## Virtual recording rules
+
+For dashboards that query existing recording-rule metric names, promshim can
+load rendered Prometheus rule YAML and expand recording-rule references just in
+time for instant-vector queries. In Kubernetes, run `promshim-rule-syncer` as a
+sidecar to render selected `PrometheusRule` CRDs into a shared `emptyDir`, then
+configure promshim with:
+
+```bash
+PROM_SHIM_RECORDING_RULE_MODE=virtual
+PROM_SHIM_RECORDING_RULE_FILES=/etc/promshim/rules/*.yaml
+```
+
+Promshim reloads rule files periodically and keeps serving the last valid rule
+registry if a reload fails. This is query-time compatibility, not alerting or
+materialized rule evaluation. Details: [`docs/recording-rules.md`](docs/recording-rules.md).
+
 ## Data model assumptions
 
 Promshim expects metrics in a ClickHouse `TimeSeries` table, usually `observability.prometheus`. It reads tags through `timeSeriesTags(...)`, samples through `timeSeriesData(...)`, and delegates whole PromQL queries through `prometheusQuery(...)` / `prometheusQueryRange(...)` only when safe.
@@ -317,6 +334,7 @@ The trade-off is that promshim must preserve Prometheus query semantics over Cli
 | `harness/compliance/` | Upstream PromQL compliance harness integration. |
 | `scripts/` | Local validation, benchmark, profile, and stack helpers. |
 | `docs/promql-coverage.md` | Detailed supported/unsupported PromQL coverage and validation gates. |
+| `docs/recording-rules.md` | Virtual recording-rule expansion and Kubernetes sidecar syncer deployment. |
 | `docs/cost-routing.md` | CBE policy, gates, headers, and served-family validation requirements. |
 | `docs/benchmark-results.md` | Current benchmark snapshot and CBE/native-grid interpretation. |
 | `docs/harness-architecture.md` | Harness command boundaries, stack isolation, and public artifact contracts. |

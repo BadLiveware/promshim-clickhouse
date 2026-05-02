@@ -39,7 +39,7 @@ func TestSyncOnceWritesSelectedPrometheusRulesToFiles(t *testing.T) {
 	if result.RuleCount != 1 || len(result.OutputFiles) != 1 {
 		t.Fatalf("result = %#v", result)
 	}
-	content, err := os.ReadFile(filepath.Join(outDir, "observability-dashboards-123.yaml"))
+	content, err := os.ReadFile(filepath.Join(outDir, "promshim-observability-dashboards-123.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestSyncOnceWritesSelectedPrometheusRulesToFiles(t *testing.T) {
 			t.Fatalf("file content = %q, want %q", content, want)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "observability-ignored-456.yaml")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(outDir, "promshim-observability-ignored-456.yaml")); !os.IsNotExist(err) {
 		t.Fatalf("expected unselected rule not written, got err=%v", err)
 	}
 }
@@ -56,7 +56,10 @@ func TestSyncOnceWritesSelectedPrometheusRulesToFiles(t *testing.T) {
 func TestSyncOnceDeletesStaleRuleFilesOnly(t *testing.T) {
 	monitoring := monitoringfake.NewSimpleClientset(promRule("observability", "dashboards", "123", nil))
 	outDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(outDir, "stale.yaml"), []byte("groups: []"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outDir, "promshim-stale.yaml"), []byte("groups: []"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outDir, "external.yaml"), []byte("groups: []"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(outDir, "notes.txt"), []byte("keep"), 0o644); err != nil {
@@ -69,8 +72,11 @@ func TestSyncOnceDeletesStaleRuleFilesOnly(t *testing.T) {
 	if _, err := syncer.SyncOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "stale.yaml")); !os.IsNotExist(err) {
-		t.Fatalf("expected stale rule file deleted, got err=%v", err)
+	if _, err := os.Stat(filepath.Join(outDir, "promshim-stale.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("expected stale generated rule file deleted, got err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "external.yaml")); err != nil {
+		t.Fatalf("expected external YAML file kept: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(outDir, "notes.txt")); err != nil {
 		t.Fatalf("expected non-rule file kept: %v", err)

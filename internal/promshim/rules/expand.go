@@ -110,14 +110,12 @@ func expand(expr parser.Expr, registry *Registry) (parser.Expr, []Expansion, boo
 		}
 		return n, nil, false, nil
 	case *parser.SubqueryExpr:
-		child, exps, changed, err := expand(n.Expr, registry)
+		_, _, changed, err := expand(n.Expr, registry)
 		if err != nil {
 			return nil, nil, false, err
 		}
 		if changed {
-			clone := *n
-			clone.Expr = child
-			return &clone, exps, true, nil
+			return nil, nil, false, fmt.Errorf("recording rule subqueries require materialization or bounded virtual-history support")
 		}
 		return n, nil, false, nil
 	case *parser.MatrixSelector:
@@ -159,7 +157,10 @@ func expandVectorSelector(sel *parser.VectorSelector, registry *Registry) (parse
 		return nil, nil, false, fmt.Errorf("parsing recording rule %q expression: %w", name, err)
 	}
 	wrapped := wrapRuleExpression(child, rule)
-	wrapped = applySelectorMatchers(wrapped, sel.LabelMatchers, staticLabels)
+	wrapped, err = applySelectorMatchers(wrapped, sel.LabelMatchers, staticLabels)
+	if err != nil {
+		return nil, nil, false, err
+	}
 	return wrapped, []Expansion{{Record: rule.Name, Expr: rule.ExprString, Source: rule.Source, Labels: mergedLabels(rule), Mode: "instant_virtual"}}, true, nil
 }
 
@@ -211,7 +212,7 @@ func wrapRuleExpression(expr parser.Expr, rule RecordingRule) parser.Expr {
 	return wrapped
 }
 
-func applySelectorMatchers(expr parser.Expr, matchers []*labels.Matcher, staticLabels map[string]string) parser.Expr {
+func applySelectorMatchers(expr parser.Expr, matchers []*labels.Matcher, staticLabels map[string]string) (parser.Expr, error) {
 	wrapped := expr
 	for _, m := range matchers {
 		if m == nil || m.Name == "__name__" {
@@ -220,11 +221,12 @@ func applySelectorMatchers(expr parser.Expr, matchers []*labels.Matcher, staticL
 		if _, ok := staticLabels[m.Name]; ok {
 			continue
 		}
-		if m.Type == labels.MatchEqual {
-			wrapped = &parser.BinaryExpr{Op: parser.LAND, LHS: wrapped, RHS: labelReplace(vectorLiteral(1), m.Name, m.Value), VectorMatching: &parser.VectorMatching{Card: parser.CardManyToMany, MatchingLabels: []string{m.Name}, On: true}}
+		if m.Type != labels.MatchEqual {
+			return nil, fmt.Errorf("recording rule selector matcher %s on dynamic label %q is not supported", m.Type, m.Name)
 		}
+		wrapped = &parser.BinaryExpr{Op: parser.LAND, LHS: wrapped, RHS: labelReplace(vectorLiteral(1), m.Name, m.Value), VectorMatching: &parser.VectorMatching{Card: parser.CardManyToMany, MatchingLabels: []string{m.Name}, On: true}}
 	}
-	return wrapped
+	return wrapped, nil
 }
 
 func vectorLiteral(value float64) parser.Expr {

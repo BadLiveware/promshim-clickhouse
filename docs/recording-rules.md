@@ -64,9 +64,10 @@ Common flags and environment variables:
 | `--sync-interval` | `PROM_SHIM_RULE_SYNC_INTERVAL` | `30s` | Periodic sync interval. |
 | `--once` | `PROM_SHIM_RULE_SYNC_ONCE` | `false` | Run one sync and exit. |
 
-The syncer writes each rule file with temp-file plus atomic rename semantics and
-removes stale generated `.yaml` files from the output directory. Non-YAML files
-are left alone.
+The syncer writes each rule file with temp-file plus atomic rename semantics.
+Generated files are prefixed with `promshim-`; stale generated `.yaml` files are
+removed from the output directory. Other `.yaml` files and non-YAML files are
+left alone.
 
 ## Minimal Kubernetes sketch
 

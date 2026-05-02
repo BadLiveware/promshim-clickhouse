@@ -834,10 +834,23 @@ func expandRecordingRuleFilePatterns(patterns []string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid recording rule file glob %q: %w", pattern, err)
 		}
+		if len(matches) == 0 && !hasGlobMeta(pattern) {
+			return nil, fmt.Errorf("recording rule file %q does not exist", pattern)
+		}
 		files = append(files, matches...)
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+func hasGlobMeta(pattern string) bool {
+	for _, r := range pattern {
+		switch r {
+		case '*', '?', '[':
+			return true
+		}
+	}
+	return false
 }
 
 func (h *queryService) currentRecordingRules() *rules.Registry {

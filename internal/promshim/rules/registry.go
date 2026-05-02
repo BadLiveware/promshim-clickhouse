@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	commonmodel "github.com/prometheus/common/model"
@@ -40,6 +42,7 @@ type Registry struct {
 	byName    map[string]RecordingRule
 	conflicts map[string][]RecordingRule
 	cached    map[string]cachedExpansion
+	cachedMu  sync.RWMutex
 	errors    []error
 }
 
@@ -116,22 +119,26 @@ func (r *Registry) Empty() bool {
 	return r == nil || (len(r.byName) == 0 && len(r.conflicts) == 0)
 }
 
-func (r *Registry) CachedExpansion(name string) (parser.Expr, []Expansion, bool) {
+func (r *Registry) CachedExpansion(key string) (parser.Expr, []Expansion, bool) {
 	if r == nil {
 		return nil, nil, false
 	}
-	cached, ok := r.cached[name]
+	r.cachedMu.RLock()
+	defer r.cachedMu.RUnlock()
+	cached, ok := r.cached[key]
 	if !ok {
 		return nil, nil, false
 	}
 	return cached.Expr, append([]Expansion(nil), cached.Expansions...), true
 }
 
-func (r *Registry) storeCachedExpansion(name string, expr parser.Expr, expansions []Expansion) {
+func (r *Registry) storeCachedExpansion(key string, expr parser.Expr, expansions []Expansion) {
 	if r == nil {
 		return
 	}
-	r.cached[name] = cachedExpansion{Expr: expr, Expansions: append([]Expansion(nil), expansions...)}
+	r.cachedMu.Lock()
+	defer r.cachedMu.Unlock()
+	r.cached[key] = cachedExpansion{Expr: expr, Expansions: append([]Expansion(nil), expansions...)}
 }
 
 func (r *Registry) Errors() []error {
@@ -189,7 +196,7 @@ func (r *Registry) validateExpansions() {
 	state := expandState{registry: r, visiting: map[string]struct{}{}}
 	for _, name := range names {
 		rule := r.byName[name]
-		if _, _, ok := r.CachedExpansion(rule.Name); ok {
+		if _, _, ok := r.CachedExpansion(recordingRuleCacheKey(rule)); ok {
 			continue
 		}
 		if _, _, err := state.expandRuleExpr(rule, true); err != nil {
@@ -221,6 +228,33 @@ func (r *Registry) add(rule RecordingRule) {
 
 func sameRule(a, b RecordingRule) bool {
 	return a.ExprString == b.ExprString && a.Interval == b.Interval && a.QueryOffset == b.QueryOffset && mapsEqual(a.Labels, b.Labels) && mapsEqual(a.GroupLabels, b.GroupLabels)
+}
+
+func recordingRuleCacheKey(rule RecordingRule) string {
+	return strings.Join([]string{
+		"name=" + rule.Name,
+		"expr=" + strconv.Quote(rule.ExprString),
+		"interval=" + rule.Interval.String(),
+		"query_offset=" + rule.QueryOffset.String(),
+		"labels=" + encodeSortedLabels(rule.Labels),
+		"group_labels=" + encodeSortedLabels(rule.GroupLabels),
+	}, "|")
+}
+
+func encodeSortedLabels(in map[string]string) string {
+	if len(in) == 0 {
+		return "{}"
+	}
+	keys := make([]string, 0, len(in))
+	for k := range in {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, key+"="+strconv.Quote(in[key]))
+	}
+	return "{" + strings.Join(parts, ",") + "}"
 }
 
 func mapsEqual(a, b map[string]string) bool {

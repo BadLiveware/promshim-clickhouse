@@ -61,7 +61,11 @@ func TestLoadFilesCachesNestedRuleExpansions(t *testing.T) {
 	if len(reg.Errors()) != 0 {
 		t.Fatalf("unexpected load errors: %v", reg.Errors())
 	}
-	expr, expansions, ok := reg.CachedExpansion("outer:rule")
+	rule, ok := reg.Lookup("outer:rule")
+	if !ok {
+		t.Fatal("recording rule not found")
+	}
+	expr, expansions, ok := reg.CachedExpansion(recordingRuleCacheKey(rule))
 	if !ok {
 		t.Fatal("expected cached outer expansion")
 	}

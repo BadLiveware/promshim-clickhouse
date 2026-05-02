@@ -226,7 +226,8 @@ func (s *expandState) selectRecordingRule(name string, matchers []*labels.Matche
 }
 
 func (s *expandState) expandRuleExpr(rule RecordingRule, applyOffset bool) (parser.Expr, []Expansion, error) {
-	expanded, exps, ok := s.registry.CachedExpansion(rule.Name)
+	key := recordingRuleCacheKey(rule)
+	expanded, exps, ok := s.registry.CachedExpansion(key)
 	if !ok {
 		if len(s.visiting) >= maxExpansionDepth {
 			return nil, nil, fmt.Errorf("recording rule expansion exceeds maximum depth %d at %q", maxExpansionDepth, rule.Name)
@@ -242,7 +243,7 @@ func (s *expandState) expandRuleExpr(rule RecordingRule, applyOffset bool) (pars
 		if err != nil {
 			return nil, nil, err
 		}
-		s.registry.storeCachedExpansion(rule.Name, expanded, exps)
+		s.registry.storeCachedExpansion(key, expanded, exps)
 	}
 	if applyOffset {
 		expanded = applyRuleQueryOffset(expanded, rule.QueryOffset)

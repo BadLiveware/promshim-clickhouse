@@ -2,6 +2,7 @@ package rules
 
 import (
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/prometheus/prometheus/promql/parser"
@@ -156,6 +157,86 @@ func TestExpandExprDisambiguatesConflictByGroupAndRuleLabels(t *testing.T) {
 	}
 	if !strings.Contains(got, `"right"`) {
 		t.Fatalf("expanded expr = %s, want group label source=right applied", got)
+	}
+}
+
+func TestExpandExprCachesDisambiguatedConflictingRulesBySignature(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: g1
+  rules:
+  - record: same:rule
+    expr: up
+    labels:
+      workload_type: replicaset
+- name: g2
+  rules:
+  - record: same:rule
+    expr: sum(up)
+    labels:
+      workload_type: deployment
+`)
+	replicaset, err := ExpandExpr(parseExpr(t, `same:rule{workload_type="replicaset"}`), reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(replicaset.Expr.String(), `up`) || strings.Contains(replicaset.Expr.String(), `sum(up)`) {
+		t.Fatalf("first expansion should use replicaset variant, got %s", replicaset.Expr)
+	}
+	deployment, err := ExpandExpr(parseExpr(t, `same:rule{workload_type="deployment"}`), reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(deployment.Expr.String(), `sum(up)`) {
+		t.Fatalf("second expansion should use deployment variant, got %s", deployment.Expr)
+	}
+	replicasetAgain, err := ExpandExpr(parseExpr(t, `same:rule{workload_type="replicaset"}`), reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(replicasetAgain.Expr.String(), `up`) || strings.Contains(replicasetAgain.Expr.String(), `sum(up)`) {
+		t.Fatalf("cached expansion should remain per-variant, got %s", replicasetAgain.Expr)
+	}
+}
+
+func TestExpandExprConcurrentDisambiguatedConflicts(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: g1
+  rules:
+  - record: same:rule
+    expr: up
+    labels:
+      workload_type: replicaset
+- name: g2
+  rules:
+  - record: same:rule
+    expr: sum(up)
+    labels:
+      workload_type: deployment
+`)
+	replica := parseExpr(t, `same:rule{workload_type="replicaset"}`)
+	deployment := parseExpr(t, `same:rule{workload_type="deployment"}`)
+	total := 200
+	errCh := make(chan error, total)
+	var wg sync.WaitGroup
+	wg.Add(total)
+	for i := 0; i < total; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			expr := replica
+			if i%2 == 1 {
+				expr = deployment
+			}
+			_, err := ExpandExpr(expr, reg)
+			if err != nil {
+				errCh <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Fatal(err)
 	}
 }
 

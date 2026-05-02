@@ -11,8 +11,36 @@ import (
 	httpapi "github.com/BadLiveware/promshim-clickhouse/internal/promshim/httpapi"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/local"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 )
+
+func TestApplyQueryLimitTruncatesSeriesResults(t *testing.T) {
+	value, apiErr := applyQueryLimit(model.VectorValue{Samples: []model.InstantSample{{}, {}, {}}}, "2")
+	if apiErr != nil {
+		t.Fatalf("unexpected limit error: %v", apiErr)
+	}
+	vector := value.(model.VectorValue)
+	if len(vector.Samples) != 2 {
+		t.Fatalf("vector samples = %d, want 2", len(vector.Samples))
+	}
+
+	value, apiErr = applyQueryLimit(model.MatrixValue{Series: []model.RangeSeries{{}, {}, {}}}, "1")
+	if apiErr != nil {
+		t.Fatalf("unexpected limit error: %v", apiErr)
+	}
+	matrix := value.(model.MatrixValue)
+	if len(matrix.Series) != 1 {
+		t.Fatalf("matrix series = %d, want 1", len(matrix.Series))
+	}
+}
+
+func TestApplyQueryLimitRejectsInvalidLimit(t *testing.T) {
+	_, apiErr := applyQueryLimit(model.VectorValue{}, "-1")
+	if apiErr == nil || apiErr.StatusCode != http.StatusBadRequest || apiErr.ErrorType != "bad_data" {
+		t.Fatalf("apiErr = %#v, want bad_data", apiErr)
+	}
+}
 
 func TestPromotedTagColumnHelpersMergeExplicitAndDiscovered(t *testing.T) {
 	explicit := promotedTagColumnSet([]string{"instance", "pod", "instance"})

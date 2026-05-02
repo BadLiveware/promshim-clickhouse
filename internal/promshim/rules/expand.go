@@ -232,11 +232,11 @@ func (s *expandState) expandRuleExpr(rule RecordingRule, applyOffset bool) (pars
 		if len(s.visiting) >= maxExpansionDepth {
 			return nil, nil, fmt.Errorf("recording rule expansion exceeds maximum depth %d at %q", maxExpansionDepth, rule.Name)
 		}
-		if _, ok := s.visiting[rule.Name]; ok {
-			return nil, nil, fmt.Errorf("recording rule expansion cycle includes %q", rule.Name)
+		if _, ok := s.visiting[key]; ok {
+			return nil, nil, fmt.Errorf("recording rule expansion cycle includes %q", key)
 		}
-		s.visiting[rule.Name] = struct{}{}
-		defer delete(s.visiting, rule.Name)
+		s.visiting[key] = struct{}{}
+		defer delete(s.visiting, key)
 
 		var err error
 		expanded, exps, _, err = s.expand(rule.Expr)

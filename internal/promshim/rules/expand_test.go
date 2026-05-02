@@ -160,6 +160,37 @@ func TestExpandExprDisambiguatesConflictByGroupAndRuleLabels(t *testing.T) {
 	}
 }
 
+func TestExpandExprDisambiguatedRuleNoFalsePositiveCycleDetection(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: g1
+  rules:
+  - record: same:rule
+    expr: same:rule{workload_type="b"}
+    labels:
+      workload_type: a
+- name: g2
+  rules:
+  - record: same:rule
+    expr: up
+    labels:
+      workload_type: b
+`)
+
+	result, err := ExpandExpr(parseExpr(t, `same:rule{workload_type="a"}`), reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Expanded {
+		t.Fatalf("result = %#v, want expanded", result)
+	}
+	if len(result.Expansions) != 2 {
+		t.Fatalf("result = %#v, want two expansions (outer + inner), got %d", result, len(result.Expansions))
+	}
+	if !strings.Contains(result.Expr.String(), `up`) {
+		t.Fatalf("expanded expr = %s, want up", result.Expr)
+	}
+}
+
 func TestExpandExprCachesDisambiguatedConflictingRulesBySignature(t *testing.T) {
 	reg := registryForTest(t, `groups:
 - name: g1

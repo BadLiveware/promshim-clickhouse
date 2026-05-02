@@ -126,6 +126,7 @@ Supported:
 - `/api/v1/query` instant-vector contexts;
 - `/api/v1/query_range` re-evaluation of instant expressions at each step;
 - nested recording-rule references with cycle and depth guards;
+- same-name recording rules distinguished by static labels (group labels and rule labels): selector queries must include matching static label values to select a specific variant;
 - range selectors over virtual rules, such as `my_recording_rule[5m]`, by
   rewriting them to subqueries over the expanded rule expression;
 - subqueries over virtual rules, such as `my_recording_rule[5m:]`;

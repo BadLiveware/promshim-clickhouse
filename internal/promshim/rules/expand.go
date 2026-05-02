@@ -166,25 +166,23 @@ func (s *expandState) expandVectorSelector(sel *parser.VectorSelector) (ruleExpa
 	if name == "" {
 		return ruleExpansion{}, false, nil
 	}
-	if conflicts, ok := s.registry.Conflict(name); ok {
-		return ruleExpansion{}, false, fmt.Errorf("recording rule %q is ambiguous across %d definitions", name, len(conflicts))
-	}
-	rule, ok := s.registry.Lookup(name)
-	if !ok {
-		return ruleExpansion{}, false, nil
-	}
-	staticLabels := mergedLabels(rule)
-	staticLabels["__name__"] = rule.Name
-	if empty, err := selectorStaticMismatch(sel.LabelMatchers, staticLabels); err != nil {
-		return ruleExpansion{}, false, err
-	} else if empty {
-		return ruleExpansion{expr: emptyVectorExpr(), expansions: []Expansion{expansionForRule(rule, nil)}, rule: rule}, true, nil
-	}
-	child, childExps, err := s.expandRuleExpr(rule, sel.Timestamp == nil && sel.StartOrEnd == 0)
+	rule, empty, err := s.selectRecordingRule(name, sel.LabelMatchers)
 	if err != nil {
 		return ruleExpansion{}, false, err
 	}
-	wrapped := wrapRuleExpression(child, rule)
+	if rule == nil {
+		if !empty {
+			return ruleExpansion{}, false, nil
+		}
+		return ruleExpansion{expr: emptyVectorExpr(), expansions: nil, rule: RecordingRule{}}, true, nil
+	}
+	staticLabels := mergedLabels(*rule)
+	staticLabels["__name__"] = rule.Name
+	child, childExps, err := s.expandRuleExpr(*rule, sel.Timestamp == nil && sel.StartOrEnd == 0)
+	if err != nil {
+		return ruleExpansion{}, false, err
+	}
+	wrapped := wrapRuleExpression(child, *rule)
 	wrapped, err = applySelectorMatchers(wrapped, sel.LabelMatchers, staticLabels)
 	if err != nil {
 		return ruleExpansion{}, false, err
@@ -195,8 +193,36 @@ func (s *expandState) expandVectorSelector(sel *parser.VectorSelector) (ruleExpa
 	if rule.QueryOffset != 0 {
 		wrapped = markRuleExpansionBoundary(wrapped)
 	}
-	exps := append(childExps, expansionForRule(rule, childExps))
-	return ruleExpansion{expr: wrapped, expansions: exps, rule: rule}, true, nil
+	exps := append(childExps, expansionForRule(*rule, childExps))
+	return ruleExpansion{expr: wrapped, expansions: exps, rule: *rule}, true, nil
+}
+
+func (s *expandState) selectRecordingRule(name string, matchers []*labels.Matcher) (*RecordingRule, bool, error) {
+	candidates := s.registry.Candidates(name)
+	if len(candidates) == 0 {
+		return nil, false, nil
+	}
+
+	scoped := make([]RecordingRule, 0, len(candidates))
+	for _, candidate := range candidates {
+		staticLabels := mergedLabels(candidate)
+		staticLabels["__name__"] = candidate.Name
+		empty, err := selectorStaticMismatch(matchers, staticLabels)
+		if err != nil {
+			return nil, false, err
+		}
+		if empty {
+			continue
+		}
+		scoped = append(scoped, candidate)
+	}
+	if len(scoped) == 0 {
+		return nil, true, nil
+	}
+	if len(scoped) == 1 {
+		return &scoped[0], false, nil
+	}
+	return nil, false, fmt.Errorf("recording rule %q is ambiguous across %d definitions", name, len(scoped))
 }
 
 func (s *expandState) expandRuleExpr(rule RecordingRule, applyOffset bool) (parser.Expr, []Expansion, error) {

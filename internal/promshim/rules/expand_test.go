@@ -91,6 +91,88 @@ func TestExpandExprRejectsConflictOnlyRegistry(t *testing.T) {
 	}
 }
 
+func TestExpandExprDisambiguatesConflictByStaticRuleLabels(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  rules:
+  - record: same:rule
+    expr: up
+    labels:
+      workload_type: replicaset
+  - record: same:rule
+    expr: sum(up)
+    labels:
+      workload_type: deployment
+`)
+	expr := parseExpr(t, `same:rule{workload_type="deployment"}`)
+
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Expanded || len(result.Expansions) != 1 {
+		t.Fatalf("result = %#v, want one expansion", result)
+	}
+	got := result.Expr.String()
+	if !strings.Contains(got, `sum(up)`) {
+		t.Fatalf("expanded expr = %s, want deployment variant", got)
+	}
+	if !strings.Contains(got, `"deployment"`) {
+		t.Fatalf("expanded expr = %s, want workload_type static label", got)
+	}
+}
+
+func TestExpandExprReturnsEmptyVectorWhenNoStaticLabelMatch(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  rules:
+  - record: same:rule
+    expr: up
+    labels:
+      workload_type: replicaset
+  - record: same:rule
+    expr: sum(up)
+    labels:
+      workload_type: deployment
+`)
+	expr := parseExpr(t, `same:rule{workload_type="daemonset"}`)
+
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Expanded {
+		t.Fatalf("result = %#v, want expanded", result)
+	}
+	if !strings.Contains(result.Expr.String(), `unless`) {
+		t.Fatalf("expanded expr = %s, want empty vector expression", result.Expr)
+	}
+	if len(result.Expansions) != 0 {
+		t.Fatalf("result expansions = %#v, want 0", result.Expansions)
+	}
+}
+
+func TestExpandExprRejectsConflictingRuleWhenStaticLabelsAreNotDisambiguating(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  rules:
+  - record: same:rule
+    expr: up
+    labels:
+      workload_type: replicaset
+  - record: same:rule
+    expr: sum(up)
+    labels:
+      workload_type: deployment
+`)
+	expr := parseExpr(t, `same:rule{job="api"}`)
+
+	_, err := ExpandExpr(expr, reg)
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("err = %v, want ambiguity error", err)
+	}
+}
+
 func TestExpandExprAppliesRegexDynamicMatcher(t *testing.T) {
 	reg := registryForTest(t, `groups:
 - name: dashboard

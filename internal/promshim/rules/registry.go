@@ -83,6 +83,20 @@ func (r *Registry) Lookup(name string) (RecordingRule, bool) {
 	return rule, ok
 }
 
+func (r *Registry) Candidates(name string) []RecordingRule {
+	if r == nil {
+		return nil
+	}
+	if rule, ok := r.byName[name]; ok {
+		return []RecordingRule{rule}
+	}
+	conflict, ok := r.conflicts[name]
+	if !ok {
+		return nil
+	}
+	return append([]RecordingRule(nil), conflict...)
+}
+
 func (r *Registry) Conflict(name string) ([]RecordingRule, bool) {
 	if r == nil {
 		return nil, false
@@ -194,6 +208,11 @@ func (r *Registry) add(rule RecordingRule) {
 		return
 	}
 	if conflict, ok := r.conflicts[rule.Name]; ok {
+		for _, existing := range conflict {
+			if sameRule(existing, rule) {
+				return
+			}
+		}
 		r.conflicts[rule.Name] = append(conflict, rule)
 		return
 	}

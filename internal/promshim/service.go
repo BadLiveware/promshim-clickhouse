@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	httpapi "github.com/BadLiveware/promshim-clickhouse/internal/promshim/httpapi"
@@ -22,16 +23,18 @@ import (
 )
 
 type queryService struct {
-	opts               Options
-	client             *storage.Client
-	evaluator          *local.Evaluator
-	promotedTagColumns map[string]struct{}
-	timeSeriesIDType   string
-	shadow             *shadow.Runner
-	selectorStats      *selectorStatsCache
-	selectorProbeSem   chan struct{}
-	recordingRules     *rules.Registry
-	recordingRuleMode  rules.Mode
+	opts                       Options
+	client                     *storage.Client
+	evaluator                  *local.Evaluator
+	promotedTagColumns         map[string]struct{}
+	timeSeriesIDType           string
+	shadow                     *shadow.Runner
+	selectorStats              *selectorStatsCache
+	selectorProbeSem           chan struct{}
+	recordingRules             atomic.Pointer[rules.Registry]
+	recordingRuleMode          rules.Mode
+	recordingRuleReloadErrors  atomic.Uint64
+	recordingRuleReloadSuccess atomic.Uint64
 }
 
 func (h *queryService) ClickHouseTransport() string {
@@ -158,16 +161,9 @@ func NewHandler(opts Options) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	ruleRegistry := rules.EmptyRegistry()
-	if ruleMode == rules.ModeVirtual && len(opts.RecordingRuleFiles) > 0 {
-		loadedRegistry, err := rules.LoadFiles(opts.RecordingRuleFiles)
-		if err != nil {
-			return nil, err
-		}
-		if len(loadedRegistry.Errors()) > 0 {
-			return nil, fmt.Errorf("loading recording rules: %v", loadedRegistry.Errors())
-		}
-		ruleRegistry = loadedRegistry
+	ruleRegistry, err := loadRecordingRuleRegistry(ruleMode, opts.RecordingRuleFiles)
+	if err != nil {
+		return nil, err
 	}
 	service := &queryService{
 		opts:               opts,
@@ -177,9 +173,10 @@ func NewHandler(opts Options) (http.Handler, error) {
 		timeSeriesIDType:   timeSeriesIDType,
 		selectorStats:      newSelectorStatsCache(5 * time.Minute),
 		selectorProbeSem:   make(chan struct{}, 2),
-		recordingRules:     ruleRegistry,
 		recordingRuleMode:  ruleMode,
 	}
+	service.recordingRules.Store(ruleRegistry)
+	service.startRecordingRuleReloadLoop()
 	service.shadow = shadow.NewRunner(service)
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", service.shadow.MetricsHandler())
@@ -804,11 +801,62 @@ func (h *queryService) entireQueryDelegationForQuery(query string) *local.Delega
 	return &result
 }
 
+func loadRecordingRuleRegistry(mode rules.Mode, patterns []string) (*rules.Registry, error) {
+	if mode != rules.ModeVirtual || len(patterns) == 0 {
+		return rules.EmptyRegistry(), nil
+	}
+	loadedRegistry, err := rules.LoadFiles(patterns)
+	if err != nil {
+		return nil, err
+	}
+	if len(loadedRegistry.Errors()) > 0 {
+		return nil, fmt.Errorf("loading recording rules: %v", loadedRegistry.Errors())
+	}
+	return loadedRegistry, nil
+}
+
+func (h *queryService) currentRecordingRules() *rules.Registry {
+	if h == nil {
+		return nil
+	}
+	return h.recordingRules.Load()
+}
+
+func (h *queryService) reloadRecordingRulesOnce() error {
+	registry, err := loadRecordingRuleRegistry(h.recordingRuleMode, h.opts.RecordingRuleFiles)
+	if err != nil {
+		h.recordingRuleReloadErrors.Add(1)
+		return err
+	}
+	h.recordingRules.Store(registry)
+	h.recordingRuleReloadSuccess.Add(1)
+	return nil
+}
+
+func (h *queryService) startRecordingRuleReloadLoop() {
+	if h.recordingRuleMode != rules.ModeVirtual || len(h.opts.RecordingRuleFiles) == 0 || h.opts.RecordingRuleReloadInterval <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(h.opts.RecordingRuleReloadInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := h.reloadRecordingRulesOnce(); err != nil {
+				log.Printf("promshim: recording rule reload failed; keeping previous registry: %v (failures=%d)", err, h.recordingRuleReloadErrors.Load())
+				continue
+			}
+			registry := h.currentRecordingRules()
+			log.Printf("promshim: recording rule reload succeeded: %d rules (successes=%d)", registry.Len(), h.recordingRuleReloadSuccess.Load())
+		}
+	}()
+}
+
 func (h *queryService) expandRecordingRules(expr parser.Expr) (parser.Expr, []rules.Expansion, *httpapi.APIError) {
-	if h.recordingRuleMode != rules.ModeVirtual || h.recordingRules == nil || h.recordingRules.Len() == 0 {
+	registry := h.currentRecordingRules()
+	if h.recordingRuleMode != rules.ModeVirtual || registry == nil || registry.Len() == 0 {
 		return expr, nil, nil
 	}
-	result, err := rules.ExpandExpr(expr, h.recordingRules)
+	result, err := rules.ExpandExpr(expr, registry)
 	if err != nil {
 		return nil, nil, local.BadRequestHTTPError(err.Error())
 	}

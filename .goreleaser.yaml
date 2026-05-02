@@ -21,11 +21,26 @@ builds:
       - arm64
     ldflags:
       - -s -w -X main.version={{ .Version }} -X main.commit={{ .Commit }} -X main.date={{ .Date }}
+  - id: promshim-rule-syncer
+    main: ./cmd/promshim-rule-syncer
+    binary: promshim-rule-syncer
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .Commit }} -X main.date={{ .Date }}
 
 archives:
   - id: promshim
     ids:
       - promshim
+      - promshim-rule-syncer
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
@@ -67,6 +82,28 @@ dockers_v2:
       org.opencontainers.image.source: https://github.com/BadLiveware/promshim-clickhouse
       org.opencontainers.image.created: '{{ .Date }}'
       org.opencontainers.image.name: '{{ .ProjectName }}'
+      org.opencontainers.image.revision: '{{ .Commit }}'
+      org.opencontainers.image.version: '{{ .Version }}'
+  - id: promshim-rule-syncer
+    dockerfile: Dockerfile.rule-syncer.release
+    ids:
+      - promshim-rule-syncer
+    images:
+      - ghcr.io/badliveware/promshim-clickhouse-rule-syncer
+    tags:
+      - '{{ .Tag }}'
+      - latest
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    sbom: false
+    labels:
+      org.opencontainers.image.title: promshim-rule-syncer
+      org.opencontainers.image.description: PrometheusRule CRD sidecar syncer for promshim-clickhouse
+      org.opencontainers.image.licenses: Apache-2.0
+      org.opencontainers.image.source: https://github.com/BadLiveware/promshim-clickhouse
+      org.opencontainers.image.created: '{{ .Date }}'
+      org.opencontainers.image.name: promshim-rule-syncer
       org.opencontainers.image.revision: '{{ .Commit }}'
       org.opencontainers.image.version: '{{ .Version }}'
 

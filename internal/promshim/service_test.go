@@ -15,6 +15,7 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/rules"
 )
 
 func TestApplyQueryLimitTruncatesSeriesResults(t *testing.T) {
@@ -108,6 +109,88 @@ func TestQueryExplainExpandsVirtualRecordingRule(t *testing.T) {
 	}
 	if !strings.Contains(body.Data.Plan.Expr, "http_requests_total") {
 		t.Fatalf("plan expr = %q, want expanded rule expression", body.Data.Plan.Expr)
+	}
+}
+
+func TestReloadRecordingRulesSwapsValidRegistry(t *testing.T) {
+	ruleFile := writeServiceRulesFile(t, `groups:
+- name: dashboard
+  rules:
+  - record: demo:recorded
+    expr: vector(1)
+`)
+	registry, err := loadRecordingRuleRegistry(rules.ModeVirtual, []string{ruleFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &queryService{recordingRuleMode: rules.ModeVirtual, opts: Options{RecordingRuleFiles: []string{ruleFile}}}
+	service.recordingRules.Store(registry)
+
+	if err := os.WriteFile(ruleFile, []byte(`groups:
+- name: dashboard
+  rules:
+  - record: demo:recorded
+    expr: vector(2)
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.reloadRecordingRulesOnce(); err != nil {
+		t.Fatal(err)
+	}
+	expr, err := logical.ParseExpression("demo:recorded")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expanded, expansions, apiErr := service.expandRecordingRules(expr)
+	if apiErr != nil {
+		t.Fatal(apiErr)
+	}
+	if len(expansions) != 1 || !strings.Contains(expanded.String(), "vector(2)") {
+		t.Fatalf("expanded=%s expansions=%#v", expanded.String(), expansions)
+	}
+	if service.recordingRuleReloadSuccess.Load() != 1 || service.recordingRuleReloadErrors.Load() != 0 {
+		t.Fatalf("success=%d errors=%d", service.recordingRuleReloadSuccess.Load(), service.recordingRuleReloadErrors.Load())
+	}
+}
+
+func TestReloadRecordingRulesKeepsLastGoodOnInvalidFile(t *testing.T) {
+	ruleFile := writeServiceRulesFile(t, `groups:
+- name: dashboard
+  rules:
+  - record: demo:recorded
+    expr: vector(1)
+`)
+	registry, err := loadRecordingRuleRegistry(rules.ModeVirtual, []string{ruleFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &queryService{recordingRuleMode: rules.ModeVirtual, opts: Options{RecordingRuleFiles: []string{ruleFile}}}
+	service.recordingRules.Store(registry)
+
+	if err := os.WriteFile(ruleFile, []byte(`groups:
+- name: dashboard
+  rules:
+  - record: demo:recorded
+    expr: sum(
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.reloadRecordingRulesOnce(); err == nil {
+		t.Fatal("expected invalid reload to fail")
+	}
+	expr, err := logical.ParseExpression("demo:recorded")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expanded, expansions, apiErr := service.expandRecordingRules(expr)
+	if apiErr != nil {
+		t.Fatal(apiErr)
+	}
+	if len(expansions) != 1 || !strings.Contains(expanded.String(), "vector(1)") {
+		t.Fatalf("expanded=%s expansions=%#v", expanded.String(), expansions)
+	}
+	if service.recordingRuleReloadSuccess.Load() != 0 || service.recordingRuleReloadErrors.Load() != 1 {
+		t.Fatalf("success=%d errors=%d", service.recordingRuleReloadSuccess.Load(), service.recordingRuleReloadErrors.Load())
 	}
 }
 

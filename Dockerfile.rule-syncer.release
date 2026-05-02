@@ -1,0 +1,15 @@
+# syntax=docker/dockerfile:1
+
+FROM gcr.io/distroless/static-debian12:nonroot AS runtime
+
+ARG TARGETPLATFORM
+
+LABEL org.opencontainers.image.title="promshim-rule-syncer"
+LABEL org.opencontainers.image.description="PrometheusRule CRD sidecar syncer for promshim-clickhouse"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.source="https://github.com/BadLiveware/promshim-clickhouse"
+
+COPY --link ${TARGETPLATFORM}/promshim-rule-syncer /usr/local/bin/promshim-rule-syncer
+
+USER nonroot:nonroot
+ENTRYPOINT ["/usr/local/bin/promshim-rule-syncer"]

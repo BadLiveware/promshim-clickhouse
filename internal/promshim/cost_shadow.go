@@ -24,7 +24,7 @@ func (h *queryService) runCostShadowInstant(ctx context.Context, req httpapi.Ins
 	alternateReq := req
 	alternateReq.NativeLoweringMode = candidateNativeMode(candidate)
 	start := time.Now()
-	_, evaluationTime, plan, analysis, apiErr := h.buildInstantPlan(alternateReq)
+	_, evaluationTime, plan, analysis, _, apiErr := h.buildInstantPlan(alternateReq)
 	if apiErr != nil {
 		status := "plan_error"
 		routingmetrics.ObserveShadowRun(routing.Class.Family, routing.StrictStrategy, candidate.Strategy, status)
@@ -59,7 +59,7 @@ func (h *queryService) runCostShadowRange(ctx context.Context, req httpapi.Range
 	alternateReq := req
 	alternateReq.NativeLoweringMode = candidateNativeMode(candidate)
 	start := time.Now()
-	_, rangeStart, rangeEnd, step, plan, analysis, apiErr := h.buildRangePlan(ctx, alternateReq, false)
+	_, rangeStart, rangeEnd, step, plan, analysis, _, apiErr := h.buildRangePlan(ctx, alternateReq, false)
 	if apiErr != nil {
 		status := "plan_error"
 		routingmetrics.ObserveShadowRun(routing.Class.Family, routing.StrictStrategy, candidate.Strategy, status)

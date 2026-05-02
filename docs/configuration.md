@@ -35,6 +35,9 @@
 | `PROM_SHIM_NATIVE_LOWERING_MODE` | `prefer` | Global lowering mode; see execution modes above. |
 | `PROM_SHIM_ROUTING_POLICY` | `strict` | Global cost-routing policy; see cost routing policies above. |
 | `PROM_SHIM_ALLOW_REQUEST_ROUTING_OVERRIDES` | `false` | Allows per-request `native_lowering_mode` and `routing_policy` overrides. Keep disabled on shared production endpoints; enable only for trusted benchmark/debug clients. |
+| `PROM_SHIM_RECORDING_RULE_MODE` | `off` | Recording-rule compatibility mode. `off` ignores configured rule files. `virtual` expands configured recording-rule metric names just in time for instant-vector query contexts, including `/api/v1/query_range` evaluations of instant expressions. |
+| `PROM_SHIM_RECORDING_RULE_FILES` | empty | Comma-separated rendered Prometheus rule YAML files or glob patterns to load when `PROM_SHIM_RECORDING_RULE_MODE=virtual`. Alerting rules are ignored; conflicting recording-rule definitions are rejected at query time. |
+| `PROM_SHIM_RECORDING_RULE_RELOAD_INTERVAL_SECONDS` | `30` | Reserved reload interval for recording-rule files. The current implementation loads files at startup. |
 | `PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES` | empty | Comma-separated family gates eligible for `cost_prefer` local overrides, e.g. `selector_instant,rate_instant`. |
 | `PROM_SHIM_DISABLE_OPTIMIZED_IR` | unset / false | Rollback/differential-testing gate that disables logical IR rewrite passes while preserving baseline planning. |
 | `PROM_SHIM_DISABLE_NATIVE_AGGREGATION_LABEL_PROJECTION` | unset / false | Rollback/differential-testing gate that disables native `by(...)` aggregation child label projection and restores full selector tag materialization. |

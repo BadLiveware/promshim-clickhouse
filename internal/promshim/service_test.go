@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +66,58 @@ func TestPromotedTagColumnHelpersIgnoreEmptyNames(t *testing.T) {
 	if _, ok := got["instance"]; !ok {
 		t.Fatalf("expected instance in promoted tag columns: %#v", got)
 	}
+}
+
+func TestQueryExplainExpandsVirtualRecordingRule(t *testing.T) {
+	ruleFile := writeServiceRulesFile(t, `groups:
+- name: dashboard
+  labels:
+    source: rules
+  rules:
+  - record: job:http_requests:rate5m
+    expr: sum by (job) (rate(http_requests_total[5m]))
+    labels:
+      team: edge
+`)
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=job:http_requests:rate5m%7Bjob%3D%22api%22,source%3D%22rules%22%7D&time=300", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Data struct {
+			RecordingRules []struct {
+				Record string `json:"record"`
+				Mode   string `json:"mode"`
+			} `json:"recordingRules"`
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Data.RecordingRules) != 1 || body.Data.RecordingRules[0].Record != "job:http_requests:rate5m" || body.Data.RecordingRules[0].Mode != "instant_virtual" {
+		t.Fatalf("recordingRules = %#v", body.Data.RecordingRules)
+	}
+	if !strings.Contains(body.Data.Plan.Expr, "http_requests_total") {
+		t.Fatalf("plan expr = %q, want expanded rule expression", body.Data.Plan.Expr)
+	}
+}
+
+func writeServiceRulesFile(t *testing.T, content string) string {
+	t.Helper()
+	path := t.TempDir() + "/rules.yaml"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestQueryExplainReturnsDelegatedWholeQueryPlanWhenClassifierAllowsIt(t *testing.T) {
@@ -439,7 +492,7 @@ func TestBuildRangePlanForceSupportedAllowsChunkedNativeRoot(t *testing.T) {
 		NativeRangePreflightMaxMemoryUsage: local.DefaultNativeRangePreflightMaxMemoryUsage,
 	}}
 
-	_, _, _, _, plan, analysis, apiErr := service.buildRangePlan(context.Background(), httpapi.RangeQueryRequest{
+	_, _, _, _, plan, analysis, _, apiErr := service.buildRangePlan(context.Background(), httpapi.RangeQueryRequest{
 		Query: "avg_over_time(demo_memory_usage_bytes[1m])",
 		Start: "2026-04-21T21:35:42Z",
 		End:   "2026-04-21T21:45:42Z",
@@ -1735,7 +1788,7 @@ func TestDedicatedExplainShadowModeShowsServedLocalPlan(t *testing.T) {
 func TestSelectInstantPlanForRoutingRebuildsLocalOverride(t *testing.T) {
 	service := &queryService{opts: Options{Database: "observability", Table: "prometheus", ClickHouseVersion: "26.3", DisableEntireQueryDelegation: true, AllowRequestRoutingOverrides: true}}
 	req := httpapi.InstantQueryRequest{Query: "up", Time: "300", NativeLoweringMode: string(local.NativeLoweringModeForceSupported)}
-	_, _, plan, analysis, apiErr := service.buildInstantPlan(req)
+	_, _, plan, analysis, _, apiErr := service.buildInstantPlan(req)
 	if apiErr != nil {
 		t.Fatalf("buildInstantPlan: %v", apiErr)
 	}

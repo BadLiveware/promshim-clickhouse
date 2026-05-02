@@ -13,7 +13,7 @@ func (h *queryService) EvaluateInstantShadow(ctx context.Context, req httpapi.In
 	shadowReq := req
 	shadowReq.NativeLoweringMode = string(local.NativeLoweringModePrefer)
 	planStart := time.Now()
-	_, evaluationTime, plan, _, apiErr := h.buildInstantPlan(shadowReq)
+	_, evaluationTime, plan, _, _, apiErr := h.buildInstantPlan(shadowReq)
 	planDuration := time.Since(planStart)
 	if apiErr != nil {
 		return shadow.InstantResult{PlanDuration: planDuration, PlanError: apiErr}
@@ -32,7 +32,7 @@ func (h *queryService) EvaluateRangeShadow(ctx context.Context, req httpapi.Rang
 	shadowReq := req
 	shadowReq.NativeLoweringMode = string(local.NativeLoweringModePrefer)
 	planStart := time.Now()
-	_, start, end, step, plan, _, apiErr := h.buildRangePlan(ctx, shadowReq, false)
+	_, start, end, step, plan, _, _, apiErr := h.buildRangePlan(ctx, shadowReq, false)
 	planDuration := time.Since(planStart)
 	if apiErr != nil {
 		return shadow.RangeResult{PlanDuration: planDuration, PlanError: apiErr}

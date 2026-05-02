@@ -15,6 +15,7 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/rules"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/shadow"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -29,6 +30,8 @@ type queryService struct {
 	shadow             *shadow.Runner
 	selectorStats      *selectorStatsCache
 	selectorProbeSem   chan struct{}
+	recordingRules     *rules.Registry
+	recordingRuleMode  rules.Mode
 }
 
 func (h *queryService) ClickHouseTransport() string {
@@ -151,6 +154,21 @@ func NewHandler(opts Options) (http.Handler, error) {
 	} else if timeSeriesIDType != "" {
 		log.Printf("promshim: TimeSeries id column type: %s", timeSeriesIDType)
 	}
+	ruleMode, err := rules.ParseMode(opts.RecordingRuleMode)
+	if err != nil {
+		return nil, err
+	}
+	ruleRegistry := rules.EmptyRegistry()
+	if ruleMode == rules.ModeVirtual && len(opts.RecordingRuleFiles) > 0 {
+		loadedRegistry, err := rules.LoadFiles(opts.RecordingRuleFiles)
+		if err != nil {
+			return nil, err
+		}
+		if len(loadedRegistry.Errors()) > 0 {
+			return nil, fmt.Errorf("loading recording rules: %v", loadedRegistry.Errors())
+		}
+		ruleRegistry = loadedRegistry
+	}
 	service := &queryService{
 		opts:               opts,
 		client:             client,
@@ -159,6 +177,8 @@ func NewHandler(opts Options) (http.Handler, error) {
 		timeSeriesIDType:   timeSeriesIDType,
 		selectorStats:      newSelectorStatsCache(5 * time.Minute),
 		selectorProbeSem:   make(chan struct{}, 2),
+		recordingRules:     ruleRegistry,
+		recordingRuleMode:  ruleMode,
 	}
 	service.shadow = shadow.NewRunner(service)
 	mux := http.NewServeMux()
@@ -184,7 +204,8 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 	if mode == local.NativeLoweringModeShadow {
 		return h.instantQueryShadow(ctx, req)
 	}
-	query, evaluationTime, plan, analysis, apiErr := h.buildInstantPlan(req)
+	query, evaluationTime, plan, analysis, recordingExpansions, apiErr := h.buildInstantPlan(req)
+	_ = recordingExpansions
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -249,7 +270,8 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 	if mode == local.NativeLoweringModeShadow {
 		return h.rangeQueryShadow(ctx, req)
 	}
-	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(ctx, req, true)
+	query, start, end, step, plan, analysis, recordingExpansions, apiErr := h.buildRangePlan(ctx, req, true)
+	_ = recordingExpansions
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -301,7 +323,8 @@ func (h *queryService) instantQueryShadow(ctx context.Context, req httpapi.Insta
 	servedReq := req
 	servedReq.NativeLoweringMode = string(local.NativeLoweringModeOff)
 	planStart := time.Now()
-	query, evaluationTime, plan, analysis, apiErr := h.buildInstantPlan(servedReq)
+	query, evaluationTime, plan, analysis, recordingExpansions, apiErr := h.buildInstantPlan(servedReq)
+	_ = recordingExpansions
 	servedPlanDuration := time.Since(planStart)
 	if apiErr != nil {
 		return nil, apiErr
@@ -350,7 +373,8 @@ func (h *queryService) rangeQueryShadow(ctx context.Context, req httpapi.RangeQu
 	servedReq := req
 	servedReq.NativeLoweringMode = string(local.NativeLoweringModeOff)
 	planStart := time.Now()
-	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(ctx, servedReq, false)
+	query, start, end, step, plan, analysis, recordingExpansions, apiErr := h.buildRangePlan(ctx, servedReq, false)
+	_ = recordingExpansions
 	servedPlanDuration := time.Since(planStart)
 	if apiErr != nil {
 		return nil, apiErr
@@ -408,7 +432,7 @@ func (h *queryService) ExplainInstant(_ context.Context, req httpapi.InstantQuer
 	if mode == local.NativeLoweringModeShadow {
 		planReq.NativeLoweringMode = string(local.NativeLoweringModeOff)
 	}
-	query, evaluationTime, plan, analysis, apiErr := h.buildInstantPlan(planReq)
+	query, evaluationTime, plan, analysis, recordingExpansions, apiErr := h.buildInstantPlan(planReq)
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -424,6 +448,7 @@ func (h *queryService) ExplainInstant(_ context.Context, req httpapi.InstantQuer
 			"clickHouseTransport":       h.ClickHouseTransport(),
 			"clickHouseSettingsProfile": settingsProfile,
 			"entireQueryDelegation":     h.entireQueryDelegationForQuery(query),
+			"recordingRules":            recordingExpansions,
 			"query":                     query,
 			"evaluationTime":            evaluationTime.UTC().Format(time.RFC3339Nano),
 			"plan":                      explain,
@@ -445,7 +470,7 @@ func (h *queryService) ExplainRange(ctx context.Context, req httpapi.RangeQueryR
 	if mode == local.NativeLoweringModeShadow {
 		planReq.NativeLoweringMode = string(local.NativeLoweringModeOff)
 	}
-	query, start, end, step, plan, analysis, apiErr := h.buildRangePlan(ctx, planReq, true)
+	query, start, end, step, plan, analysis, recordingExpansions, apiErr := h.buildRangePlan(ctx, planReq, true)
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -461,6 +486,7 @@ func (h *queryService) ExplainRange(ctx context.Context, req httpapi.RangeQueryR
 			"clickHouseTransport":       h.ClickHouseTransport(),
 			"clickHouseSettingsProfile": settingsProfile,
 			"entireQueryDelegation":     h.entireQueryDelegationForQuery(query),
+			"recordingRules":            recordingExpansions,
 			"query":                     query,
 			"start":                     start.UTC().Format(time.RFC3339Nano),
 			"end":                       end.UTC().Format(time.RFC3339Nano),
@@ -707,7 +733,7 @@ func (h *queryService) selectInstantPlanForRouting(req httpapi.InstantQueryReque
 	}
 	candidateReq := req
 	candidateReq.NativeLoweringMode = selectedMode
-	_, _, candidatePlan, candidateAnalysis, candidateErr := h.buildInstantPlan(candidateReq)
+	_, _, candidatePlan, candidateAnalysis, _, candidateErr := h.buildInstantPlan(candidateReq)
 	if candidateErr != nil {
 		routing.Decision = "strict_low_confidence"
 		routing.Reason = "local_plan_error"
@@ -734,7 +760,7 @@ func (h *queryService) selectRangePlanForRouting(ctx context.Context, req httpap
 	}
 	candidateReq := req
 	candidateReq.NativeLoweringMode = selectedMode
-	_, _, _, _, candidatePlan, candidateAnalysis, candidateErr := h.buildRangePlan(ctx, candidateReq, false)
+	_, _, _, _, candidatePlan, candidateAnalysis, _, candidateErr := h.buildRangePlan(ctx, candidateReq, false)
 	if candidateErr != nil {
 		routing.Decision = "strict_low_confidence"
 		routing.Reason = "local_plan_error"
@@ -778,25 +804,40 @@ func (h *queryService) entireQueryDelegationForQuery(query string) *local.Delega
 	return &result
 }
 
-func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string, time.Time, local.Plan, *nativeplan.Analysis, *httpapi.APIError) {
+func (h *queryService) expandRecordingRules(expr parser.Expr) (parser.Expr, []rules.Expansion, *httpapi.APIError) {
+	if h.recordingRuleMode != rules.ModeVirtual || h.recordingRules == nil || h.recordingRules.Len() == 0 {
+		return expr, nil, nil
+	}
+	result, err := rules.ExpandExpr(expr, h.recordingRules)
+	if err != nil {
+		return nil, nil, local.BadRequestHTTPError(err.Error())
+	}
+	return result.Expr, result.Expansions, nil
+}
+
+func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string, time.Time, local.Plan, *nativeplan.Analysis, []rules.Expansion, *httpapi.APIError) {
 	query := req.Query
 	if query == "" {
-		return "", time.Time{}, nil, nil, local.BadRequestHTTPError("missing required parameter 'query'")
+		return "", time.Time{}, nil, nil, nil, local.BadRequestHTTPError("missing required parameter 'query'")
 	}
 	expr, err := logical.ParseExpression(query)
 	if err != nil {
-		return "", time.Time{}, nil, nil, local.BadRequestHTTPError(err.Error())
+		return "", time.Time{}, nil, nil, nil, local.BadRequestHTTPError(err.Error())
+	}
+	expr, recordingExpansions, apiErr := h.expandRecordingRules(expr)
+	if apiErr != nil {
+		return "", time.Time{}, nil, nil, nil, apiErr
 	}
 	evaluationTime := time.Now().UTC()
 	if req.Time != "" {
 		evaluationTime, err = model.ParsePrometheusTimestamp(req.Time)
 		if err != nil {
-			return "", time.Time{}, nil, nil, local.BadRequestHTTPError(err.Error())
+			return "", time.Time{}, nil, nil, nil, local.BadRequestHTTPError(err.Error())
 		}
 	}
 	mode, apiErr := h.nativeLoweringModeForRequest(req.NativeLoweringMode)
 	if apiErr != nil {
-		return "", time.Time{}, nil, nil, apiErr
+		return "", time.Time{}, nil, nil, nil, apiErr
 	}
 	ctx := local.PlanContext{Mode: local.EvalModeInstant, EvaluationTime: evaluationTime, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries}
 	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion)
@@ -805,56 +846,60 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !mode.ForcesLocalRoot() && !h.opts.DisableEntireQueryDelegation {
 		queryPlan, analysis, err = local.BuildEntireQueryDelegatedPlan(expr)
 		if err != nil {
-			return "", time.Time{}, nil, nil, local.ApiErrorToHTTP(err)
+			return "", time.Time{}, nil, nil, nil, local.ApiErrorToHTTP(err)
 		}
 	} else {
 		queryPlan, analysis, err = local.BuildPlanWithContextAndAnalysis(expr, ctx)
 		if err != nil {
-			return "", time.Time{}, nil, nil, local.ApiErrorToHTTP(err)
+			return "", time.Time{}, nil, nil, nil, local.ApiErrorToHTTP(err)
 		}
 	}
 	if mode.ForcesNativeRoot() {
 		explain := local.ExplainPlan(queryPlan)
 		if !nativeSQLRootStrategy(explain.Strategy) {
-			return "", time.Time{}, nil, nil, local.ApiErrorToHTTP(local.NewUnsupportedErrorf("native lowering mode %q requires a native_sql root plan for %q, got %s", mode, query, explain.Strategy))
+			return "", time.Time{}, nil, nil, nil, local.ApiErrorToHTTP(local.NewUnsupportedErrorf("native lowering mode %q requires a native_sql root plan for %q, got %s", mode, query, explain.Strategy))
 		}
 	}
-	return query, evaluationTime, queryPlan, analysis, nil
+	return query, evaluationTime, queryPlan, analysis, recordingExpansions, nil
 }
 
-func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQueryRequest, applyPreflight bool) (string, time.Time, time.Time, time.Duration, local.Plan, *nativeplan.Analysis, *httpapi.APIError) {
+func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQueryRequest, applyPreflight bool) (string, time.Time, time.Time, time.Duration, local.Plan, *nativeplan.Analysis, []rules.Expansion, *httpapi.APIError) {
 	query := req.Query
 	if query == "" {
-		return "", time.Time{}, time.Time{}, 0, nil, nil, local.BadRequestHTTPError("missing required parameter 'query'")
+		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, local.BadRequestHTTPError("missing required parameter 'query'")
 	}
 	expr, err := logical.ParseExpression(query)
 	if err != nil {
-		return "", time.Time{}, time.Time{}, 0, nil, nil, local.BadRequestHTTPError(err.Error())
+		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, local.BadRequestHTTPError(err.Error())
+	}
+	expr, recordingExpansions, apiErr := h.expandRecordingRules(expr)
+	if apiErr != nil {
+		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, apiErr
 	}
 	if expr.Type() != parser.ValueTypeScalar && expr.Type() != parser.ValueTypeVector {
-		return "", time.Time{}, time.Time{}, 0, nil, nil, local.BadRequestHTTPError(fmt.Sprintf("invalid expression type %q for range query, must be scalar or instant vector", expr.Type()))
+		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, local.BadRequestHTTPError(fmt.Sprintf("invalid expression type %q for range query, must be scalar or instant vector", expr.Type()))
 	}
 	start, err := model.ParsePrometheusTimestamp(req.Start)
 	if err != nil {
-		return "", time.Time{}, time.Time{}, 0, nil, nil, local.BadRequestHTTPError(err.Error())
+		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, local.BadRequestHTTPError(err.Error())
 	}
 	end, err := model.ParsePrometheusTimestamp(req.End)
 	if err != nil {
-		return "", time.Time{}, time.Time{}, 0, nil, nil, local.BadRequestHTTPError(err.Error())
+		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, local.BadRequestHTTPError(err.Error())
 	}
 	if end.Before(start) {
-		return "", time.Time{}, time.Time{}, 0, nil, nil, local.BadRequestHTTPError("end must be greater than or equal to start")
+		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, local.BadRequestHTTPError("end must be greater than or equal to start")
 	}
 	step, err := model.ParsePrometheusDuration(req.Step)
 	if err != nil {
-		return "", time.Time{}, time.Time{}, 0, nil, nil, local.BadRequestHTTPError(err.Error())
+		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, local.BadRequestHTTPError(err.Error())
 	}
 	if step <= 0 {
-		return "", time.Time{}, time.Time{}, 0, nil, nil, local.BadRequestHTTPError("step must be greater than zero")
+		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, local.BadRequestHTTPError("step must be greater than zero")
 	}
 	mode, apiErr := h.nativeLoweringModeForRequest(req.NativeLoweringMode)
 	if apiErr != nil {
-		return "", time.Time{}, time.Time{}, 0, nil, nil, apiErr
+		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, apiErr
 	}
 	planCtx := local.PlanContext{Mode: local.EvalModeRange, Start: start, End: end, Step: step, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries, NativeRangeChunkPointsPerSeries: h.opts.NativeRangeChunkPointsPerSeries, NativeRangeChunkMaxDuration: h.opts.NativeRangeChunkMaxDuration, NativeRangeChunkMaxChunks: h.opts.NativeRangeChunkMaxChunks, NativeRangePreflightSeriesThreshold: h.opts.NativeRangePreflightSeriesThreshold, NativeRangePreflightTimeout: h.opts.NativeRangePreflightTimeout, NativeRangePreflightMaxMemoryUsage: h.opts.NativeRangePreflightMaxMemoryUsage}
 	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion)
@@ -863,12 +908,12 @@ func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQuer
 	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !mode.ForcesLocalRoot() && !h.opts.DisableEntireQueryDelegation {
 		queryPlan, analysis, err = local.BuildEntireQueryDelegatedPlan(expr)
 		if err != nil {
-			return "", time.Time{}, time.Time{}, 0, nil, nil, local.ApiErrorToHTTP(err)
+			return "", time.Time{}, time.Time{}, 0, nil, nil, nil, local.ApiErrorToHTTP(err)
 		}
 	} else {
 		queryPlan, analysis, err = local.BuildPlanWithContextAndAnalysis(expr, planCtx)
 		if err != nil {
-			return "", time.Time{}, time.Time{}, 0, nil, nil, local.ApiErrorToHTTP(err)
+			return "", time.Time{}, time.Time{}, 0, nil, nil, nil, local.ApiErrorToHTTP(err)
 		}
 	}
 	if applyPreflight {
@@ -877,10 +922,10 @@ func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQuer
 	if mode.ForcesNativeRoot() {
 		explain := local.ExplainPlan(queryPlan)
 		if !nativeSQLRootStrategy(explain.Strategy) {
-			return "", time.Time{}, time.Time{}, 0, nil, nil, local.ApiErrorToHTTP(local.NewUnsupportedErrorf("native lowering mode %q requires a native_sql root plan for %q, got %s", mode, query, explain.Strategy))
+			return "", time.Time{}, time.Time{}, 0, nil, nil, nil, local.ApiErrorToHTTP(local.NewUnsupportedErrorf("native lowering mode %q requires a native_sql root plan for %q, got %s", mode, query, explain.Strategy))
 		}
 	}
-	return query, start, end, step, queryPlan, analysis, nil
+	return query, start, end, step, queryPlan, analysis, recordingExpansions, nil
 }
 
 func nativeSQLRootStrategy(strategy string) bool {

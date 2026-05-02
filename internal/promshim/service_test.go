@@ -214,6 +214,61 @@ func TestReloadRecordingRulesKeepsLastGoodOnInvalidFile(t *testing.T) {
 	}
 }
 
+func TestRecordingRuleMetadataLabelValuesResolvesStaticLabelsAcrossConflicts(t *testing.T) {
+	path := writeServiceRulesFile(t, `groups:
+- name: dashboard
+  rules:
+  - record: namespace_workload_pod:kube_pod_owner:relabel
+    expr: sum(up)
+    labels:
+      namespace: ns-a
+      owner: workload-a
+      source: rules-a
+  - record: namespace_workload_pod:kube_pod_owner:relabel
+    expr: sum(up)
+    labels:
+      namespace: ns-b
+      owner: workload-b
+      source: rules-b
+`)
+	rulesRegistry, err := loadRecordingRuleRegistry(rules.ModeVirtual, []string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &queryService{recordingRuleMode: rules.ModeVirtual, opts: Options{}}
+	service.recordingRules.Store(rulesRegistry)
+
+	sel, apiErr := parseRecordingRuleMetadataSelectors([]string{"namespace_workload_pod:kube_pod_owner:relabel"})
+	if apiErr != nil {
+		t.Fatal(apiErr)
+	}
+	namespaces := service.recordingRuleLabelValues("namespace", sel)
+	if len(namespaces) != 2 {
+		t.Fatalf("namespaces = %#v, want two values", namespaces)
+	}
+	if namespaces[0] != "ns-a" || namespaces[1] != "ns-b" {
+		t.Fatalf("namespaces = %#v, want [ns-a ns-b]", namespaces)
+	}
+
+	sel, apiErr = parseRecordingRuleMetadataSelectors([]string{"namespace_workload_pod:kube_pod_owner:relabel{source=\"rules-b\"}"})
+	if apiErr != nil {
+		t.Fatal(apiErr)
+	}
+	filtered := service.recordingRuleLabelValues("namespace", sel)
+	if len(filtered) != 1 || filtered[0] != "ns-b" {
+		t.Fatalf("filtered namespaces = %#v, want [ns-b]", filtered)
+	}
+
+	all := service.recordingRuleLabelValues("namespace", nil)
+	if len(all) != 2 {
+		t.Fatalf("all selectors namespaces = %#v, want two values", all)
+	}
+
+	if _, bad := parseRecordingRuleMetadataSelectors([]string{"up + 1"}); bad == nil {
+		t.Fatalf("expected selector parse error")
+	}
+}
+
 func TestQueryRangeExplainExpandsVirtualRecordingRuleRangeSelector(t *testing.T) {
 	ruleFile := writeServiceRulesFile(t, `groups:
 - name: dashboard

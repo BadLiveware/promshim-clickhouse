@@ -141,6 +141,29 @@ func TestLoadFilesDetectsConflictingRecords(t *testing.T) {
 	}
 }
 
+func TestAllRulesReturnsAllVariants(t *testing.T) {
+	path := writeRulesFile(t, `groups:
+- name: dashboard
+  rules:
+  - record: same:rule
+    expr: up
+  - record: same:rule
+    expr: process_start_time_seconds
+`)
+
+	reg, err := LoadFiles([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Errors()) != 0 {
+		t.Fatalf("unexpected load errors: %v", reg.Errors())
+	}
+	rules := reg.AllRules()
+	if len(rules) != 2 {
+		t.Fatalf("AllRules() = %d, want 2", len(rules))
+	}
+}
+
 func TestLoadFilesReportsInvalidRules(t *testing.T) {
 	path := writeRulesFile(t, `groups:
 - name: dashboard

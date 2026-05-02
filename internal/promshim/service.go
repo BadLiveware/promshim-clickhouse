@@ -21,6 +21,7 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/rules"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/shadow"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -536,6 +537,15 @@ func (h *queryService) LabelValues(ctx context.Context, req httpapi.LabelValuesR
 	if apiErr != nil {
 		return nil, apiErr
 	}
+
+	var selectorMetadata []recordingRuleSelector
+	if h.recordingRuleMode == rules.ModeVirtual {
+		selectorMetadata, apiErr = parseRecordingRuleMetadataSelectors(req.Matchers)
+		if apiErr != nil {
+			return nil, apiErr
+		}
+	}
+
 	sql, params, err := storage.BuildLabelValuesQuery(h.queryConfig(), httpReq, req.Name)
 	if err != nil {
 		return nil, local.BadRequestHTTPError(err.Error())
@@ -557,6 +567,11 @@ func (h *queryService) LabelValues(ctx context.Context, req httpapi.LabelValuesR
 		if decErr != nil {
 			return nil, local.ApiErrorPtr(local.ToHTTPAPIError(*decErr))
 		}
+	}
+
+	virtualValues := h.recordingRuleLabelValues(req.Name, selectorMetadata)
+	if len(virtualValues) > 0 {
+		values = mergeMetadataValues(values, virtualValues)
 	}
 	if err := enforceMetadataItemLimit("label values", int64(len(values)), h.opts.MaxMetadataItems); err != nil {
 		return nil, local.ApiErrorToHTTP(err)
@@ -595,6 +610,130 @@ func (h *queryService) Series(ctx context.Context, req httpapi.MetadataRequest) 
 		return nil, local.ApiErrorToHTTP(err)
 	}
 	return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{"status": "success", "data": rows}}, nil
+}
+
+type recordingRuleSelector struct {
+	metricName string
+	matchers   []*labels.Matcher
+}
+
+func (h *queryService) recordingRuleLabelValues(name string, selectors []recordingRuleSelector) []string {
+	if h.recordingRuleMode != rules.ModeVirtual {
+		return nil
+	}
+	registry := h.currentRecordingRules()
+	if registry == nil || registry.Empty() {
+		return nil
+	}
+	if len(selectors) == 0 {
+		selectors = []recordingRuleSelector{{}}
+	}
+	seen := make(map[string]struct{})
+	for _, selector := range selectors {
+		candidates := registry.AllRules()
+		if selector.metricName != "" {
+			candidates = registry.Candidates(selector.metricName)
+		}
+		for _, rule := range candidates {
+			if !recordingRuleSelectorMatches(rule, selector.matchers) {
+				continue
+			}
+			if name == "__name__" {
+				seen[rule.Name] = struct{}{}
+				continue
+			}
+			if value, ok := mergedRuleLabels(rule)[name]; ok {
+				seen[value] = struct{}{}
+			}
+		}
+	}
+	values := make([]string, 0, len(seen))
+	for value := range seen {
+		values = append(values, value)
+	}
+	sort.Strings(values)
+	return values
+}
+
+func mergeMetadataValues(base, extra []string) []string {
+	if len(extra) == 0 {
+		return base
+	}
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	for _, value := range base {
+		seen[value] = struct{}{}
+	}
+	for _, value := range extra {
+		seen[value] = struct{}{}
+	}
+	merged := make([]string, 0, len(seen))
+	for value := range seen {
+		merged = append(merged, value)
+	}
+	sort.Strings(merged)
+	return merged
+}
+
+func parseRecordingRuleMetadataSelectors(rawMatchers []string) ([]recordingRuleSelector, *httpapi.APIError) {
+	if len(rawMatchers) == 0 {
+		return nil, nil
+	}
+	selectors := make([]recordingRuleSelector, 0, len(rawMatchers))
+	parserOpts := parser.Options{EnableBinopFillModifiers: true, EnableExperimentalFunctions: true}
+	for _, raw := range rawMatchers {
+		expr, err := parser.NewParser(parserOpts).ParseExpr(raw)
+		if err != nil {
+			return nil, local.BadRequestHTTPError(err.Error())
+		}
+		vector, ok := expr.(*parser.VectorSelector)
+		if !ok {
+			return nil, local.BadRequestHTTPError(fmt.Sprintf("invalid metric selector %q", raw))
+		}
+		selectors = append(selectors, recordingRuleSelector{
+			metricName: selectorMetadataMetricName(vector),
+			matchers:   vector.LabelMatchers,
+		})
+	}
+	return selectors, nil
+}
+
+func selectorMetadataMetricName(selector *parser.VectorSelector) string {
+	if selector.Name != "" {
+		return selector.Name
+	}
+	for _, matcher := range selector.LabelMatchers {
+		if matcher != nil && matcher.Name == "__name__" && matcher.Type == labels.MatchEqual {
+			return matcher.Value
+		}
+	}
+	return ""
+}
+
+func recordingRuleSelectorMatches(rule rules.RecordingRule, matchers []*labels.Matcher) bool {
+	staticLabels := mergedRuleLabels(rule)
+	staticLabels["__name__"] = rule.Name
+	for _, matcher := range matchers {
+		if matcher == nil {
+			continue
+		}
+		if value, ok := staticLabels[matcher.Name]; ok {
+			if !matcher.Matches(value) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func mergedRuleLabels(rule rules.RecordingRule) map[string]string {
+	out := map[string]string{}
+	for k, v := range rule.GroupLabels {
+		out[k] = v
+	}
+	for k, v := range rule.Labels {
+		out[k] = v
+	}
+	return out
 }
 
 func enforceEstimatedResponseLimits(routing httpapi.RoutingInfo, opts Options) error {

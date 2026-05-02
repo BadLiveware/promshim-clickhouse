@@ -119,6 +119,20 @@ func (r *Registry) Empty() bool {
 	return r == nil || (len(r.byName) == 0 && len(r.conflicts) == 0)
 }
 
+func (r *Registry) AllRules() []RecordingRule {
+	if r == nil {
+		return nil
+	}
+	all := make([]RecordingRule, 0, len(r.byName)+len(r.conflicts))
+	for _, rule := range r.byName {
+		all = append(all, rule)
+	}
+	for _, variants := range r.conflicts {
+		all = append(all, variants...)
+	}
+	return all
+}
+
 func (r *Registry) CachedExpansion(key string) (parser.Expr, []Expansion, bool) {
 	if r == nil {
 		return nil, nil, false

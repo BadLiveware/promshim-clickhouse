@@ -122,6 +122,43 @@ func TestExpandExprDisambiguatesConflictByStaticRuleLabels(t *testing.T) {
 	}
 }
 
+func TestExpandExprDisambiguatesConflictByGroupAndRuleLabels(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: g1
+  labels:
+    source: left
+  rules:
+  - record: same:rule
+    expr: up
+    labels:
+      workload_type: replicaset
+- name: g2
+  labels:
+    source: right
+  rules:
+  - record: same:rule
+    expr: sum(up)
+    labels:
+      workload_type: replicaset
+`)
+	expr := parseExpr(t, `same:rule{source="right",workload_type="replicaset"}`)
+
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Expanded || len(result.Expansions) != 1 {
+		t.Fatalf("result = %#v, want one expansion", result)
+	}
+	got := result.Expr.String()
+	if !strings.Contains(got, `sum(up)`) {
+		t.Fatalf("expanded expr = %s, want right variant", got)
+	}
+	if !strings.Contains(got, `"right"`) {
+		t.Fatalf("expanded expr = %s, want group label source=right applied", got)
+	}
+}
+
 func TestExpandExprReturnsEmptyVectorWhenNoStaticLabelMatch(t *testing.T) {
 	reg := registryForTest(t, `groups:
 - name: dashboard

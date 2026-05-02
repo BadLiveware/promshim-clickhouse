@@ -238,7 +238,10 @@ func TestQueryRangeExplainExpandsVirtualRecordingRuleRangeSelector(t *testing.T)
 	var body struct {
 		Data struct {
 			RecordingRules []struct {
-				Record string `json:"record"`
+				Record       string `json:"record"`
+				Mode         string `json:"mode"`
+				VirtualRange string `json:"virtualRange"`
+				VirtualStep  string `json:"virtualStep"`
 			} `json:"recordingRules"`
 			Plan local.ExplainNode `json:"plan"`
 		} `json:"data"`
@@ -246,7 +249,7 @@ func TestQueryRangeExplainExpandsVirtualRecordingRuleRangeSelector(t *testing.T)
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Data.RecordingRules) != 1 || body.Data.RecordingRules[0].Record != "job:http_requests:rate5m" {
+	if len(body.Data.RecordingRules) != 1 || body.Data.RecordingRules[0].Record != "job:http_requests:rate5m" || body.Data.RecordingRules[0].Mode != "range_virtual" || body.Data.RecordingRules[0].VirtualRange != "5m0s" || body.Data.RecordingRules[0].VirtualStep != "30s" {
 		t.Fatalf("recordingRules = %#v", body.Data.RecordingRules)
 	}
 	if !strings.Contains(body.Data.Plan.Expr, "http_requests_total") || !strings.Contains(body.Data.Plan.Expr, "[5m:30s]") {
@@ -279,7 +282,8 @@ func TestQueryExplainExpandsNestedVirtualRecordingRule(t *testing.T) {
 	var body struct {
 		Data struct {
 			RecordingRules []struct {
-				Record string `json:"record"`
+				Record    string   `json:"record"`
+				DependsOn []string `json:"dependsOn"`
 			} `json:"recordingRules"`
 			Plan local.ExplainNode `json:"plan"`
 		} `json:"data"`
@@ -287,7 +291,7 @@ func TestQueryExplainExpandsNestedVirtualRecordingRule(t *testing.T) {
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Data.RecordingRules) != 2 {
+	if len(body.Data.RecordingRules) != 2 || body.Data.RecordingRules[1].Record != "job:http_requests:rate5m:double" || len(body.Data.RecordingRules[1].DependsOn) != 1 || body.Data.RecordingRules[1].DependsOn[0] != "job:http_requests:rate5m" {
 		t.Fatalf("recordingRules = %#v, want nested chain", body.Data.RecordingRules)
 	}
 	if !strings.Contains(body.Data.Plan.Expr, "http_requests_total") || !strings.Contains(body.Data.Plan.Expr, "* 2") {

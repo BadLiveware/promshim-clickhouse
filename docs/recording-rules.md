@@ -137,9 +137,7 @@ Not supported in the MVP:
 
 - alerting-rule evaluation;
 - materializing rule output series;
-- Prometheus rule scheduling semantics, missed evaluations, or rule state;
-- regex or negative matchers on labels that are produced dynamically by the
-  expanded rule expression.
+- Prometheus rule scheduling semantics, missed evaluations, or rule state.
 
 ## Release artifacts
 

@@ -31,14 +31,20 @@ type RecordingRule struct {
 	Source      string
 }
 
+type cachedExpansion struct {
+	Expr       parser.Expr
+	Expansions []Expansion
+}
+
 type Registry struct {
 	byName    map[string]RecordingRule
 	conflicts map[string][]RecordingRule
+	cached    map[string]cachedExpansion
 	errors    []error
 }
 
 func EmptyRegistry() *Registry {
-	return &Registry{byName: map[string]RecordingRule{}, conflicts: map[string][]RecordingRule{}}
+	return &Registry{byName: map[string]RecordingRule{}, conflicts: map[string][]RecordingRule{}, cached: map[string]cachedExpansion{}}
 }
 
 func LoadFiles(patterns []string) (*Registry, error) {
@@ -65,6 +71,7 @@ func LoadFiles(patterns []string) (*Registry, error) {
 			reg.errors = append(reg.errors, err)
 		}
 	}
+	reg.validateExpansions()
 	return reg, nil
 }
 
@@ -93,6 +100,24 @@ func (r *Registry) Len() int {
 
 func (r *Registry) Empty() bool {
 	return r == nil || (len(r.byName) == 0 && len(r.conflicts) == 0)
+}
+
+func (r *Registry) CachedExpansion(name string) (parser.Expr, []Expansion, bool) {
+	if r == nil {
+		return nil, nil, false
+	}
+	cached, ok := r.cached[name]
+	if !ok {
+		return nil, nil, false
+	}
+	return cached.Expr, append([]Expansion(nil), cached.Expansions...), true
+}
+
+func (r *Registry) storeCachedExpansion(name string, expr parser.Expr, expansions []Expansion) {
+	if r == nil {
+		return
+	}
+	r.cached[name] = cachedExpansion{Expr: expr, Expansions: append([]Expansion(nil), expansions...)}
 }
 
 func (r *Registry) Errors() []error {
@@ -136,6 +161,27 @@ func (r *Registry) loadFile(file string) error {
 		}
 	}
 	return nil
+}
+
+func (r *Registry) validateExpansions() {
+	if len(r.errors) > 0 || len(r.byName) == 0 {
+		return
+	}
+	names := make([]string, 0, len(r.byName))
+	for name := range r.byName {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	state := expandState{registry: r, visiting: map[string]struct{}{}}
+	for _, name := range names {
+		rule := r.byName[name]
+		if _, _, ok := r.CachedExpansion(rule.Name); ok {
+			continue
+		}
+		if _, _, err := state.expandRuleExpr(rule); err != nil {
+			r.errors = append(r.errors, fmt.Errorf("validating recording rule %q expansion: %w", rule.Name, err))
+		}
+	}
 }
 
 func (r *Registry) add(rule RecordingRule) {

@@ -10,14 +10,20 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-const maxExpansionDepth = 16
+const (
+	maxExpansionDepth = 16
+	matcherLabelName  = "__promshim_rule_match__"
+)
 
 type Expansion struct {
-	Record string            `json:"record"`
-	Expr   string            `json:"expr"`
-	Source string            `json:"source"`
-	Labels map[string]string `json:"labels,omitempty"`
-	Mode   string            `json:"mode"`
+	Record       string            `json:"record"`
+	Expr         string            `json:"expr"`
+	Source       string            `json:"source"`
+	Labels       map[string]string `json:"labels,omitempty"`
+	Mode         string            `json:"mode"`
+	DependsOn    []string          `json:"dependsOn,omitempty"`
+	VirtualRange string            `json:"virtualRange,omitempty"`
+	VirtualStep  string            `json:"virtualStep,omitempty"`
 }
 
 type ExpandResult struct {
@@ -136,7 +142,7 @@ func (s *expandState) expand(expr parser.Expr) (parser.Expr, []Expansion, bool, 
 		if changed {
 			clone := *n
 			clone.Expr = child
-			return &clone, exps, true, nil
+			return &clone, markHistoricalExpansions(exps, "subquery_virtual", n.Range, n.Step), true, nil
 		}
 		return n, nil, false, nil
 	case *parser.MatrixSelector:
@@ -148,7 +154,8 @@ func (s *expandState) expand(expr parser.Expr) (parser.Expr, []Expansion, bool, 
 		if err != nil || !ok {
 			return n, nil, false, err
 		}
-		return matrixSelectorToSubquery(n, sel, expanded), expanded.expansions, true, nil
+		subquery := matrixSelectorToSubquery(n, sel, expanded)
+		return subquery, markHistoricalExpansions(expanded.expansions, "range_virtual", n.Range, subquery.Step), true, nil
 	default:
 		return n, nil, false, nil
 	}
@@ -171,7 +178,7 @@ func (s *expandState) expandVectorSelector(sel *parser.VectorSelector) (ruleExpa
 	if empty, err := selectorStaticMismatch(sel.LabelMatchers, staticLabels); err != nil {
 		return ruleExpansion{}, false, err
 	} else if empty {
-		return ruleExpansion{expr: emptyVectorExpr(), expansions: []Expansion{expansionForRule(rule)}, rule: rule}, true, nil
+		return ruleExpansion{expr: emptyVectorExpr(), expansions: []Expansion{expansionForRule(rule, nil)}, rule: rule}, true, nil
 	}
 	child, childExps, err := s.expandRuleExpr(rule)
 	if err != nil {
@@ -182,11 +189,14 @@ func (s *expandState) expandVectorSelector(sel *parser.VectorSelector) (ruleExpa
 	if err != nil {
 		return ruleExpansion{}, false, err
 	}
-	exps := append(childExps, expansionForRule(rule))
+	exps := append(childExps, expansionForRule(rule, childExps))
 	return ruleExpansion{expr: wrapped, expansions: exps, rule: rule}, true, nil
 }
 
 func (s *expandState) expandRuleExpr(rule RecordingRule) (parser.Expr, []Expansion, error) {
+	if expr, exps, ok := s.registry.CachedExpansion(rule.Name); ok {
+		return expr, exps, nil
+	}
 	if len(s.visiting) >= maxExpansionDepth {
 		return nil, nil, fmt.Errorf("recording rule expansion exceeds maximum depth %d at %q", maxExpansionDepth, rule.Name)
 	}
@@ -195,18 +205,15 @@ func (s *expandState) expandRuleExpr(rule RecordingRule) (parser.Expr, []Expansi
 	}
 	s.visiting[rule.Name] = struct{}{}
 	defer delete(s.visiting, rule.Name)
-	child, err := parser.NewParser(parser.Options{EnableBinopFillModifiers: true, EnableExperimentalFunctions: true}).ParseExpr(rule.ExprString)
-	if err != nil {
-		return nil, nil, fmt.Errorf("parsing recording rule %q expression: %w", rule.Name, err)
-	}
-	expanded, exps, _, err := s.expand(child)
+	expanded, exps, _, err := s.expand(rule.Expr)
 	if err != nil {
 		return nil, nil, err
 	}
+	s.registry.storeCachedExpansion(rule.Name, expanded, exps)
 	return expanded, exps, nil
 }
 
-func matrixSelectorToSubquery(matrix *parser.MatrixSelector, sel *parser.VectorSelector, expanded ruleExpansion) parser.Expr {
+func matrixSelectorToSubquery(matrix *parser.MatrixSelector, sel *parser.VectorSelector, expanded ruleExpansion) *parser.SubqueryExpr {
 	step := time.Duration(0)
 	if expanded.rule.Interval > 0 {
 		step = expanded.rule.Interval
@@ -225,8 +232,39 @@ func matrixSelectorToSubquery(matrix *parser.MatrixSelector, sel *parser.VectorS
 	}
 }
 
-func expansionForRule(rule RecordingRule) Expansion {
-	return Expansion{Record: rule.Name, Expr: rule.ExprString, Source: rule.Source, Labels: mergedLabels(rule), Mode: "instant_virtual"}
+func expansionForRule(rule RecordingRule, childExps []Expansion) Expansion {
+	return Expansion{Record: rule.Name, Expr: rule.ExprString, Source: rule.Source, Labels: mergedLabels(rule), Mode: "instant_virtual", DependsOn: expansionRecords(childExps)}
+}
+
+func expansionRecords(expansions []Expansion) []string {
+	seen := map[string]struct{}{}
+	var records []string
+	for _, expansion := range expansions {
+		if expansion.Record == "" {
+			continue
+		}
+		if _, ok := seen[expansion.Record]; ok {
+			continue
+		}
+		seen[expansion.Record] = struct{}{}
+		records = append(records, expansion.Record)
+	}
+	sort.Strings(records)
+	return records
+}
+
+func markHistoricalExpansions(expansions []Expansion, mode string, window, step time.Duration) []Expansion {
+	out := append([]Expansion(nil), expansions...)
+	for i := range out {
+		out[i].Mode = mode
+		if window > 0 {
+			out[i].VirtualRange = window.String()
+		}
+		if step > 0 {
+			out[i].VirtualStep = step.String()
+		}
+	}
+	return out
 }
 
 func selectorStaticMismatch(matchers []*labels.Matcher, staticLabels map[string]string) (bool, error) {
@@ -286,12 +324,26 @@ func applySelectorMatchers(expr parser.Expr, matchers []*labels.Matcher, staticL
 		if _, ok := staticLabels[m.Name]; ok {
 			continue
 		}
-		if m.Type != labels.MatchEqual {
+		predicate := selectorMatcherPredicate(wrapped, m)
+		switch m.Type {
+		case labels.MatchEqual, labels.MatchRegexp:
+			wrapped = &parser.BinaryExpr{Op: parser.LAND, LHS: wrapped, RHS: predicate, VectorMatching: &parser.VectorMatching{Card: parser.CardManyToMany, MatchingLabels: []string{m.Name}, On: true}}
+		case labels.MatchNotEqual, labels.MatchNotRegexp:
+			wrapped = &parser.BinaryExpr{Op: parser.LUNLESS, LHS: wrapped, RHS: predicate, VectorMatching: &parser.VectorMatching{Card: parser.CardManyToMany, MatchingLabels: []string{m.Name}, On: true}}
+		default:
 			return nil, fmt.Errorf("recording rule selector matcher %s on dynamic label %q is not supported", m.Type, m.Name)
 		}
-		wrapped = &parser.BinaryExpr{Op: parser.LAND, LHS: wrapped, RHS: labelReplace(vectorLiteral(1), m.Name, m.Value), VectorMatching: &parser.VectorMatching{Card: parser.CardManyToMany, MatchingLabels: []string{m.Name}, On: true}}
 	}
 	return wrapped, nil
+}
+
+func selectorMatcherPredicate(expr parser.Expr, matcher *labels.Matcher) parser.Expr {
+	if matcher.Type == labels.MatchEqual || matcher.Type == labels.MatchNotEqual {
+		return labelReplace(vectorLiteral(1), matcher.Name, matcher.Value)
+	}
+	marked := labelReplaceFrom(expr, matcherLabelName, "1", matcher.Name, matcher.Value)
+	marker := labelReplace(vectorLiteral(1), matcherLabelName, "1")
+	return &parser.BinaryExpr{Op: parser.LAND, LHS: marked, RHS: marker, VectorMatching: &parser.VectorMatching{Card: parser.CardManyToMany, MatchingLabels: []string{matcherLabelName}, On: true}}
 }
 
 func vectorLiteral(value float64) parser.Expr {
@@ -311,7 +363,11 @@ func emptyVectorExpr() parser.Expr {
 }
 
 func labelReplace(expr parser.Expr, dst, value string) parser.Expr {
-	call, err := parser.NewParser(parser.Options{EnableBinopFillModifiers: true, EnableExperimentalFunctions: true}).ParseExpr(fmt.Sprintf(`label_replace(vector(0), %q, %q, "", ".*")`, dst, value))
+	return labelReplaceFrom(expr, dst, value, "", ".*")
+}
+
+func labelReplaceFrom(expr parser.Expr, dst, value, src, regex string) parser.Expr {
+	call, err := parser.NewParser(parser.Options{EnableBinopFillModifiers: true, EnableExperimentalFunctions: true}).ParseExpr(fmt.Sprintf(`label_replace(vector(0), %q, %q, %q, %q)`, dst, value, src, regex))
 	if err != nil {
 		return expr
 	}

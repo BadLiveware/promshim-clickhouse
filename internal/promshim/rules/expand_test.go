@@ -72,7 +72,7 @@ func TestExpandExprRejectsConflictOnlyRegistry(t *testing.T) {
 	}
 }
 
-func TestExpandExprRejectsUnsupportedDynamicMatcher(t *testing.T) {
+func TestExpandExprAppliesRegexDynamicMatcher(t *testing.T) {
 	reg := registryForTest(t, `groups:
 - name: dashboard
   rules:
@@ -81,9 +81,36 @@ func TestExpandExprRejectsUnsupportedDynamicMatcher(t *testing.T) {
 `)
 	expr := parseExpr(t, `job:http_requests:rate5m{job=~"api|web"}`)
 
-	_, err := ExpandExpr(expr, reg)
-	if err == nil || !strings.Contains(err.Error(), "dynamic label") {
-		t.Fatalf("err = %v, want dynamic label matcher rejection", err)
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := result.Expr.String()
+	for _, want := range []string{`label_replace`, matcherLabelName, `api|web`, `and on (job)`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expanded expr = %s, want %s", got, want)
+		}
+	}
+}
+
+func TestExpandExprAppliesNegativeDynamicMatcher(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  rules:
+  - record: job:http_requests:rate5m
+    expr: sum by (job) (rate(http_requests_total[5m]))
+`)
+	expr := parseExpr(t, `job:http_requests:rate5m{job!~"api|web"}`)
+
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := result.Expr.String()
+	for _, want := range []string{`label_replace`, matcherLabelName, `api|web`, `unless on (job)`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expanded expr = %s, want %s", got, want)
+		}
 	}
 }
 
@@ -156,23 +183,6 @@ func TestExpandExprRecursivelyExpandsNestedRecordingRules(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expanded nested expr = %s, want %s", got, want)
 		}
-	}
-}
-
-func TestExpandExprRejectsRecordingRuleExpansionCycles(t *testing.T) {
-	reg := registryForTest(t, `groups:
-- name: dashboard
-  rules:
-  - record: a:rule
-    expr: b:rule
-  - record: b:rule
-    expr: a:rule
-`)
-	expr := parseExpr(t, `a:rule`)
-
-	_, err := ExpandExpr(expr, reg)
-	if err == nil || !strings.Contains(err.Error(), "cycle") {
-		t.Fatalf("err = %v, want cycle error", err)
 	}
 }
 

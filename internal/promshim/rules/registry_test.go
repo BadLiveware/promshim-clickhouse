@@ -44,6 +44,51 @@ func TestLoadFilesLoadsRecordingRulesAndIgnoresAlerts(t *testing.T) {
 	}
 }
 
+func TestLoadFilesCachesNestedRuleExpansions(t *testing.T) {
+	path := writeRulesFile(t, `groups:
+- name: dashboard
+  rules:
+  - record: inner:rule
+    expr: up
+  - record: outer:rule
+    expr: inner:rule * 2
+`)
+
+	reg, err := LoadFiles([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Errors()) != 0 {
+		t.Fatalf("unexpected load errors: %v", reg.Errors())
+	}
+	expr, expansions, ok := reg.CachedExpansion("outer:rule")
+	if !ok {
+		t.Fatal("expected cached outer expansion")
+	}
+	if !strings.Contains(expr.String(), "up") || len(expansions) != 1 || expansions[0].Record != "inner:rule" {
+		t.Fatalf("cached expansion expr=%s expansions=%#v", expr.String(), expansions)
+	}
+}
+
+func TestLoadFilesDetectsExpansionCycles(t *testing.T) {
+	path := writeRulesFile(t, `groups:
+- name: dashboard
+  rules:
+  - record: a:rule
+    expr: b:rule
+  - record: b:rule
+    expr: a:rule
+`)
+
+	reg, err := LoadFiles([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Errors()) == 0 || !strings.Contains(reg.Errors()[0].Error(), "cycle") {
+		t.Fatalf("load errors = %v, want cycle error", reg.Errors())
+	}
+}
+
 func TestLoadFilesDetectsConflictingRecords(t *testing.T) {
 	path := writeRulesFile(t, `groups:
 - name: dashboard

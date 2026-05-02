@@ -504,11 +504,11 @@ func readMatchers(values url.Values) []string {
 	return values["match"]
 }
 
-func parseRequestValues(w http.ResponseWriter, r *http.Request) (url.Values, bool) {
-	if err := r.ParseForm(); err != nil {
-		writePromError(w, APIError{StatusCode: http.StatusBadRequest, ErrorType: "bad_data", Error: "invalid form parameters: " + err.Error()})
-		return nil, false
-	}
+func parseRequestValues(_ http.ResponseWriter, r *http.Request) (url.Values, bool) {
+	// Prometheus reads request parameters with http.Request.FormValue, whose
+	// ParseForm call intentionally ignores malformed query/form errors. Preserve
+	// that compatibility so unused malformed parameters do not reject a request.
+	_ = r.ParseForm()
 	return r.Form, true
 }
 

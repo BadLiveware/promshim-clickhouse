@@ -290,22 +290,21 @@ func TestHandleQueryRangeSupportsPostForm(t *testing.T) {
 	}
 }
 
-func TestHandleQueryRejectsMalformedPostForm(t *testing.T) {
+func TestHandleQueryIgnoresMalformedUnusedParameters(t *testing.T) {
 	stub := &stubService{response: &Response{StatusCode: http.StatusOK, Body: map[string]any{"status": "success"}}}
 	handler := NewHandler(stub)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/query", strings.NewReader("%zz"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=up&unused=%zz", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("POST /query malformed form status = %d, want %d: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /query malformed unused parameter status = %d: %s", rec.Code, rec.Body.String())
 	}
-	if len(stub.instantRequests) != 0 {
-		t.Fatalf("instant request count = %d, want 0", len(stub.instantRequests))
+	if len(stub.instantRequests) != 1 {
+		t.Fatalf("instant request count = %d, want 1", len(stub.instantRequests))
 	}
-	if !strings.Contains(rec.Body.String(), `"errorType":"bad_data"`) {
-		t.Fatalf("error response = %s", rec.Body.String())
+	if got := stub.instantRequests[0].Query; got != "up" {
+		t.Fatalf("query = %q, want up", got)
 	}
 }
 

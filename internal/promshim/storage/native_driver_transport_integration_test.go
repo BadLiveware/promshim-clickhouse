@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"os"
+	"sort"
 	"strconv"
 	"testing"
 	"time"
@@ -96,12 +97,13 @@ func TestNativeDriverTransportIntegrationMetadataDecoders(t *testing.T) {
 	defer func() { _ = transport.Close() }()
 
 	client := &Client{transportKind: TransportNative, transport: transport}
-	strings, err := client.QueryStringRows(context.Background(), QueryRequest{SQL: "SELECT 'alpha' AS label UNION ALL SELECT 'beta' AS label ORDER BY label\nFORMAT JSONEachRow"})
+	stringRows, err := client.QueryStringRows(context.Background(), QueryRequest{SQL: "SELECT 'alpha' AS label UNION ALL SELECT 'beta' AS label\nFORMAT JSONEachRow"})
 	if err != nil {
 		t.Fatalf("QueryStringRows: %v", err)
 	}
-	if len(strings) != 2 || strings[0] != "alpha" || strings[1] != "beta" {
-		t.Fatalf("string rows = %#v, want [alpha beta]", strings)
+	sort.Strings(stringRows)
+	if len(stringRows) != 2 || stringRows[0] != "alpha" || stringRows[1] != "beta" {
+		t.Fatalf("string rows = %#v, want [alpha beta]", stringRows)
 	}
 
 	series, err := client.QuerySeriesRows(context.Background(), QueryRequest{SQL: "SELECT [tuple('__name__', 'up'), tuple('job', 'prometheus')] AS tags\nFORMAT JSONEachRow"})

@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/obs"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -254,8 +253,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mux.ServeHTTP(w, r)
 }
 
-func (h *Handler) handleOptions(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Allow", "GET, HEAD, OPTIONS, POST")
+func (h *Handler) handleOptions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Allow", allowedMethodsForPath(r.URL.Path))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -522,12 +521,26 @@ func parsePromQLRequestExpression(w http.ResponseWriter, r *http.Request) (parse
 		writePromError(w, APIError{StatusCode: http.StatusBadRequest, ErrorType: "bad_data", Error: "missing required parameter 'query'"})
 		return nil, false
 	}
-	expr, err := logical.ParseExpression(query)
+	expr, err := promQLAPIParser().ParseExpr(query)
 	if err != nil {
 		writePromError(w, APIError{StatusCode: http.StatusBadRequest, ErrorType: "bad_data", Error: err.Error()})
 		return nil, false
 	}
 	return expr, true
+}
+
+func promQLAPIParser() parser.Parser {
+	return parser.NewParser(parser.Options{EnableBinopFillModifiers: true, EnableExperimentalFunctions: true})
+}
+
+func allowedMethodsForPath(path string) string {
+	if path == "/api/v1/query" || path == "/api/v1/query_range" || path == "/api/v1/query_explain" || path == "/api/v1/query_range_explain" || path == "/api/v1/labels" || path == "/api/v1/series" || path == "/api/v1/format_query" || path == "/api/v1/parse_query" {
+		return "GET, HEAD, OPTIONS, POST"
+	}
+	if path == "/health" || path == "/-/healthy" || path == "/-/ready" || path == "/api/v1/metadata" || path == "/api/v1/targets" || path == "/api/v1/rules" || path == "/api/v1/alerts" || (strings.HasPrefix(path, "/api/v1/label/") && strings.HasSuffix(path, "/values")) {
+		return "GET, HEAD, OPTIONS"
+	}
+	return "OPTIONS"
 }
 
 func wantsExplain(values url.Values) bool {
@@ -579,7 +592,7 @@ func translatePromQLAST(expr parser.Expr) any {
 	case *parser.SubqueryExpr:
 		return map[string]any{"type": "subquery", "expr": translatePromQLAST(n.Expr), "range": n.Range.Milliseconds(), "offset": n.OriginalOffset.Milliseconds(), "step": n.Step.Milliseconds(), "timestamp": n.Timestamp, "startOrEnd": startOrEndString(n.StartOrEnd)}
 	case *parser.NumberLiteral:
-		return map[string]string{"type": "numberLiteral", "val": strconv.FormatFloat(n.Val, 'f', -1, 64)}
+		return map[string]any{"type": "numberLiteral", "val": strconv.FormatFloat(n.Val, 'f', -1, 64)}
 	case *parser.ParenExpr:
 		return map[string]any{"type": "parenExpr", "expr": translatePromQLAST(n.Expr)}
 	case *parser.StringLiteral:

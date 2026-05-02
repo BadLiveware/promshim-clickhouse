@@ -413,16 +413,50 @@ func TestHandleFormatAndParseQuery(t *testing.T) {
 	}
 }
 
-func TestHandleOptionsWildcard(t *testing.T) {
+func TestHandleFormatAndParseQueryUsePrometheusParser(t *testing.T) {
 	handler := NewHandler(&stubService{})
-	req := httptest.NewRequest(http.MethodOptions, "/api/v1/query_range", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/format_query?query=holt_winters%28up%5B5m%5D%2C0.1%2C0.2%29", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("OPTIONS status = %d, want %d", rec.Code, http.StatusNoContent)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("GET /format_query status = %d, want %d: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
 	}
-	if got := rec.Header().Get("Allow"); !strings.Contains(got, "POST") || !strings.Contains(got, "GET") {
-		t.Fatalf("Allow = %q", got)
+	if !strings.Contains(rec.Body.String(), "holt_winters") || strings.Contains(rec.Body.String(), "double_exponential_smoothing") {
+		t.Fatalf("format error should preserve original function name without alias rewrite, got %s", rec.Body.String())
+	}
+}
+
+func TestTranslatePromQLASTNumberLiteralUsesAnyMap(t *testing.T) {
+	expr, err := promQLAPIParser().ParseExpr("1")
+	if err != nil {
+		t.Fatalf("ParseExpr: %v", err)
+	}
+	if _, ok := translatePromQLAST(expr).(map[string]any); !ok {
+		t.Fatalf("number literal AST node type = %T, want map[string]any", translatePromQLAST(expr))
+	}
+}
+
+func TestHandleOptionsWildcard(t *testing.T) {
+	handler := NewHandler(&stubService{})
+
+	postReq := httptest.NewRequest(http.MethodOptions, "/api/v1/query_range", nil)
+	postRec := httptest.NewRecorder()
+	handler.ServeHTTP(postRec, postReq)
+	if postRec.Code != http.StatusNoContent {
+		t.Fatalf("OPTIONS POST-capable status = %d, want %d", postRec.Code, http.StatusNoContent)
+	}
+	if got := postRec.Header().Get("Allow"); !strings.Contains(got, "POST") || !strings.Contains(got, "GET") {
+		t.Fatalf("POST-capable Allow = %q", got)
+	}
+
+	getOnlyReq := httptest.NewRequest(http.MethodOptions, "/api/v1/metadata", nil)
+	getOnlyRec := httptest.NewRecorder()
+	handler.ServeHTTP(getOnlyRec, getOnlyReq)
+	if getOnlyRec.Code != http.StatusNoContent {
+		t.Fatalf("OPTIONS GET-only status = %d, want %d", getOnlyRec.Code, http.StatusNoContent)
+	}
+	if got := getOnlyRec.Header().Get("Allow"); strings.Contains(got, "POST") || !strings.Contains(got, "GET") {
+		t.Fatalf("GET-only Allow = %q", got)
 	}
 }
 

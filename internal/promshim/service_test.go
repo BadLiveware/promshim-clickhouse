@@ -1,6 +1,7 @@
 package promshim
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -418,6 +419,41 @@ func TestQueryExplainRejectsMissingQuery(t *testing.T) {
 	}
 	if body.Status != "error" || body.ErrorType != "bad_data" {
 		t.Fatalf("unexpected error payload: %#v", body)
+	}
+}
+
+func TestBuildRangePlanForceSupportedAllowsChunkedNativeRoot(t *testing.T) {
+	service := &queryService{opts: Options{
+		Database:                           "observability",
+		Table:                              "prometheus",
+		ClickHouseVersion:                  "26.3",
+		NativeLoweringMode:                 local.NativeLoweringModeForceSupported,
+		NativeGridFunctions:                "prefer",
+		CumulativeAvgOverTime:              "prefer",
+		MaxRangePointsPerSeries:            local.DefaultMaxRangePointsPerSeries,
+		RangeChunkPointsPerSeries:          local.DefaultRangeChunkPointsPerSeries,
+		NativeRangeChunkPointsPerSeries:    local.DefaultNativeRangeChunkPointsPerSeries,
+		NativeRangeChunkMaxDuration:        local.DefaultNativeRangeChunkMaxDuration,
+		NativeRangeChunkMaxChunks:          local.DefaultNativeRangeChunkMaxChunks,
+		NativeRangePreflightTimeout:        local.DefaultNativeRangePreflightTimeout,
+		NativeRangePreflightMaxMemoryUsage: local.DefaultNativeRangePreflightMaxMemoryUsage,
+	}}
+
+	_, _, _, _, plan, analysis, apiErr := service.buildRangePlan(context.Background(), httpapi.RangeQueryRequest{
+		Query: "avg_over_time(demo_memory_usage_bytes[1m])",
+		Start: "2026-04-21T21:35:42Z",
+		End:   "2026-04-21T21:45:42Z",
+		Step:  "10s",
+	}, false)
+	if apiErr != nil {
+		t.Fatalf("buildRangePlan returned API error: %#v", apiErr)
+	}
+	explain := local.ExplainPlanWithLowering(plan, analysis.Root)
+	if explain.Strategy != "chunked_native" {
+		t.Fatalf("strategy = %q, want chunked_native", explain.Strategy)
+	}
+	if len(explain.Children) != 1 || explain.Children[0].Strategy != "native_sql" {
+		t.Fatalf("chunked native plan should wrap native_sql child, got %#v", explain)
 	}
 }
 

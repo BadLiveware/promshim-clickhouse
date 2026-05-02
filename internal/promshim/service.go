@@ -815,7 +815,7 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 	}
 	if mode.ForcesNativeRoot() {
 		explain := local.ExplainPlan(queryPlan)
-		if explain.Strategy != "native_sql" {
+		if !nativeSQLRootStrategy(explain.Strategy) {
 			return "", time.Time{}, nil, nil, local.ApiErrorToHTTP(local.NewUnsupportedErrorf("native lowering mode %q requires a native_sql root plan for %q, got %s", mode, query, explain.Strategy))
 		}
 	}
@@ -876,11 +876,15 @@ func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQuer
 	}
 	if mode.ForcesNativeRoot() {
 		explain := local.ExplainPlan(queryPlan)
-		if explain.Strategy != "native_sql" {
+		if !nativeSQLRootStrategy(explain.Strategy) {
 			return "", time.Time{}, time.Time{}, 0, nil, nil, local.ApiErrorToHTTP(local.NewUnsupportedErrorf("native lowering mode %q requires a native_sql root plan for %q, got %s", mode, query, explain.Strategy))
 		}
 	}
 	return query, start, end, step, queryPlan, analysis, nil
+}
+
+func nativeSQLRootStrategy(strategy string) bool {
+	return strategy == "native_sql" || strategy == "chunked_native"
 }
 
 func physicalDecisionSummary(explain local.ExplainNode) string {

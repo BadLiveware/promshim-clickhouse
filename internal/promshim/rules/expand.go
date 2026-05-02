@@ -209,8 +209,62 @@ func (s *expandState) expandRuleExpr(rule RecordingRule) (parser.Expr, []Expansi
 	if err != nil {
 		return nil, nil, err
 	}
+	expanded = applyRuleQueryOffset(expanded, rule.QueryOffset)
 	s.registry.storeCachedExpansion(rule.Name, expanded, exps)
 	return expanded, exps, nil
+}
+
+func applyRuleQueryOffset(expr parser.Expr, offset time.Duration) parser.Expr {
+	if offset == 0 || expr == nil {
+		return expr
+	}
+	switch n := expr.(type) {
+	case *parser.VectorSelector:
+		clone := *n
+		clone.OriginalOffset += offset
+		clone.Offset += offset
+		return &clone
+	case *parser.MatrixSelector:
+		clone := *n
+		clone.VectorSelector = applyRuleQueryOffset(clone.VectorSelector, offset)
+		return &clone
+	case *parser.SubqueryExpr:
+		clone := *n
+		clone.OriginalOffset += offset
+		clone.Offset += offset
+		return &clone
+	case *parser.AggregateExpr:
+		clone := *n
+		clone.Expr = applyRuleQueryOffset(clone.Expr, offset)
+		return &clone
+	case *parser.BinaryExpr:
+		clone := *n
+		clone.LHS = applyRuleQueryOffset(clone.LHS, offset)
+		clone.RHS = applyRuleQueryOffset(clone.RHS, offset)
+		return &clone
+	case *parser.Call:
+		clone := *n
+		args := make(parser.Expressions, len(n.Args))
+		for i, arg := range n.Args {
+			args[i] = applyRuleQueryOffset(arg, offset)
+		}
+		clone.Args = args
+		return &clone
+	case *parser.UnaryExpr:
+		clone := *n
+		clone.Expr = applyRuleQueryOffset(clone.Expr, offset)
+		return &clone
+	case *parser.ParenExpr:
+		clone := *n
+		clone.Expr = applyRuleQueryOffset(clone.Expr, offset)
+		return &clone
+	case *parser.StepInvariantExpr:
+		clone := *n
+		clone.Expr = applyRuleQueryOffset(clone.Expr, offset)
+		return &clone
+	default:
+		return expr
+	}
 }
 
 func matrixSelectorToSubquery(matrix *parser.MatrixSelector, sel *parser.VectorSelector, expanded ruleExpansion) *parser.SubqueryExpr {

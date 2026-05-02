@@ -346,6 +346,50 @@ func TestQueryEvaluatesVirtualRecordingRuleRangeSelectorResult(t *testing.T) {
 	assertSingleVectorValue(t, res.Body.Bytes(), "1")
 }
 
+func TestQueryEvaluatesVirtualRecordingRuleRegexMatcherResult(t *testing.T) {
+	ruleFile := writeServiceRulesFile(t, `groups:
+- name: dashboard
+  rules:
+  - record: labelled:rule
+    expr: label_replace(vector(1), "job", "api", "", ".*")
+`)
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModeOff, RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=labelled:rule%7Bjob%3D~%22ap.%22%7D&time=300", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	assertSingleVectorValue(t, res.Body.Bytes(), "1")
+}
+
+func TestQueryEvaluatesVirtualRecordingRuleNegativeMatcherResult(t *testing.T) {
+	ruleFile := writeServiceRulesFile(t, `groups:
+- name: dashboard
+  rules:
+  - record: labelled:rule
+    expr: label_replace(vector(1), "job", "api", "", ".*")
+`)
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModeOff, RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=labelled:rule%7Bjob%21~%22ap.%22%7D&time=300", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	assertEmptyVector(t, res.Body.Bytes())
+}
+
 func TestQueryEvaluatesVirtualRecordingRuleSubqueryResult(t *testing.T) {
 	ruleFile := writeServiceRulesFile(t, `groups:
 - name: dashboard
@@ -366,6 +410,23 @@ func TestQueryEvaluatesVirtualRecordingRuleSubqueryResult(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
 	}
 	assertSingleVectorValue(t, res.Body.Bytes(), "1")
+}
+
+func assertEmptyVector(t *testing.T, bodyBytes []byte) {
+	t.Helper()
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			ResultType string `json:"resultType"`
+			Result     []any  `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(bodyBytes, &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "success" || body.Data.ResultType != "vector" || len(body.Data.Result) != 0 {
+		t.Fatalf("body = %s, want empty vector", string(bodyBytes))
+	}
 }
 
 func assertSingleVectorValue(t *testing.T, bodyBytes []byte, want string) {

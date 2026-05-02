@@ -89,6 +89,32 @@ func TestLoadFilesDetectsExpansionCycles(t *testing.T) {
 	}
 }
 
+func TestLoadFilesTreatsDifferentQueryOffsetsAsConflicts(t *testing.T) {
+	path := writeRulesFile(t, `groups:
+- name: dashboard
+  query_offset: 1m
+  rules:
+  - record: same:rule
+    expr: up
+- name: dashboard-2
+  query_offset: 2m
+  rules:
+  - record: same:rule
+    expr: up
+`)
+
+	reg, err := LoadFiles([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reg.Lookup("same:rule"); ok {
+		t.Fatal("query_offset conflict should not be directly selectable")
+	}
+	if conflicts, ok := reg.Conflict("same:rule"); !ok || len(conflicts) != 2 {
+		t.Fatalf("conflicts = %#v, want two", conflicts)
+	}
+}
+
 func TestLoadFilesDetectsConflictingRecords(t *testing.T) {
 	path := writeRulesFile(t, `groups:
 - name: dashboard

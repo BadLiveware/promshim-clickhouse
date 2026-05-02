@@ -201,7 +201,7 @@ func (r *Registry) add(rule RecordingRule) {
 }
 
 func sameRule(a, b RecordingRule) bool {
-	return a.ExprString == b.ExprString && mapsEqual(a.Labels, b.Labels) && mapsEqual(a.GroupLabels, b.GroupLabels)
+	return a.ExprString == b.ExprString && a.Interval == b.Interval && a.QueryOffset == b.QueryOffset && mapsEqual(a.Labels, b.Labels) && mapsEqual(a.GroupLabels, b.GroupLabels)
 }
 
 func mapsEqual(a, b map[string]string) bool {

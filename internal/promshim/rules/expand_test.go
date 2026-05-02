@@ -7,6 +7,25 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
+func TestExpandExprAppliesRuleQueryOffset(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  query_offset: 2m
+  rules:
+  - record: job:http_requests:rate5m
+    expr: rate(http_requests_total[5m])
+`)
+	expr := parseExpr(t, `job:http_requests:rate5m`)
+
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result.Expr.String(), `offset 2m`) {
+		t.Fatalf("expanded expr = %s, want query_offset applied", result.Expr.String())
+	}
+}
+
 func TestExpandExprReplacesRecordingRuleSelector(t *testing.T) {
 	reg := registryForTest(t, `groups:
 - name: dashboard

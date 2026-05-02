@@ -68,7 +68,12 @@ func TestSyncOnceUpdatesMetricsAndHealth(t *testing.T) {
 	metricsRes := httptest.NewRecorder()
 	syncer.MetricsHandler().ServeHTTP(metricsRes, metricsReq)
 	body := metricsRes.Body.String()
-	for _, want := range []string{"promshim_rule_syncer_selected_rules", "promshim_rule_syncer_rendered_files", "promshim_rule_syncer_last_success_timestamp_seconds"} {
+	for _, want := range []string{
+		"promshim_rule_syncer_selected_rules 1",
+		"promshim_rule_syncer_rendered_files 1",
+		"promshim_rule_syncer_sync_failures_total 0",
+		"promshim_rule_syncer_last_success_timestamp_seconds ",
+	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("metrics = %s, want %s", body, want)
 		}

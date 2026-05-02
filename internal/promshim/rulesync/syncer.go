@@ -118,14 +118,24 @@ func (s *Syncer) MetricsHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		stats := s.Stats()
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-		fmt.Fprintf(w, "# HELP promshim_rule_syncer_selected_rules Last successful sync selected PrometheusRule files.\n")
-		fmt.Fprintf(w, "# TYPE promshim_rule_syncer_selected_rules gauge\n%d\n", stats.SelectedRules)
-		fmt.Fprintf(w, "# HELP promshim_rule_syncer_rendered_files Last successful sync rendered output files.\n")
-		fmt.Fprintf(w, "# TYPE promshim_rule_syncer_rendered_files gauge\n%d\n", stats.RenderedFiles)
-		fmt.Fprintf(w, "# HELP promshim_rule_syncer_sync_failures_total Total sync failures.\n")
-		fmt.Fprintf(w, "# TYPE promshim_rule_syncer_sync_failures_total counter\n%d\n", stats.SyncFailures)
-		fmt.Fprintf(w, "# HELP promshim_rule_syncer_last_success_timestamp_seconds Unix timestamp of the last successful sync.\n")
-		fmt.Fprintf(w, "# TYPE promshim_rule_syncer_last_success_timestamp_seconds gauge\n%d\n", stats.LastSuccessUnix)
+		_, _ = fmt.Fprintf(w,
+			"# HELP promshim_rule_syncer_selected_rules Last successful sync selected PrometheusRule files.\n"+
+				"# TYPE promshim_rule_syncer_selected_rules gauge\n"+
+				"promshim_rule_syncer_selected_rules %d\n"+
+				"# HELP promshim_rule_syncer_rendered_files Last successful sync rendered output files.\n"+
+				"# TYPE promshim_rule_syncer_rendered_files gauge\n"+
+				"promshim_rule_syncer_rendered_files %d\n"+
+				"# HELP promshim_rule_syncer_sync_failures_total Total sync failures.\n"+
+				"# TYPE promshim_rule_syncer_sync_failures_total counter\n"+
+				"promshim_rule_syncer_sync_failures_total %d\n"+
+				"# HELP promshim_rule_syncer_last_success_timestamp_seconds Unix timestamp of the last successful sync.\n"+
+				"# TYPE promshim_rule_syncer_last_success_timestamp_seconds gauge\n"+
+				"promshim_rule_syncer_last_success_timestamp_seconds %d\n",
+			stats.SelectedRules,
+			stats.RenderedFiles,
+			stats.SyncFailures,
+			stats.LastSuccessUnix,
+		)
 	})
 }
 

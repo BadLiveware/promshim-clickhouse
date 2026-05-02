@@ -91,6 +91,10 @@ func (r *Registry) Len() int {
 	return len(r.byName)
 }
 
+func (r *Registry) Empty() bool {
+	return r == nil || (len(r.byName) == 0 && len(r.conflicts) == 0)
+}
+
 func (r *Registry) Errors() []error {
 	if r == nil {
 		return nil

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -34,6 +35,8 @@ type queryService struct {
 	selectorProbeSem           chan struct{}
 	recordingRules             atomic.Pointer[rules.Registry]
 	recordingRuleMode          rules.Mode
+	recordingRuleNextReload    atomic.Int64
+	recordingRuleReloadMu      sync.Mutex
 	recordingRuleReloadErrors  atomic.Uint64
 	recordingRuleReloadSuccess atomic.Uint64
 }
@@ -177,7 +180,7 @@ func NewHandler(opts Options) (http.Handler, error) {
 		recordingRuleMode:  ruleMode,
 	}
 	service.recordingRules.Store(ruleRegistry)
-	service.startRecordingRuleReloadLoop()
+	service.scheduleNextRecordingRuleReload(time.Now())
 	service.shadow = shadow.NewRunner(service)
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", service.shadow.MetricsHandler())
@@ -860,6 +863,13 @@ func (h *queryService) currentRecordingRules() *rules.Registry {
 	return h.recordingRules.Load()
 }
 
+func (h *queryService) scheduleNextRecordingRuleReload(now time.Time) {
+	if h.recordingRuleMode != rules.ModeVirtual || len(h.opts.RecordingRuleFiles) == 0 || h.opts.RecordingRuleReloadInterval <= 0 {
+		return
+	}
+	h.recordingRuleNextReload.Store(now.Add(h.opts.RecordingRuleReloadInterval).UnixNano())
+}
+
 func (h *queryService) reloadRecordingRulesOnce() error {
 	registry, err := loadRecordingRuleRegistry(h.recordingRuleMode, h.opts.RecordingRuleFiles)
 	if err != nil {
@@ -871,27 +881,31 @@ func (h *queryService) reloadRecordingRulesOnce() error {
 	return nil
 }
 
-func (h *queryService) startRecordingRuleReloadLoop() {
-	if h.recordingRuleMode != rules.ModeVirtual || len(h.opts.RecordingRuleFiles) == 0 || h.opts.RecordingRuleReloadInterval <= 0 {
+func (h *queryService) maybeReloadRecordingRules(now time.Time) {
+	next := h.recordingRuleNextReload.Load()
+	if next == 0 || now.UnixNano() < next {
 		return
 	}
-	go func() {
-		ticker := time.NewTicker(h.opts.RecordingRuleReloadInterval)
-		defer ticker.Stop()
-		for range ticker.C {
-			if err := h.reloadRecordingRulesOnce(); err != nil {
-				log.Printf("promshim: recording rule reload failed; keeping previous registry: %v (failures=%d)", err, h.recordingRuleReloadErrors.Load())
-				continue
-			}
-			registry := h.currentRecordingRules()
-			log.Printf("promshim: recording rule reload succeeded: %d rules (successes=%d)", registry.Len(), h.recordingRuleReloadSuccess.Load())
-		}
-	}()
+	h.recordingRuleReloadMu.Lock()
+	defer h.recordingRuleReloadMu.Unlock()
+	next = h.recordingRuleNextReload.Load()
+	if next == 0 || now.UnixNano() < next {
+		return
+	}
+	if err := h.reloadRecordingRulesOnce(); err != nil {
+		h.scheduleNextRecordingRuleReload(now)
+		log.Printf("promshim: recording rule reload failed; keeping previous registry: %v (failures=%d)", err, h.recordingRuleReloadErrors.Load())
+		return
+	}
+	h.scheduleNextRecordingRuleReload(now)
+	registry := h.currentRecordingRules()
+	log.Printf("promshim: recording rule reload succeeded: %d rules (successes=%d)", registry.Len(), h.recordingRuleReloadSuccess.Load())
 }
 
 func (h *queryService) expandRecordingRules(expr parser.Expr) (parser.Expr, []rules.Expansion, *httpapi.APIError) {
+	h.maybeReloadRecordingRules(time.Now())
 	registry := h.currentRecordingRules()
-	if h.recordingRuleMode != rules.ModeVirtual || registry == nil || registry.Len() == 0 {
+	if h.recordingRuleMode != rules.ModeVirtual || registry.Empty() {
 		return expr, nil, nil
 	}
 	result, err := rules.ExpandExpr(expr, registry)

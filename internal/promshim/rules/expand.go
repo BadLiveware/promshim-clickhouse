@@ -24,7 +24,7 @@ type ExpandResult struct {
 }
 
 func ExpandExpr(expr parser.Expr, registry *Registry) (ExpandResult, error) {
-	if registry == nil || registry.Len() == 0 {
+	if registry.Empty() {
 		return ExpandResult{Expr: expr}, nil
 	}
 	expanded, expansions, changed, err := expand(expr, registry)

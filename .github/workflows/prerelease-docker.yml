@@ -38,8 +38,9 @@ jobs:
         id: image-tags
         run: |
           set -euo pipefail
-          short_sha="${GITHUB_SHA::8}"
-          branch="${GITHUB_REF_NAME}"
+          short_sha="${{ github.event.pull_request.head.sha }}"
+          short_sha="${short_sha::8}"
+          branch="${{ github.head_ref }}"
           safe_branch="${branch,,}"
           safe_branch="$(printf '%s' "$safe_branch" | sed -E 's#[^a-z0-9._-]#-#g' | sed -E 's/^-+|[-.]+$//g')"
           if [ -z "$safe_branch" ]; then
@@ -59,8 +60,8 @@ jobs:
           build-args: |
             APP_PACKAGE=./cmd/promshim
             APP_PORT=9090
-            APP_VERSION=${{ github.sha }}
-            APP_COMMIT=${{ github.sha }}
+            APP_VERSION=${{ github.event.pull_request.head.sha }}
+            APP_COMMIT=${{ github.event.pull_request.head.sha }}
             APP_DATE=${{ github.event.pull_request.updated_at }}
           tags: |
             ghcr.io/badliveware/promshim-clickhouse:${{ steps.image-tags.outputs.base }}
@@ -77,8 +78,8 @@ jobs:
           build-args: |
             APP_PACKAGE=./cmd/promshim-rule-syncer
             APP_PORT=9091
-            APP_VERSION=${{ github.sha }}
-            APP_COMMIT=${{ github.sha }}
+            APP_VERSION=${{ github.event.pull_request.head.sha }}
+            APP_COMMIT=${{ github.event.pull_request.head.sha }}
             APP_DATE=${{ github.event.pull_request.updated_at }}
           tags: |
             ghcr.io/badliveware/promshim-clickhouse-rule-syncer:${{ steps.image-tags.outputs.base }}

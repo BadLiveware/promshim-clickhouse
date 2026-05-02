@@ -256,6 +256,94 @@ func TestExpandExprSkipsOffsetOnAbsoluteTimestampSelectors(t *testing.T) {
 	}
 }
 
+func TestExpandExprAppliesOffsetAcrossNestedRuleExpansionWithoutInnerOffset(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: inner
+  rules:
+  - record: inner_rule
+    expr: up
+- name: outer
+  query_offset: 5m
+  rules:
+  - record: outer_rule
+    expr: inner_rule
+`)
+	expr := parseExpr(t, `outer_rule`)
+
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Expanded {
+		t.Fatalf("result = %#v, want expanded", result)
+	}
+	got := result.Expr.String()
+	if !strings.Contains(got, `offset 5m`) {
+		t.Fatalf("expanded expr = %s, want outer query_offset applied", got)
+	}
+	if strings.Contains(got, `offset 10m`) {
+		t.Fatalf("expanded expr = %s, want no extra query_offset application", got)
+	}
+}
+
+func TestExpandExprMatrixSelectorPreservesTimestampInsideButNotOnSubquery(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  rules:
+  - record: at_rule
+    expr: up
+`)
+	expr := parseExpr(t, `avg_over_time(at_rule[5m] @ 1700000000)`)
+
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call, ok := result.Expr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expanded expr type = %T, want call", result.Expr)
+	}
+	if len(call.Args) != 1 {
+		t.Fatalf("expanded call args = %#v, want one arg", call.Args)
+	}
+	subquery, ok := call.Args[0].(*parser.SubqueryExpr)
+	if !ok {
+		t.Fatalf("call arg type = %T, want subquery", call.Args[0])
+	}
+	if subquery.Timestamp != nil {
+		t.Fatalf("subquery timestamp unexpectedly present: %v", subquery.Timestamp)
+	}
+	if subquery.StartOrEnd != 0 {
+		t.Fatalf("subquery start/end unexpectedly present: %v", subquery.StartOrEnd)
+	}
+	if !strings.Contains(subquery.Expr.String(), `@ 1700000000`) {
+		t.Fatalf("expanded inner expr = %s, want absolute timestamp preserved on inner selectors", subquery.Expr)
+	}
+}
+
+func TestExpandExprDoesNotUseNilExprFromCachedExpansionOrderDependency(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  rules:
+  - record: depends_on
+    expr: base_rule
+  - record: base_rule
+    expr: up
+`)
+	expr := parseExpr(t, `depends_on`)
+
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Expr == nil {
+		t.Fatalf("expanded expr is nil, expected resolved expansion")
+	}
+	if !strings.Contains(result.Expr.String(), "up") {
+		t.Fatalf("expanded expr = %s, want base metric expansion", result.Expr)
+	}
+}
+
 func registryForTest(t *testing.T, content string) *Registry {
 	t.Helper()
 	reg, err := LoadFiles([]string{writeRulesFile(t, content)})

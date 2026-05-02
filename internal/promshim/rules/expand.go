@@ -192,7 +192,9 @@ func (s *expandState) expandVectorSelector(sel *parser.VectorSelector) (ruleExpa
 	if sel.Timestamp != nil || sel.StartOrEnd != 0 {
 		wrapped = applySelectorTimestamp(wrapped, sel.Timestamp, sel.StartOrEnd)
 	}
-	wrapped = markRuleExpansionBoundary(wrapped)
+	if rule.QueryOffset != 0 {
+		wrapped = markRuleExpansionBoundary(wrapped)
+	}
 	exps := append(childExps, expansionForRule(rule, childExps))
 	return ruleExpansion{expr: wrapped, expansions: exps, rule: rule}, true, nil
 }
@@ -209,7 +211,8 @@ func (s *expandState) expandRuleExpr(rule RecordingRule, applyOffset bool) (pars
 		s.visiting[rule.Name] = struct{}{}
 		defer delete(s.visiting, rule.Name)
 
-		expanded, exps, _, err := s.expand(rule.Expr)
+		var err error
+		expanded, exps, _, err = s.expand(rule.Expr)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -396,8 +399,6 @@ func matrixSelectorToSubquery(matrix *parser.MatrixSelector, sel *parser.VectorS
 		OriginalOffset:     sel.OriginalOffset,
 		OriginalOffsetExpr: sel.OriginalOffsetExpr,
 		Offset:             sel.Offset,
-		Timestamp:          cloneInt64Pointer(sel.Timestamp),
-		StartOrEnd:         sel.StartOrEnd,
 		Step:               step,
 		EndPos:             matrix.EndPos,
 	}

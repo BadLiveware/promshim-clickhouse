@@ -55,6 +55,36 @@ func TestExpandExprStaticLabelMismatchReturnsEmptyVector(t *testing.T) {
 	}
 }
 
+func TestExpandExprRejectsUnsupportedDynamicMatcher(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  rules:
+  - record: job:http_requests:rate5m
+    expr: sum by (job) (rate(http_requests_total[5m]))
+`)
+	expr := parseExpr(t, `job:http_requests:rate5m{job=~"api|web"}`)
+
+	_, err := ExpandExpr(expr, reg)
+	if err == nil || !strings.Contains(err.Error(), "dynamic label") {
+		t.Fatalf("err = %v, want dynamic label matcher rejection", err)
+	}
+}
+
+func TestExpandExprRejectsRecordingRuleSubquery(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  rules:
+  - record: job:http_requests:rate5m
+    expr: up
+`)
+	expr := parseExpr(t, `job:http_requests:rate5m[5m:]`)
+
+	_, err := ExpandExpr(expr, reg)
+	if err == nil || !strings.Contains(err.Error(), "subqueries") {
+		t.Fatalf("err = %v, want subquery rejection", err)
+	}
+}
+
 func TestExpandExprRejectsRecordingRuleRangeSelector(t *testing.T) {
 	reg := registryForTest(t, `groups:
 - name: dashboard

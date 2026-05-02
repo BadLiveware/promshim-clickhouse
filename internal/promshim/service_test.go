@@ -112,6 +112,14 @@ func TestQueryExplainExpandsVirtualRecordingRule(t *testing.T) {
 	}
 }
 
+func TestLoadRecordingRuleRegistryRejectsMissingExplicitFile(t *testing.T) {
+	path := t.TempDir() + "/rules.yaml"
+	_, err := loadRecordingRuleRegistry(rules.ModeVirtual, []string{path})
+	if err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("err = %v, want missing explicit file error", err)
+	}
+}
+
 func TestLoadRecordingRuleRegistryAllowsEmptySidecarGlob(t *testing.T) {
 	pattern := t.TempDir() + "/*.yaml"
 	registry, err := loadRecordingRuleRegistry(rules.ModeVirtual, []string{pattern})

@@ -24,6 +24,7 @@ import (
 const (
 	DefaultOutputDir     = "/etc/promshim/rules"
 	DefaultPrometheusVer = "3.0.0"
+	generatedFilePrefix  = "promshim-"
 )
 
 type Options struct {
@@ -152,7 +153,7 @@ func (s *Syncer) syncFiles(ruleFiles map[string]string) ([]string, error) {
 		return nil, err
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" || !strings.HasPrefix(entry.Name(), generatedFilePrefix) {
 			continue
 		}
 		if _, ok := desired[entry.Name()]; !ok {
@@ -208,7 +209,7 @@ func ruleFilename(rule *monitoringv1.PrometheusRule) string {
 	for i := range parts {
 		parts[i] = sanitizeFilenamePart(parts[i])
 	}
-	return strings.Join(parts, "-") + ".yaml"
+	return generatedFilePrefix + strings.Join(parts, "-") + ".yaml"
 }
 
 func sanitizeFilenamePart(value string) string {

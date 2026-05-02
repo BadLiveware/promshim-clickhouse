@@ -35,7 +35,7 @@
 | `PROM_SHIM_NATIVE_LOWERING_MODE` | `prefer` | Global lowering mode; see execution modes above. |
 | `PROM_SHIM_ROUTING_POLICY` | `strict` | Global cost-routing policy; see cost routing policies above. |
 | `PROM_SHIM_ALLOW_REQUEST_ROUTING_OVERRIDES` | `false` | Allows per-request `native_lowering_mode` and `routing_policy` overrides. Keep disabled on shared production endpoints; enable only for trusted benchmark/debug clients. |
-| `PROM_SHIM_RECORDING_RULE_MODE` | `off` | Recording-rule compatibility mode. `off` ignores configured rule files. `virtual` expands configured recording-rule metric names just in time for instant-vector query contexts, including `/api/v1/query_range` evaluations of instant expressions. |
+| `PROM_SHIM_RECORDING_RULE_MODE` | `off` | Recording-rule compatibility mode. `off` ignores configured rule files. `virtual` expands configured recording-rule metric names just in time for instant-vector, nested, range-selector, and subquery contexts, including `/api/v1/query_range` evaluations. |
 | `PROM_SHIM_RECORDING_RULE_FILES` | empty | Comma-separated rendered Prometheus rule YAML files or glob patterns to load when `PROM_SHIM_RECORDING_RULE_MODE=virtual`. Alerting rules are ignored; conflicting recording-rule definitions are rejected at query time. |
 | `PROM_SHIM_RECORDING_RULE_RELOAD_INTERVAL_SECONDS` | `30` | Recording-rule file reload interval. In `virtual` mode, promshim re-globs and parses configured files before query planning after this interval has elapsed, atomically swaps in valid registries, and keeps serving the previous registry if reload fails. |
 | `PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES` | empty | Comma-separated family gates eligible for `cost_prefer` local overrides, e.g. `selector_instant,rate_instant`. |

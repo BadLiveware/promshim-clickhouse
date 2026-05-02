@@ -87,7 +87,7 @@ func TestExpandExprRejectsUnsupportedDynamicMatcher(t *testing.T) {
 	}
 }
 
-func TestExpandExprRejectsRecordingRuleSubquery(t *testing.T) {
+func TestExpandExprExpandsRecordingRuleSubquery(t *testing.T) {
 	reg := registryForTest(t, `groups:
 - name: dashboard
   rules:
@@ -96,24 +96,83 @@ func TestExpandExprRejectsRecordingRuleSubquery(t *testing.T) {
 `)
 	expr := parseExpr(t, `job:http_requests:rate5m[5m:]`)
 
-	_, err := ExpandExpr(expr, reg)
-	if err == nil || !strings.Contains(err.Error(), "subqueries") {
-		t.Fatalf("err = %v, want subquery rejection", err)
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Expanded || len(result.Expansions) != 1 {
+		t.Fatalf("result = %#v, want one expansion", result)
+	}
+	if _, ok := result.Expr.(*parser.SubqueryExpr); !ok {
+		t.Fatalf("expanded expr type = %T, want subquery", result.Expr)
+	}
+	if !strings.Contains(result.Expr.String(), "up") || !strings.Contains(result.Expr.String(), "[5m:") {
+		t.Fatalf("expanded subquery = %s", result.Expr.String())
 	}
 }
 
-func TestExpandExprRejectsRecordingRuleRangeSelector(t *testing.T) {
+func TestExpandExprExpandsRecordingRuleRangeSelectorToSubquery(t *testing.T) {
 	reg := registryForTest(t, `groups:
 - name: dashboard
+  interval: 30s
   rules:
   - record: job:http_requests:rate5m
     expr: up
 `)
 	expr := parseExpr(t, `avg_over_time(job:http_requests:rate5m[5m])`)
 
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Expanded || len(result.Expansions) != 1 {
+		t.Fatalf("result = %#v, want one expansion", result)
+	}
+	if !strings.Contains(result.Expr.String(), "up") || !strings.Contains(result.Expr.String(), "[5m:30s]") {
+		t.Fatalf("expanded range selector = %s", result.Expr.String())
+	}
+}
+
+func TestExpandExprRecursivelyExpandsNestedRecordingRules(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  rules:
+  - record: job:http_requests:rate5m
+    expr: sum by (job) (rate(http_requests_total[5m]))
+  - record: job:http_requests:rate5m:double
+    expr: job:http_requests:rate5m * 2
+`)
+	expr := parseExpr(t, `job:http_requests:rate5m:double{job="api"}`)
+
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Expanded || len(result.Expansions) != 2 {
+		t.Fatalf("result = %#v, want nested expansion chain", result)
+	}
+	got := result.Expr.String()
+	for _, want := range []string{`http_requests_total`, `job:http_requests:rate5m`, `job:http_requests:rate5m:double`, `* 2`, `and on (job)`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expanded nested expr = %s, want %s", got, want)
+		}
+	}
+}
+
+func TestExpandExprRejectsRecordingRuleExpansionCycles(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  rules:
+  - record: a:rule
+    expr: b:rule
+  - record: b:rule
+    expr: a:rule
+`)
+	expr := parseExpr(t, `a:rule`)
+
 	_, err := ExpandExpr(expr, reg)
-	if err == nil || !strings.Contains(err.Error(), "range selectors") {
-		t.Fatalf("err = %v, want range selector rejection", err)
+	if err == nil || !strings.Contains(err.Error(), "cycle") {
+		t.Fatalf("err = %v, want cycle error", err)
 	}
 }
 

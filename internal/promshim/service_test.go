@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -210,6 +211,87 @@ func TestReloadRecordingRulesKeepsLastGoodOnInvalidFile(t *testing.T) {
 	}
 	if service.recordingRuleReloadSuccess.Load() != 0 || service.recordingRuleReloadErrors.Load() != 1 {
 		t.Fatalf("success=%d errors=%d", service.recordingRuleReloadSuccess.Load(), service.recordingRuleReloadErrors.Load())
+	}
+}
+
+func TestQueryRangeExplainExpandsVirtualRecordingRuleRangeSelector(t *testing.T) {
+	ruleFile := writeServiceRulesFile(t, `groups:
+- name: dashboard
+  interval: 30s
+  rules:
+  - record: job:http_requests:rate5m
+    expr: sum by (job) (rate(http_requests_total[5m]))
+`)
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`avg_over_time(job:http_requests:rate5m{job="api"}[5m])`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=300&end=600&step=60", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Data struct {
+			RecordingRules []struct {
+				Record string `json:"record"`
+			} `json:"recordingRules"`
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Data.RecordingRules) != 1 || body.Data.RecordingRules[0].Record != "job:http_requests:rate5m" {
+		t.Fatalf("recordingRules = %#v", body.Data.RecordingRules)
+	}
+	if !strings.Contains(body.Data.Plan.Expr, "http_requests_total") || !strings.Contains(body.Data.Plan.Expr, "[5m:30s]") {
+		t.Fatalf("plan expr = %q, want expanded subquery", body.Data.Plan.Expr)
+	}
+}
+
+func TestQueryExplainExpandsNestedVirtualRecordingRule(t *testing.T) {
+	ruleFile := writeServiceRulesFile(t, `groups:
+- name: dashboard
+  rules:
+  - record: job:http_requests:rate5m
+    expr: sum by (job) (rate(http_requests_total[5m]))
+  - record: job:http_requests:rate5m:double
+    expr: job:http_requests:rate5m * 2
+`)
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`job:http_requests:rate5m:double{job="api"}`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query="+query+"&time=300", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Data struct {
+			RecordingRules []struct {
+				Record string `json:"record"`
+			} `json:"recordingRules"`
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Data.RecordingRules) != 2 {
+		t.Fatalf("recordingRules = %#v, want nested chain", body.Data.RecordingRules)
+	}
+	if !strings.Contains(body.Data.Plan.Expr, "http_requests_total") || !strings.Contains(body.Data.Plan.Expr, "* 2") {
+		t.Fatalf("plan expr = %q, want nested expansion", body.Data.Plan.Expr)
 	}
 }
 

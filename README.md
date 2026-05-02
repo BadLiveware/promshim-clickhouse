@@ -144,8 +144,9 @@ Details: [`docs/promql-coverage.md`](docs/promql-coverage.md).
 
 For dashboards that query existing recording-rule metric names, promshim can
 load rendered Prometheus rule YAML and expand recording-rule references just in
-time for instant-vector queries. In Kubernetes, run `promshim-rule-syncer` as a
-sidecar to render selected `PrometheusRule` CRDs into a shared `emptyDir`, then
+time for instant queries, nested rules, and virtual-history range/subquery
+contexts. In Kubernetes, run `promshim-rule-syncer` as a sidecar to render
+selected `PrometheusRule` CRDs into a shared `emptyDir`, then
 configure promshim with:
 
 ```bash

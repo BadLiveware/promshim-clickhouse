@@ -1,9 +1,9 @@
 # Virtual recording rules
 
 Promshim can expose selected Prometheus recording-rule metric names without
-materializing those series in ClickHouse. In `virtual` mode, promshim rewrites an
-instant-vector reference to a configured recording rule into that rule's PromQL
-expression before planning the query.
+materializing those series in ClickHouse. In `virtual` mode, promshim rewrites
+configured recording-rule references into their PromQL expressions before
+planning the query.
 
 This is intended for dashboard and compatibility traffic that expects recording
 rule names to exist while ClickHouse remains the source of raw samples.
@@ -120,19 +120,26 @@ Supported:
 
 - `/api/v1/query` instant-vector contexts;
 - `/api/v1/query_range` re-evaluation of instant expressions at each step;
+- nested recording-rule references with cycle and depth guards;
+- range selectors over virtual rules, such as `my_recording_rule[5m]`, by
+  rewriting them to subqueries over the expanded rule expression;
+- subqueries over virtual rules, such as `my_recording_rule[5m:]`;
 - recording-rule labels and group labels on the virtual result expression;
 - live reload of rendered rule files with keep-last-good behavior.
 
+Historical virtual-rule queries are syntactic rewrites, not scheduled rule
+evaluation. A range selector over a virtual rule is evaluated from the expanded
+rule expression over the requested window. For `recorded_metric[5m]`, promshim
+uses the rule group's `interval` as the generated subquery step when configured;
+otherwise it lets the normal subquery default apply.
+
 Not supported in the MVP:
 
-- range selectors over virtual recording rules, such as
-  `my_recording_rule[5m]`;
 - alerting-rule evaluation;
 - materializing rule output series;
-- Prometheus rule scheduling semantics, missed evaluations, or rule state.
-
-Range selectors over virtual rules return an error because they require either
-materialized history or bounded virtual-history semantics.
+- Prometheus rule scheduling semantics, missed evaluations, or rule state;
+- regex or negative matchers on labels that are produced dynamically by the
+  expanded rule expression.
 
 ## Release artifacts
 

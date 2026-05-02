@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/local"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/rules"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 )
 
@@ -59,6 +60,9 @@ type Options struct {
 	CumulativeAvgOverTime               string
 	AllowRequestRoutingOverrides        bool
 	HidePromQL                          bool
+	RecordingRuleFiles                  []string
+	RecordingRuleReloadInterval         time.Duration
+	RecordingRuleMode                   string
 
 	DisableEntireQueryDelegation bool
 }
@@ -105,6 +109,9 @@ func LoadOptionsFromEnv() (Options, error) {
 		CumulativeAvgOverTime:               getenv("PROM_SHIM_CUMULATIVE_AVG_OVER_TIME", "prefer"),
 		AllowRequestRoutingOverrides:        getenvBool("PROM_SHIM_ALLOW_REQUEST_ROUTING_OVERRIDES", false),
 		HidePromQL:                          !getenvBool("PROM_SHIM_LOG_PROMQL", true),
+		RecordingRuleFiles:                  splitCSVEnv(getenv("PROM_SHIM_RECORDING_RULE_FILES", "")),
+		RecordingRuleReloadInterval:         time.Second * time.Duration(getenvInt("PROM_SHIM_RECORDING_RULE_RELOAD_INTERVAL_SECONDS", 30)),
+		RecordingRuleMode:                   getenv("PROM_SHIM_RECORDING_RULE_MODE", "off"),
 	}
 
 	if _, err := local.ParseNativeLoweringMode(string(opts.NativeLoweringMode)); err != nil {
@@ -121,6 +128,9 @@ func LoadOptionsFromEnv() (Options, error) {
 	}
 	if _, err := storage.ParseSettingsProfileName(opts.ClickHouseSettingsProfile); err != nil {
 		return Options{}, fmt.Errorf("invalid PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE: %w", err)
+	}
+	if _, err := rules.ParseMode(opts.RecordingRuleMode); err != nil {
+		return Options{}, fmt.Errorf("invalid PROM_SHIM_RECORDING_RULE_MODE: %w", err)
 	}
 	if normalized := normalizeNativeGridFunctionsMode(opts.NativeGridFunctions); normalized == "" {
 		return Options{}, fmt.Errorf("invalid PROM_SHIM_NATIVE_GRID_FUNCTIONS: %q", opts.NativeGridFunctions)

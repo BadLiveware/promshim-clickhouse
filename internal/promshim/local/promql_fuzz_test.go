@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/prometheus/prometheus/promql/parser"
 )
 
 func FuzzPromQLPlanningModes(f *testing.F) {
@@ -22,7 +23,11 @@ func FuzzPromQLPlanningModes(f *testing.F) {
 		if err != nil {
 			t.Skip()
 		}
-		for _, tc := range []struct {
+		if !isBoundedFuzzExpression(expr) {
+			t.Skip()
+		}
+
+		testCtx := []struct {
 			name string
 			ctx  PlanContext
 		}{
@@ -38,7 +43,9 @@ func FuzzPromQLPlanningModes(f *testing.F) {
 			{name: "range/shadow", ctx: fuzzPlanContext(EvalModeRange, NativeLoweringModeShadow)},
 			{name: "range/local_pushdown", ctx: fuzzPlanContext(EvalModeRange, NativeLoweringModeLocalPushdown)},
 			{name: "range/force_supported", ctx: fuzzPlanContext(EvalModeRange, NativeLoweringModeForceSupported)},
-		} {
+		}
+
+		for _, tc := range testCtx {
 			plan, err := buildPlanWithContext(expr, tc.ctx)
 			if err != nil {
 				assertFuzzPlanningError(t, tc.name, query, err)
@@ -129,6 +136,56 @@ func fuzzPlanContext(evalMode EvalMode, nativeMode NativeLoweringMode) PlanConte
 	ctx.NativeRangePreflightTimeout = 10 * time.Millisecond
 	ctx.NativeRangePreflightMaxMemoryUsage = 1 << 20
 	return ctx
+}
+
+const (
+	maxFuzzExpressionDepth = 10
+	maxFuzzBinaryOps       = 6
+)
+
+func isBoundedFuzzExpression(expr parser.Expr) bool {
+	// Keep CI fuzzing focused on corpus-backed planning shapes. Random deep
+	// arithmetic chains, especially modulo, can spend minutes in native SQL
+	// template rendering during minimization without adding planner coverage.
+	stats := fuzzExpressionStats{}
+	stats.visit(expr, 1)
+	return !stats.hasModulo && stats.maxDepth <= maxFuzzExpressionDepth && stats.binaryOps <= maxFuzzBinaryOps
+}
+
+type fuzzExpressionStats struct {
+	hasModulo bool
+	maxDepth  int
+	binaryOps int
+}
+
+func (s *fuzzExpressionStats) visit(expr parser.Expr, depth int) {
+	if expr == nil {
+		return
+	}
+	if depth > s.maxDepth {
+		s.maxDepth = depth
+	}
+	switch e := expr.(type) {
+	case *parser.BinaryExpr:
+		s.binaryOps++
+		if e.Op == parser.MOD {
+			s.hasModulo = true
+		}
+		s.visit(e.LHS, depth+1)
+		s.visit(e.RHS, depth+1)
+	case *parser.UnaryExpr:
+		s.visit(e.Expr, depth+1)
+	case *parser.ParenExpr:
+		s.visit(e.Expr, depth+1)
+	case *parser.Call:
+		for _, arg := range e.Args {
+			s.visit(arg, depth+1)
+		}
+	case *parser.SubqueryExpr:
+		s.visit(e.Expr, depth+1)
+	case *parser.AggregateExpr:
+		s.visit(e.Expr, depth+1)
+	}
 }
 
 func assertFuzzPlanningError(t *testing.T, mode, query string, err error) {

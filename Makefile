@@ -1,4 +1,4 @@
-.PHONY: build test test-report integration-test integration-test-report vet race fmt fmt-check tidy tidy-check lint script-check config-check pre-commit check hooks-install hooks-uninstall harness compliance bench sweep sweep-smoke sweep-estimate-heavy bench-status release-check release-snapshot
+.PHONY: build test test-report integration-test integration-test-report vet race test-race fmt fmt-check tidy tidy-check lint script-check config-check pre-commit check hooks-install hooks-uninstall harness compliance bench sweep sweep-smoke sweep-estimate-heavy bench-status release-check release-snapshot
 
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
@@ -48,6 +48,9 @@ vet:
 
 race:
 	$(GO) test -race ./...
+
+test-race:
+	$(GO) test -race $(UNIT_TEST_FLAGS) $(UNIT_PKGS)
 
 fmt:
 	gofmt -w $(GOFILES)

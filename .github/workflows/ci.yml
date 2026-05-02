@@ -48,9 +48,7 @@ jobs:
 
       - name: Run unit tests with race detector
         if: always()
-        run: |
-          UNIT_PKGS="$(go list ./... | grep -v '/integration/')"
-          go test -skip Integration -race ${UNIT_PKGS}
+        run: make test-race
 
       - name: Publish unit test report
         if: always() && hashFiles('harness/artifacts/unit/junit-*.xml') != ''

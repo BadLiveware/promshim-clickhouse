@@ -104,6 +104,9 @@ func normalizeLogValue(value string) string {
 }
 
 func requestLogEndpoint(path string) string {
+	if strings.HasPrefix(path, "/api/v1/label/") && strings.HasSuffix(path, "/values") {
+		return "label_values"
+	}
 	switch path {
 	case "/api/v1/query":
 		return "query"

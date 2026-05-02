@@ -247,6 +247,34 @@ func TestHandleQueryDebugLogsRequestOutcome(t *testing.T) {
 	}
 }
 
+func TestHandleLabelValuesDebugLogUsesStableEndpoint(t *testing.T) {
+	logOutput := useDebugLogger(t)
+	var observedComment string
+	stub := &stubService{
+		response: &Response{StatusCode: http.StatusOK, Body: map[string]any{"status": "success"}},
+		observeOnCall: func(ctx context.Context) {
+			observedComment = obs.LogCommentFromContext(ctx)
+		},
+	}
+	handler := NewHandler(stub)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/label/cpu/values?match[]=up", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	expectedHash := requestLogHash("label_values", req.URL.Query())
+	logText := logOutput.String()
+	for _, want := range []string{`endpoint=label_values`, `query_hash=` + expectedHash} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("debug log = %q, want %q", logText, want)
+		}
+	}
+	for _, want := range []string{"endpoint=label_values", "query_hash=" + expectedHash} {
+		if !strings.Contains(observedComment, want) {
+			t.Fatalf("ClickHouse log comment = %q, want %q", observedComment, want)
+		}
+	}
+}
+
 func TestHandleQueryDebugLoggingCanHidePromQL(t *testing.T) {
 	logOutput := useDebugLogger(t)
 	stub := &stubService{

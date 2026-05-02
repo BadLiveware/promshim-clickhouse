@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -214,9 +215,13 @@ func NewHandler(service Service) http.Handler {
 	h.mux.HandleFunc("GET /-/healthy", h.handleHealthy)
 	h.mux.HandleFunc("GET /-/ready", h.handleReady)
 	h.mux.HandleFunc("GET /api/v1/query", h.handleQuery)
+	h.mux.HandleFunc("POST /api/v1/query", h.handleQuery)
 	h.mux.HandleFunc("GET /api/v1/query_range", h.handleQueryRange)
+	h.mux.HandleFunc("POST /api/v1/query_range", h.handleQueryRange)
 	h.mux.HandleFunc("GET /api/v1/query_explain", h.handleQueryExplain)
+	h.mux.HandleFunc("POST /api/v1/query_explain", h.handleQueryExplain)
 	h.mux.HandleFunc("GET /api/v1/query_range_explain", h.handleQueryRangeExplain)
+	h.mux.HandleFunc("POST /api/v1/query_range_explain", h.handleQueryRangeExplain)
 	h.mux.HandleFunc("GET /api/v1/labels", h.handleLabels)
 	h.mux.HandleFunc("GET /api/v1/label/{name}/values", h.handleLabelValues)
 	h.mux.HandleFunc("GET /api/v1/series", h.handleSeries)
@@ -244,59 +249,75 @@ func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "query")))
+	values, ok := parseRequestValues(w, r)
+	if !ok {
+		return
+	}
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "query", values)))
 	resp, apiErr := h.service.InstantQuery(ctx, InstantQueryRequest{
-		Query:              r.URL.Query().Get("query"),
-		Time:               r.URL.Query().Get("time"),
-		Explain:            wantsExplain(r),
-		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
-		RoutingPolicy:      r.URL.Query().Get("routing_policy"),
+		Query:              values.Get("query"),
+		Time:               values.Get("time"),
+		Explain:            wantsExplain(values),
+		NativeLoweringMode: values.Get("native_lowering_mode"),
+		RoutingPolicy:      values.Get("routing_policy"),
 	})
 	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
 }
 
 func (h *Handler) handleQueryRange(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "query_range")))
+	values, ok := parseRequestValues(w, r)
+	if !ok {
+		return
+	}
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "query_range", values)))
 	resp, apiErr := h.service.RangeQuery(ctx, RangeQueryRequest{
-		Query:              r.URL.Query().Get("query"),
-		Start:              r.URL.Query().Get("start"),
-		End:                r.URL.Query().Get("end"),
-		Step:               r.URL.Query().Get("step"),
-		Explain:            wantsExplain(r),
-		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
-		RoutingPolicy:      r.URL.Query().Get("routing_policy"),
+		Query:              values.Get("query"),
+		Start:              values.Get("start"),
+		End:                values.Get("end"),
+		Step:               values.Get("step"),
+		Explain:            wantsExplain(values),
+		NativeLoweringMode: values.Get("native_lowering_mode"),
+		RoutingPolicy:      values.Get("routing_policy"),
 	})
 	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
 }
 
 func (h *Handler) handleQueryExplain(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "query_explain")))
+	values, ok := parseRequestValues(w, r)
+	if !ok {
+		return
+	}
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "query_explain", values)))
 	resp, apiErr := h.service.ExplainInstant(ctx, InstantQueryRequest{
-		Query:              r.URL.Query().Get("query"),
-		Time:               r.URL.Query().Get("time"),
+		Query:              values.Get("query"),
+		Time:               values.Get("time"),
 		Explain:            true,
-		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
-		RoutingPolicy:      r.URL.Query().Get("routing_policy"),
+		NativeLoweringMode: values.Get("native_lowering_mode"),
+		RoutingPolicy:      values.Get("routing_policy"),
 	})
 	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
 }
 
 func (h *Handler) handleQueryRangeExplain(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "query_range_explain")))
+	values, ok := parseRequestValues(w, r)
+	if !ok {
+		return
+	}
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "query_range_explain", values)))
 	resp, apiErr := h.service.ExplainRange(ctx, RangeQueryRequest{
-		Query:              r.URL.Query().Get("query"),
-		Start:              r.URL.Query().Get("start"),
-		End:                r.URL.Query().Get("end"),
-		Step:               r.URL.Query().Get("step"),
+		Query:              values.Get("query"),
+		Start:              values.Get("start"),
+		End:                values.Get("end"),
+		Step:               values.Get("step"),
 		Explain:            true,
-		NativeLoweringMode: r.URL.Query().Get("native_lowering_mode"),
-		RoutingPolicy:      r.URL.Query().Get("routing_policy"),
+		NativeLoweringMode: values.Get("native_lowering_mode"),
+		RoutingPolicy:      values.Get("routing_policy"),
 	})
 	writeServiceResult(w, resp, apiErr, metrics, h.clickHouseTransport())
 }
 
 func (h *Handler) handleLabels(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "labels")))
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "labels", nil)))
 	resp, apiErr := h.service.Labels(ctx, MetadataRequest{
 		Matchers: readMatchers(r),
 		Start:    r.URL.Query().Get("start"),
@@ -306,7 +327,7 @@ func (h *Handler) handleLabels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleLabelValues(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "label_values")))
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "label_values", nil)))
 	resp, apiErr := h.service.LabelValues(ctx, LabelValuesRequest{
 		Name: r.PathValue("name"),
 		MetadataRequest: MetadataRequest{
@@ -319,7 +340,7 @@ func (h *Handler) handleLabelValues(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleSeries(w http.ResponseWriter, r *http.Request) {
-	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "series")))
+	ctx, metrics := obs.WithCHMetrics(obs.WithLogComment(r.Context(), requestLogComment(r, "series", nil)))
 	resp, apiErr := h.service.Series(ctx, MetadataRequest{
 		Matchers: readMatchers(r),
 		Start:    r.URL.Query().Get("start"),
@@ -403,8 +424,16 @@ func readMatchers(r *http.Request) []string {
 	return r.URL.Query()["match"]
 }
 
-func wantsExplain(r *http.Request) bool {
-	switch r.URL.Query().Get("explain") {
+func parseRequestValues(w http.ResponseWriter, r *http.Request) (url.Values, bool) {
+	if err := r.ParseForm(); err != nil {
+		writePromError(w, APIError{StatusCode: http.StatusBadRequest, ErrorType: "bad_data", Error: "invalid form parameters: " + err.Error()})
+		return nil, false
+	}
+	return r.Form, true
+}
+
+func wantsExplain(values url.Values) bool {
+	switch values.Get("explain") {
 	case "1", "true", "TRUE", "True":
 		return true
 	default:
@@ -412,15 +441,18 @@ func wantsExplain(r *http.Request) bool {
 	}
 }
 
-func requestLogComment(r *http.Request, endpoint string) string {
+func requestLogComment(r *http.Request, endpoint string, values url.Values) string {
 	if header := r.Header.Get("X-Promshim-Log-Comment"); header != "" {
 		return truncateLogPart(safeLogPart(header, "request"), maxRequestLogCommentLen)
 	}
-	hashInput := endpoint + "\x00" + r.URL.RawQuery
+	if values == nil {
+		values = r.URL.Query()
+	}
+	hashInput := endpoint + "\x00" + values.Encode()
 	sum := sha256.Sum256([]byte(hashInput))
 	queryHash := hex.EncodeToString(sum[:])[:16]
-	mode := safeLogPart(r.URL.Query().Get("native_lowering_mode"), "default")
-	policy := safeLogPart(r.URL.Query().Get("routing_policy"), "default")
+	mode := safeLogPart(values.Get("native_lowering_mode"), "default")
+	policy := safeLogPart(values.Get("routing_policy"), "default")
 	return "promshim endpoint=" + safeLogPart(endpoint, "unknown") + " query_hash=" + queryHash + " mode=" + mode + " policy=" + policy
 }
 

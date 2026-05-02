@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
@@ -41,10 +43,20 @@ type Result struct {
 	OutputFiles []string
 }
 
+type Stats struct {
+	SelectedRules    int
+	RenderedFiles    int
+	SyncFailures     uint64
+	LastSuccessUnix  int64
+	LastErrorMessage string
+}
+
 type Syncer struct {
 	monitoring monitoringclient.Interface
 	logger     *slog.Logger
 	opts       Options
+	statsMu    sync.RWMutex
+	stats      Stats
 }
 
 func New(monitoring monitoringclient.Interface, _ kubernetes.Interface, logger *slog.Logger, opts Options) (*Syncer, error) {
@@ -83,14 +95,66 @@ func (s *Syncer) Run(ctx context.Context) error {
 func (s *Syncer) SyncOnce(ctx context.Context) (Result, error) {
 	ruleFiles, err := s.RuleFiles(ctx)
 	if err != nil {
+		s.recordSyncFailure(err)
 		return Result{}, err
 	}
 	files, err := s.syncFiles(ruleFiles)
 	if err != nil {
+		s.recordSyncFailure(err)
 		return Result{}, err
 	}
+	s.recordSyncSuccess(len(ruleFiles), len(files), time.Now())
 	s.logger.Info("synced PrometheusRule files", "rules", len(ruleFiles), "files", files)
 	return Result{RuleCount: len(ruleFiles), OutputFiles: files}, nil
+}
+
+func (s *Syncer) Stats() Stats {
+	s.statsMu.RLock()
+	defer s.statsMu.RUnlock()
+	return s.stats
+}
+
+func (s *Syncer) MetricsHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		stats := s.Stats()
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		fmt.Fprintf(w, "# HELP promshim_rule_syncer_selected_rules Last successful sync selected PrometheusRule files.\n")
+		fmt.Fprintf(w, "# TYPE promshim_rule_syncer_selected_rules gauge\n%d\n", stats.SelectedRules)
+		fmt.Fprintf(w, "# HELP promshim_rule_syncer_rendered_files Last successful sync rendered output files.\n")
+		fmt.Fprintf(w, "# TYPE promshim_rule_syncer_rendered_files gauge\n%d\n", stats.RenderedFiles)
+		fmt.Fprintf(w, "# HELP promshim_rule_syncer_sync_failures_total Total sync failures.\n")
+		fmt.Fprintf(w, "# TYPE promshim_rule_syncer_sync_failures_total counter\n%d\n", stats.SyncFailures)
+		fmt.Fprintf(w, "# HELP promshim_rule_syncer_last_success_timestamp_seconds Unix timestamp of the last successful sync.\n")
+		fmt.Fprintf(w, "# TYPE promshim_rule_syncer_last_success_timestamp_seconds gauge\n%d\n", stats.LastSuccessUnix)
+	})
+}
+
+func (s *Syncer) HealthHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		stats := s.Stats()
+		if stats.LastErrorMessage != "" && stats.LastSuccessUnix == 0 {
+			http.Error(w, stats.LastErrorMessage, http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok\n"))
+	})
+}
+
+func (s *Syncer) recordSyncSuccess(selectedRules, renderedFiles int, now time.Time) {
+	s.statsMu.Lock()
+	defer s.statsMu.Unlock()
+	s.stats.SelectedRules = selectedRules
+	s.stats.RenderedFiles = renderedFiles
+	s.stats.LastSuccessUnix = now.Unix()
+	s.stats.LastErrorMessage = ""
+}
+
+func (s *Syncer) recordSyncFailure(err error) {
+	s.statsMu.Lock()
+	defer s.statsMu.Unlock()
+	s.stats.SyncFailures++
+	s.stats.LastErrorMessage = err.Error()
 }
 
 func (s *Syncer) RuleFiles(ctx context.Context) (map[string]string, error) {

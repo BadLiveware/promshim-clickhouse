@@ -2,6 +2,8 @@ package rulesync
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,6 +52,32 @@ func TestSyncOnceWritesSelectedPrometheusRulesToFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outDir, "promshim-observability-ignored-456.yaml")); !os.IsNotExist(err) {
 		t.Fatalf("expected unselected rule not written, got err=%v", err)
+	}
+}
+
+func TestSyncOnceUpdatesMetricsAndHealth(t *testing.T) {
+	monitoring := monitoringfake.NewSimpleClientset(promRule("observability", "dashboards", "123", nil))
+	syncer, err := New(monitoring, nil, nil, Options{Namespaces: []string{"observability"}, OutputDir: t.TempDir(), Once: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncer.SyncOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRes := httptest.NewRecorder()
+	syncer.MetricsHandler().ServeHTTP(metricsRes, metricsReq)
+	body := metricsRes.Body.String()
+	for _, want := range []string{"promshim_rule_syncer_selected_rules", "promshim_rule_syncer_rendered_files", "promshim_rule_syncer_last_success_timestamp_seconds"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("metrics = %s, want %s", body, want)
+		}
+	}
+	healthReq := httptest.NewRequest(http.MethodGet, "/health", nil)
+	healthRes := httptest.NewRecorder()
+	syncer.HealthHandler().ServeHTTP(healthRes, healthReq)
+	if healthRes.Code != http.StatusOK {
+		t.Fatalf("health status = %d body=%s", healthRes.Code, healthRes.Body.String())
 	}
 }
 

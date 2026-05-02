@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -29,6 +30,7 @@ func main() {
 		outDir          = flag.String("output-dir", getenv("PROM_SHIM_RULE_SYNC_OUTPUT_DIR", rulesync.DefaultOutputDir), "Directory for rendered rule files.")
 		promVersion     = flag.String("prometheus-version", getenv("PROM_SHIM_RULE_SYNC_PROMETHEUS_VERSION", rulesync.DefaultPrometheusVer), "Prometheus version used for rule validation compatibility.")
 		syncInterval    = flag.Duration("sync-interval", getenvDuration("PROM_SHIM_RULE_SYNC_INTERVAL", 30*time.Second), "Periodic sync interval. Ignored with --once.")
+		listenAddr      = flag.String("listen-addr", getenv("PROM_SHIM_RULE_SYNC_LISTEN_ADDR", ":9091"), "HTTP listen address for /metrics and /health. Empty disables HTTP serving.")
 		once            = flag.Bool("once", getenvBool("PROM_SHIM_RULE_SYNC_ONCE", false), "Run one sync and exit.")
 	)
 	flag.Parse()
@@ -72,6 +74,28 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if *listenAddr != "" && !*once {
+		server := &http.Server{Addr: *listenAddr}
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", syncer.MetricsHandler())
+		mux.Handle("/health", syncer.HealthHandler())
+		mux.Handle("/-/healthy", syncer.HealthHandler())
+		mux.Handle("/-/ready", syncer.HealthHandler())
+		server.Handler = mux
+		go func() {
+			<-ctx.Done()
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = server.Shutdown(shutdownCtx)
+		}()
+		go func() {
+			logger.Info("serving rule syncer diagnostics", "addr", *listenAddr)
+			if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Error("serve diagnostics", "err", err)
+				stop()
+			}
+		}()
+	}
 	if err := syncer.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		logger.Error("run syncer", "err", err)
 		os.Exit(1)

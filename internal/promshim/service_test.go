@@ -81,7 +81,7 @@ func TestQueryExplainExpandsVirtualRecordingRule(t *testing.T) {
     labels:
       team: edge
 `)
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModeOff, RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestQueryRangeExplainExpandsVirtualRecordingRuleRangeSelector(t *testing.T)
   - record: job:http_requests:rate5m
     expr: sum by (job) (rate(http_requests_total[5m]))
 `)
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModeOff, RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestQueryExplainExpandsNestedVirtualRecordingRule(t *testing.T) {
   - record: job:http_requests:rate5m:double
     expr: job:http_requests:rate5m * 2
 `)
-	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModeOff, RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,6 +296,94 @@ func TestQueryExplainExpandsNestedVirtualRecordingRule(t *testing.T) {
 	}
 	if !strings.Contains(body.Data.Plan.Expr, "http_requests_total") || !strings.Contains(body.Data.Plan.Expr, "* 2") {
 		t.Fatalf("plan expr = %q, want nested expansion", body.Data.Plan.Expr)
+	}
+}
+
+func TestQueryEvaluatesNestedVirtualRecordingRuleResult(t *testing.T) {
+	ruleFile := writeServiceRulesFile(t, `groups:
+- name: dashboard
+  rules:
+  - record: one:rule
+    expr: vector(1)
+  - record: two:rule
+    expr: one:rule * 2
+`)
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModeOff, RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=two:rule&time=300", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	assertSingleVectorValue(t, res.Body.Bytes(), "2")
+}
+
+func TestQueryEvaluatesVirtualRecordingRuleRangeSelectorResult(t *testing.T) {
+	ruleFile := writeServiceRulesFile(t, `groups:
+- name: dashboard
+  interval: 1m
+  rules:
+  - record: one:rule
+    expr: vector(1)
+`)
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModeOff, RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=avg_over_time(one:rule%5B2m%5D)&time=300", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	assertSingleVectorValue(t, res.Body.Bytes(), "1")
+}
+
+func TestQueryEvaluatesVirtualRecordingRuleSubqueryResult(t *testing.T) {
+	ruleFile := writeServiceRulesFile(t, `groups:
+- name: dashboard
+  rules:
+  - record: one:rule
+    expr: vector(1)
+`)
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModeOff, RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=avg_over_time(one:rule%5B2m:1m%5D)&time=300", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	assertSingleVectorValue(t, res.Body.Bytes(), "1")
+}
+
+func assertSingleVectorValue(t *testing.T, bodyBytes []byte, want string) {
+	t.Helper()
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			ResultType string `json:"resultType"`
+			Result     []struct {
+				Value []any `json:"value"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(bodyBytes, &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "success" || body.Data.ResultType != "vector" || len(body.Data.Result) != 1 || len(body.Data.Result[0].Value) != 2 || body.Data.Result[0].Value[1] != want {
+		t.Fatalf("body = %s, want single vector value %s", string(bodyBytes), want)
 	}
 }
 

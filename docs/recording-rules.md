@@ -63,12 +63,17 @@ Common flags and environment variables:
 | `--rule-selector` | `PROM_SHIM_RULE_SYNC_SELECTOR` | empty | Kubernetes label selector for `PrometheusRule` objects. |
 | `--prometheus-version` | `PROM_SHIM_RULE_SYNC_PROMETHEUS_VERSION` | `3.0.0` | Prometheus compatibility version for rule validation. |
 | `--sync-interval` | `PROM_SHIM_RULE_SYNC_INTERVAL` | `30s` | Periodic sync interval. |
+| `--listen-addr` | `PROM_SHIM_RULE_SYNC_LISTEN_ADDR` | `:9091` | HTTP listen address for `/metrics` and health endpoints. Empty disables HTTP serving. |
 | `--once` | `PROM_SHIM_RULE_SYNC_ONCE` | `false` | Run one sync and exit. |
 
 The syncer writes each rule file with temp-file plus atomic rename semantics.
 Generated files are prefixed with `promshim-`; stale generated `.yaml` files are
 removed from the output directory. Other `.yaml` files and non-YAML files are
 left alone.
+
+Long-running syncers expose `/metrics`, `/health`, `/-/healthy`, and `/-/ready`
+on `PROM_SHIM_RULE_SYNC_LISTEN_ADDR`. Metrics include selected rules, rendered
+files, sync failures, and the last successful sync timestamp.
 
 ## Minimal Kubernetes sketch
 

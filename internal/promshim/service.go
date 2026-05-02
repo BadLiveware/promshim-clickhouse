@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -805,7 +806,14 @@ func loadRecordingRuleRegistry(mode rules.Mode, patterns []string) (*rules.Regis
 	if mode != rules.ModeVirtual || len(patterns) == 0 {
 		return rules.EmptyRegistry(), nil
 	}
-	loadedRegistry, err := rules.LoadFiles(patterns)
+	files, err := expandRecordingRuleFilePatterns(patterns)
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return rules.EmptyRegistry(), nil
+	}
+	loadedRegistry, err := rules.LoadFiles(files)
 	if err != nil {
 		return nil, err
 	}
@@ -813,6 +821,23 @@ func loadRecordingRuleRegistry(mode rules.Mode, patterns []string) (*rules.Regis
 		return nil, fmt.Errorf("loading recording rules: %v", loadedRegistry.Errors())
 	}
 	return loadedRegistry, nil
+}
+
+func expandRecordingRuleFilePatterns(patterns []string) ([]string, error) {
+	var files []string
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("invalid recording rule file glob %q: %w", pattern, err)
+		}
+		files = append(files, matches...)
+	}
+	sort.Strings(files)
+	return files, nil
 }
 
 func (h *queryService) currentRecordingRules() *rules.Registry {

@@ -112,6 +112,17 @@ func TestQueryExplainExpandsVirtualRecordingRule(t *testing.T) {
 	}
 }
 
+func TestLoadRecordingRuleRegistryAllowsEmptySidecarGlob(t *testing.T) {
+	pattern := t.TempDir() + "/*.yaml"
+	registry, err := loadRecordingRuleRegistry(rules.ModeVirtual, []string{pattern})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if registry.Len() != 0 {
+		t.Fatalf("registry length = %d, want 0", registry.Len())
+	}
+}
+
 func TestReloadRecordingRulesSwapsValidRegistry(t *testing.T) {
 	ruleFile := writeServiceRulesFile(t, `groups:
 - name: dashboard

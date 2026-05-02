@@ -71,6 +71,8 @@ are left alone.
 ## Minimal Kubernetes sketch
 
 ```yaml
+securityContext:
+  fsGroup: 65532
 volumes:
   - name: promshim-rules
     emptyDir: {}
@@ -101,8 +103,14 @@ containers:
         mountPath: /etc/promshim/rules
 ```
 
+The syncer container runs as the distroless nonroot user. Set a pod or volume
+security context, such as `fsGroup: 65532`, so it can write to the shared
+`emptyDir`.
+
 The syncer needs RBAC to list `monitoring.coreos.com/v1` `prometheusrules` in
-the selected namespaces.
+the selected namespaces. If promshim starts before the sidecar has written any
+matching files, it starts with an empty virtual-rule registry and picks up files
+on the next successful reload.
 
 ## Query semantics
 

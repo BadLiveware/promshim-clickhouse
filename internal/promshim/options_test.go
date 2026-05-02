@@ -75,6 +75,26 @@ func TestLoadOptionsFromEnvRequestRoutingOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadOptionsFromEnvLogPromQL(t *testing.T) {
+	t.Setenv("PROM_SHIM_LOG_PROMQL", "")
+	opts, err := LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.HidePromQL {
+		t.Fatalf("HidePromQL = true, want default false")
+	}
+
+	t.Setenv("PROM_SHIM_LOG_PROMQL", "false")
+	opts, err = LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.HidePromQL {
+		t.Fatalf("HidePromQL = false, want true when PROM_SHIM_LOG_PROMQL=false")
+	}
+}
+
 func TestLoadOptionsFromEnvRoutingPolicy(t *testing.T) {
 	t.Setenv("PROM_SHIM_ROUTING_POLICY", "cost_shadow")
 	opts, err := LoadOptionsFromEnv()

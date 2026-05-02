@@ -6,6 +6,8 @@
 | Variable | Default | Meaning |
 |---|---:|---|
 | `PROM_SHIM_LISTEN_ADDR` | `:9090` | HTTP listen address. |
+| `PROM_SHIM_LOG_LEVEL` | `info` | Process log level: `debug`, `info`, `warn`, or `error`. `debug` enables one structured request-completion log line per HTTP request with method, path, status, duration, bounded PromQL query, hashed parameters, strategy/routing headers, ClickHouse round trips, and Prometheus error type. |
+| `PROM_SHIM_LOG_PROMQL` | `true` | Include the bounded raw PromQL `query` field in debug request logs. Set to `false` to keep only the request parameter hash. |
 | `PROM_SHIM_CLICKHOUSE_TRANSPORT` | `native` | ClickHouse transport: `native` for the ClickHouse Go driver or `http` for the legacy JSONEachRow rollback path. |
 | `PROM_SHIM_CLICKHOUSE_ENDPOINT` | `http://127.0.0.1:8123/` | ClickHouse HTTP endpoint used by HTTP transport mode and retained as rollback configuration. |
 | `PROM_SHIM_CLICKHOUSE_NATIVE_ADDR` | `127.0.0.1:9000` | ClickHouse native TCP address used when `PROM_SHIM_CLICKHOUSE_TRANSPORT=native`. |

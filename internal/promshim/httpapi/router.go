@@ -214,13 +214,22 @@ type clickHouseTransporter interface {
 
 const maxRequestLogCommentLen = 256
 
+type HandlerOptions struct {
+	HidePromQL bool
+}
+
 type Handler struct {
-	service Service
-	mux     *http.ServeMux
+	service    Service
+	mux        *http.ServeMux
+	hidePromQL bool
 }
 
 func NewHandler(service Service) http.Handler {
-	h := &Handler{service: service, mux: http.NewServeMux()}
+	return NewHandlerWithOptions(service, HandlerOptions{})
+}
+
+func NewHandlerWithOptions(service Service, opts HandlerOptions) http.Handler {
+	h := &Handler{service: service, mux: http.NewServeMux(), hidePromQL: opts.HidePromQL}
 	h.mux.HandleFunc("OPTIONS /", h.handleOptions)
 	h.mux.HandleFunc("GET /health", h.handleHealth)
 	h.mux.HandleFunc("GET /-/healthy", h.handleHealthy)
@@ -250,7 +259,7 @@ func NewHandler(service Service) http.Handler {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h.mux.ServeHTTP(w, r)
+	h.serveHTTP(w, r)
 }
 
 func (h *Handler) handleOptions(w http.ResponseWriter, r *http.Request) {
@@ -559,12 +568,18 @@ func requestLogComment(r *http.Request, endpoint string, values url.Values) stri
 	if values == nil {
 		values = r.URL.Query()
 	}
-	hashInput := endpoint + "\x00" + values.Encode()
-	sum := sha256.Sum256([]byte(hashInput))
-	queryHash := hex.EncodeToString(sum[:])[:16]
 	mode := safeLogPart(values.Get("native_lowering_mode"), "default")
 	policy := safeLogPart(values.Get("routing_policy"), "default")
-	return "promshim endpoint=" + safeLogPart(endpoint, "unknown") + " query_hash=" + queryHash + " mode=" + mode + " policy=" + policy
+	return "promshim endpoint=" + safeLogPart(endpoint, "unknown") + " query_hash=" + requestLogHash(endpoint, values) + " mode=" + mode + " policy=" + policy
+}
+
+func requestLogHash(endpoint string, values url.Values) string {
+	if values == nil {
+		values = url.Values{}
+	}
+	hashInput := endpoint + "\x00" + values.Encode()
+	sum := sha256.Sum256([]byte(hashInput))
+	return hex.EncodeToString(sum[:])[:16]
 }
 
 func translatePromQLAST(expr parser.Expr) any {
@@ -654,6 +669,9 @@ func writePromSuccess(w http.ResponseWriter, data any) {
 }
 
 func writePromError(w http.ResponseWriter, apiErr APIError) {
+	if apiErr.ErrorType != "" {
+		w.Header().Set("X-Promshim-Error-Type", apiErr.ErrorType)
+	}
 	writeJSON(w, apiErr.StatusCode, map[string]any{
 		"status":    "error",
 		"errorType": apiErr.ErrorType,

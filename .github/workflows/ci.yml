@@ -103,7 +103,7 @@ jobs:
           cache: true
 
       - name: Run extended fuzz smoke tests
-        run: make fuzz-smoke FUZZTIME=10m FUZZPARALLEL=1
+        run: make fuzz-smoke FUZZTIME=10m FUZZPARALLEL=2
 
   compliance:
     name: PromQL compliance

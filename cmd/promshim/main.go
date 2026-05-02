@@ -9,6 +9,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,7 +26,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version information and exit")
 	flag.Parse()
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logger := newLoggerFromEnv()
 	slog.SetDefault(logger)
 
 	if *showVersion {
@@ -104,4 +105,24 @@ func main() {
 	}
 
 	logger.Info("promshim stopped")
+}
+
+func newLoggerFromEnv() *slog.Logger {
+	level := slog.LevelInfo
+	rawLevel := strings.TrimSpace(strings.ToLower(os.Getenv("PROM_SHIM_LOG_LEVEL")))
+	switch rawLevel {
+	case "", "info":
+		level = slog.LevelInfo
+	case "debug":
+		level = slog.LevelDebug
+	case "warn", "warning":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	if rawLevel != "" && rawLevel != "debug" && rawLevel != "info" && rawLevel != "warn" && rawLevel != "warning" && rawLevel != "error" {
+		logger.Warn("invalid log level; using info", "env", "PROM_SHIM_LOG_LEVEL", "value", rawLevel)
+	}
+	return logger
 }

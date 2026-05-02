@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -202,6 +204,99 @@ func TestHandleQuerySanitizesHeaderLogComment(t *testing.T) {
 	if len(observedComment) > maxRequestLogCommentLen {
 		t.Fatalf("expected bounded log comment, len=%d", len(observedComment))
 	}
+}
+
+func TestHandleQueryDebugLogsRequestOutcome(t *testing.T) {
+	logOutput := useDebugLogger(t)
+	stub := &stubService{
+		response: &Response{
+			StatusCode:      http.StatusOK,
+			Strategy:        "native_sql",
+			SettingsProfile: "default_safe",
+			Body:            map[string]any{"status": "success"},
+		},
+		transport: "native",
+		observeOnCall: func(ctx context.Context) {
+			obs.FromContext(ctx).Observe(7 * time.Millisecond)
+		},
+	}
+	handler := NewHandler(stub)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=secret_metric%7Btenant%3D%22acme%22%7D", nil)
+	req.Header.Set("User-Agent", "Grafana/12.0")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	logText := logOutput.String()
+	for _, want := range []string{
+		`level=DEBUG`,
+		`msg="promshim http request"`,
+		`method=GET`,
+		`path=/api/v1/query`,
+		`endpoint=query`,
+		`status=200`,
+		`strategy=native_sql`,
+		`settings_profile=default_safe`,
+		`ch_transport=native`,
+		`ch_roundtrips=1`,
+		`query_hash=`,
+		`query="secret_metric{tenant=\"acme\"}"`,
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("debug log = %q, want %q", logText, want)
+		}
+	}
+}
+
+func TestHandleQueryDebugLoggingCanHidePromQL(t *testing.T) {
+	logOutput := useDebugLogger(t)
+	stub := &stubService{
+		response: &Response{StatusCode: http.StatusOK, Body: map[string]any{"status": "success"}},
+	}
+	handler := NewHandlerWithOptions(stub, HandlerOptions{HidePromQL: true})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=secret_metric", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	logText := logOutput.String()
+	if !strings.Contains(logText, `query_hash=`) {
+		t.Fatalf("debug log = %q, want query_hash", logText)
+	}
+	if strings.Contains(logText, `query=secret_metric`) {
+		t.Fatalf("debug log included PromQL while disabled: %q", logText)
+	}
+}
+
+func TestHandleQueryDebugLogsAPIErrorType(t *testing.T) {
+	logOutput := useDebugLogger(t)
+	stub := &stubService{
+		apiErr: &APIError{StatusCode: http.StatusBadRequest, ErrorType: "bad_data", Error: "nope"},
+	}
+	handler := NewHandler(stub)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=up", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	logText := logOutput.String()
+	for _, want := range []string{`status=400`, `error_type=bad_data`} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("debug log = %q, want %q", logText, want)
+		}
+	}
+	if strings.Contains(logText, "nope") {
+		t.Fatalf("debug log leaked API error text: %q", logText)
+	}
+	if got := rec.Header().Get("X-Promshim-Error-Type"); got != "bad_data" {
+		t.Fatalf("X-Promshim-Error-Type = %q, want bad_data", got)
+	}
+}
+
+func useDebugLogger(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var logOutput bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logOutput, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	return &logOutput
 }
 
 func TestHandleQueryRangeSetsFallbackReason(t *testing.T) {

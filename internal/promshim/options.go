@@ -58,6 +58,7 @@ type Options struct {
 	NativeGridFunctions                 string
 	CumulativeAvgOverTime               string
 	AllowRequestRoutingOverrides        bool
+	HidePromQL                          bool
 
 	DisableEntireQueryDelegation bool
 }
@@ -103,6 +104,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		NativeGridFunctions:                 getenv("PROM_SHIM_NATIVE_GRID_FUNCTIONS", "prefer"),
 		CumulativeAvgOverTime:               getenv("PROM_SHIM_CUMULATIVE_AVG_OVER_TIME", "prefer"),
 		AllowRequestRoutingOverrides:        getenvBool("PROM_SHIM_ALLOW_REQUEST_ROUTING_OVERRIDES", false),
+		HidePromQL:                          !getenvBool("PROM_SHIM_LOG_PROMQL", true),
 	}
 
 	if _, err := local.ParseNativeLoweringMode(string(opts.NativeLoweringMode)); err != nil {

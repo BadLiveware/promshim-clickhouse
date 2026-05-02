@@ -163,7 +163,7 @@ func NewHandler(opts Options) (http.Handler, error) {
 	service.shadow = shadow.NewRunner(service)
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", service.shadow.MetricsHandler())
-	mux.Handle("/", httpapi.NewHandler(service))
+	mux.Handle("/", httpapi.NewHandlerWithOptions(service, httpapi.HandlerOptions{HidePromQL: opts.HidePromQL}))
 	return mux, nil
 }
 

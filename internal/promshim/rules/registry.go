@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	commonmodel "github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/rulefmt"
 	"github.com/prometheus/prometheus/promql/parser"
+	"sigs.k8s.io/yaml"
 )
 
 type Mode string
@@ -170,6 +172,11 @@ func (r *Registry) loadFile(file string) error {
 	if groups == nil {
 		return nil
 	}
+	// Fallback: scan for label-like keys at the rule level that are outside the
+	// labels: block. Some CRD definitions place labels inline (e.g. workload_type:
+	// deployment) rather than inside labels:. Capture them so selectorStaticMismatch
+	// can prune non-matching definitions at query time.
+	fallbackLabels := loadFallbackRuleLabels(file)
 	for _, group := range groups.Groups {
 		for _, rawRule := range group.Rules {
 			if rawRule.Record == "" {
@@ -179,11 +186,19 @@ func (r *Registry) loadFile(file string) error {
 			if err != nil {
 				return fmt.Errorf("parsing recording rule %q from %s: %w", rawRule.Record, file, err)
 			}
+			labels := cloneMap(rawRule.Labels)
+			if fallback := fallbackLabels[rawRule.Record]; fallback != nil {
+				for k, v := range fallback {
+					if _, exists := labels[k]; !exists {
+						labels[k] = v
+					}
+				}
+			}
 			rule := RecordingRule{
 				Name:        rawRule.Record,
 				Expr:        expr,
 				ExprString:  rawRule.Expr,
-				Labels:      cloneMap(rawRule.Labels),
+				Labels:      labels,
 				GroupName:   group.Name,
 				GroupLabels: cloneMap(group.Labels),
 				Interval:    time.Duration(group.Interval),
@@ -242,6 +257,59 @@ func (r *Registry) add(rule RecordingRule) {
 
 func sameRule(a, b RecordingRule) bool {
 	return a.ExprString == b.ExprString && a.Interval == b.Interval && a.QueryOffset == b.QueryOffset && mapsEqual(a.Labels, b.Labels) && mapsEqual(a.GroupLabels, b.GroupLabels)
+}
+
+var knownRuleFields = map[string]bool{
+	"record":          true,
+	"alert":           true,
+	"expr":            true,
+	"for":             true,
+	"keep_firing_for": true,
+	"labels":          true,
+	"annotations":     true,
+}
+
+// loadFallbackRuleLabels parses a YAML rules file and extracts label-like inline
+// keys from rule definitions that are NOT inside a labels: block. Some CRD
+// generators place labels such as workload_type: deployment at the rule level
+// rather than inside labels:, causing rulefmt.ParseFile to drop them. This
+// fallback captures those keys so selectorStaticMismatch can prune non-matching
+// definitions at query time.
+func loadFallbackRuleLabels(file string) map[string]map[string]string {
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return nil
+	}
+	var doc map[string]interface{}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil
+	}
+	result := map[string]map[string]string{}
+	groups, _ := doc["groups"].([]interface{})
+	for _, g := range groups {
+		group, _ := g.(map[string]interface{})
+		rules, _ := group["rules"].([]interface{})
+		for _, r := range rules {
+			rule, _ := r.(map[string]interface{})
+			record, _ := rule["record"].(string)
+			if record == "" {
+				continue
+			}
+			extra := map[string]string{}
+			for key, val := range rule {
+				if knownRuleFields[key] {
+					continue
+				}
+				if strVal, ok := val.(string); ok && key != "" {
+					extra[key] = strVal
+				}
+			}
+			if len(extra) > 0 {
+				result[record] = extra
+			}
+		}
+	}
+	return result
 }
 
 func recordingRuleCacheKey(rule RecordingRule) string {

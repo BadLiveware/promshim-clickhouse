@@ -80,6 +80,9 @@ func (m *Materializer) Start(ctx context.Context) {
 		m.running.Store(name, struct{}{})
 		m.wg.Add(1)
 		go m.runRule(ctx, rule)
+		// Stagger startup evals by 200ms per rule to avoid saturating the
+		// ClickHouse connection pool when all rules fire their first eval at once.
+		time.Sleep(200 * time.Millisecond)
 	}
 	m.wg.Add(1)
 	go m.refreshLoop(ctx)
@@ -212,7 +215,10 @@ func (m *Materializer) evaluateRule(ctx context.Context, rule RecordingRule, eva
 		return fmt.Errorf("decode result: %w", err)
 	}
 	if len(queryResult.Data) == 0 {
-		return nil // no data, nothing to write
+		// No data at this timestamp — recording rule expression evaluated
+		// to empty vector, which is normal for rules that depend on data
+		// that hasn't arrived yet.
+		return nil
 	}
 
 	// 6. Write results back via INSERT.

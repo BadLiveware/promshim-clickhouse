@@ -37,6 +37,7 @@ type Options struct {
 	ClickHouseTLSServerName             string
 	ClickHouseVersion                   string
 	ClickHouseSettingsProfile           string
+	ClickHouseMaxQuerySizeBytes         int64
 	ClickHouseMaxMemoryUsageBytes       int64
 	ClickHouseMaxRowsToRead             int64
 	ClickHouseMaxResultRows             int64
@@ -86,6 +87,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		ClickHouseTLSServerName:             getenv("PROM_SHIM_CLICKHOUSE_TLS_SERVER_NAME", ""),
 		ClickHouseVersion:                   getenv("PROM_SHIM_CLICKHOUSE_VERSION", "26.3"),
 		ClickHouseSettingsProfile:           getenv("PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE", storage.SettingsProfileDefaultSafe),
+		ClickHouseMaxQuerySizeBytes:         getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_QUERY_SIZE_BYTES", 0),
 		ClickHouseMaxMemoryUsageBytes:       getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_MEMORY_USAGE_BYTES", 0),
 		ClickHouseMaxRowsToRead:             getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_ROWS_TO_READ", 0),
 		ClickHouseMaxResultRows:             getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_RESULT_ROWS", 0),

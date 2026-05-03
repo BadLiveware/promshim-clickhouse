@@ -384,6 +384,11 @@ func lowerBinary(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQuery, erro
 	if lhsInfo.TimeDomain == logicalpkg.DomainScalar || rhsInfo.TimeDomain == logicalpkg.DomainScalar {
 		return lowerBinaryScalarInvolving(ctx, n)
 	}
+	if n.Op == parser.LOR {
+		if rq, ok, err := tryLowerStaticLabelUnion(ctx, n); ok || err != nil {
+			return rq, err
+		}
+	}
 	// Vector-vector path: Surface 13 (Approach A).
 	return lowerBinaryVectorJoin(ctx, n)
 }

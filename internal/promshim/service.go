@@ -94,6 +94,7 @@ func hSettingsProfileConfig(opts Options) storage.SettingsProfileConfig {
 		Name:                opts.ClickHouseSettingsProfile,
 		ClickHouseVersion:   opts.ClickHouseVersion,
 		RequestTimeout:      opts.RequestTimeout,
+		MaxQuerySizeBytes:   opts.ClickHouseMaxQuerySizeBytes,
 		MaxMemoryUsageBytes: opts.ClickHouseMaxMemoryUsageBytes,
 		MaxRowsToRead:       opts.ClickHouseMaxRowsToRead,
 		MaxResultRows:       opts.ClickHouseMaxResultRows,

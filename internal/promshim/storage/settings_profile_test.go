@@ -33,6 +33,9 @@ func TestResolveDefaultSafeSettingsProfile(t *testing.T) {
 			t.Fatalf("setting %s = %#v, want %#v", key, got, want)
 		}
 	}
+	if !hasSkippedSetting(resolution.Explain.Skipped, settingMaxQuerySize, "not_configured") {
+		t.Fatalf("expected not-configured query size skip, got %#v", resolution.Explain.Skipped)
+	}
 	if _, ok := resolution.Settings[settingUseQueryCache]; ok {
 		t.Fatalf("query cache should not be applied by default_safe")
 	}
@@ -65,6 +68,23 @@ func TestBenchmarkControlProfileBoundsThreads(t *testing.T) {
 	}
 	if _, ok := resolution.Settings[settingUseQueryCache]; ok {
 		t.Fatalf("benchmark_control must not enable result query cache")
+	}
+}
+
+func TestDefaultSafeProfileCanRaiseQuerySize(t *testing.T) {
+	resolution := ResolveSettingsProfile(SettingsProfileConfig{
+		Name:                SettingsProfileDefaultSafe,
+		ClickHouseVersion:   "26.3",
+		RequestTimeout:      time.Second,
+		MaxQuerySizeBytes:   1024 * 1024,
+		MaxMemoryUsageBytes: 1234,
+	}, QueryPurposeInstant, "selector_instant", "native_sql")
+
+	if got := resolution.Settings[settingMaxQuerySize]; got != int64(1048576) {
+		t.Fatalf("max_query_size = %#v, want %#v", got, int64(1048576))
+	}
+	if !hasAppliedSetting(resolution.Explain.Applied, settingMaxQuerySize, "safety_query_size_cap") {
+		t.Fatalf("expected max_query_size applied provenance, got %#v", resolution.Explain.Applied)
 	}
 }
 

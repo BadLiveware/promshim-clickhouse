@@ -9,6 +9,7 @@ import (
 	httpapi "github.com/BadLiveware/promshim-clickhouse/internal/promshim/httpapi"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/local/exec"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -130,6 +131,12 @@ func normalizeQueryError(err *storage.QueryError) error {
 		// but Prometheus classifies this join shape as bad-data and reports the
 		// higher-level vector-matching contract instead.
 		return NewBadDataErrorf("multiple matches for labels: many-to-one matching must be explicit (group_left/group_right)")
+	}
+	if strings.Contains(err.Message, "multiple matches for labels: grouping labels must ensure unique matches") {
+		return NewBadDataErrorf("multiple matches for labels: grouping labels must ensure unique matches")
+	}
+	if strings.Contains(err.Message, model.ErrDuplicateLabelsetTimestamps.Error()) {
+		return NewBadDataErrorf("%s", model.ErrDuplicateLabelsetTimestamps.Error())
 	}
 	return nil
 }

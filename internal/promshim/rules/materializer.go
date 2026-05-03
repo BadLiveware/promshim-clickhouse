@@ -193,8 +193,9 @@ func (m *Materializer) evaluateRule(ctx context.Context, rule RecordingRule, eva
 		return fmt.Errorf("render: %w", err)
 	}
 
-	// 4. Execute the SQL against ClickHouse.
-	resp, err := m.client.ExecuteWithSettings(ctx, rq.SQL, rq.QueryParams, rq.QuerySettings)
+	// 4. Execute the SQL against ClickHouse with JSON formatting (native
+	// transport requires typed row decoding; JSONEachRow works directly).
+	resp, err := m.client.ExecuteWithSettings(ctx, rq.SQL+" FORMAT JSONEachRow", rq.QueryParams, rq.QuerySettings)
 	if err != nil {
 		return fmt.Errorf("execute: %w", err)
 	}

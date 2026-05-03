@@ -46,19 +46,29 @@ type OptimizationContext struct {
 }
 
 type OptimizationReport struct {
-	RulesApplied         []string
-	PushedPredicates     []string
-	InferredPredicates   []string
-	RequiredColumns      []string
-	MaterializedColumns  []string
-	SemanticBarriers     []string
-	PhysicalDecisions    []physical.Decision
-	RenderedSQL          string
-	RequiredInputStartMS int64
-	RequiredInputEndMS   int64
-	FunctionCatalog      []string
-	AppliedRewrites      []string
-	JoinNormalization    string
+	RulesApplied              []string
+	PushedPredicates          []string
+	InferredPredicates        []string
+	RequiredColumns           []string
+	MaterializedColumns       []string
+	SemanticBarriers          []string
+	PhysicalDecisions         []physical.Decision
+	RenderedSQL               string
+	RequiredInputStartMS      int64
+	RequiredInputEndMS        int64
+	FunctionCatalog           []string
+	AppliedRewrites           []string
+	JoinNormalization         string
+	StaticLabelUnionDecisions []StaticLabelUnionDecision
+}
+
+type StaticLabelUnionDecision struct {
+	Applied           bool   `json:"applied"`
+	CandidateBranches int    `json:"candidateBranches"`
+	CollapsedRows     int    `json:"collapsedRows"`
+	RemainingGroups   int    `json:"remainingGroups"`
+	Mode              string `json:"mode,omitempty"`
+	SkipReason        string `json:"skipReason,omitempty"`
 }
 
 type OptimizedFragment struct {

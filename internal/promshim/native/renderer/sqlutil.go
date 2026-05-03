@@ -422,12 +422,13 @@ func logicalRequiredInputBounds(n logicalpkg.Node, ctx native.OptimizationContex
 //
 // The returned SQL has the trailing FORMAT/SETTINGS lines stripped
 // (trimRenderedQuerySQL).
-func renderLogicalSubquery(cfg storage.QueryConfig, node logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, nativeAnalysis *native.Analysis, params RenderParams, prefix string) (string, map[string]string, error) {
+func renderLogicalSubquery(cfg storage.QueryConfig, node logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, nativeAnalysis *native.Analysis, params RenderParams, prefix string, optimizationReport *native.OptimizationReport) (string, map[string]string, error) {
 	rendered, err := Lower(LoweringCtx{
-		Config:         cfg,
-		Analysis:       logicalAnalysis,
-		NativeAnalysis: nativeAnalysis,
-		Params:         params,
+		Config:             cfg,
+		Analysis:           logicalAnalysis,
+		NativeAnalysis:     nativeAnalysis,
+		Params:             params,
+		OptimizationReport: optimizationReport,
 	}, node)
 	if err != nil {
 		return "", nil, err

@@ -138,6 +138,7 @@ func (m *Materializer) Stop() {
 
 func (m *Materializer) runRule(ctx context.Context, rule RecordingRule) {
 	defer m.wg.Done()
+	log.Printf("materializer: starting eval loop for %q (interval=%v)", rule.Name, rule.Interval)
 	ticker := time.NewTicker(rule.Interval)
 	defer ticker.Stop()
 
@@ -225,6 +226,7 @@ func (m *Materializer) evaluateRule(ctx context.Context, rule RecordingRule, eva
 		// No data at this timestamp — recording rule expression evaluated
 		// to empty vector, which is normal for rules that depend on data
 		// that hasn't arrived yet.
+		log.Printf("materializer: eval of %q returned 0 rows", rule.Name)
 		return nil
 	}
 

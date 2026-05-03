@@ -26,20 +26,21 @@ import (
 )
 
 type queryService struct {
-	opts                       Options
-	client                     *storage.Client
-	evaluator                  *local.Evaluator
-	promotedTagColumns         map[string]struct{}
-	timeSeriesIDType           string
-	shadow                     *shadow.Runner
-	selectorStats              *selectorStatsCache
-	selectorProbeSem           chan struct{}
-	recordingRules             atomic.Pointer[rules.Registry]
-	recordingRuleMode          rules.Mode
-	recordingRuleNextReload    atomic.Int64
-	recordingRuleReloadMu      sync.Mutex
-	recordingRuleReloadErrors  atomic.Uint64
-	recordingRuleReloadSuccess atomic.Uint64
+	opts                          Options
+	client                        *storage.Client
+	evaluator                     *local.Evaluator
+	promotedTagColumns            map[string]struct{}
+	timeSeriesIDType              string
+	shadow                        *shadow.Runner
+	selectorStats                 *selectorStatsCache
+	selectorProbeSem              chan struct{}
+	recordingRules                atomic.Pointer[rules.Registry]
+	recordingRuleMode             rules.Mode
+	recordingRuleNextReload       atomic.Int64
+	recordingRuleReloadMu         sync.Mutex
+	recordingRuleReloadErrors     atomic.Uint64
+	recordingRuleReloadSuccess    atomic.Uint64
+	recordingRuleExpansionMetrics atomic.Pointer[rules.ExpansionMetrics]
 }
 
 func (h *queryService) ClickHouseTransport() string {
@@ -184,6 +185,9 @@ func NewHandler(opts Options) (http.Handler, error) {
 	service.recordingRules.Store(ruleRegistry)
 	service.scheduleNextRecordingRuleReload(time.Now())
 	service.shadow = shadow.NewRunner(service)
+	recordMetrics := rules.NewExpansionMetrics(service.shadow.Registry())
+	ruleRegistry.SetExpansionMetrics(recordMetrics)
+	service.recordingRuleExpansionMetrics.Store(recordMetrics)
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", service.shadow.MetricsHandler())
 	mux.Handle("/", httpapi.NewHandlerWithOptions(service, httpapi.HandlerOptions{HidePromQL: opts.HidePromQL}))

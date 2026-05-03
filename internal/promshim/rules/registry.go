@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	commonmodel "github.com/prometheus/common/model"
@@ -41,11 +42,12 @@ type cachedExpansion struct {
 }
 
 type Registry struct {
-	byName    map[string]RecordingRule
-	conflicts map[string][]RecordingRule
-	cached    map[string]cachedExpansion
-	cachedMu  sync.RWMutex
-	errors    []error
+	byName           map[string]RecordingRule
+	conflicts        map[string][]RecordingRule
+	cached           map[string]cachedExpansion
+	cachedMu         sync.RWMutex
+	errors           []error
+	expansionMetrics atomic.Pointer[ExpansionMetrics]
 }
 
 func EmptyRegistry() *Registry {
@@ -108,6 +110,19 @@ func (r *Registry) Conflict(name string) ([]RecordingRule, bool) {
 	}
 	rules, ok := r.conflicts[name]
 	return append([]RecordingRule(nil), rules...), ok
+}
+
+func (r *Registry) ExpansionMetrics() *ExpansionMetrics {
+	if r == nil {
+		return nil
+	}
+	return r.expansionMetrics.Load()
+}
+
+func (r *Registry) SetExpansionMetrics(m *ExpansionMetrics) {
+	if r != nil && m != nil {
+		r.expansionMetrics.Store(m)
+	}
 }
 
 func (r *Registry) Len() int {

@@ -11,6 +11,7 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promharness"
 	httpapi "github.com/BadLiveware/promshim-clickhouse/internal/promshim/httpapi"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type Comparison struct {
@@ -68,6 +69,13 @@ func (r *Runner) MetricsHandler() http.Handler {
 		return nil
 	}
 	return r.metrics.handler()
+}
+
+func (r *Runner) Registry() *prometheus.Registry {
+	if r == nil {
+		return nil
+	}
+	return r.metrics.registry
 }
 
 func (r *Runner) Summary() *Summary {

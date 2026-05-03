@@ -52,6 +52,12 @@ func ExpandExpr(expr parser.Expr, registry *Registry) (ExpandResult, error) {
 	if err != nil {
 		return ExpandResult{}, err
 	}
+	// Record expansion metrics
+	if metrics := registry.ExpansionMetrics(); metrics != nil {
+		for _, exp := range expansions {
+			metrics.ExpansionsTotal.WithLabelValues(exp.Record, exp.Mode).Inc()
+		}
+	}
 	return ExpandResult{Expr: unwrapRuleExpression(expanded), Expanded: changed, Expansions: expansions}, nil
 }
 

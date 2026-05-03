@@ -135,7 +135,15 @@ func (t *NativeDriverTransport) Query(ctx context.Context, req QueryRequest) (Ro
 			}
 			row := make(map[string]any, len(columns))
 			for i, col := range columns {
-				row[col] = vals[i]
+				// Convert time values to Unix millisecond floats for JSON
+				// decoder compatibility (callers expect float64 timestamps).
+				if t, ok := vals[i].(time.Time); ok {
+					row[col] = float64(t.UnixMilli())
+				} else if tp, ok := vals[i].(*time.Time); ok && tp != nil {
+					row[col] = float64(tp.UnixMilli())
+				} else {
+					row[col] = vals[i]
+				}
 			}
 			if !first {
 				_, _ = io.WriteString(pw, ",")

@@ -440,6 +440,60 @@ func TestApplySelectorMatchersUsesProgressivelyBuiltExprForRegexPredicates(t *te
 	}
 }
 
+func TestExpandExprPushesPreservedSelectorMatchersIntoRuleLeaves(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  rules:
+  - record: namespace_workload_pod:kube_pod_owner:relabel
+    expr: |
+      max by (cluster, namespace, workload, pod) (
+        label_replace(
+          kube_pod_owner{job="kube-state-metrics", owner_kind="DaemonSet"},
+          "workload", "$1", "owner_name", "(.*)"
+        )
+      )
+    labels:
+      workload_type: daemonset
+`)
+	expr := parseExpr(t, `namespace_workload_pod:kube_pod_owner:relabel{cluster="kind", namespace="monitoring"}`)
+
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := result.Expr.String()
+	if strings.Contains(got, `and on (cluster)`) || strings.Contains(got, `and on (namespace)`) {
+		t.Fatalf("preserved matchers should be pushed into rule leaves, got: %s", got)
+	}
+	if !strings.Contains(got, `cluster="kind"`) || !strings.Contains(got, `namespace="monitoring"`) {
+		t.Fatalf("expanded expr does not contain pushed matchers: %s", got)
+	}
+}
+
+func TestExpandExprSkipsDynamicMatchAllRegexMatcher(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  rules:
+  - record: namespace_workload_pod:kube_pod_owner:relabel
+    expr: up
+    labels:
+      workload_type: deployment
+`)
+	expr := parseExpr(t, `namespace_workload_pod:kube_pod_owner:relabel{workload=~".*"}`)
+
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := result.Expr.String()
+	if strings.Contains(got, matcherLabelName) || strings.Contains(got, `and on (workload)`) {
+		t.Fatalf("match-all dynamic regex should not add predicate scaffolding: %s", got)
+	}
+	if !strings.Contains(got, `workload_type`) {
+		t.Fatalf("expected static rule labels to remain: %s", got)
+	}
+}
+
 func TestExpandExprExpandsRecordingRuleSubquery(t *testing.T) {
 	reg := registryForTest(t, `groups:
 - name: dashboard

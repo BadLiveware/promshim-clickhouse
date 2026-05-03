@@ -63,7 +63,12 @@ func (s *expandState) expand(expr parser.Expr) (parser.Expr, []Expansion, bool, 
 			return n, nil, false, err
 		}
 		merged := mergeRuleExpansions(expanded)
-		return merged.expr, merged.expansions, true, nil
+		pushed, remaining := pushdownSelectorMatchers(merged.expr, n.LabelMatchers)
+		filtered, err := applySelectorMatchers(pushed, remaining, nil)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		return filtered, merged.expansions, true, nil
 	case *parser.AggregateExpr:
 		child, exps, changed, err := s.expand(n.Expr)
 		if err != nil {
@@ -160,6 +165,12 @@ func (s *expandState) expand(expr parser.Expr) (parser.Expr, []Expansion, bool, 
 			return n, nil, false, err
 		}
 		merged := mergeRuleExpansions(expanded)
+		pushed, remaining := pushdownSelectorMatchers(merged.expr, sel.LabelMatchers)
+		filtered, err := applySelectorMatchers(pushed, remaining, nil)
+		if err != nil {
+			return n, nil, false, err
+		}
+		merged.expr = filtered
 		subquery := matrixSelectorToSubquery(n, sel, merged, step)
 		return subquery, markHistoricalExpansions(merged.expansions, "range_virtual", n.Range, subquery.Step), true, nil
 	default:
@@ -191,10 +202,6 @@ func (s *expandState) expandVectorSelector(sel *parser.VectorSelector) ([]ruleEx
 			return nil, false, err
 		}
 		wrapped := wrapRuleExpression(child, rule)
-		wrapped, err = applySelectorMatchers(wrapped, sel.LabelMatchers, staticLabels)
-		if err != nil {
-			return nil, false, err
-		}
 		if sel.Timestamp != nil || sel.StartOrEnd != 0 {
 			wrapped = applySelectorTimestamp(wrapped, sel.Timestamp, sel.StartOrEnd)
 		}
@@ -592,6 +599,9 @@ func applySelectorMatchers(expr parser.Expr, matchers []*labels.Matcher, staticL
 		if _, ok := staticLabels[m.Name]; ok {
 			continue
 		}
+		if isMatchAllRegexpMatcher(m) {
+			continue
+		}
 		predicate := selectorMatcherPredicate(wrapped, m)
 		switch m.Type {
 		case labels.MatchEqual, labels.MatchRegexp:
@@ -603,6 +613,211 @@ func applySelectorMatchers(expr parser.Expr, matchers []*labels.Matcher, staticL
 		}
 	}
 	return wrapped, nil
+}
+
+func pushdownSelectorMatchers(expr parser.Expr, matchers []*labels.Matcher) (parser.Expr, []*labels.Matcher) {
+	pushed := expr
+	remaining := make([]*labels.Matcher, 0, len(matchers))
+	for _, matcher := range matchers {
+		if matcher == nil || matcher.Name == "__name__" || isMatchAllRegexpMatcher(matcher) {
+			remaining = append(remaining, matcher)
+			continue
+		}
+		if matcher.Type != labels.MatchEqual && matcher.Type != labels.MatchRegexp {
+			remaining = append(remaining, matcher)
+			continue
+		}
+		updated, ok := pushdownSelectorMatcher(pushed, matcher)
+		if !ok {
+			remaining = append(remaining, matcher)
+			continue
+		}
+		pushed = updated
+	}
+	return pushed, remaining
+}
+
+func pushdownSelectorMatcher(expr parser.Expr, matcher *labels.Matcher) (parser.Expr, bool) {
+	switch n := expr.(type) {
+	case *parser.VectorSelector:
+		if selectorHasMatcher(n, matcher.Name) {
+			return n, true
+		}
+		clone := *n
+		clone.LabelMatchers = append(cloneMatchers(n.LabelMatchers), cloneMatcher(matcher))
+		return &clone, true
+	case *parser.MatrixSelector:
+		vector, ok := n.VectorSelector.(*parser.VectorSelector)
+		if !ok {
+			return n, false
+		}
+		updated, ok := pushdownSelectorMatcher(vector, matcher)
+		if !ok {
+			return n, false
+		}
+		clone := *n
+		clone.VectorSelector = updated.(*parser.VectorSelector)
+		return &clone, true
+	case *parser.SubqueryExpr:
+		updated, ok := pushdownSelectorMatcher(n.Expr, matcher)
+		if !ok {
+			return n, false
+		}
+		clone := *n
+		clone.Expr = updated
+		return &clone, true
+	case *parser.ParenExpr:
+		updated, ok := pushdownSelectorMatcher(n.Expr, matcher)
+		if !ok {
+			return n, false
+		}
+		clone := *n
+		clone.Expr = updated
+		return &clone, true
+	case *parser.UnaryExpr:
+		updated, ok := pushdownSelectorMatcher(n.Expr, matcher)
+		if !ok {
+			return n, false
+		}
+		clone := *n
+		clone.Expr = updated
+		return &clone, true
+	case *parser.Call:
+		if !callPreservesMatcherLabel(n, matcher.Name) || len(n.Args) == 0 {
+			return n, false
+		}
+		updated, ok := pushdownSelectorMatcher(n.Args[0], matcher)
+		if !ok {
+			return n, false
+		}
+		clone := *n
+		args := make(parser.Expressions, len(n.Args))
+		copy(args, n.Args)
+		args[0] = updated
+		clone.Args = args
+		return &clone, true
+	case *parser.AggregateExpr:
+		if !aggregationPreservesMatcherLabel(n, matcher.Name) {
+			return n, false
+		}
+		updated, ok := pushdownSelectorMatcher(n.Expr, matcher)
+		if !ok {
+			return n, false
+		}
+		clone := *n
+		clone.Expr = updated
+		return &clone, true
+	case *parser.BinaryExpr:
+		if !binaryCanPushMatcher(n, matcher.Name) {
+			return n, false
+		}
+		lhs, lhsOK := pushdownSelectorMatcher(n.LHS, matcher)
+		rhs, rhsOK := pushdownSelectorMatcher(n.RHS, matcher)
+		if !lhsOK || !rhsOK {
+			return n, false
+		}
+		clone := *n
+		clone.LHS = lhs
+		clone.RHS = rhs
+		return &clone, true
+	case *parser.StepInvariantExpr:
+		updated, ok := pushdownSelectorMatcher(n.Expr, matcher)
+		if !ok {
+			return n, false
+		}
+		clone := *n
+		clone.Expr = updated
+		return &clone, true
+	default:
+		return n, false
+	}
+}
+
+func selectorHasMatcher(sel *parser.VectorSelector, name string) bool {
+	for _, matcher := range sel.LabelMatchers {
+		if matcher != nil && matcher.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneMatchers(matchers []*labels.Matcher) []*labels.Matcher {
+	out := make([]*labels.Matcher, 0, len(matchers))
+	for _, matcher := range matchers {
+		out = append(out, cloneMatcher(matcher))
+	}
+	return out
+}
+
+func cloneMatcher(matcher *labels.Matcher) *labels.Matcher {
+	if matcher == nil {
+		return nil
+	}
+	return labels.MustNewMatcher(matcher.Type, matcher.Name, matcher.Value)
+}
+
+func callPreservesMatcherLabel(call *parser.Call, name string) bool {
+	if call == nil || call.Func == nil {
+		return false
+	}
+	switch call.Func.Name {
+	case "label_replace":
+		return len(call.Args) >= 2 && stringLiteralArg(call.Args[1]) != name
+	case "label_join":
+		return len(call.Args) >= 2 && stringLiteralArg(call.Args[1]) != name
+	default:
+		return false
+	}
+}
+
+func stringLiteralArg(expr parser.Expr) string {
+	literal, ok := expr.(*parser.StringLiteral)
+	if !ok || literal == nil {
+		return ""
+	}
+	return literal.Val
+}
+
+func aggregationPreservesMatcherLabel(agg *parser.AggregateExpr, name string) bool {
+	if agg == nil {
+		return false
+	}
+	listed := stringInSlice(name, agg.Grouping)
+	if agg.Without {
+		return !listed
+	}
+	return listed
+}
+
+func binaryCanPushMatcher(expr *parser.BinaryExpr, name string) bool {
+	if expr == nil {
+		return false
+	}
+	if expr.VectorMatching == nil {
+		return expr.Op == parser.LOR || expr.Op == parser.LAND || expr.Op == parser.LUNLESS
+	}
+	matching := expr.VectorMatching
+	if matching.On {
+		if stringInSlice(name, matching.MatchingLabels) {
+			return true
+		}
+		return stringInSlice(name, matching.Include)
+	}
+	return !stringInSlice(name, matching.MatchingLabels)
+}
+
+func stringInSlice(needle string, haystack []string) bool {
+	for _, item := range haystack {
+		if item == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func isMatchAllRegexpMatcher(m *labels.Matcher) bool {
+	return m != nil && m.Type == labels.MatchRegexp && (m.Value == ".*" || m.Value == "")
 }
 
 func selectorMatcherPredicate(expr parser.Expr, matcher *labels.Matcher) parser.Expr {

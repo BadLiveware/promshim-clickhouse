@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -393,6 +394,49 @@ func TestExpandExprAppliesNegativeDynamicMatcher(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expanded expr = %s, want %s", got, want)
 		}
+	}
+}
+
+func TestApplySelectorMatchersUsesProgressivelyBuiltExprForRegexPredicates(t *testing.T) {
+	expr := parseExpr(t, `sum by (job, source) (up)`)
+	matchers := make([]*labels.Matcher, 0, 2)
+	if m, err := labels.NewMatcher(labels.MatchRegexp, "job", "api|web"); err == nil {
+		matchers = append(matchers, m)
+	}
+	if m, err := labels.NewMatcher(labels.MatchNotRegexp, "job", "web"); err == nil {
+		matchers = append(matchers, m)
+	}
+	if len(matchers) != 2 {
+		t.Fatalf("failed to build label matchers")
+	}
+
+	result, err := applySelectorMatchers(expr, matchers, nil)
+	if err != nil {
+		t.Fatalf("applySelectorMatchers returned error: %v", err)
+	}
+	predicateChain, ok := result.(*parser.BinaryExpr)
+	if !ok {
+		t.Fatalf("expanded expr type = %T, want *parser.BinaryExpr", result)
+	}
+	if predicateChain.Op != parser.LUNLESS {
+		t.Fatalf("unexpected top-level operator %v", predicateChain.Op)
+	}
+	pred, ok := predicateChain.RHS.(*parser.BinaryExpr)
+	if !ok {
+		t.Fatalf("expected right-hand side predicate binary expr, got %T", predicateChain.RHS)
+	}
+	if pred.Op != parser.LAND {
+		t.Fatalf("expected right-hand predicate operator LAND, got %v", pred.Op)
+	}
+	call, ok := pred.LHS.(*parser.Call)
+	if !ok {
+		t.Fatalf("expected right-hand predicate to be call, got %T", pred.LHS)
+	}
+	if call.Func.Name != "label_replace" {
+		t.Fatalf("expected label_replace call, got %q", call.Func.Name)
+	}
+	if _, ok := call.Args[0].(*parser.BinaryExpr); !ok {
+		t.Fatalf("expected label_replace source to be progressive wrapped expression, got %T", call.Args[0])
 	}
 }
 

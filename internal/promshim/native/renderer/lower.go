@@ -25,10 +25,11 @@ var errUnsupportedLowerNode = errors.New("renderer: node kind not supported by L
 // immutable for the duration of a Lower call; per-kind lowerers treat
 // it as read-only.
 type LoweringCtx struct {
-	Config         storage.QueryConfig
-	Analysis       *logicalpkg.Analysis
-	NativeAnalysis *native.Analysis
-	Params         RenderParams
+	Config             storage.QueryConfig
+	Analysis           *logicalpkg.Analysis
+	NativeAnalysis     *native.Analysis
+	Params             RenderParams
+	OptimizationReport *native.OptimizationReport
 
 	cse *renderCSEState
 }
@@ -51,6 +52,9 @@ func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 	}
 	if err != nil || !root {
 		return rq, err
+	}
+	if repDecision, ok := repeatedHistogramQuantileDecision(node); ok {
+		rq.PhysicalDecisions = appendRenderedQueryPhysicalDecisions(rq.PhysicalDecisions, repDecision)
 	}
 	rq, err = ctx.cse.apply(rq)
 	if err != nil {
@@ -181,12 +185,49 @@ func isCSESubtreeCandidate(node logicalpkg.Node) bool {
 	if nativeRepeatedSubexpressionReuseDisabled() {
 		return false
 	}
-	switch node.(type) {
+	switch n := node.(type) {
 	case *logicalpkg.RangeFunctionPlan, *logicalpkg.RatePlan, *logicalpkg.IncreasePlan, *logicalpkg.DeltaPlan, *logicalpkg.ChangesPlan, *logicalpkg.DerivPlan, *logicalpkg.QuantileOverTimePlan:
 		return true
+	case *logicalpkg.AggregationPlan:
+		return isMetadataLookupRHSAggregationCandidate(n) || isStatusRHSAggregationCandidate(n)
 	default:
 		return false
 	}
+}
+
+func isMetadataLookupRHSAggregationCandidate(n *logicalpkg.AggregationPlan) bool {
+	if n == nil || n.Op != parser.TOPK || n.ParamNumber == nil || *n.ParamNumber != 1 || n.Without {
+		return false
+	}
+	child, ok := n.Child.(*logicalpkg.AggregationPlan)
+	if !ok || child.Op != parser.MAX || child.Without {
+		return false
+	}
+	_, ok = child.Child.(*logicalpkg.LeafExprPlan)
+	return ok
+}
+
+func isStatusRHSAggregationCandidate(n *logicalpkg.AggregationPlan) bool {
+	if n == nil || n.Op != parser.MAX || n.Without {
+		return false
+	}
+	// child must be: <leaf_selector> == 1
+	child, ok := n.Child.(*logicalpkg.BinaryPlan)
+	if !ok || child.Op != parser.EQLC || child.ReturnBool {
+		return false
+	}
+	// one side is leaf selector, other is scalar 1
+	if _, ok := child.LHS.(*logicalpkg.LeafExprPlan); ok {
+		if sl, ok := child.RHS.(*logicalpkg.ScalarLiteralPlan); ok && sl.Value == 1 {
+			return true
+		}
+	}
+	if _, ok := child.RHS.(*logicalpkg.LeafExprPlan); ok {
+		if sl, ok := child.LHS.(*logicalpkg.ScalarLiteralPlan); ok && sl.Value == 1 {
+			return true
+		}
+	}
+	return false
 }
 
 func countCSESubtrees(node logicalpkg.Node, counts map[string]int) {
@@ -390,5 +431,11 @@ func lowerBinary(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQuery, erro
 		}
 	}
 	// Vector-vector path: Surface 13 (Approach A).
-	return lowerBinaryVectorJoin(ctx, n)
+	rq, err := lowerBinaryVectorJoin(ctx, n)
+	if err == nil && n.Op == parser.LOR {
+		if vecDecision, ok := vectorZeroDefaultingDecision(n); ok {
+			rq.PhysicalDecisions = appendRenderedQueryPhysicalDecisions(rq.PhysicalDecisions, vecDecision)
+		}
+	}
+	return rq, err
 }

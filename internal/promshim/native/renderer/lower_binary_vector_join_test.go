@@ -261,3 +261,266 @@ func TestLowerBinaryVectorJoinNilErrors(t *testing.T) {
 		t.Fatalf("expected non-sentinel error for nil node, got sentinel")
 	}
 }
+
+func TestLowerBinaryVectorJoinRecognizesResourceStatusJoinShape(t *testing.T) {
+	query := `kube_pod_container_resource_requests{resource="memory", job="kube-state-metrics"} * on (namespace, pod, cluster) group_left() max by (namespace, pod, cluster) (kube_pod_status_phase{phase=~"Pending|Running"} == 1)`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "resource_status_join")
+	if !ok || decision.Strategy != "recognized" {
+		t.Fatalf("expected resource_status_join=recognized decision, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerBinaryVectorJoinRejectsResourceStatusJoinForNonMaxRHS(t *testing.T) {
+	query := `kube_pod_container_resource_requests{resource="memory"} * on (namespace, pod, cluster) group_left() sum by (namespace, pod, cluster) (kube_pod_status_phase) != 1`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if _, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "resource_status_join"); ok {
+		t.Fatalf("did not expect resource_status_join for non-max RHS")
+	}
+}
+
+func TestLowerBinaryVectorJoinReusesSharedActiveStatusRHSAcrossSiblingJoins(t *testing.T) {
+	query := `(kube_pod_container_resource_requests{resource="cpu", job="kube-state-metrics"} * on (namespace, pod, cluster) group_left() max by (namespace, pod, cluster) (kube_pod_status_phase{phase=~"Pending|Running"} == 1)) + (kube_pod_container_resource_limits{resource="cpu", job="kube-state-metrics"} * on (namespace, pod, cluster) group_left() max by (namespace, pod, cluster) (kube_pod_status_phase{phase=~"Pending|Running"} == 1))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if !strings.Contains(rq.SQL, "cse_subtree_") {
+		t.Fatalf("expected subtree CSE for shared active-status RHS, got SQL:\n%s", rq.SQL)
+	}
+	if got := strings.Count(rq.SQL, "FROM cse_subtree_"); got < 2 {
+		t.Fatalf("expected shared active-status RHS to be referenced by both sibling joins, got count=%d SQL:\n%s", got, rq.SQL)
+	}
+}
+
+func TestLowerBinaryVectorJoinRecognizesVectorZeroDefaulting(t *testing.T) {
+	query := `up or vector(0)`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "vector_zero_defaulting")
+	if !ok || decision.Strategy != "recognized" {
+		t.Fatalf("expected vector_zero_defaulting=recognized decision, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerBinaryVectorJoinRecognizesMetadataLookupJoinShape(t *testing.T) {
+	query := `rate(container_network_receive_packets_total[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{host_network="false"}))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "metadata_lookup_join")
+	if !ok || decision.Strategy != "recognized" {
+		t.Fatalf("expected metadata_lookup_join=recognized decision, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerBinaryVectorJoinRejectsRankingTopKMetadataLookupShape(t *testing.T) {
+	query := `rate(container_network_receive_packets_total[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (2, max by (cluster, namespace, pod) (kube_pod_info{host_network="false"}))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "metadata_lookup_join")
+	if !ok || decision.Strategy != "not_recognized" || !strings.Contains(decision.Reason, "topk by") {
+		t.Fatalf("expected metadata_lookup_join not_recognized decision, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerBinaryVectorJoinRecognizesMetadataLookupJoinWithGroupLeftLabels(t *testing.T) {
+	query := `rate(container_cpu_usage_seconds_total[5m]) * on(cluster, namespace, pod) group_left(node) topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod, node) (kube_pod_info{node!=""}))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "metadata_lookup_join")
+	if !ok || decision.Strategy != "recognized" {
+		t.Fatalf("expected metadata_lookup_join=recognized decision, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerBinaryVectorJoinRejectsMetadataLookupJoinWhenGroupingMisaligned(t *testing.T) {
+	query := `rate(container_cpu_usage_seconds_total[5m]) * on(cluster, namespace, pod) group_left(node) topk by (cluster, namespace) (1, max by (cluster, namespace, pod, node) (kube_pod_info{node!=""}))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "metadata_lookup_join")
+	if !ok || decision.Strategy != "not_recognized" || !strings.Contains(decision.Reason, "topk grouping labels") {
+		t.Fatalf("expected metadata_lookup_join not_recognized misalignment decision, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerBinaryVectorJoinReusesSharedMetadataLookupRHSAcrossSiblingJoins(t *testing.T) {
+	query := `(rate(container_network_receive_packets_total[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{host_network="false"}))) + (rate(container_network_transmit_packets_total[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{host_network="false"})))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if !strings.Contains(rq.SQL, "cse_subtree_") {
+		t.Fatalf("expected subtree CSE for shared metadata RHS lookup, got SQL:\n%s", rq.SQL)
+	}
+	if got := strings.Count(rq.SQL, "FROM cse_subtree_"); got < 2 {
+		t.Fatalf("expected shared metadata RHS lookup to be referenced by both sibling joins, got count=%d SQL:\n%s", got, rq.SQL)
+	}
+}
+
+func TestLowerBinaryVectorJoinDoesNotReuseSharedMetadataLookupRHSForTopKRanking(t *testing.T) {
+	query := `(rate(container_network_receive_packets_total[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (2, max by (cluster, namespace, pod) (kube_pod_info{host_network="false"}))) + (rate(container_network_transmit_packets_total[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (2, max by (cluster, namespace, pod) (kube_pod_info{host_network="false"})))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if strings.Contains(rq.SQL, "cse_subtree_") {
+		t.Fatalf("expected no metadata RHS subtree CSE for topk ranking shape, got SQL:\n%s", rq.SQL)
+	}
+}
+
+func TestLowerBinaryVectorJoinDoesNotReuseSharedMetadataLookupRHSForNonLeafMetadata(t *testing.T) {
+	query := `(rate(container_network_receive_packets_total[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (label_replace(kube_pod_info{host_network="false"}, "cluster", "x", "", ".*")))) + (rate(container_network_transmit_packets_total[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (label_replace(kube_pod_info{host_network="false"}, "cluster", "x", "", ".*"))))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if strings.Contains(rq.SQL, "cse_subtree_") {
+		t.Fatalf("expected no metadata RHS subtree CSE when metadata side is not a leaf selector, got SQL:\n%s", rq.SQL)
+	}
+}
+
+func TestLowerBinaryVectorJoinReportsMetadataLookupFilterPushdownAlreadyScoped(t *testing.T) {
+	query := `rate(container_network_receive_packets_total{cluster="dev",namespace="ns",pod="p1"}[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{cluster="dev",namespace="ns",pod="p1"}))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "metadata_lookup_filter_pushdown")
+	if !ok || decision.Strategy != "already_scoped" {
+		t.Fatalf("expected metadata_lookup_filter_pushdown=already_scoped decision, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerBinaryVectorJoinReportsMetadataLookupFilterPushdownNotAppliedOnMismatch(t *testing.T) {
+	query := `rate(container_network_receive_packets_total{cluster="dev",namespace="ns",pod="p1"}[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{cluster="prod",namespace="ns",pod="p1"}))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "metadata_lookup_filter_pushdown")
+	if !ok || decision.Strategy != "not_applied" {
+		t.Fatalf("expected metadata_lookup_filter_pushdown=not_applied decision, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerBinaryVectorJoinReportsMetadataLookupFilterPushdownEligibleButNotRewritten(t *testing.T) {
+	query := `rate(container_network_receive_packets_total{cluster="dev",namespace="ns",pod="p1"}[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{namespace="ns",pod="p1"}))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "metadata_lookup_filter_pushdown")
+	if !ok || decision.Strategy != "applied" {
+		t.Fatalf("expected metadata_lookup_filter_pushdown=applied decision, got %#v", rq.PhysicalDecisions)
+	}
+	if !strings.Contains(rq.SQL, "AS metadata_rhs WHERE") || !strings.Contains(rq.SQL, "tag.1 = 'cluster'") {
+		t.Fatalf("expected rhs metadata filter injection in SQL, got:\n%s", rq.SQL)
+	}
+}
+
+func TestLowerBinaryVectorJoinReportsMetadataLookupFilterPushdownNotAppliedWhenLHSKeyMissing(t *testing.T) {
+	query := `rate(container_network_receive_packets_total{namespace="ns",pod="p1"}[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{namespace="ns",pod="p1"}))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "metadata_lookup_filter_pushdown")
+	if !ok || decision.Strategy != "not_applied" || !strings.Contains(decision.Reason, "left side is missing") {
+		t.Fatalf("expected metadata_lookup_filter_pushdown not_applied for lhs key missing, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerBinaryVectorJoinReportsMetadataLookupFilterPushdownAlreadyScopedForWrappedLHS(t *testing.T) {
+	query := `label_replace(rate(container_network_receive_packets_total{cluster="dev",namespace="ns",pod="p1"}[5m]), "cluster", "dev", "", ".*") * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{cluster="dev",namespace="ns",pod="p1"}))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "metadata_lookup_filter_pushdown")
+	if !ok || decision.Strategy != "already_scoped" {
+		t.Fatalf("expected metadata_lookup_filter_pushdown=already_scoped for wrapped lhs selector extraction, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerBinaryVectorJoinAppliesMetadataLookupFilterPushdownInRangeMode(t *testing.T) {
+	query := `rate(container_network_receive_packets_total{cluster="dev",namespace="ns",pod="p1"}[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{namespace="ns",pod="p1"}))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsRange()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "metadata_lookup_filter_pushdown")
+	if !ok || decision.Strategy != "applied" {
+		t.Fatalf("expected metadata_lookup_filter_pushdown=applied in range mode, got %#v", rq.PhysicalDecisions)
+	}
+	if strings.Contains(rq.SQL, "SELECT *") {
+		t.Fatalf("expected no SELECT * in rewritten range SQL, got:\n%s", rq.SQL)
+	}
+	if !strings.Contains(rq.SQL, "AS metadata_rhs WHERE") {
+		t.Fatalf("expected rhs metadata filter injection in range SQL, got:\n%s", rq.SQL)
+	}
+}
+
+func TestLowerBinaryVectorJoinDoesNotInjectMetadataFilterWhenAlreadyScoped(t *testing.T) {
+	query := `rate(container_network_receive_packets_total{cluster="dev",namespace="ns",pod="p1"}[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{cluster="dev",namespace="ns",pod="p1"}))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "metadata_lookup_filter_pushdown")
+	if !ok || decision.Strategy != "already_scoped" {
+		t.Fatalf("expected metadata_lookup_filter_pushdown=already_scoped decision, got %#v", rq.PhysicalDecisions)
+	}
+	if strings.Contains(rq.SQL, "AS metadata_rhs WHERE") {
+		t.Fatalf("did not expect injected metadata filter wrapper for already scoped case, got:\n%s", rq.SQL)
+	}
+}
+
+func TestLowerBinaryVectorJoinDoesNotInjectMetadataFilterWhenNotApplied(t *testing.T) {
+	query := `rate(container_network_receive_packets_total{cluster="dev",namespace="ns",pod="p1"}[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{cluster="prod",namespace="ns",pod="p1"}))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "metadata_lookup_filter_pushdown")
+	if !ok || decision.Strategy != "not_applied" {
+		t.Fatalf("expected metadata_lookup_filter_pushdown=not_applied decision, got %#v", rq.PhysicalDecisions)
+	}
+	if strings.Contains(rq.SQL, "AS metadata_rhs WHERE") {
+		t.Fatalf("did not expect injected metadata filter wrapper for not_applied case, got:\n%s", rq.SQL)
+	}
+}

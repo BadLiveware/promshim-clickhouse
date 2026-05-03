@@ -38,8 +38,21 @@ func NewMaterializer(registry *Registry, client *storage.Client, db, table strin
 	}
 }
 
-func (m *Materializer) Start(ctx context.Context) {
-	rules := m.registry.Rules()
+func (m *Materializer) Start(ctx context.Context, registryFn func() *Registry) {
+	// If the initial registry is empty (rule-syncer hasn't written files yet),
+	// retry after a short delay to catch the first sync.
+	rules := registryFn().Rules()
+	if len(rules) == 0 {
+		log.Printf("materializer: initial registry empty, retrying in 10s for syncer...")
+		select {
+		case <-ctx.Done():
+			return
+		case <-m.stopCh:
+			return
+		case <-time.After(10 * time.Second):
+		}
+		rules = registryFn().Rules()
+	}
 	log.Printf("materializer: starting with %d recording rules", len(rules))
 	for name, rule := range rules {
 		if m.ruleSet != nil && !m.ruleSet[name] {

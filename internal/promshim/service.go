@@ -211,7 +211,7 @@ func NewHandler(opts Options) (http.Handler, error) {
 		ruleSet, all := parseMaterializeRuleSet(opts.MaterializeRecordingRules)
 		ruleRegistry.SetMaterializedRules(ruleSet, all)
 		materializer := rules.NewMaterializer(ruleRegistry, client, opts.Database, opts.Table, ruleSet)
-		materializer.Start(context.Background())
+		materializer.Start(context.Background(), func() *rules.Registry { return service.currentRecordingRules() })
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", service.shadow.MetricsHandler())

@@ -9,10 +9,15 @@ should be tested on a staging cluster before production rollout.
 
 For the ClickHouse TimeSeries table engine used by promshim:
 
-- The data table is MergeTree-like and ordered by `(id, timestamp)` by default.
+- The data table is MergeTree-like. The generated default inner table is ordered
+  by `(id, timestamp)`; if a deployment overrides `DATA ENGINE`, restate the
+  desired `ORDER BY` explicitly or ClickHouse may create the target with a less
+  useful default such as `ORDER BY tuple()`.
   `id` is `UUID` unless `id_type` is configured; `timestamp` is
   `DateTime64(3)` and `value` is `Float64`.
-- The tags table is ordered by `(metric_name, id, min_time, max_time)` with a
+- The tags table is MergeTree-like and should preserve the generated
+  `(metric_name, id)`-or-better ordering for selector pruning; if a deployment
+  overrides `TAGS ENGINE`, restate the desired key explicitly. It has a
   `LowCardinality(String)` `metric_name` and `Map(LowCardinality(String),
   String)` `tags` column.
 - No data-table skip indexes or monthly partitions are created by default.
@@ -38,6 +43,81 @@ layout:
   ordering.
 - Range selector lookup uses an ASOF join on `(id, timestamp)` and must not
   pre-filter stale-marker `NaN` rows before the ASOF match.
+
+## HA replicated TimeSeries setup
+
+For a 1-shard, multi-replica ClickHouse deployment, do not let every pod run an
+independent `CREATE DATABASE ... ENGINE = Atomic` plus `CREATE TABLE ... ENGINE =
+TimeSeries`. That creates the same table name on each pod with different table
+UUIDs, so the TimeSeries inner `Replicated*` tables each report
+`total_replicas = 1` and Kubernetes service load balancing splits writes across
+independent stores.
+
+Use cluster-wide DDL, or replicated database metadata in workflows where each
+pod runs the same bootstrap SQL, so all replicas share the same
+`observability.prometheus` UUID and the same inner TimeSeries target-table UUIDs.
+For deployments with distributed DDL configured, the standard shape is:
+
+```sql
+CREATE DATABASE IF NOT EXISTS observability
+ON CLUSTER '{cluster}'
+ENGINE = Atomic;
+
+CREATE TABLE IF NOT EXISTS observability.prometheus
+ON CLUSTER '{cluster}'
+ENGINE = TimeSeries
+DATA ENGINE = ReplicatedMergeTree ORDER BY (id, timestamp)
+TAGS ENGINE = ReplicatedAggregatingMergeTree ORDER BY (metric_name, id)
+METRICS ENGINE = ReplicatedReplacingMergeTree ORDER BY metric_family_name;
+```
+
+For operator startup hooks that run independently on every replica and should not
+issue `ON CLUSTER` during pod startup, use a `Replicated` database so metadata is
+coordinated through Keeper:
+
+```sql
+CREATE DATABASE IF NOT EXISTS observability
+ENGINE = Replicated(
+  '/clickhouse/databases/{cluster}/{shard}/observability',
+  '{shard}',
+  '{replica}'
+);
+
+CREATE TABLE IF NOT EXISTS observability.prometheus
+ENGINE = TimeSeries
+DATA ENGINE = ReplicatedMergeTree ORDER BY (id, timestamp)
+TAGS ENGINE = ReplicatedAggregatingMergeTree ORDER BY (metric_name, id)
+METRICS ENGINE = ReplicatedReplacingMergeTree ORDER BY metric_family_name;
+```
+
+The invariant is the same in both forms: table metadata and UUIDs must be shared
+by all replicas. After bootstrap, verify from every ClickHouse pod:
+
+```sql
+SELECT name, uuid, engine
+FROM system.tables
+WHERE database = 'observability'
+ORDER BY name;
+
+SELECT table, total_replicas, active_replicas, is_readonly, queue_size, absolute_delay
+FROM system.replicas
+WHERE database = 'observability'
+ORDER BY table;
+```
+
+Expected for the TimeSeries inner tables in a healthy 3-replica shard:
+
+- every pod shows the same `prometheus` UUID and matching `.inner_id.*.<uuid>`
+  table names;
+- `total_replicas = 3` and `active_replicas = 3`;
+- `is_readonly = 0`, `queue_size = 0`, and `absolute_delay = 0`.
+
+With that state, sending Prometheus remote-write traffic through a Kubernetes
+Service that reaches any ClickHouse replica is safe for a single shard because
+writes landing on one replica replicate to the others. For multi-shard storage,
+route writes through a deliberate distributed/sharding layer and validate
+promshim reads separately; this document does not define a default sharding
+contract.
 
 ## Recommended schema settings
 
@@ -118,19 +198,26 @@ not PromQL results. They are also reversible by modifying the inner data-table
 columns back to the deployment's default codecs and rewriting/merging parts.
 
 For new deployments, put the codecs on the TimeSeries table's data columns and
-keep the data inner table ordered by `(id, timestamp)`, for example:
+keep the data inner table ordered by `(id, timestamp)`. In HA deployments, create
+the table through one of the shared-metadata patterns above and include the
+replicated target engines. With distributed DDL, that looks like:
 
 ```sql
 CREATE TABLE observability.prometheus
+ON CLUSTER '{cluster}'
 (
     id UUID,
     timestamp DateTime64(3) CODEC(DoubleDelta, ZSTD(1)),
     value Float64 CODEC(Gorilla, ZSTD(1))
 )
 ENGINE = TimeSeries
-DATA ENGINE = MergeTree
-ORDER BY (id, timestamp);
+DATA ENGINE = ReplicatedMergeTree ORDER BY (id, timestamp)
+TAGS ENGINE = ReplicatedAggregatingMergeTree ORDER BY (metric_name, id)
+METRICS ENGINE = ReplicatedReplacingMergeTree ORDER BY metric_family_name;
 ```
+
+Omit `ON CLUSTER` only when the table lives in a `Replicated` database or an
+equivalent operator-managed metadata path.
 
 For existing deployments, resolve the actual inner data-table name first, then
 apply the equivalent `ALTER TABLE ... MODIFY COLUMN ... CODEC(...)` during a

@@ -2,5 +2,5 @@
   "name": "recording-rules-virtual",
   "sourceCorpus": "harness/corpus/recording-rules-virtual.json",
   "description": "Virtual recording-rule compatibility harness probe set for /api/v1/query and /api/v1/query_range with explain mode enabled.",
-  "includedCount": 4
+  "includedCount": 5
 }

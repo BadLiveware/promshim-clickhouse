@@ -62,7 +62,8 @@ func (s *expandState) expand(expr parser.Expr) (parser.Expr, []Expansion, bool, 
 		if err != nil || !ok {
 			return n, nil, false, err
 		}
-		return expanded.expr, expanded.expansions, true, nil
+		merged := mergeRuleExpansions(expanded)
+		return merged.expr, merged.expansions, true, nil
 	case *parser.AggregateExpr:
 		child, exps, changed, err := s.expand(n.Expr)
 		if err != nil {
@@ -154,50 +155,59 @@ func (s *expandState) expand(expr parser.Expr) (parser.Expr, []Expansion, bool, 
 		if err != nil || !ok {
 			return n, nil, false, err
 		}
-		subquery := matrixSelectorToSubquery(n, sel, expanded)
-		return subquery, markHistoricalExpansions(expanded.expansions, "range_virtual", n.Range, subquery.Step), true, nil
+		step, err := matrixStepForExpansions(selectorMetricName(sel), expanded)
+		if err != nil {
+			return n, nil, false, err
+		}
+		merged := mergeRuleExpansions(expanded)
+		subquery := matrixSelectorToSubquery(n, sel, merged, step)
+		return subquery, markHistoricalExpansions(merged.expansions, "range_virtual", n.Range, subquery.Step), true, nil
 	default:
 		return n, nil, false, nil
 	}
 }
 
-func (s *expandState) expandVectorSelector(sel *parser.VectorSelector) (ruleExpansion, bool, error) {
+func (s *expandState) expandVectorSelector(sel *parser.VectorSelector) ([]ruleExpansion, bool, error) {
 	name := selectorMetricName(sel)
 	if name == "" {
-		return ruleExpansion{}, false, nil
+		return nil, false, nil
 	}
-	rule, empty, err := s.selectRecordingRule(name, sel.LabelMatchers)
+	rules, empty, err := s.selectRecordingRule(name, sel.LabelMatchers)
 	if err != nil {
-		return ruleExpansion{}, false, err
+		return nil, false, err
 	}
-	if rule == nil {
+	if len(rules) == 0 {
 		if !empty {
-			return ruleExpansion{}, false, nil
+			return nil, false, nil
 		}
-		return ruleExpansion{expr: emptyVectorExpr(), expansions: nil, rule: RecordingRule{}}, true, nil
+		return []ruleExpansion{{expr: emptyVectorExpr(), expansions: nil, rule: RecordingRule{}}}, true, nil
 	}
-	staticLabels := mergedLabels(*rule)
-	staticLabels["__name__"] = rule.Name
-	child, childExps, err := s.expandRuleExpr(*rule, sel.Timestamp == nil && sel.StartOrEnd == 0)
-	if err != nil {
-		return ruleExpansion{}, false, err
+	var expansions []ruleExpansion
+	for _, rule := range rules {
+		staticLabels := mergedLabels(rule)
+		staticLabels["__name__"] = rule.Name
+		child, childExps, err := s.expandRuleExpr(rule, sel.Timestamp == nil && sel.StartOrEnd == 0)
+		if err != nil {
+			return nil, false, err
+		}
+		wrapped := wrapRuleExpression(child, rule)
+		wrapped, err = applySelectorMatchers(wrapped, sel.LabelMatchers, staticLabels)
+		if err != nil {
+			return nil, false, err
+		}
+		if sel.Timestamp != nil || sel.StartOrEnd != 0 {
+			wrapped = applySelectorTimestamp(wrapped, sel.Timestamp, sel.StartOrEnd)
+		}
+		if rule.QueryOffset != 0 {
+			wrapped = markRuleExpansionBoundary(wrapped)
+		}
+		exps := append(childExps, expansionForRule(rule, childExps))
+		expansions = append(expansions, ruleExpansion{expr: wrapped, expansions: exps, rule: rule})
 	}
-	wrapped := wrapRuleExpression(child, *rule)
-	wrapped, err = applySelectorMatchers(wrapped, sel.LabelMatchers, staticLabels)
-	if err != nil {
-		return ruleExpansion{}, false, err
-	}
-	if sel.Timestamp != nil || sel.StartOrEnd != 0 {
-		wrapped = applySelectorTimestamp(wrapped, sel.Timestamp, sel.StartOrEnd)
-	}
-	if rule.QueryOffset != 0 {
-		wrapped = markRuleExpansionBoundary(wrapped)
-	}
-	exps := append(childExps, expansionForRule(*rule, childExps))
-	return ruleExpansion{expr: wrapped, expansions: exps, rule: *rule}, true, nil
+	return expansions, true, nil
 }
 
-func (s *expandState) selectRecordingRule(name string, matchers []*labels.Matcher) (*RecordingRule, bool, error) {
+func (s *expandState) selectRecordingRule(name string, matchers []*labels.Matcher) ([]RecordingRule, bool, error) {
 	candidates := s.registry.Candidates(name)
 	if len(candidates) == 0 {
 		return nil, false, nil
@@ -220,9 +230,59 @@ func (s *expandState) selectRecordingRule(name string, matchers []*labels.Matche
 		return nil, true, nil
 	}
 	if len(scoped) == 1 {
-		return &scoped[0], false, nil
+		return scoped, false, nil
+	}
+	if canUnionStaticLabeledCandidates(scoped) {
+		return scoped, false, nil
 	}
 	return nil, false, fmt.Errorf("recording rule %q is ambiguous across %d definitions", name, len(scoped))
+}
+
+func mergeRuleExpansions(expansions []ruleExpansion) ruleExpansion {
+	switch len(expansions) {
+	case 0:
+		return ruleExpansion{}
+	case 1:
+		return expansions[0]
+	}
+	merged := ruleExpansion{}
+	for _, expansion := range expansions {
+		merged.expansions = append(merged.expansions, expansion.expansions...)
+	}
+	unionExprs := make([]parser.Expr, 0, len(expansions))
+	for _, expansion := range expansions {
+		unionExprs = append(unionExprs, expansion.expr)
+	}
+	target := unionExpressions(unionExprs)
+	merged.expr = target
+	return merged
+}
+
+func unionExpressions(expressions []parser.Expr) parser.Expr {
+	expr := expressions[0]
+	for i := 1; i < len(expressions); i++ {
+		expr = &parser.BinaryExpr{
+			Op:             parser.LOR,
+			LHS:            expr,
+			RHS:            expressions[i],
+			VectorMatching: &parser.VectorMatching{Card: parser.CardManyToMany},
+		}
+	}
+	return expr
+}
+
+func canUnionStaticLabeledCandidates(candidates []RecordingRule) bool {
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		labels := mergedLabels(candidate)
+		labels["__name__"] = candidate.Name
+		signature := encodeSortedLabels(labels)
+		if _, exists := seen[signature]; exists {
+			return false
+		}
+		seen[signature] = struct{}{}
+	}
+	return true
 }
 
 func (s *expandState) expandRuleExpr(rule RecordingRule, applyOffset bool) (parser.Expr, []Expansion, error) {
@@ -414,11 +474,20 @@ func unwrapRuleExpression(expr parser.Expr) parser.Expr {
 	}
 }
 
-func matrixSelectorToSubquery(matrix *parser.MatrixSelector, sel *parser.VectorSelector, expanded ruleExpansion) *parser.SubqueryExpr {
-	step := time.Duration(0)
-	if expanded.rule.Interval > 0 {
-		step = expanded.rule.Interval
+func matrixStepForExpansions(metricName string, expansions []ruleExpansion) (time.Duration, error) {
+	if len(expansions) == 0 {
+		return 0, nil
 	}
+	step := expansions[0].rule.Interval
+	for i := 1; i < len(expansions); i++ {
+		if expansions[i].rule.Interval != step {
+			return 0, fmt.Errorf("recording rule %q has incompatible interval settings across matching definitions", metricName)
+		}
+	}
+	return step, nil
+}
+
+func matrixSelectorToSubquery(matrix *parser.MatrixSelector, sel *parser.VectorSelector, expanded ruleExpansion, step time.Duration) *parser.SubqueryExpr {
 	return &parser.SubqueryExpr{
 		Expr:               expanded.expr,
 		Range:              matrix.Range,

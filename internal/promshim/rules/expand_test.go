@@ -123,6 +123,36 @@ func TestExpandExprDisambiguatesConflictByStaticRuleLabels(t *testing.T) {
 	}
 }
 
+func TestExpandExprUnionsConflictingRulesByDistinctStaticLabels(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  rules:
+  - record: same:rule
+    expr: vector(1)
+    labels:
+      workload_type: replicaset
+  - record: same:rule
+    expr: vector(2)
+    labels:
+      workload_type: deployment
+`)
+	expr := parseExpr(t, `same:rule`)
+
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Expanded || len(result.Expansions) != 2 {
+		t.Fatalf("result = %#v, want two expansions", result)
+	}
+	if !strings.Contains(result.Expr.String(), ` or `) {
+		t.Fatalf("expanded expr = %s, want union of variants", result.Expr)
+	}
+	if !strings.Contains(result.Expr.String(), `vector(1)`) || !strings.Contains(result.Expr.String(), `vector(2)`) {
+		t.Fatalf("expanded expr = %s, want both rule variants", result.Expr)
+	}
+}
+
 func TestExpandExprDisambiguatesConflictByGroupAndRuleLabels(t *testing.T) {
 	reg := registryForTest(t, `groups:
 - name: g1
@@ -312,7 +342,7 @@ func TestExpandExprRejectsConflictingRuleWhenStaticLabelsAreNotDisambiguating(t 
   - record: same:rule
     expr: sum(up)
     labels:
-      workload_type: deployment
+      workload_type: replicaset
 `)
 	expr := parseExpr(t, `same:rule{job="api"}`)
 
@@ -385,6 +415,77 @@ func TestExpandExprExpandsRecordingRuleSubquery(t *testing.T) {
 	}
 	if !strings.Contains(result.Expr.String(), "up") || !strings.Contains(result.Expr.String(), "[5m:") {
 		t.Fatalf("expanded subquery = %s", result.Expr.String())
+	}
+}
+
+func TestExpandExprUnionsRangeSelectorForDistinctStaticLabelRules(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard-a
+  interval: 30s
+  rules:
+  - record: namespace_workload_pod:kube_pod_owner:relabel
+    expr: up
+    labels:
+      team: alpha
+- name: dashboard-b
+  interval: 30s
+  rules:
+  - record: namespace_workload_pod:kube_pod_owner:relabel
+    expr: up
+    labels:
+      team: beta
+`)
+	expr := parseExpr(t, `avg_over_time(namespace_workload_pod:kube_pod_owner:relabel[5m])`)
+
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Expanded || len(result.Expansions) != 2 {
+		t.Fatalf("result = %#v, want two expansions", result)
+	}
+	call, ok := result.Expr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expanded expr type = %T, want call", result.Expr)
+	}
+	if len(call.Args) != 1 {
+		t.Fatalf("expanded call args = %#v, want one arg", call.Args)
+	}
+	subquery, ok := call.Args[0].(*parser.SubqueryExpr)
+	if !ok {
+		t.Fatalf("call arg type = %T, want subquery", call.Args[0])
+	}
+	got := subquery.String()
+	if !strings.Contains(got, `up`) {
+		t.Fatalf("expanded range selector = %s", got)
+	}
+	if !strings.Contains(got, `or`) {
+		t.Fatalf("expanded range selector = %s, want union", got)
+	}
+}
+
+func TestExpandExprRangeSelectorWithMultipleDistinctStaticLabelRulesIsRejectedForIncompatibleIntervals(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard-a
+  interval: 30s
+  rules:
+  - record: namespace_workload_pod:kube_pod_owner:relabel
+    expr: up
+    labels:
+      team: alpha
+- name: dashboard-b
+  interval: 1m
+  rules:
+  - record: namespace_workload_pod:kube_pod_owner:relabel
+    expr: up
+    labels:
+      team: beta
+`)
+	expr := parseExpr(t, `avg_over_time(namespace_workload_pod:kube_pod_owner:relabel[5m])`)
+
+	_, err := ExpandExpr(expr, reg)
+	if err == nil || !strings.Contains(err.Error(), "incompatible interval") {
+		t.Fatalf("err = %v, want incompatible interval error", err)
 	}
 }
 

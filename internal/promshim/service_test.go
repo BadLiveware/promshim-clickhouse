@@ -113,7 +113,7 @@ func TestQueryExplainExpandsVirtualRecordingRule(t *testing.T) {
 	}
 }
 
-func TestQueryExplainRejectsAmbiguousVirtualRecordingRule(t *testing.T) {
+func TestQueryExplainUnionsConflictingVirtualRecordingRulesWithDistinctStaticLabels(t *testing.T) {
 	ruleFile := writeServiceRulesFile(t, `groups:
 - name: dashboard-a
   rules:
@@ -127,6 +127,53 @@ func TestQueryExplainRejectsAmbiguousVirtualRecordingRule(t *testing.T) {
     expr: vector(2)
     labels:
       team: beta
+`)
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModeOff, RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=ambiguous%3Arule&time=300", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			RecordingRules []struct {
+				Record string `json:"record"`
+				Mode   string `json:"mode"`
+			} `json:"recordingRules"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "success" {
+		t.Fatalf("expected success, got %#v", body)
+	}
+	if len(body.Data.RecordingRules) != 2 {
+		t.Fatalf("expected two recording-rule expansions, got %#v", body.Data.RecordingRules)
+	}
+}
+
+func TestQueryExplainRejectsAmbiguousVirtualRecordingRuleWhenStaticLabelsMatch(t *testing.T) {
+	ruleFile := writeServiceRulesFile(t, `groups:
+- name: dashboard-a
+  rules:
+  - record: ambiguous:rule
+    expr: vector(1)
+    labels:
+      team: alpha
+- name: dashboard-b
+  rules:
+  - record: ambiguous:rule
+    expr: vector(2)
+    labels:
+      team: alpha
 `)
 	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModeOff, RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
 	if err != nil {
@@ -153,6 +200,99 @@ func TestQueryExplainRejectsAmbiguousVirtualRecordingRule(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(body.Error), "ambiguous") {
 		t.Fatalf("expected ambiguous-recording-rule error, got %#v", body)
+	}
+}
+
+func TestQueryExplainUnionsAmbiguousVirtualRecordingRulesForRangeSelector(t *testing.T) {
+	ruleFile := writeServiceRulesFile(t, `groups:
+- name: dashboard-a
+  interval: 30s
+  rules:
+  - record: ambiguous:rule
+    expr: vector(1)
+    labels:
+      team: alpha
+- name: dashboard-b
+  interval: 30s
+  rules:
+  - record: ambiguous:rule
+    expr: vector(2)
+    labels:
+      team: beta
+`)
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModeOff, RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=avg_over_time%28ambiguous%3Arule%5B5m%5D%29&time=300", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			RecordingRules []struct {
+				Record string `json:"record"`
+				Mode   string `json:"mode"`
+			} `json:"recordingRules"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "success" {
+		t.Fatalf("expected success, got %#v", body)
+	}
+	if len(body.Data.RecordingRules) != 2 {
+		t.Fatalf("expected two recording-rule expansions, got %#v", body.Data.RecordingRules)
+	}
+}
+
+func TestQueryExplainRejectsAmbiguousRangeSelectorVirtualRecordingRuleWhenIntervalsConflict(t *testing.T) {
+	ruleFile := writeServiceRulesFile(t, `groups:
+- name: dashboard-a
+  interval: 30s
+  rules:
+  - record: ambiguous:rule
+    expr: vector(1)
+    labels:
+      team: alpha
+- name: dashboard-b
+  interval: 1m
+  rules:
+  - record: ambiguous:rule
+    expr: vector(2)
+    labels:
+      team: beta
+`)
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModeOff, RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=avg_over_time%28ambiguous%3Arule%5B5m%5D%29&time=300", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		ErrorType string `json:"errorType"`
+		Error     string `json:"error"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.ErrorType != "bad_data" {
+		t.Fatalf("expected bad_data, got %#v", body)
+	}
+	if !strings.Contains(strings.ToLower(body.Error), "incompatible interval") {
+		t.Fatalf("expected incompatible interval error, got %#v", body)
 	}
 }
 

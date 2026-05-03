@@ -24,14 +24,23 @@
     "timeOffsetSeconds": 540,
     "explain": true,
     "subjects": ["shim"],
-    "expectedStatus": "error",
-    "expectedErrorType": "bad_data",
-    "expectedErrorContains": "ambiguous across"
+    "expectedStatus": "ok"
   },
   {
     "name": "virtual_recording_rule_range_selector_query_range",
     "endpoint": "query_range",
     "query": "sum_over_time(promshim_virtual_range_rule[2m])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 600,
+    "stepSeconds": 60,
+    "explain": true,
+    "subjects": ["shim"],
+    "expectedStatus": "ok"
+  },
+  {
+    "name": "virtual_recording_rule_matrix_selector_union",
+    "endpoint": "query_range",
+    "query": "sum_over_time(promshim_virtual_recording_rule[2m])",
     "startOffsetSeconds": 300,
     "endOffsetSeconds": 600,
     "stepSeconds": 60,

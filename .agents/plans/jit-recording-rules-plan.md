@@ -645,7 +645,7 @@ Tasks:
    the rule group interval.
 2. Apply caps for generated steps, range, and cost.
 3. Preserve output labels at every generated step.
-4. Reject ambiguous/conflicting rules.
+4. Reject conflicting duplicates (same static-label signature); otherwise union matching static-label variants at query time.
 5. Expose `rangeExpansion=true` in explain output.
 
 Validation:

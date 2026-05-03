@@ -409,7 +409,7 @@ func logicalRequiredInputBounds(n logicalpkg.Node, ctx native.OptimizationContex
 		if ctx.EvaluationTimeMS == 0 && ctx.StartMS == 0 && ctx.EndMS == 0 {
 			return 0, 0, false
 		}
-		if ctx.StartMS > 0 || ctx.EndMS > 0 {
+		if ctx.StartMS > 0 && ctx.EndMS > 0 {
 			endMS := ctx.EndMS - offsetMS
 			startMS := ctx.StartMS - offsetMS - lookbackMS
 			return startMS, endMS, true

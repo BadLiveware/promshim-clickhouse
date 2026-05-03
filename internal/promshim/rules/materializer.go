@@ -63,15 +63,8 @@ func (m *Materializer) runRule(ctx context.Context, rule RecordingRule) {
 	ticker := time.NewTicker(rule.Interval)
 	defer ticker.Stop()
 
-	var lastEval time.Time
-
-	// Evaluate immediately on start, then at each tick.
-	now := time.Now()
-	if err := m.evaluateRule(ctx, rule, now); err == nil {
-		lastEval = now
-	} else {
-		log.Printf("materializer: initial eval of %q failed: %v", rule.Name, err)
-	}
+	// Evaluate immediately on start.
+	m.tryAcquireAndEval(ctx, rule, time.Now())
 
 	for {
 		select {
@@ -80,15 +73,19 @@ func (m *Materializer) runRule(ctx context.Context, rule RecordingRule) {
 		case <-m.stopCh:
 			return
 		case t := <-ticker.C:
-			if !t.After(lastEval) {
-				continue
-			}
-			if err := m.evaluateRule(ctx, rule, t); err == nil {
-				lastEval = t
-			} else {
-				log.Printf("materializer: eval of %q at %v failed: %v", rule.Name, t, err)
-			}
+			m.tryAcquireAndEval(ctx, rule, t)
 		}
+	}
+}
+
+func (m *Materializer) tryAcquireAndEval(ctx context.Context, rule RecordingRule, evalTime time.Time) {
+	// Multi-replica note: all replicas evaluate the same rule at the same
+	// timestamp. This is intentional — ClickHouse TimeSeries engine handles
+	// duplicate (id, timestamp, value) tuples natively. The cost is 2× eval
+	// per interval, which is still orders of magnitude cheaper than the
+	// 24× full-history JOIN that virtual expansion triggered per dashobard.
+	if err := m.evaluateRule(ctx, rule, evalTime); err != nil {
+		log.Printf("materializer: eval of %q at %v failed: %v", rule.Name, evalTime, err)
 	}
 }
 

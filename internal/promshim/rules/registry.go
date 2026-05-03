@@ -42,12 +42,14 @@ type cachedExpansion struct {
 }
 
 type Registry struct {
-	byName           map[string]RecordingRule
-	conflicts        map[string][]RecordingRule
-	cached           map[string]cachedExpansion
-	cachedMu         sync.RWMutex
-	errors           []error
-	expansionMetrics atomic.Pointer[ExpansionMetrics]
+	byName            map[string]RecordingRule
+	conflicts         map[string][]RecordingRule
+	cached            map[string]cachedExpansion
+	cachedMu          sync.RWMutex
+	errors            []error
+	expansionMetrics  atomic.Pointer[ExpansionMetrics]
+	materializeAll    bool
+	materializedRules map[string]bool
 }
 
 func EmptyRegistry() *Registry {
@@ -123,6 +125,27 @@ func (r *Registry) SetExpansionMetrics(m *ExpansionMetrics) {
 	if r != nil && m != nil {
 		r.expansionMetrics.Store(m)
 	}
+}
+
+func (r *Registry) SetMaterializedRules(ruleSet map[string]bool, all bool) {
+	if r == nil {
+		return
+	}
+	r.materializeAll = all
+	r.materializedRules = ruleSet
+}
+
+func (r *Registry) IsMaterialized(name string) bool {
+	if r == nil {
+		return false
+	}
+	if r.materializeAll {
+		return true
+	}
+	if r.materializedRules == nil {
+		return false
+	}
+	return r.materializedRules[name]
 }
 
 func (r *Registry) Rules() map[string]RecordingRule {

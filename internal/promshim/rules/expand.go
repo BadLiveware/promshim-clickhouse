@@ -189,6 +189,13 @@ func (s *expandState) expandVectorSelector(sel *parser.VectorSelector) ([]ruleEx
 	if name == "" {
 		return nil, false, nil
 	}
+	// If this rule is materialized, return a direct leaf selector rather than
+	// expanding. The materializer writes rule results to the TimeSeries table
+	// with __name__ set to the rule name and rule labels applied, so querying
+	// the rule name as a regular metric selector returns the materialized data.
+	if s.registry.IsMaterialized(name) {
+		return []ruleExpansion{{expr: sel, expansions: nil, rule: RecordingRule{}}}, false, nil
+	}
 	rules, empty, err := s.selectRecordingRule(name, sel.LabelMatchers)
 	if err != nil {
 		return nil, false, err

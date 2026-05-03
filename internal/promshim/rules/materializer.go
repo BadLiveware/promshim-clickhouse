@@ -63,8 +63,13 @@ func (m *Materializer) runRule(ctx context.Context, rule RecordingRule) {
 	ticker := time.NewTicker(rule.Interval)
 	defer ticker.Stop()
 
+	var lastEval time.Time
+
 	// Evaluate immediately on start, then at each tick.
-	if err := m.evaluateRule(ctx, rule, time.Now()); err != nil {
+	now := time.Now()
+	if err := m.evaluateRule(ctx, rule, now); err == nil {
+		lastEval = now
+	} else {
 		log.Printf("materializer: initial eval of %q failed: %v", rule.Name, err)
 	}
 
@@ -75,7 +80,12 @@ func (m *Materializer) runRule(ctx context.Context, rule RecordingRule) {
 		case <-m.stopCh:
 			return
 		case t := <-ticker.C:
-			if err := m.evaluateRule(ctx, rule, t); err != nil {
+			if !t.After(lastEval) {
+				continue
+			}
+			if err := m.evaluateRule(ctx, rule, t); err == nil {
+				lastEval = t
+			} else {
 				log.Printf("materializer: eval of %q at %v failed: %v", rule.Name, t, err)
 			}
 		}

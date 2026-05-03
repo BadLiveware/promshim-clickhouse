@@ -43,12 +43,12 @@ type queryService struct {
 	recordingRuleExpansionMetrics atomic.Pointer[rules.ExpansionMetrics]
 }
 
-func parseMaterializeRuleSet(raw string) map[string]bool {
+func parseMaterializeRuleSet(raw string) (map[string]bool, bool) {
 	if raw == "" || raw == "off" {
-		return nil
+		return nil, false
 	}
 	if raw == "all" {
-		return nil // nil means "all rules"
+		return nil, true
 	}
 	parts := strings.Split(raw, ",")
 	set := map[string]bool{}
@@ -58,7 +58,7 @@ func parseMaterializeRuleSet(raw string) map[string]bool {
 			set[part] = true
 		}
 	}
-	return set
+	return set, false
 }
 
 func (h *queryService) ClickHouseTransport() string {
@@ -208,9 +208,10 @@ func NewHandler(opts Options) (http.Handler, error) {
 	service.recordingRuleExpansionMetrics.Store(recordMetrics)
 	// Start materializer if configured.
 	if opts.MaterializeRecordingRules != "" && opts.MaterializeRecordingRules != "off" {
-		ruleSet := parseMaterializeRuleSet(opts.MaterializeRecordingRules)
+		ruleSet, all := parseMaterializeRuleSet(opts.MaterializeRecordingRules)
+		ruleRegistry.SetMaterializedRules(ruleSet, all)
 		materializer := rules.NewMaterializer(ruleRegistry, client, opts.Database, opts.Table, ruleSet)
-		go materializer.Start(context.Background())
+		materializer.Start(context.Background())
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", service.shadow.MetricsHandler())

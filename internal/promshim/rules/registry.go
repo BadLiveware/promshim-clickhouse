@@ -125,6 +125,23 @@ func (r *Registry) SetExpansionMetrics(m *ExpansionMetrics) {
 	}
 }
 
+func (r *Registry) Rules() map[string]RecordingRule {
+	if r == nil {
+		return nil
+	}
+	// Return a snapshot: byName rules plus all conflict definitions.
+	result := map[string]RecordingRule{}
+	for name, rule := range r.byName {
+		result[name] = rule
+	}
+	for _, conflicting := range r.conflicts {
+		for _, rule := range conflicting {
+			result[rule.Name] = rule
+		}
+	}
+	return result
+}
+
 func (r *Registry) Len() int {
 	if r == nil {
 		return 0

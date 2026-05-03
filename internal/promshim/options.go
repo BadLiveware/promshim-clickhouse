@@ -64,6 +64,7 @@ type Options struct {
 	RecordingRuleFiles                  []string
 	RecordingRuleReloadInterval         time.Duration
 	RecordingRuleMode                   string
+	MaterializeRecordingRules           string
 
 	DisableEntireQueryDelegation bool
 }
@@ -114,6 +115,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		RecordingRuleFiles:                  splitCSVEnv(getenv("PROM_SHIM_RECORDING_RULE_FILES", "")),
 		RecordingRuleReloadInterval:         time.Second * time.Duration(getenvInt("PROM_SHIM_RECORDING_RULE_RELOAD_INTERVAL_SECONDS", 30)),
 		RecordingRuleMode:                   getenv("PROM_SHIM_RECORDING_RULE_MODE", "off"),
+		MaterializeRecordingRules:           getenv("PROM_SHIM_RECORDING_RULE_MATERIALIZE", "off"),
 	}
 
 	if _, err := local.ParseNativeLoweringMode(string(opts.NativeLoweringMode)); err != nil {

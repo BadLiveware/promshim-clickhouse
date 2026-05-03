@@ -43,6 +43,24 @@ type queryService struct {
 	recordingRuleExpansionMetrics atomic.Pointer[rules.ExpansionMetrics]
 }
 
+func parseMaterializeRuleSet(raw string) map[string]bool {
+	if raw == "" || raw == "off" {
+		return nil
+	}
+	if raw == "all" {
+		return nil // nil means "all rules"
+	}
+	parts := strings.Split(raw, ",")
+	set := map[string]bool{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			set[part] = true
+		}
+	}
+	return set
+}
+
 func (h *queryService) ClickHouseTransport() string {
 	return string(h.opts.ClickHouseTransport)
 }
@@ -188,6 +206,12 @@ func NewHandler(opts Options) (http.Handler, error) {
 	recordMetrics := rules.NewExpansionMetrics(service.shadow.Registry())
 	ruleRegistry.SetExpansionMetrics(recordMetrics)
 	service.recordingRuleExpansionMetrics.Store(recordMetrics)
+	// Start materializer if configured.
+	if opts.MaterializeRecordingRules != "" && opts.MaterializeRecordingRules != "off" {
+		ruleSet := parseMaterializeRuleSet(opts.MaterializeRecordingRules)
+		materializer := rules.NewMaterializer(ruleRegistry, client, opts.Database, opts.Table, ruleSet)
+		go materializer.Start(context.Background())
+	}
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", service.shadow.MetricsHandler())
 	mux.Handle("/", httpapi.NewHandlerWithOptions(service, httpapi.HandlerOptions{HidePromQL: opts.HidePromQL}))

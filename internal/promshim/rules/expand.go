@@ -602,7 +602,10 @@ func applySelectorMatchers(expr parser.Expr, matchers []*labels.Matcher, staticL
 		if isMatchAllRegexpMatcher(m) {
 			continue
 		}
-		predicate := selectorMatcherPredicate(wrapped, m)
+		// Build predicate against the original expr, not the growing wrapped
+		// tree, to avoid quadratic expression growth from repeated
+		// label_replace embedding in selectorMatcherPredicate.
+		predicate := selectorMatcherPredicate(expr, m)
 		switch m.Type {
 		case labels.MatchEqual, labels.MatchRegexp:
 			wrapped = &parser.BinaryExpr{Op: parser.LAND, LHS: wrapped, RHS: predicate, VectorMatching: &parser.VectorMatching{Card: parser.CardManyToMany, MatchingLabels: []string{m.Name}, On: true}}

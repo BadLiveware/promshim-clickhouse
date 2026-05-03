@@ -82,15 +82,10 @@ func histogramFallbackOrDecision(node logicalpkg.Node) (physical.Decision, bool)
 		decision.Reason = "histogram_quantile child is not a literal-or expression"
 		return decision, true
 	}
-	nativeSide, classicSide, ok := classifyHistogramOrBranches(orExpr.LHS, orExpr.RHS)
+	_, _, ok = classifyHistogramOrBranches(orExpr.LHS, orExpr.RHS)
 	if !ok {
-		if nativeSide == nil && classicSide == nil {
-			decision.Reason = "histogram-or branches could not be classified as native / classic _bucket sum"
-			decision.Rejected = []physical.Alternative{{Strategy: "recognized", Reason: decision.Reason}}
-		} else {
-			decision.Reason = "only one histogram-or branch was classifiable"
-			decision.Rejected = []physical.Alternative{{Strategy: "recognized", Reason: decision.Reason}}
-		}
+		decision.Reason = "histogram-or branches could not be classified as native / classic _bucket sum"
+		decision.Rejected = []physical.Alternative{{Strategy: "recognized", Reason: decision.Reason}}
 		return decision, true
 	}
 	decision.Strategy = "recognized"

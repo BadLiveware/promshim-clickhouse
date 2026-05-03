@@ -435,8 +435,8 @@ func TestApplySelectorMatchersUsesProgressivelyBuiltExprForRegexPredicates(t *te
 	if call.Func.Name != "label_replace" {
 		t.Fatalf("expected label_replace call, got %q", call.Func.Name)
 	}
-	if _, ok := call.Args[0].(*parser.BinaryExpr); !ok {
-		t.Fatalf("expected label_replace source to be progressive wrapped expression, got %T", call.Args[0])
+	if _, ok := call.Args[0].(*parser.AggregateExpr); !ok {
+		t.Fatalf("expected label_replace source to be original expr (AggregateExpr), got %T", call.Args[0])
 	}
 }
 

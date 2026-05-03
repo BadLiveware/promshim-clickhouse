@@ -511,10 +511,6 @@ func firstLeafSelectorNode(node logicalpkg.Node) *logicalpkg.LeafExprPlan {
 		return firstLeafSelectorNode(n.Child)
 	case *logicalpkg.QuantileOverTimePlan:
 		return firstLeafSelectorNode(n.Child)
-	case *logicalpkg.LabelReplacePlan:
-		return firstLeafSelectorNode(n.Child)
-	case *logicalpkg.LabelJoinPlan:
-		return firstLeafSelectorNode(n.Child)
 	default:
 		return nil
 	}

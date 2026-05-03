@@ -461,16 +461,19 @@ func TestLowerBinaryVectorJoinReportsMetadataLookupFilterPushdownNotAppliedWhenL
 	}
 }
 
-func TestLowerBinaryVectorJoinReportsMetadataLookupFilterPushdownAlreadyScopedForWrappedLHS(t *testing.T) {
+func TestLowerBinaryVectorJoinSkipsMetadataLookupFilterPushdownForWrappedLHS(t *testing.T) {
 	query := `label_replace(rate(container_network_receive_packets_total{cluster="dev",namespace="ns",pod="p1"}[5m]), "cluster", "dev", "", ".*") * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{cluster="dev",namespace="ns",pod="p1"}))`
 	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
 	rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: testRenderParamsInstant()}, root)
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
 	}
+	// LabelReplacePlan/LabelJoinPlan on the LHS can mutate key label values, so
+	// filter pushdown conservatively falls back when the LHS has label-mutating
+	// wrappers between the join and its leaf selector.
 	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "metadata_lookup_filter_pushdown")
-	if !ok || decision.Strategy != "already_scoped" {
-		t.Fatalf("expected metadata_lookup_filter_pushdown=already_scoped for wrapped lhs selector extraction, got %#v", rq.PhysicalDecisions)
+	if !ok || decision.Strategy != "not_applied" {
+		t.Fatalf("expected metadata_lookup_filter_pushdown=not_applied for wrapped lhs, got %#v", rq.PhysicalDecisions)
 	}
 }
 

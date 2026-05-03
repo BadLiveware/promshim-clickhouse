@@ -40,6 +40,7 @@ func NewMaterializer(registry *Registry, client *storage.Client, db, table strin
 
 func (m *Materializer) Start(ctx context.Context) {
 	rules := m.registry.Rules()
+	log.Printf("materializer: starting with %d recording rules", len(rules))
 	for name, rule := range rules {
 		if m.ruleSet != nil && !m.ruleSet[name] {
 			continue

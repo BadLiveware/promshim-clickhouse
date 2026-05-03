@@ -611,15 +611,19 @@ func resourceStatusJoinDecision(n *logicalpkg.BinaryPlan) (physical.Decision, bo
 	if !ok || rhsBin.Op != parser.EQLC || rhsBin.ReturnBool {
 		return decision, false
 	}
-	// Check for leaf selector on RHS binary
+	// Check for leaf selector == 1 on RHS binary
 	rhsLeaf, lhsOK := rhsBin.LHS.(*logicalpkg.LeafExprPlan)
-	_, rhsOK := rhsBin.RHS.(*logicalpkg.ScalarLiteralPlan)
+	scalarLit, rhsOK := rhsBin.RHS.(*logicalpkg.ScalarLiteralPlan)
 	if !lhsOK || !rhsOK {
 		rhsLeaf, lhsOK = rhsBin.RHS.(*logicalpkg.LeafExprPlan)
-		_, rhsOK = rhsBin.LHS.(*logicalpkg.ScalarLiteralPlan)
+		scalarLit, rhsOK = rhsBin.LHS.(*logicalpkg.ScalarLiteralPlan)
 	}
 	if !lhsOK || !rhsOK || rhsLeaf == nil {
-		decision.Reason = "resource-status join rhs is not <selector> == 1 shape"
+		decision.Reason = "resource-status join rhs is not <selector> == <scalar> shape"
+		return decision, true
+	}
+	if scalarLit == nil || scalarLit.Value != 1 {
+		decision.Reason = "resource-status join rhs scalar must be == 1"
 		return decision, true
 	}
 	// Verify on(...) labels match max grouping

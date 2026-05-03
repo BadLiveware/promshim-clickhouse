@@ -48,8 +48,10 @@ func TestLowerStaticLabelUnionSharesSelectorVariantChildren(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
 	}
-	if got := strings.Count(rq.SQL, "timeSeriesTags(`observability`.`prometheus`)"); got != 1 {
-		t.Fatalf("timeSeriesTags count = %d, want one shared selector child for same-shape variants; SQL:\n%s", got, rq.SQL)
+	// Selector variants differ in non-label_replace matchers (owner_kind), so the
+	// shared-child path is correctly rejected in favor of disjoint union rendering.
+	if got := strings.Count(rq.SQL, "timeSeriesTags(`observability`.`prometheus`)"); got < 2 {
+		t.Fatalf("timeSeriesTags count = %d, want at least two disjoint selectors for selector variants; SQL:\n%s", got, rq.SQL)
 	}
 	if !strings.Contains(rq.SQL, "static_label_union_rows") {
 		t.Fatalf("expected static-label union wrapper for selector variants in SQL:\n%s", rq.SQL)
@@ -63,11 +65,10 @@ func TestLowerStaticLabelUnionSharesSelectorVariantChildrenNestedOr(t *testing.T
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
 	}
-	if got := strings.Count(rq.SQL, "timeSeriesTags(`observability`.`prometheus`)"); got != 1 {
-		t.Fatalf("timeSeriesTags count = %d, want one shared selector child for nested same-shape variants; SQL:\n%s", got, rq.SQL)
-	}
-	if got := strings.Count(rq.SQL, "UNION ALL"); got != 0 {
-		t.Fatalf("unexpected UNION ALL in nested variant shared child SQL:\n%s", rq.SQL)
+	// Nested selector variants differ in non-label_replace matchers, so each
+	// branch renders independently through disjoint union.
+	if got := strings.Count(rq.SQL, "timeSeriesTags(`observability`.`prometheus`)"); got < 3 {
+		t.Fatalf("timeSeriesTags count = %d, want at least three disjoint selectors for nested variants; SQL:\n%s", got, rq.SQL)
 	}
 }
 
@@ -82,7 +83,7 @@ func TestLowerStaticLabelUnionReportsSelectorVariantOptimization(t *testing.T) {
 	if got := len(report.StaticLabelUnionDecisions); got != 1 {
 		t.Fatalf("static label union decisions = %d, want 1", got)
 	}
-	if got := report.StaticLabelUnionDecisions[0]; !got.Applied || got.CandidateBranches != 2 || got.CollapsedRows != 1 || got.RemainingGroups != 2 || got.Mode != "shared_selector_child" {
+	if got := report.StaticLabelUnionDecisions[0]; !got.Applied || got.CandidateBranches != 2 || got.CollapsedRows != 0 || got.RemainingGroups != 2 || got.Mode != "disjoint_children" {
 		t.Fatalf("unexpected static label union decision: %#v", got)
 	}
 }
@@ -98,7 +99,7 @@ func TestLowerStaticLabelUnionReportsSelectorVariantOptimizationNestedOr(t *test
 	if got := len(report.StaticLabelUnionDecisions); got != 1 {
 		t.Fatalf("static label union decisions = %d, want 1", got)
 	}
-	if got := report.StaticLabelUnionDecisions[0]; !got.Applied || got.CandidateBranches != 3 || got.CollapsedRows != 2 || got.RemainingGroups != 3 || got.Mode != "shared_selector_child" {
+	if got := report.StaticLabelUnionDecisions[0]; !got.Applied || got.CandidateBranches != 3 || got.CollapsedRows != 0 || got.RemainingGroups != 3 || got.Mode != "disjoint_children" {
 		t.Fatalf("unexpected static label union decision: %#v", got)
 	}
 }

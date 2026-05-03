@@ -72,7 +72,7 @@ func tryLowerStaticLabelUnion(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (Render
 		mode           string
 	)
 	candidateCount = len(branches)
-	if allSameCanonicalBase {
+	if allSameCanonicalBase && allBranchesHaveIdenticalChild(branches) {
 		mode = "shared_selector_child"
 		if candidateCount > 1 {
 			collapsedRows = candidateCount - 1
@@ -93,6 +93,31 @@ func tryLowerStaticLabelUnion(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (Render
 		Mode:              mode,
 	})
 	return rq, true, nil
+}
+
+func allBranchesHaveIdenticalChild(branches []staticLabelUnionBranch) bool {
+	if len(branches) < 2 {
+		return true
+	}
+	first := branches[0].Child
+	for _, branch := range branches[1:] {
+		if !nodesHaveSameExprString(first, branch.Child) {
+			return false
+		}
+	}
+	return true
+}
+
+func nodesHaveSameExprString(a, b logicalpkg.Node) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	da, aok := a.(interface{ ExprString() string })
+	db, bok := b.(interface{ ExprString() string })
+	if !aok || !bok {
+		return false
+	}
+	return da.ExprString() == db.ExprString()
 }
 
 func staticLabelUnionBranches(root logicalpkg.Node) ([]staticLabelUnionBranch, string, bool) {

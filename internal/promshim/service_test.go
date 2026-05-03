@@ -847,8 +847,8 @@ func TestQueryRangeExplainIncludesStaticLabelUnionForSelectorVariants(t *testing
 	if !body.Data.Plan.StaticLabelUnion[0].Applied {
 		t.Fatalf("expected static-label union to apply, got %#v", body.Data.Plan.StaticLabelUnion[0])
 	}
-	if body.Data.Plan.StaticLabelUnion[0].Mode != "shared_selector_child" {
-		t.Fatalf("expected shared_selector_child mode, got %#v", body.Data.Plan.StaticLabelUnion[0])
+	if body.Data.Plan.StaticLabelUnion[0].Mode != "disjoint_children" {
+		t.Fatalf("expected disjoint_children mode for selector variants, got %#v", body.Data.Plan.StaticLabelUnion[0])
 	}
 	if body.Data.Plan.StaticLabelUnion[0].CandidateBranches != 2 {
 		t.Fatalf("expected two candidate branches, got %#v", body.Data.Plan.StaticLabelUnion[0])
@@ -892,8 +892,8 @@ func TestQueryRangeExplainIncludesStaticLabelUnionForNestedSelectorVariants(t *t
 	if !body.Data.Plan.StaticLabelUnion[0].Applied {
 		t.Fatalf("expected static-label union to apply, got %#v", body.Data.Plan.StaticLabelUnion[0])
 	}
-	if body.Data.Plan.StaticLabelUnion[0].Mode != "shared_selector_child" {
-		t.Fatalf("expected shared_selector_child mode, got %#v", body.Data.Plan.StaticLabelUnion[0])
+	if body.Data.Plan.StaticLabelUnion[0].Mode != "disjoint_children" {
+		t.Fatalf("expected disjoint_children mode for nested selector variants, got %#v", body.Data.Plan.StaticLabelUnion[0])
 	}
 	if body.Data.Plan.StaticLabelUnion[0].CandidateBranches != 3 {
 		t.Fatalf("expected three candidate branches, got %#v", body.Data.Plan.StaticLabelUnion[0])

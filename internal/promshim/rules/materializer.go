@@ -44,8 +44,14 @@ func (m *Materializer) Start(ctx context.Context) {
 		if m.ruleSet != nil && !m.ruleSet[name] {
 			continue
 		}
-		if rule.Interval <= 0 {
-			continue
+		interval := rule.Interval
+		if interval <= 0 {
+			// Prometheus defaults to global.evaluation_interval = 1m when no
+			// per-group interval is set.
+			interval = 1 * time.Minute
+			r := rule
+			r.Interval = interval
+			rule = r
 		}
 		rule := rule
 		m.wg.Add(1)

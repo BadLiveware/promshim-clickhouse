@@ -220,14 +220,11 @@ func (m *Materializer) evaluateRule(ctx context.Context, rule RecordingRule, eva
 	if err != nil {
 		return fmt.Errorf("build insert: %w", err)
 	}
-
-	resp2, err := m.client.ExecuteWithSettings(ctx, insertSQL+" SETTINGS allow_experimental_time_series_table=1", nil, nil)
-	if err != nil {
-		// Log but don't fail — the data is already evaluated.
+	if err := m.client.Exec(ctx, insertSQL+" SETTINGS allow_experimental_time_series_table=1", nil, nil); err != nil {
 		log.Printf("materializer: write-back for %q failed: %v", rule.Name, err)
 		return nil
 	}
-	_ = resp2.Body.Close()
+	log.Printf("materializer: wrote %d rows for %q", len(queryResult.Data), rule.Name)
 	return nil
 }
 

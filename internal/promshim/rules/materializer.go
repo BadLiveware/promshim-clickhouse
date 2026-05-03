@@ -27,12 +27,14 @@ type Materializer struct {
 	wg          sync.WaitGroup
 	running     sync.Map
 	getRegistry func() *Registry
+	reload      func() error
 }
 
-func NewMaterializer(registry *Registry, getRegistry func() *Registry, client *storage.Client, db, table string, ruleSet map[string]bool) *Materializer {
+func NewMaterializer(registry *Registry, getRegistry func() *Registry, reload func() error, client *storage.Client, db, table string, ruleSet map[string]bool) *Materializer {
 	return &Materializer{
 		registry:    registry,
 		getRegistry: getRegistry,
+		reload:      reload,
 		client:      client,
 		db:          db,
 		table:       table,
@@ -47,7 +49,7 @@ func (m *Materializer) Start(ctx context.Context) {
 	rules := m.getRegistry().Rules()
 	if len(rules) == 0 {
 		log.Printf("materializer: initial registry empty, polling until syncer+reload populates...")
-		for i := 0; i < 12; i++ {
+		for i := 1; ; i++ {
 			select {
 			case <-ctx.Done():
 				return
@@ -55,11 +57,16 @@ func (m *Materializer) Start(ctx context.Context) {
 				return
 			case <-time.After(10 * time.Second):
 			}
+			// Trigger a recording rule reload from the query service if
+			// the registry is still empty (no query has triggered one yet).
+			if m.reload != nil {
+				_ = m.reload()
+			}
 			rules = m.getRegistry().Rules()
 			if len(rules) > 0 {
 				break
 			}
-			log.Printf("materializer: still empty, retry %d/12...", i+1)
+			log.Printf("materializer: still empty, retry %d...", i)
 		}
 	}
 	log.Printf("materializer: starting with %d recording rules", len(rules))

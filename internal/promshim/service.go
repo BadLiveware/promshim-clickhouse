@@ -210,7 +210,7 @@ func NewHandler(opts Options) (http.Handler, error) {
 	if opts.MaterializeRecordingRules != "" && opts.MaterializeRecordingRules != "off" {
 		ruleSet, all := parseMaterializeRuleSet(opts.MaterializeRecordingRules)
 		ruleRegistry.SetMaterializedRules(ruleSet, all)
-		materializer := rules.NewMaterializer(ruleRegistry, func() *rules.Registry { return service.currentRecordingRules() }, client, opts.Database, opts.Table, ruleSet)
+		materializer := rules.NewMaterializer(ruleRegistry, func() *rules.Registry { return service.currentRecordingRules() }, func() error { return service.reloadRecordingRulesOnce() }, client, opts.Database, opts.Table, ruleSet)
 		go materializer.Start(context.Background())
 	}
 	mux := http.NewServeMux()

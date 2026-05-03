@@ -768,6 +768,596 @@ func TestQueryRangeExplainReturnsNativeAggregationForLabelMutation(t *testing.T)
 	}
 }
 
+func TestQueryRangeExplainIncludesStaticLabelUnionForWorkloadUnionShape(t *testing.T) {
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`sum by (job) (label_replace(rate(up[5m]), "__name__", "rule_a", "", ".*") or label_replace(rate(up[5m]), "__name__", "rule_b", "", ".*") )`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Mode string            `json:"mode"`
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Mode != "range" {
+		t.Fatalf("expected range mode, got %#v", body.Data)
+	}
+	if body.Data.Plan.Strategy != "native_sql" || body.Data.Plan.Kind != "aggregation" {
+		t.Fatalf("expected native aggregation plan, got %#v", body.Data.Plan)
+	}
+	if got := len(body.Data.Plan.StaticLabelUnion); got != 1 {
+		t.Fatalf("expected one static-label union diagnostic on explain root, got %d: %#v", got, body.Data.Plan.StaticLabelUnion)
+	}
+	if !body.Data.Plan.StaticLabelUnion[0].Applied {
+		t.Fatalf("expected static label union to apply, got %#v", body.Data.Plan.StaticLabelUnion[0])
+	}
+	if body.Data.Plan.StaticLabelUnion[0].CandidateBranches != 2 {
+		t.Fatalf("expected two candidate branches, got %#v", body.Data.Plan.StaticLabelUnion[0])
+	}
+}
+
+func TestQueryRangeExplainIncludesStaticLabelUnionForSelectorVariants(t *testing.T) {
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`sum by (namespace) (label_replace(rate(kube_pod_owner{job="kube-state-metrics", owner_kind="DaemonSet", namespace="default", workload_type="daemonset"}[5m]), "workload", "daemonset", "", ".*") or label_replace(rate(kube_pod_owner{job="kube-state-metrics", owner_kind="StatefulSet", namespace="default", workload_type="daemonset"}[5m]), "workload", "statefulset", "", ".*") )`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Mode string            `json:"mode"`
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Mode != "range" {
+		t.Fatalf("expected range, got %#v", body.Data)
+	}
+	if body.Data.Plan.Strategy != "native_sql" || body.Data.Plan.Kind != "aggregation" {
+		t.Fatalf("expected native aggregation plan, got %#v", body.Data.Plan)
+	}
+	if got := len(body.Data.Plan.StaticLabelUnion); got != 1 {
+		t.Fatalf("expected static-label union diagnostic on explain root, got %d: %#v", got, body.Data.Plan.StaticLabelUnion)
+	}
+	if !body.Data.Plan.StaticLabelUnion[0].Applied {
+		t.Fatalf("expected static-label union to apply, got %#v", body.Data.Plan.StaticLabelUnion[0])
+	}
+	if body.Data.Plan.StaticLabelUnion[0].Mode != "shared_selector_child" {
+		t.Fatalf("expected shared_selector_child mode, got %#v", body.Data.Plan.StaticLabelUnion[0])
+	}
+	if body.Data.Plan.StaticLabelUnion[0].CandidateBranches != 2 {
+		t.Fatalf("expected two candidate branches, got %#v", body.Data.Plan.StaticLabelUnion[0])
+	}
+}
+
+func TestQueryRangeExplainIncludesStaticLabelUnionForNestedSelectorVariants(t *testing.T) {
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`sum by (namespace) (label_replace(rate(kube_pod_owner{job="kube-state-metrics", owner_kind="DaemonSet", namespace="default", workload_type="daemonset"}[5m]), "workload", "daemonset", "", ".*") or (label_replace(rate(kube_pod_owner{job="kube-state-metrics", owner_kind="StatefulSet", namespace="default", workload_type="daemonset"}[5m]), "workload", "statefulset", "", ".*") or label_replace(rate(kube_pod_owner{job="kube-state-metrics", owner_kind="Node", namespace="default", workload_type="daemonset"}[5m]), "workload", "staticpod", "", ".*")))`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Mode string            `json:"mode"`
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Mode != "range" {
+		t.Fatalf("expected range, got %#v", body.Data)
+	}
+	if body.Data.Plan.Strategy != "native_sql" || body.Data.Plan.Kind != "aggregation" {
+		t.Fatalf("expected native aggregation plan, got %#v", body.Data.Plan)
+	}
+	if got := len(body.Data.Plan.StaticLabelUnion); got != 1 {
+		t.Fatalf("expected one nested static-label union diagnostic on explain root, got %d: %#v", got, body.Data.Plan.StaticLabelUnion)
+	}
+	if !body.Data.Plan.StaticLabelUnion[0].Applied {
+		t.Fatalf("expected static-label union to apply, got %#v", body.Data.Plan.StaticLabelUnion[0])
+	}
+	if body.Data.Plan.StaticLabelUnion[0].Mode != "shared_selector_child" {
+		t.Fatalf("expected shared_selector_child mode, got %#v", body.Data.Plan.StaticLabelUnion[0])
+	}
+	if body.Data.Plan.StaticLabelUnion[0].CandidateBranches != 3 {
+		t.Fatalf("expected three candidate branches, got %#v", body.Data.Plan.StaticLabelUnion[0])
+	}
+}
+
+func TestQueryRangeExplainSkipsStaticLabelUnionWhenUnsafe(t *testing.T) {
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`sum by (team) (label_replace(rate(up[5m]), "team", "alpha", "", ".*") or label_replace(rate(up[5m]), "namespace", "default", "", ".*"))`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Mode string            `json:"mode"`
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Mode != "range" {
+		t.Fatalf("expected range mode, got %#v", body.Data)
+	}
+	if body.Data.Plan.Strategy != "native_sql" || body.Data.Plan.Kind != "aggregation" {
+		t.Fatalf("expected native aggregation plan, got %#v", body.Data.Plan)
+	}
+	if got := len(body.Data.Plan.StaticLabelUnion); got != 1 {
+		t.Fatalf("expected static-label union diagnostic on explain root, got %d: %#v", got, body.Data.Plan.StaticLabelUnion)
+	}
+	if body.Data.Plan.StaticLabelUnion[0].Applied {
+		t.Fatalf("expected static-label union to skip, got %#v", body.Data.Plan.StaticLabelUnion[0])
+	}
+	if body.Data.Plan.StaticLabelUnion[0].SkipReason != "incompatible_static_labels" {
+		t.Fatalf("expected incompatible_static_labels skip reason, got %#v", body.Data.Plan.StaticLabelUnion[0])
+	}
+}
+
+func TestQueryRangeExplainIncludesMetadataLookupJoinDecision(t *testing.T) {
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`rate(container_network_receive_packets_total[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{host_network="false"}))`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, d := range body.Data.Plan.PhysicalDecisions {
+		if d.Kind == "metadata_lookup_join" && d.Strategy == "recognized" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected metadata_lookup_join recognized decision, got %#v", body.Data.Plan.PhysicalDecisions)
+	}
+}
+
+func TestQueryRangeExplainIncludesMetadataLookupFilterPushdownDecision(t *testing.T) {
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`rate(container_network_receive_packets_total{cluster="dev",namespace="ns",pod="p1"}[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{cluster="dev",namespace="ns",pod="p1"}))`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, d := range body.Data.Plan.PhysicalDecisions {
+		if d.Kind == "metadata_lookup_filter_pushdown" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected metadata_lookup_filter_pushdown decision, got %#v", body.Data.Plan.PhysicalDecisions)
+	}
+}
+
+func TestQueryRangeExplainMetadataLookupFilterPushdownAlreadyScoped(t *testing.T) {
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`rate(container_network_receive_packets_total{cluster="dev",namespace="ns",pod="p1"}[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{cluster="dev",namespace="ns",pod="p1"}))`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, d := range body.Data.Plan.PhysicalDecisions {
+		if d.Kind == "metadata_lookup_filter_pushdown" && d.Strategy == "already_scoped" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected metadata_lookup_filter_pushdown already_scoped decision, got %#v", body.Data.Plan.PhysicalDecisions)
+	}
+	if strings.Contains(body.Data.Plan.RenderedSQL, "AS metadata_rhs WHERE") {
+		t.Fatalf("did not expect metadata RHS filter wrapper in already_scoped path, renderedSQL:\n%s", body.Data.Plan.RenderedSQL)
+	}
+}
+
+func TestQueryRangeExplainMetadataLookupFilterPushdownNotApplied(t *testing.T) {
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`rate(container_network_receive_packets_total{cluster="dev",namespace="ns",pod="p1"}[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{cluster="prod",namespace="ns",pod="p1"}))`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, d := range body.Data.Plan.PhysicalDecisions {
+		if d.Kind == "metadata_lookup_filter_pushdown" && d.Strategy == "not_applied" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected metadata_lookup_filter_pushdown not_applied decision, got %#v", body.Data.Plan.PhysicalDecisions)
+	}
+	if strings.Contains(body.Data.Plan.RenderedSQL, "AS metadata_rhs WHERE") {
+		t.Fatalf("did not expect metadata RHS filter wrapper in not_applied path, renderedSQL:\n%s", body.Data.Plan.RenderedSQL)
+	}
+}
+
+func TestQueryRangeExplainMetadataLookupFilterPushdownApplied(t *testing.T) {
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`rate(container_network_receive_packets_total{cluster="dev",namespace="ns",pod="p1"}[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{namespace="ns",pod="p1"}))`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range body.Data.Plan.PhysicalDecisions {
+		if d.Kind == "metadata_lookup_filter_pushdown" && d.Strategy == "applied" {
+			if len(d.Rejected) == 0 {
+				t.Fatalf("expected rejected alternatives for applied decision, got %#v", d)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected metadata_lookup_filter_pushdown applied decision, got %#v", body.Data.Plan.PhysicalDecisions)
+}
+
+func TestQueryRangeExplainMetadataLookupFilterPushdownNotAppliedIncludesRejectedAlternatives(t *testing.T) {
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`rate(container_network_receive_packets_total{namespace="ns",pod="p1"}[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (1, max by (cluster, namespace, pod) (kube_pod_info{namespace="ns",pod="p1"}))`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range body.Data.Plan.PhysicalDecisions {
+		if d.Kind == "metadata_lookup_filter_pushdown" && d.Strategy == "not_applied" {
+			if len(d.Rejected) == 0 {
+				t.Fatalf("expected rejected alternatives for not_applied decision, got %#v", d)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected metadata_lookup_filter_pushdown not_applied decision, got %#v", body.Data.Plan.PhysicalDecisions)
+}
+
+func TestQueryRangeExplainIncludesHistogramFallbackOrDecision(t *testing.T) {
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`histogram_quantile(0.99, sum(rate(coredns_dns_request_size_bytes[5m])) by (proto) or sum(rate(coredns_dns_request_size_bytes_bucket[5m])) by (le, proto))`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, d := range body.Data.Plan.PhysicalDecisions {
+		if d.Kind == "histogram_fallback_or" && d.Strategy == "recognized" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected histogram_fallback_or recognized decision, got %#v", body.Data.Plan.PhysicalDecisions)
+	}
+}
+
+func TestQueryRangeExplainHistogramFallbackOrRejectedIncludesAlternatives(t *testing.T) {
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`histogram_quantile(0.99, sum(rate(foo[5m])) by (proto) or sum(rate(bar[5m])) by (proto))`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range body.Data.Plan.PhysicalDecisions {
+		if d.Kind == "histogram_fallback_or" && d.Strategy == "not_recognized" {
+			if len(d.Rejected) == 0 {
+				t.Fatalf("expected rejected alternatives for histogram_fallback_or not_recognized, got %#v", d)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected histogram_fallback_or not_recognized decision, got %#v", body.Data.Plan.PhysicalDecisions)
+}
+
+func TestQueryRangeExplainIncludesResourceStatusJoinDecision(t *testing.T) {
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`kube_pod_container_resource_requests{resource="memory", job="kube-state-metrics"} * on (namespace, pod, cluster) group_left() max by (namespace, pod, cluster) (kube_pod_status_phase{phase=~"Pending|Running"} == 1)`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, d := range body.Data.Plan.PhysicalDecisions {
+		if d.Kind == "resource_status_join" && d.Strategy == "recognized" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected resource_status_join recognized decision, got %#v", body.Data.Plan.PhysicalDecisions)
+	}
+}
+
+func TestQueryRangeExplainIncludesHistogramRepeatedQuantileDecision(t *testing.T) {
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`histogram_quantile(0.99, sum(rate(coredns_dns_request_size_bytes_bucket[5m])) by (le, proto)) + histogram_quantile(0.90, sum(rate(coredns_dns_request_size_bytes_bucket[5m])) by (le, proto))`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, d := range body.Data.Plan.PhysicalDecisions {
+		if d.Kind == "histogram_repeated_quantile" && d.Strategy == "recognized" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected histogram_repeated_quantile recognized decision, got %#v", body.Data.Plan.PhysicalDecisions)
+	}
+}
+
+func TestQueryRangeExplainIncludesMetadataLookupJoinRejectedDecision(t *testing.T) {
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`rate(container_network_receive_packets_total[5m]) * on(cluster, namespace, pod) group_left() topk by (cluster, namespace, pod) (2, max by (cluster, namespace, pod) (kube_pod_info{host_network="false"}))`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, d := range body.Data.Plan.PhysicalDecisions {
+		if d.Kind == "metadata_lookup_join" && d.Strategy == "not_recognized" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected metadata_lookup_join not_recognized decision, got %#v", body.Data.Plan.PhysicalDecisions)
+	}
+}
+
+func TestQueryRangeExplainReportsNestedUnsafeSelectorOverlap(t *testing.T) {
+	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	query := url.QueryEscape(`sum by (namespace) ((label_replace(rate(up[5m]), "__name__", "rule_a", "", ".*") or label_replace(rate(up[5m]), "__name__", "rule_b", "", ".*")) or label_replace(rate(up[5m]), "__name__", "rule_b", "", ".*"))`)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_range_explain?query="+query+"&start=0&end=300&step=30", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Mode string            `json:"mode"`
+			Plan local.ExplainNode `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Mode != "range" {
+		t.Fatalf("expected range mode, got %#v", body.Data)
+	}
+	if got := len(body.Data.Plan.StaticLabelUnion); got == 0 {
+		t.Fatalf("expected nested unsafe/rewritten decisions on explain root, got none")
+	}
+
+	foundUnsafe := false
+	foundShared := false
+	for _, decision := range body.Data.Plan.StaticLabelUnion {
+		if decision.SkipReason == "unsafe_selector_overlap" {
+			foundUnsafe = true
+		}
+		if decision.Applied && decision.Mode == "shared_selector_child" {
+			foundShared = true
+		}
+	}
+	if !foundUnsafe {
+		t.Fatalf("expected unsafe_selector_overlap decision in explain root, got %#v", body.Data.Plan.StaticLabelUnion)
+	}
+	if !foundShared {
+		t.Fatalf("expected nested shared_selector_child fallback decision in explain root, got %#v", body.Data.Plan.StaticLabelUnion)
+	}
+}
+
 func TestQueryRangeExplainIncludesPhysicalDecisions(t *testing.T) {
 	handler, err := NewHandler(Options{AllowRequestRoutingOverrides: true, ClickHouseEndpoint: "http://127.0.0.1:8123/", DisableEntireQueryDelegation: true})
 	if err != nil {

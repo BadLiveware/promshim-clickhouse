@@ -138,7 +138,6 @@ func (m *Materializer) Stop() {
 
 func (m *Materializer) runRule(ctx context.Context, rule RecordingRule) {
 	defer m.wg.Done()
-	log.Printf("materializer: starting eval loop for %q (interval=%v)", rule.Name, rule.Interval)
 	ticker := time.NewTicker(rule.Interval)
 	defer ticker.Stop()
 
@@ -177,6 +176,9 @@ func (m *Materializer) evaluateRule(ctx context.Context, rule RecordingRule, eva
 
 	// 2. Build logical plan, render native SQL (labels are applied to results,
 	// not to the expression AST, to keep SQL clean).
+	// Use a ±5s window around the eval time for the materializer query.
+	// The TimeSeries table is populated at roughly 1s granularity by
+	// the OTel collector; exact ms-level timestamp match would miss all.
 	evalTS := evalTime.UnixMilli()
 	logical, err := logicalpkg.ToLogical(expanded.Expr)
 	if err != nil {
@@ -193,8 +195,8 @@ func (m *Materializer) evaluateRule(ctx context.Context, rule RecordingRule, eva
 		Params: renderer.RenderParams{
 			Mode:             nativeplan.RenderModeInstant,
 			EvaluationTimeMS: evalTS,
-			RequiredStartMS:  evalTS,
-			RequiredEndMS:    evalTS + 1,
+			RequiredStartMS:  evalTS - 5000,
+			RequiredEndMS:    evalTS + 5000,
 			ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
 				return "", fmt.Errorf("rule materialization does not support delegated PromQL")
 			},
@@ -205,7 +207,6 @@ func (m *Materializer) evaluateRule(ctx context.Context, rule RecordingRule, eva
 	}
 
 	// 4. Execute the SQL against ClickHouse.
-	log.Printf("materializer: %q SQL: %s", rule.Name, rq.SQL[:min(len(rq.SQL), 200)])
 	resp, err := m.client.ExecuteWithSettings(ctx, rq.SQL, rq.QueryParams, rq.QuerySettings)
 	if err != nil {
 		return fmt.Errorf("execute: %w", err)
@@ -224,10 +225,6 @@ func (m *Materializer) evaluateRule(ctx context.Context, rule RecordingRule, eva
 		return fmt.Errorf("decode result: %w", err)
 	}
 	if len(queryResult.Data) == 0 {
-		// No data at this timestamp — recording rule expression evaluated
-		// to empty vector, which is normal for rules that depend on data
-		// that hasn't arrived yet.
-		log.Printf("materializer: eval of %q returned 0 rows", rule.Name)
 		return nil
 	}
 

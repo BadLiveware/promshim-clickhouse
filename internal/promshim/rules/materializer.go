@@ -205,6 +205,7 @@ func (m *Materializer) evaluateRule(ctx context.Context, rule RecordingRule, eva
 	}
 
 	// 4. Execute the SQL against ClickHouse.
+	log.Printf("materializer: %q SQL: %s", rule.Name, rq.SQL[:min(len(rq.SQL), 200)])
 	resp, err := m.client.ExecuteWithSettings(ctx, rq.SQL, rq.QueryParams, rq.QuerySettings)
 	if err != nil {
 		return fmt.Errorf("execute: %w", err)

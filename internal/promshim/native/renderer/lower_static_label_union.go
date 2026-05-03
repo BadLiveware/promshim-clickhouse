@@ -8,6 +8,7 @@ import (
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -16,65 +17,120 @@ type staticLabelUnionBranch struct {
 	Labels map[string]string
 }
 
+const (
+	staticLabelUnionSkipReasonDynamicLabelMutation      = "dynamic_label_mutation"
+	staticLabelUnionSkipReasonIncompatibleStaticLabels  = "incompatible_static_labels"
+	staticLabelUnionSkipReasonUnsupportedVectorMatching = "unsupported_vector_matching"
+	staticLabelUnionSkipReasonUnsafeSelectorOverlap     = "unsafe_selector_overlap"
+)
+
 func tryLowerStaticLabelUnion(ctx LoweringCtx, n *logicalpkg.BinaryPlan) (RenderedQuery, bool, error) {
-	branches, ok := staticLabelUnionBranches(n)
-	if !ok || len(branches) < 2 {
+	branches, rejectReason, ok := staticLabelUnionBranches(n)
+	if !ok {
+		if len(branches) >= 2 {
+			reportStaticLabelUnion(ctx, staticLabelUnionDecision(false, len(branches), 0, 0, "", rejectReason))
+		}
+		return RenderedQuery{}, false, nil
+	}
+	if len(branches) < 2 {
 		return RenderedQuery{}, false, nil
 	}
 	base := branches[0].Child
-	baseKey := staticLabelUnionBaseKey(base)
+	baseKey := staticLabelUnionCanonicalBaseKey(base)
 	if baseKey == "" {
+		reportStaticLabelUnion(ctx, staticLabelUnionDecision(false, len(branches), 0, 0, "", staticLabelUnionSkipReasonDynamicLabelMutation))
 		return RenderedQuery{}, false, nil
 	}
 	labelNamesKey := staticLabelUnionLabelNamesSignature(branches[0].Labels)
-	allSameBase := true
+	allSameCanonicalBase := true
 	seenLabels := map[string]struct{}{}
 	for _, branch := range branches {
-		branchBaseKey := staticLabelUnionBaseKey(branch.Child)
+		branchBaseKey := staticLabelUnionCanonicalBaseKey(branch.Child)
 		if branchBaseKey == "" {
+			reportStaticLabelUnion(ctx, staticLabelUnionDecision(false, len(branches), 0, 0, "", staticLabelUnionSkipReasonDynamicLabelMutation))
 			return RenderedQuery{}, false, nil
 		}
 		if branchBaseKey != baseKey {
-			allSameBase = false
+			allSameCanonicalBase = false
 		}
 		if staticLabelUnionLabelNamesSignature(branch.Labels) != labelNamesKey {
+			reportStaticLabelUnion(ctx, staticLabelUnionDecision(false, len(branches), 0, 0, "", staticLabelUnionSkipReasonIncompatibleStaticLabels))
 			return RenderedQuery{}, false, nil
 		}
 		signature := staticLabelUnionLabelSignature(branch.Labels)
 		if _, ok := seenLabels[signature]; ok {
+			reportStaticLabelUnion(ctx, staticLabelUnionDecision(false, len(branches), 0, 0, "", staticLabelUnionSkipReasonUnsafeSelectorOverlap))
 			return RenderedQuery{}, false, nil
 		}
 		seenLabels[signature] = struct{}{}
 	}
 	var (
-		rq  RenderedQuery
-		err error
+		rq             RenderedQuery
+		err            error
+		candidateCount int
+		collapsedRows  int
+		mode           string
 	)
-	if allSameBase {
+	candidateCount = len(branches)
+	if allSameCanonicalBase {
+		mode = "shared_selector_child"
+		if candidateCount > 1 {
+			collapsedRows = candidateCount - 1
+		}
 		rq, err = renderStaticLabelUnion(ctx, base, branches)
 	} else {
+		mode = "disjoint_children"
 		rq, err = renderStaticLabelDisjointUnion(ctx, branches)
 	}
 	if err != nil {
 		return RenderedQuery{}, true, err
 	}
+	reportStaticLabelUnion(ctx, native.StaticLabelUnionDecision{
+		Applied:           true,
+		CandidateBranches: candidateCount,
+		CollapsedRows:     collapsedRows,
+		RemainingGroups:   candidateCount,
+		Mode:              mode,
+	})
 	return rq, true, nil
 }
 
-func staticLabelUnionBranches(root logicalpkg.Node) ([]staticLabelUnionBranch, bool) {
+func staticLabelUnionBranches(root logicalpkg.Node) ([]staticLabelUnionBranch, string, bool) {
 	var branches []staticLabelUnionBranch
-	if !collectStaticLabelUnionBranches(root, &branches) {
-		return nil, false
+	reason := ""
+	if !collectStaticLabelUnionBranches(root, &branches, &reason) {
+		if reason == "" {
+			reason = staticLabelUnionSkipReasonUnsupportedVectorMatching
+		}
+		return branches, reason, false
 	}
-	return branches, true
+	return branches, "", true
 }
 
-func collectStaticLabelUnionBranches(node logicalpkg.Node, branches *[]staticLabelUnionBranch) bool {
-	if binary, ok := node.(*logicalpkg.BinaryPlan); ok && binary.Op == parser.LOR && isSimpleManyToManyOr(binary.VectorMatching) && !binary.ReturnBool {
-		return collectStaticLabelUnionBranches(binary.LHS, branches) && collectStaticLabelUnionBranches(binary.RHS, branches)
+func collectStaticLabelUnionBranches(node logicalpkg.Node, branches *[]staticLabelUnionBranch, reason *string) bool {
+	if node == nil {
+		if reason != nil {
+			*reason = staticLabelUnionSkipReasonUnsupportedVectorMatching
+		}
+		return false
 	}
-	child, labels, ok := peelStaticLabelSet(node)
+	if binary, ok := node.(*logicalpkg.BinaryPlan); ok && binary.Op == parser.LOR && isSimpleManyToManyOr(binary.VectorMatching) && !binary.ReturnBool {
+		if !collectStaticLabelUnionBranches(binary.LHS, branches, reason) {
+			return false
+		}
+		return collectStaticLabelUnionBranches(binary.RHS, branches, reason)
+	}
+	if _, ok := node.(*logicalpkg.BinaryPlan); ok {
+		if reason != nil {
+			*reason = staticLabelUnionSkipReasonUnsupportedVectorMatching
+		}
+		return false
+	}
+	child, labels, ok, reasonHint := peelStaticLabelSet(node)
 	if !ok || len(labels) == 0 {
+		if reason != nil {
+			*reason = reasonHint
+		}
 		return false
 	}
 	*branches = append(*branches, staticLabelUnionBranch{Child: child, Labels: labels})
@@ -88,7 +144,7 @@ func isSimpleManyToManyOr(m *parser.VectorMatching) bool {
 	return m.Card == parser.CardManyToMany && !m.On && len(m.MatchingLabels) == 0 && len(m.Include) == 0
 }
 
-func peelStaticLabelSet(node logicalpkg.Node) (logicalpkg.Node, map[string]string, bool) {
+func peelStaticLabelSet(node logicalpkg.Node) (logicalpkg.Node, map[string]string, bool, string) {
 	labels := map[string]string{}
 	for {
 		plan, ok := node.(*logicalpkg.LabelReplacePlan)
@@ -97,7 +153,7 @@ func peelStaticLabelSet(node logicalpkg.Node) (logicalpkg.Node, map[string]strin
 		}
 		value, ok := staticLabelReplaceValue(plan)
 		if !ok {
-			return nil, nil, false
+			return nil, nil, false, staticLabelUnionSkipReasonDynamicLabelMutation
 		}
 		if _, exists := labels[plan.Config.Dst]; !exists {
 			labels[plan.Config.Dst] = value
@@ -105,9 +161,12 @@ func peelStaticLabelSet(node logicalpkg.Node) (logicalpkg.Node, map[string]strin
 		node = plan.Child
 	}
 	if node == nil {
-		return nil, nil, false
+		return nil, nil, false, staticLabelUnionSkipReasonDynamicLabelMutation
 	}
-	return node, labels, true
+	if len(labels) == 0 {
+		return nil, nil, false, staticLabelUnionSkipReasonDynamicLabelMutation
+	}
+	return node, labels, true, ""
 }
 
 func staticLabelReplaceValue(plan *logicalpkg.LabelReplacePlan) (string, bool) {
@@ -123,6 +182,28 @@ func staticLabelReplaceValue(plan *logicalpkg.LabelReplacePlan) (string, bool) {
 	return plan.Config.Repl, true
 }
 
+func staticLabelUnionDecision(applied bool, candidateBranches int, collapsedRows int, remainingGroups int, mode, skipReason string) native.StaticLabelUnionDecision {
+	return native.StaticLabelUnionDecision{
+		Applied:           applied,
+		CandidateBranches: candidateBranches,
+		CollapsedRows:     collapsedRows,
+		RemainingGroups:   remainingGroups,
+		Mode:              mode,
+		SkipReason:        skipReason,
+	}
+}
+
+func reportStaticLabelUnion(ctx LoweringCtx, decision native.StaticLabelUnionDecision) {
+	if ctx.OptimizationReport == nil {
+		return
+	}
+	ctx.OptimizationReport.StaticLabelUnionDecisions = append(ctx.OptimizationReport.StaticLabelUnionDecisions, decision)
+}
+
+const (
+	staticLabelUnionSelectorValuePlaceholder = "__selector_value__"
+)
+
 func staticLabelUnionBaseKey(node logicalpkg.Node) string {
 	if node == nil {
 		return ""
@@ -135,6 +216,124 @@ func staticLabelUnionBaseKey(node logicalpkg.Node) string {
 		return ""
 	}
 	return described.ExprString() + "\x00" + string(described.ValueType())
+}
+
+// staticLabelUnionCanonicalBaseKey returns a shape-based key for analysis tooling.
+// It preserves the full logical shape while normalizing exact selector values,
+// allowing callers to reason about selector-variant families without changing
+// optimization behavior.
+func staticLabelUnionCanonicalBaseKey(node logicalpkg.Node) string {
+	if node == nil {
+		return ""
+	}
+	described, ok := node.(interface {
+		ExprString() string
+		ValueType() parser.ValueType
+	})
+	if !ok || described.ExprString() == "" {
+		return ""
+	}
+	expr, err := parser.NewParser(parser.Options{}).ParseExpr(described.ExprString())
+	if err != nil {
+		return described.ExprString() + "\x00" + string(described.ValueType())
+	}
+	return staticLabelUnionCanonicalExpr(expr).String() + "\x00" + string(described.ValueType())
+}
+
+func staticLabelUnionCanonicalExpr(expr parser.Expr) parser.Expr {
+	switch e := expr.(type) {
+	case *parser.StepInvariantExpr:
+		return &parser.StepInvariantExpr{Expr: staticLabelUnionCanonicalExpr(e.Expr)}
+	case *parser.MatrixSelector:
+		vectorSelector, _ := staticLabelUnionCanonicalExpr(e.VectorSelector).(*parser.VectorSelector)
+		return &parser.MatrixSelector{VectorSelector: vectorSelector, Range: e.Range, RangeExpr: e.RangeExpr, EndPos: e.EndPos}
+	case *parser.SubqueryExpr:
+		return &parser.SubqueryExpr{Expr: staticLabelUnionCanonicalExpr(e.Expr), Range: e.Range, RangeExpr: e.RangeExpr, OriginalOffset: e.OriginalOffset, OriginalOffsetExpr: e.OriginalOffsetExpr, Offset: e.Offset, Timestamp: e.Timestamp, StartOrEnd: e.StartOrEnd, Step: e.Step, StepExpr: e.StepExpr, EndPos: e.EndPos}
+	case *parser.BinaryExpr:
+		return &parser.BinaryExpr{Op: e.Op, LHS: staticLabelUnionCanonicalExpr(e.LHS), RHS: staticLabelUnionCanonicalExpr(e.RHS), VectorMatching: staticLabelUnionCloneVectorMatching(e.VectorMatching), ReturnBool: e.ReturnBool}
+	case *parser.AggregateExpr:
+		grouping := append([]string{}, e.Grouping...)
+		sort.Strings(grouping)
+		return &parser.AggregateExpr{Op: e.Op, Expr: staticLabelUnionCanonicalExpr(e.Expr), Param: staticLabelUnionCanonicalExpr(e.Param), Grouping: grouping, Without: e.Without, PosRange: e.PosRange}
+	case *parser.Call:
+		args := make(parser.Expressions, len(e.Args))
+		for i, arg := range e.Args {
+			args[i] = staticLabelUnionCanonicalExpr(arg)
+		}
+		return &parser.Call{Func: e.Func, Args: args, PosRange: e.PosRange}
+	case *parser.VectorSelector:
+		return staticLabelUnionCanonicalVectorSelector(e)
+	case *parser.ParenExpr:
+		return &parser.ParenExpr{Expr: staticLabelUnionCanonicalExpr(e.Expr), PosRange: e.PosRange}
+	case *parser.UnaryExpr:
+		return &parser.UnaryExpr{Op: e.Op, Expr: staticLabelUnionCanonicalExpr(e.Expr), StartPos: e.StartPos}
+	case *parser.DurationExpr:
+		return &parser.DurationExpr{Op: e.Op, LHS: staticLabelUnionCanonicalExpr(e.LHS), RHS: staticLabelUnionCanonicalExpr(e.RHS), Wrapped: e.Wrapped, StartPos: e.StartPos, EndPos: e.EndPos}
+	default:
+		return expr
+	}
+}
+
+func staticLabelUnionCanonicalVectorSelector(sel *parser.VectorSelector) *parser.VectorSelector {
+	if sel == nil {
+		return nil
+	}
+	out := *sel
+	if len(sel.LabelMatchers) == 0 {
+		return &out
+	}
+	outMatchers := make([]*labels.Matcher, 0, len(sel.LabelMatchers))
+	for _, matcher := range sel.LabelMatchers {
+		if matcher == nil {
+			outMatchers = append(outMatchers, nil)
+			continue
+		}
+		clone := *matcher
+		if matcher.Type == labels.MatchEqual {
+			clone.Value = staticLabelUnionSelectorValuePlaceholder
+		}
+		outMatchers = append(outMatchers, &clone)
+	}
+	sort.SliceStable(outMatchers, func(i, j int) bool {
+		a := outMatchers[i]
+		b := outMatchers[j]
+		if a == nil {
+			return b != nil
+		}
+		if b == nil {
+			return false
+		}
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		if a.Type != b.Type {
+			return a.Type < b.Type
+		}
+		return a.Value < b.Value
+	})
+	out.LabelMatchers = outMatchers
+	return &out
+}
+
+func staticLabelUnionCloneVectorMatching(vm *parser.VectorMatching) *parser.VectorMatching {
+	if vm == nil {
+		return nil
+	}
+	out := *vm
+	out.MatchingLabels = append([]string{}, vm.MatchingLabels...)
+	sort.Strings(out.MatchingLabels)
+	out.Include = append([]string{}, vm.Include...)
+	sort.Strings(out.Include)
+	out.FillValues = parser.VectorMatchFillValues{}
+	if vm.FillValues.LHS != nil {
+		lhs := *vm.FillValues.LHS
+		out.FillValues.LHS = &lhs
+	}
+	if vm.FillValues.RHS != nil {
+		rhs := *vm.FillValues.RHS
+		out.FillValues.RHS = &rhs
+	}
+	return &out
 }
 
 func staticLabelUnionLabelSignature(labels map[string]string) string {

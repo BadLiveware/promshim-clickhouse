@@ -494,6 +494,30 @@ func TestExpandExprSkipsDynamicMatchAllRegexMatcher(t *testing.T) {
 	}
 }
 
+func TestExpandExprSkipsDynamicEmptyRegexMatcher(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard
+  rules:
+  - record: namespace_workload_pod:kube_pod_owner:relabel
+    expr: up
+    labels:
+      workload_type: deployment
+`)
+	expr := parseExpr(t, `namespace_workload_pod:kube_pod_owner:relabel{workload=~""}`)
+
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := result.Expr.String()
+	if strings.Contains(got, matcherLabelName) || strings.Contains(got, `and on (workload)`) {
+		t.Fatalf("empty dynamic regex should not add predicate scaffolding: %s", got)
+	}
+	if !strings.Contains(got, `workload_type`) {
+		t.Fatalf("expected static rule labels to remain: %s", got)
+	}
+}
+
 func TestExpandExprExpandsRecordingRuleSubquery(t *testing.T) {
 	reg := registryForTest(t, `groups:
 - name: dashboard

@@ -109,6 +109,9 @@ func (t *NativeDriverTransport) Query(ctx context.Context, req QueryRequest) (Ro
 	enc := json.NewEncoder(pw)
 	go func() {
 		columns := rows.Columns()
+		// Wrap result in the {"data": [...]} structure the callers expect.
+		_, _ = io.WriteString(pw, `{"data":[`)
+		first := true
 		for rows.Next() {
 			vals := make([]any, len(columns))
 			ptrs := make([]any, len(columns))
@@ -124,6 +127,10 @@ func (t *NativeDriverTransport) Query(ctx context.Context, req QueryRequest) (Ro
 			for i, col := range columns {
 				row[col] = vals[i]
 			}
+			if !first {
+				_, _ = io.WriteString(pw, ",")
+			}
+			first = false
 			if encErr := enc.Encode(row); encErr != nil {
 				_ = pw.CloseWithError(encErr)
 				_ = rows.Close()
@@ -136,6 +143,7 @@ func (t *NativeDriverTransport) Query(ctx context.Context, req QueryRequest) (Ro
 			return
 		}
 		_ = rows.Close()
+		_, _ = io.WriteString(pw, `]}`)
 		_ = pw.Close()
 	}()
 	duration := time.Since(start)

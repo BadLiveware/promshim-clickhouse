@@ -43,15 +43,21 @@ func (m *Materializer) Start(ctx context.Context, registryFn func() *Registry) {
 	// retry after a short delay to catch the first sync.
 	rules := registryFn().Rules()
 	if len(rules) == 0 {
-		log.Printf("materializer: initial registry empty, retrying in 10s for syncer...")
-		select {
-		case <-ctx.Done():
-			return
-		case <-m.stopCh:
-			return
-		case <-time.After(10 * time.Second):
+		log.Printf("materializer: initial registry empty, polling until syncer+reload populates...")
+		for i := 0; i < 12; i++ {
+			select {
+			case <-ctx.Done():
+				return
+			case <-m.stopCh:
+				return
+			case <-time.After(10 * time.Second):
+			}
+			rules = registryFn().Rules()
+			if len(rules) > 0 {
+				break
+			}
+			log.Printf("materializer: still empty, retry %d/12...", i+1)
 		}
-		rules = registryFn().Rules()
 	}
 	log.Printf("materializer: starting with %d recording rules", len(rules))
 	for name, rule := range rules {

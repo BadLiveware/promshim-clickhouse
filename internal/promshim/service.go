@@ -1044,6 +1044,15 @@ func (h *queryService) reloadRecordingRulesOnce() error {
 		h.recordingRuleReloadErrors.Add(1)
 		return err
 	}
+	// Reapply materialization flags to the new registry so query-time bypass
+	// and metrics survive rule reloads.
+	if h.opts.MaterializeRecordingRules != "" && h.opts.MaterializeRecordingRules != "off" {
+		ruleSet, all := parseMaterializeRuleSet(h.opts.MaterializeRecordingRules)
+		registry.SetMaterializedRules(ruleSet, all)
+	}
+	if metrics := h.recordingRuleExpansionMetrics.Load(); metrics != nil {
+		registry.SetExpansionMetrics(metrics)
+	}
 	h.recordingRules.Store(registry)
 	h.recordingRuleReloadSuccess.Add(1)
 	return nil

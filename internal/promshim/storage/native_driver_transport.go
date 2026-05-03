@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -109,15 +110,24 @@ func (t *NativeDriverTransport) Query(ctx context.Context, req QueryRequest) (Ro
 	enc := json.NewEncoder(pw)
 	go func() {
 		columns := rows.Columns()
+		types := rows.ColumnTypes()
 		// Wrap result in the {"data": [...]} structure the callers expect.
 		_, _ = io.WriteString(pw, `{"data":[`)
 		first := true
 		for rows.Next() {
 			vals := make([]any, len(columns))
 			ptrs := make([]any, len(columns))
+			rowVals := make([]any, len(columns))
 			for i := range ptrs {
-				ptrs[i] = &vals[i]
+				ptrs[i] = scanTarget(types[i], &rowVals[i])
 			}
+			if scanErr := rows.Scan(ptrs...); scanErr != nil {
+				_ = pw.CloseWithError(scanErr)
+				_ = rows.Close()
+				return
+			}
+			// Resolve scanned pointers to their concrete values.
+			copy(vals, rowVals)
 			if scanErr := rows.Scan(ptrs...); scanErr != nil {
 				_ = pw.CloseWithError(scanErr)
 				_ = rows.Close()
@@ -276,6 +286,21 @@ func driverParameters(params map[string]string) clickhouse.Parameters {
 		adapted[strings.TrimPrefix(key, "param_")] = value
 	}
 	return adapted
+}
+
+// scanTarget allocates a properly-typed value for scanning a ClickHouse
+// column. It returns a pointer suitable for rows.Scan and stores the
+// dereferenced value back through out. Using *any (interface{}) fails
+// for types like Datetime64 that the driver can't convert to interface{}.
+func scanTarget(ct chdriver.ColumnType, out *any) any {
+	st := ct.ScanType()
+	if st == nil {
+		return out // fall back to *any
+	}
+	v := reflect.New(st)
+	*out = v.Interface()
+	// Return the pointer (same as *out) — rows.Scan fills the pointed-to value.
+	return *out
 }
 
 func driverSQL(sql string) string {

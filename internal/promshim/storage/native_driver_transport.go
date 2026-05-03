@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"reflect"
 	"strings"
@@ -135,15 +136,20 @@ func (t *NativeDriverTransport) Query(ctx context.Context, req QueryRequest) (Ro
 			}
 			row := make(map[string]any, len(columns))
 			for i, col := range columns {
+				v := vals[i]
 				// Convert time values to Unix millisecond floats for JSON
 				// decoder compatibility (callers expect float64 timestamps).
-				if t, ok := vals[i].(time.Time); ok {
-					row[col] = float64(t.UnixMilli())
-				} else if tp, ok := vals[i].(*time.Time); ok && tp != nil {
-					row[col] = float64(tp.UnixMilli())
-				} else {
-					row[col] = vals[i]
+				if t, ok := v.(time.Time); ok {
+					v = float64(t.UnixMilli())
+				} else if tp, ok := v.(*time.Time); ok && tp != nil {
+					v = float64(tp.UnixMilli())
+				} else if f, ok := v.(float64); ok {
+					// JSON can't encode NaN/Inf; replace with null.
+					if math.IsNaN(f) || math.IsInf(f, 0) {
+						v = nil
+					}
 				}
+				row[col] = v
 			}
 			if !first {
 				_, _ = io.WriteString(pw, ",")

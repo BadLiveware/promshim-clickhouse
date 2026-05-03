@@ -3,8 +3,11 @@ package storage
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -92,7 +95,56 @@ func (t *NativeDriverTransport) Ping(ctx context.Context) error {
 }
 
 func (t *NativeDriverTransport) Query(ctx context.Context, req QueryRequest) (Rows, error) {
-	return nil, fmt.Errorf("%w for %s transport", ErrNativeRowsNeedTypedDecoder, TransportNative)
+	if req.Format != ResultFormatJSONEachRow {
+		return nil, fmt.Errorf("%w for %s transport", ErrNativeRowsNeedTypedDecoder, TransportNative)
+	}
+	ctx = t.queryContext(ctx, req)
+	start := time.Now()
+	rows, err := t.conn.Query(ctx, req.SQL)
+	if err != nil {
+		observeQuery(TransportNative, req.Purpose, "error", time.Since(start))
+		return nil, err
+	}
+	pr, pw := io.Pipe()
+	enc := json.NewEncoder(pw)
+	go func() {
+		columns := rows.Columns()
+		for rows.Next() {
+			vals := make([]any, len(columns))
+			ptrs := make([]any, len(columns))
+			for i := range ptrs {
+				ptrs[i] = &vals[i]
+			}
+			if scanErr := rows.Scan(ptrs...); scanErr != nil {
+				_ = pw.CloseWithError(scanErr)
+				_ = rows.Close()
+				return
+			}
+			row := make(map[string]any, len(columns))
+			for i, col := range columns {
+				row[col] = vals[i]
+			}
+			if encErr := enc.Encode(row); encErr != nil {
+				_ = pw.CloseWithError(encErr)
+				_ = rows.Close()
+				return
+			}
+		}
+		if scanErr := rows.Err(); scanErr != nil {
+			_ = pw.CloseWithError(scanErr)
+			_ = rows.Close()
+			return
+		}
+		_ = rows.Close()
+		_ = pw.Close()
+	}()
+	duration := time.Since(start)
+	obs.FromContext(ctx).Observe(duration)
+	observeQuery(TransportNative, req.Purpose, "success", duration)
+	return &httpRows{response: &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       pr,
+	}}, nil
 }
 
 func (t *NativeDriverTransport) QueryNativeRows(ctx context.Context, req QueryRequest) (chdriver.Rows, error) {

@@ -43,6 +43,50 @@ func TestCompareQueryOutcomeSupportsExpectedErrorMatching(t *testing.T) {
 	}
 }
 
+func TestQueryAndFetchCapturesRecordingRuleMetadata(t *testing.T) {
+	manifest := Manifest{BaseUnixSeconds: 1700000000}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"job":"api"},"value":[1700000000,"1"]}],"recordingRules":[{"record":"job:http_requests:rate5m","mode":"instant_virtual"},{"record":"job:http_requests:rate5m","mode":"range_virtual","virtualRange":"5m","virtualStep":"30s"}]}}`)
+	}))
+	defer server.Close()
+
+	result, err := QueryAndFetch(server.Client(), server.URL, manifest, QuerySpec{Endpoint: "query", Query: "job:http_requests:rate5m", Explain: true})
+	if err != nil {
+		t.Fatalf("expected query fetch success, got %v", err)
+	}
+	if !result.RecordingRuleExpanded {
+		t.Fatalf("expected recording rule expansion metadata, got %#v", result)
+	}
+	if result.RecordingRuleMode != "instant_virtual,range_virtual" {
+		t.Fatalf("expected ordered modes, got %q", result.RecordingRuleMode)
+	}
+	if !result.RecordingRuleRangeExpansion {
+		t.Fatalf("expected range expansion metadata to be true")
+	}
+}
+
+func TestQueryAndFetchCapturesRecordingRuleRejectionReason(t *testing.T) {
+	manifest := Manifest{BaseUnixSeconds: 1700000000}
+	sentinel := "recording rule is ambiguous across multiple matches"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"status":"error","errorType":"bad_data","error":%q}`, sentinel)
+	}))
+	defer server.Close()
+
+	result, err := QueryAndFetch(server.Client(), server.URL, manifest, QuerySpec{Endpoint: "query", Query: "ambiguous:rule", Explain: true})
+	if err != nil {
+		t.Fatalf("expected query fetch transport success, got %v", err)
+	}
+	if result.Status != "error" {
+		t.Fatalf("expected error status, got %#v", result.Status)
+	}
+	if result.RecordingRuleRejectionReason != sentinel {
+		t.Fatalf("expected rejection reason %q, got %q", sentinel, result.RecordingRuleRejectionReason)
+	}
+}
+
 func TestCompareQueryOutcomeRejectsUnexpectedErrorTypeForExpectedErrorQuery(t *testing.T) {
 	_, err := CompareQueryOutcome(QuerySpec{
 		Name:              "unsupported-error",
@@ -210,6 +254,70 @@ func TestRunCompareExpandsManifestDatasetVariantsIntoReportRows(t *testing.T) {
 	}
 	if report.Results[0].DatasetVariant != "baseline" || report.Results[1].DatasetVariant != "resets_gaps" {
 		t.Fatalf("unexpected dataset variants in report rows: %#v", report.Results)
+	}
+}
+
+func TestRunCompareCapturesRecordingRuleMetadata(t *testing.T) {
+	tempDir := t.TempDir()
+	manifest := Manifest{BaseUnixSeconds: 1700000000, StepSeconds: 60, Points: 10}
+	if err := WriteManifest(ManifestPath(tempDir), manifest); err != nil {
+		t.Fatal(err)
+	}
+	corpusPath := filepath.Join(tempDir, "corpus.json")
+	if err := os.WriteFile(corpusPath, []byte(`[
+  {
+    "name": "virtual_query",
+    "endpoint": "query",
+    "query": "sum_up{query=\"virtual\"}",
+    "explain": true,
+    "subjects": ["shim"],
+    "expectedStatus": "ok"
+  },
+  {
+    "name": "virtual_query_error",
+    "endpoint": "query",
+    "query": "ambiguous_virtual_query",
+    "explain": true,
+    "subjects": ["shim"],
+    "expectedStatus": "error",
+    "expectedErrorType": "bad_data",
+    "expectedErrorContains": "ambiguous"
+  }
+]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := "recording rule \"ambiguous\" is ambiguous across 2 definitions"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		query := r.URL.Query().Get("query")
+		if query == "ambiguous_virtual_query" {
+			_, _ = fmt.Fprintf(w, `{"status":"error","errorType":"bad_data","error":%q}`, sentinel)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"job":"api"},"value":[1,"1"]}],"recordingRules":[{"record":"virtual:metric","mode":"instant_virtual"}]}}`)
+	}))
+	defer server.Close()
+
+	report, err := RunCompare(contextWithTimeout(t), CompareConfig{
+		PrometheusBaseURL: server.URL,
+		PromshimBaseURL:   server.URL,
+		CorpusPath:        corpusPath,
+		ArtifactDir:       tempDir,
+		Timeout:           2 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Results) != 2 {
+		t.Fatalf("expected two rows with recording-rule metadata coverage, got %#v", report.Results)
+	}
+	first := report.Results[0]
+	if !first.RecordingRuleExpanded || first.RecordingRuleMode != "instant_virtual" || first.RecordingRuleRangeExpansion {
+		t.Fatalf("unexpected recording-rule metadata on ok row: %#v", first)
+	}
+	second := report.Results[1]
+	if second.RecordingRuleRejectionReason != sentinel {
+		t.Fatalf("expected rejection reason for error row, got %#v", second)
 	}
 }
 

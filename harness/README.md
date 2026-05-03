@@ -50,6 +50,14 @@ Useful options:
 
 Passing `--theme`, `--all-themes`, or `--corpus` implies `--suite differential`.
 
+To run the virtual recording-rule probe corpus with harness-managed Prometheus/Promshim expansion enabled:
+
+```bash
+PROM_SHIM_RECORDING_RULE_MODE=virtual \
+PROM_SHIM_RECORDING_RULE_FILES=/etc/promshim/rules/recording-rules-virtual.yaml \
+./scripts/run-harness.sh --corpus recording-rules-virtual.json --subjects shim
+```
+
 ### Sweep workflow for benchmark/compliance runs
 
 Use `scripts/run-sweep.sh` when comparing compliance, transports, long-range

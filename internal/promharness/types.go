@@ -141,11 +141,15 @@ type QueryComparison struct {
 	// Subject identifies which subject-under-test this row compares against
 	// the Prometheus oracle. Values today: "shim", "promclick". Each query
 	// produces one row per configured subject so N-way compares stay flat.
-	Subject     string `json:"subject"`
-	Query       string `json:"query"`
-	Status      string `json:"status"`
-	Severity    string `json:"severity,omitempty"`
-	Bucket      string `json:"bucket,omitempty"`
-	CompareMode string `json:"compareMode,omitempty"`
-	Detail      string `json:"detail,omitempty"`
+	Subject                      string `json:"subject"`
+	Query                        string `json:"query"`
+	Status                       string `json:"status"`
+	Severity                     string `json:"severity,omitempty"`
+	Bucket                       string `json:"bucket,omitempty"`
+	CompareMode                  string `json:"compareMode,omitempty"`
+	Detail                       string `json:"detail,omitempty"`
+	RecordingRuleExpanded        bool   `json:"recordingRuleExpanded,omitempty"`
+	RecordingRuleMode            string `json:"recordingRuleMode,omitempty"`
+	RecordingRuleRangeExpansion  bool   `json:"recordingRuleRangeExpansion,omitempty"`
+	RecordingRuleRejectionReason string `json:"recordingRuleRejectionReason,omitempty"`
 }

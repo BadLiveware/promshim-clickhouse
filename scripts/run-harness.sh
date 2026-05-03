@@ -83,6 +83,7 @@ SUBJECTS=""
 DATASET_VARIANTS=""
 NATIVE_ONLY=0
 DIFFERENTIAL_OVERRIDE=0
+SELF_COMPARE_RECORDING_RULES_CORPUS=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -130,6 +131,18 @@ if [[ -n "$CUSTOM_CORPUS" ]] && { [[ -n "$THEME" ]] || (( ALL_THEMES == 1 )); };
 fi
 if (( DIFFERENTIAL_OVERRIDE == 1 )) && [[ "$SUITE" != "differential" ]]; then
   fatal "--theme/--all-themes/--corpus only apply to --suite differential"
+fi
+
+if [[ -z "${PROM_SHIM_RECORDING_RULE_MODE:-}" && -z "${PROM_SHIM_RECORDING_RULE_FILES:-}" ]]; then
+  if [[ "$CUSTOM_CORPUS" == "recording-rules-virtual.json" || "$CUSTOM_CORPUS" == "recording-rules-virtual" ]]; then
+    export PROM_SHIM_RECORDING_RULE_MODE="virtual"
+    export PROM_SHIM_RECORDING_RULE_FILES="/etc/promshim/rules/recording-rules-virtual.yaml"
+    export PROM_SHIM_RECORDING_RULE_RELOAD_INTERVAL_SECONDS="${PROM_SHIM_RECORDING_RULE_RELOAD_INTERVAL_SECONDS:-30}"
+    SELF_COMPARE_RECORDING_RULES_CORPUS=1
+  fi
+fi
+if [[ "$CUSTOM_CORPUS" == "recording-rules-virtual.json" || "$CUSTOM_CORPUS" == "recording-rules-virtual" ]]; then
+  SELF_COMPARE_RECORDING_RULES_CORPUS=1
 fi
 
 ensure_command docker
@@ -184,6 +197,9 @@ print_compare_summary() {
 run_compare() {
   local corpus_path="$1" report_dest="$2" label="$3" subjects_override="${4:-}"
   local env_args=(-e "PROM_HARNESS_CORPUS_PATH=${corpus_path}" -e "PROM_HARNESS_ARTIFACT_DIR=/artifacts/compare")
+  if (( SELF_COMPARE_RECORDING_RULES_CORPUS == 1 )) && [[ -z "${PROM_HARNESS_PROM_URL:-}" ]]; then
+    env_args+=( -e "PROM_HARNESS_PROM_URL=http://promshim:9090" )
+  fi
   local subjects_effective="${subjects_override:-${SUBJECTS}}"
   if [[ -n "$subjects_effective" ]]; then
     env_args+=(-e "PROM_HARNESS_SUBJECTS=${subjects_effective}")

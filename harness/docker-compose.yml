@@ -34,6 +34,7 @@ services:
       - --enable-feature=promql-binop-fill-modifiers,promql-experimental-functions
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./recording-rules:/etc/prometheus/recording-rules:ro
 
   promshim:
     build:
@@ -48,6 +49,9 @@ services:
       PROM_SHIM_DISABLE_NATIVE_AGGREGATION_LABEL_PROJECTION: ${PROM_SHIM_DISABLE_NATIVE_AGGREGATION_LABEL_PROJECTION:-}
       PROM_SHIM_DISABLE_NATIVE_REPEATED_SUBEXPRESSION_REUSE: ${PROM_SHIM_DISABLE_NATIVE_REPEATED_SUBEXPRESSION_REUSE:-}
       PROM_SHIM_DISABLE_LOCAL_REPEATED_EXPRESSION_CACHE: ${PROM_SHIM_DISABLE_LOCAL_REPEATED_EXPRESSION_CACHE:-}
+      PROM_SHIM_RECORDING_RULE_MODE: ${PROM_SHIM_RECORDING_RULE_MODE:-off}
+      PROM_SHIM_RECORDING_RULE_FILES: ${PROM_SHIM_RECORDING_RULE_FILES:-}
+      PROM_SHIM_RECORDING_RULE_RELOAD_INTERVAL_SECONDS: ${PROM_SHIM_RECORDING_RULE_RELOAD_INTERVAL_SECONDS:-30}
       PROM_SHIM_CLICKHOUSE_ENDPOINT: http://clickhouse:8123/
       PROM_SHIM_CLICKHOUSE_NATIVE_ADDR: clickhouse:9000
       PROM_SHIM_CLICKHOUSE_DATABASE: observability
@@ -59,6 +63,8 @@ services:
       PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES: 10000
       PROM_SHIM_MAX_RESPONSE_SERIES: 100000
       PROM_SHIM_MAX_RESPONSE_POINTS: 2000000
+    volumes:
+      - ./recording-rules:/etc/promshim/rules:ro
 
   promclick-writer:
     image: quay.io/hinski/promclick:0.1.0

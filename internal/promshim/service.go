@@ -245,7 +245,7 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 			"clickHouseTransport":       h.ClickHouseTransport(),
 			"clickHouseSettingsProfile": settingsProfile,
 			"entireQueryDelegation":     h.entireQueryDelegationForQuery(req.Query),
-			"data":                      map[string]any{"resultType": resultType, "result": result},
+			"data":                      map[string]any{"resultType": resultType, "result": result, "recordingRules": recordingExpansions},
 			"plan":                      selectedExplain,
 			"routing":                   routing,
 		}}, nil
@@ -273,7 +273,6 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 		return h.rangeQueryShadow(ctx, req)
 	}
 	query, start, end, step, plan, analysis, recordingExpansions, apiErr := h.buildRangePlan(ctx, req, true)
-	_ = recordingExpansions
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -311,7 +310,7 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 			"clickHouseTransport":       h.ClickHouseTransport(),
 			"clickHouseSettingsProfile": settingsProfile,
 			"entireQueryDelegation":     h.entireQueryDelegationForQuery(req.Query),
-			"data":                      map[string]any{"resultType": resultType, "result": result},
+			"data":                      map[string]any{"resultType": resultType, "result": result, "recordingRules": recordingExpansions},
 			"plan":                      selectedExplain,
 			"routing":                   routing,
 		}}, nil

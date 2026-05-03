@@ -140,6 +140,11 @@ rule expression over the requested window. For `recorded_metric[5m]`, promshim
 uses the rule group's `interval` as the generated subquery step when configured;
 otherwise it lets the normal subquery default apply.
 
+Important: virtual mode is a query-time compatibility path, not a historical
+materialization path. It does not imply any additional persisted rule history or
+scheduler-like catch-up semantics; bounds are scoped to the explicit query range
+(or instant timestamp and range boundaries) passed in that request.
+
 Not supported in the MVP:
 
 - alerting-rule evaluation;

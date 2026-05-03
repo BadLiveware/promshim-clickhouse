@@ -1,0 +1,19 @@
+groups:
+  - name: promshim-virtual-rules
+    interval: 1m
+    rules:
+      - record: promshim_virtual_recording_rule
+        expr: vector(1)
+        labels:
+          source: rules-a
+          layer: baseline
+      - record: promshim_virtual_recording_rule
+        expr: vector(2)
+        labels:
+          source: rules-b
+          layer: baseline
+      - record: promshim_virtual_range_rule
+        expr: vector(3)
+        labels:
+          source: rules-range
+          layer: range

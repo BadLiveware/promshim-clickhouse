@@ -113,11 +113,46 @@ func TestQueryExplainExpandsVirtualRecordingRule(t *testing.T) {
 	}
 }
 
-func TestLoadRecordingRuleRegistryRejectsMissingExplicitFile(t *testing.T) {
-	path := t.TempDir() + "/rules.yaml"
-	_, err := loadRecordingRuleRegistry(rules.ModeVirtual, []string{path})
-	if err == nil || !strings.Contains(err.Error(), "does not exist") {
-		t.Fatalf("err = %v, want missing explicit file error", err)
+func TestQueryExplainRejectsAmbiguousVirtualRecordingRule(t *testing.T) {
+	ruleFile := writeServiceRulesFile(t, `groups:
+- name: dashboard-a
+  rules:
+  - record: ambiguous:rule
+    expr: vector(1)
+    labels:
+      team: alpha
+- name: dashboard-b
+  rules:
+  - record: ambiguous:rule
+    expr: vector(2)
+    labels:
+      team: beta
+`)
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModeOff, RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query_explain?query=ambiguous%3Arule&time=300", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Status    string `json:"status"`
+		ErrorType string `json:"errorType"`
+		Error     string `json:"error"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.ErrorType != "bad_data" {
+		t.Fatalf("expected bad_data, got %#v", body)
+	}
+	if !strings.Contains(strings.ToLower(body.Error), "ambiguous") {
+		t.Fatalf("expected ambiguous-recording-rule error, got %#v", body)
 	}
 }
 
@@ -1424,6 +1459,55 @@ func TestQueryWithExplainIncludesPlanAndNormalResult(t *testing.T) {
 	}
 	if len(body.Data.Result) != 2 || body.Data.Result[1] != "3" {
 		t.Fatalf("expected scalar result payload, got %#v", body.Data.Result)
+	}
+	if body.Plan.Strategy != "local" {
+		t.Fatalf("expected local plan, got %#v", body.Plan)
+	}
+}
+
+func TestQueryWithExplainIncludesRecordingRuleMetadata(t *testing.T) {
+	ruleFile := writeServiceRulesFile(t, `groups:
+- name: dashboard
+  rules:
+  - record: promshim_virtual_recording_rule
+    expr: vector(1)
+    labels:
+      source: rules-a
+      layer: baseline
+`)
+	handler, err := NewHandler(Options{ClickHouseEndpoint: "http://127.0.0.1:8123/", NativeLoweringMode: local.NativeLoweringModeOff, RecordingRuleMode: "virtual", RecordingRuleFiles: []string{ruleFile}, DisableEntireQueryDelegation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/query?query=promshim_virtual_recording_rule%7Bsource%3D%22rules-a%22,layer%3D%22baseline%22%7D&time=300&explain=1", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			RecordingRules []struct {
+				Record string `json:"record"`
+				Mode   string `json:"mode"`
+			} `json:"recordingRules"`
+		} `json:"data"`
+		Plan local.ExplainNode `json:"plan"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "success" {
+		t.Fatalf("expected success, got %#v", body)
+	}
+	if len(body.Data.RecordingRules) != 1 {
+		t.Fatalf("expected one recording-rule expansion, got %#v", body.Data.RecordingRules)
+	}
+	if body.Data.RecordingRules[0].Record != "promshim_virtual_recording_rule" || body.Data.RecordingRules[0].Mode != "instant_virtual" {
+		t.Fatalf("unexpected recording-rule metadata: %#v", body.Data.RecordingRules[0])
 	}
 	if body.Plan.Strategy != "local" {
 		t.Fatalf("expected local plan, got %#v", body.Plan)

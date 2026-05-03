@@ -1,9 +1,11 @@
 package rules
 
 import (
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -464,6 +466,52 @@ func TestExpandExprUnionsRangeSelectorForDistinctStaticLabelRules(t *testing.T) 
 	}
 }
 
+func TestExpandExprUnionsRangeSelectorForDistinctStaticLabelRulesAtTimestamp(t *testing.T) {
+	reg := registryForTest(t, `groups:
+- name: dashboard-a
+  interval: 30s
+  rules:
+  - record: namespace_workload_pod:kube_pod_owner:relabel
+    expr: up
+    labels:
+      team: alpha
+- name: dashboard-b
+  interval: 30s
+  rules:
+  - record: namespace_workload_pod:kube_pod_owner:relabel
+    expr: up
+    labels:
+      team: beta
+`)
+	expr := parseExpr(t, `avg_over_time(namespace_workload_pod:kube_pod_owner:relabel[5m] @ 1700000000)`)
+
+	result, err := ExpandExpr(expr, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call, ok := result.Expr.(*parser.Call)
+	if !ok {
+		t.Fatalf("expanded expr type = %T, want call", result.Expr)
+	}
+	if len(call.Args) != 1 {
+		t.Fatalf("expanded call args = %#v, want one arg", call.Args)
+	}
+	subquery, ok := call.Args[0].(*parser.SubqueryExpr)
+	if !ok {
+		t.Fatalf("call arg type = %T, want subquery", call.Args[0])
+	}
+	if subquery.Timestamp != nil || subquery.StartOrEnd != 0 {
+		t.Fatalf("subquery timestamp unexpectedly present: %v/%v", subquery.Timestamp, subquery.StartOrEnd)
+	}
+	got := subquery.Expr.String()
+	if !strings.Contains(got, `@ 1700000000`) {
+		t.Fatalf("expanded range selector = %s, want inner timestamp preserved", got)
+	}
+	if !strings.Contains(got, `or`) {
+		t.Fatalf("expanded range selector = %s, want union", got)
+	}
+}
+
 func TestExpandExprRangeSelectorWithMultipleDistinctStaticLabelRulesIsRejectedForIncompatibleIntervals(t *testing.T) {
 	reg := registryForTest(t, `groups:
 - name: dashboard-a
@@ -674,6 +722,158 @@ func TestExpandExprDoesNotUseNilExprFromCachedExpansionOrderDependency(t *testin
 	if !strings.Contains(result.Expr.String(), "up") {
 		t.Fatalf("expanded expr = %s, want base metric expansion", result.Expr)
 	}
+}
+
+func FuzzExpandExprVirtualRecordingRuleRangeUnion(f *testing.F) {
+	f.Add(`namespace_workload_pod:kube_pod_owner:relabel`, int64(1700000000), int(0))
+	f.Add(`namespace_workload_pod:kube_pod_owner:relabel{team="alpha"}`, int64(1700000000), int(1))
+	f.Add(`namespace_workload_pod:kube_pod_owner:relabel{team=~"alpha|beta"}`, int64(1700000000), int(1))
+	f.Add(`namespace_workload_pod:kube_pod_owner:relabel{job="api"}`, int64(1700000000), int(0))
+	f.Add(`ambiguous_virtual_range_rule`, int64(1700000000), int(0))
+	f.Add(`interval_virtual_range_rule`, int64(1700000000), int(0))
+
+	f.Fuzz(func(t *testing.T, selector string, at int64, includeAt int) {
+		selector = strings.TrimSpace(selector)
+		if selector == "" {
+			return
+		}
+		if at < 0 || at > 3000000000 {
+			return
+		}
+		if !strings.Contains(selector, `namespace_workload_pod:kube_pod_owner:relabel`) &&
+			!strings.Contains(selector, `ambiguous_virtual_range_rule`) &&
+			!strings.Contains(selector, `interval_virtual_range_rule`) {
+			return
+		}
+
+		query := "avg_over_time(" + selector + "[5m]"
+		if includeAt%2 == 0 && at != 0 {
+			query += " @ " + strconv.FormatInt(at, 10)
+		}
+		query += ")"
+
+		parsed, err := parser.NewParser(parser.Options{EnableBinopFillModifiers: true, EnableExperimentalFunctions: true}).ParseExpr(query)
+		if err != nil {
+			return
+		}
+		result, err := ExpandExpr(parsed, virtualRangeUnionRegistry())
+		if err != nil {
+			if isExpectedFuzzExpandError(err) {
+				return
+			}
+			t.Fatalf("query %q: unexpected expand error: %v", query, err)
+		}
+		if result.Expr == nil {
+			t.Fatalf("query %q: expanded expr is nil", query)
+		}
+
+		if includeAt%2 == 0 && at != 0 && strings.Contains(selector, `namespace_workload_pod:kube_pod_owner:relabel`) {
+			call, ok := result.Expr.(*parser.Call)
+			if !ok || len(call.Args) != 1 {
+				t.Fatalf("query %q: expected avg_over_time(subquery), got %T", query, result.Expr)
+			}
+			subquery, ok := call.Args[0].(*parser.SubqueryExpr)
+			if !ok {
+				t.Fatalf("query %q: expected subquery arg, got %T", query, call.Args[0])
+			}
+			if subquery.Timestamp != nil || subquery.StartOrEnd != 0 {
+				t.Fatalf("query %q: subquery timestamp unexpectedly present: %v/%v", query, subquery.Timestamp, subquery.StartOrEnd)
+			}
+			if !strings.Contains(subquery.Expr.String(), "@ "+strconv.FormatInt(at, 10)) {
+				t.Fatalf("query %q: expected inner @ timestamp preserved, got %s", query, subquery.Expr.String())
+			}
+		}
+	})
+}
+
+var (
+	virtualRangeUnionRegistryOnce  sync.Once
+	virtualRangeUnionRegistryValue *Registry
+)
+
+func virtualRangeUnionRegistry() *Registry {
+	virtualRangeUnionRegistryOnce.Do(func() {
+		virtualRangeUnionRegistryValue = EmptyRegistry()
+		parseExprString := func(expr string) parser.Expr {
+			parsed, err := parser.NewParser(parser.Options{EnableBinopFillModifiers: true, EnableExperimentalFunctions: true}).ParseExpr(expr)
+			if err != nil {
+				panic(err)
+			}
+			return parsed
+		}
+		virtualRangeUnionRegistryValue.add(RecordingRule{
+			Name:       `namespace_workload_pod:kube_pod_owner:relabel`,
+			Expr:       parseExprString(`up`),
+			ExprString: `up`,
+			Labels: map[string]string{
+				"team": "alpha",
+			},
+			Interval: 30 * time.Second,
+			Source:   `fuzz/rules.yaml`,
+		})
+		virtualRangeUnionRegistryValue.add(RecordingRule{
+			Name:       `namespace_workload_pod:kube_pod_owner:relabel`,
+			Expr:       parseExprString(`up`),
+			ExprString: `up`,
+			Labels: map[string]string{
+				"team": "beta",
+			},
+			Interval: 30 * time.Second,
+			Source:   `fuzz/rules.yaml`,
+		})
+		virtualRangeUnionRegistryValue.add(RecordingRule{
+			Name:       `ambiguous_virtual_range_rule`,
+			Expr:       parseExprString(`vector(1)`),
+			ExprString: `vector(1)`,
+			Labels: map[string]string{
+				"source": "same",
+			},
+			Interval: 30 * time.Second,
+			Source:   `fuzz/rules.yaml`,
+		})
+		virtualRangeUnionRegistryValue.add(RecordingRule{
+			Name:       `ambiguous_virtual_range_rule`,
+			Expr:       parseExprString(`vector(2)`),
+			ExprString: `vector(2)`,
+			Labels: map[string]string{
+				"source": "same",
+			},
+			Interval: 30 * time.Second,
+			Source:   `fuzz/rules.yaml`,
+		})
+		virtualRangeUnionRegistryValue.add(RecordingRule{
+			Name:       `interval_virtual_range_rule`,
+			Expr:       parseExprString(`vector(3)`),
+			ExprString: `vector(3)`,
+			Labels: map[string]string{
+				"region": "a",
+			},
+			Interval: 30 * time.Second,
+			Source:   `fuzz/rules.yaml`,
+		})
+		virtualRangeUnionRegistryValue.add(RecordingRule{
+			Name:       `interval_virtual_range_rule`,
+			Expr:       parseExprString(`vector(4)`),
+			ExprString: `vector(4)`,
+			Labels: map[string]string{
+				"region": "b",
+			},
+			Interval: time.Minute,
+			Source:   `fuzz/rules.yaml`,
+		})
+		virtualRangeUnionRegistryValue.validateExpansions()
+	})
+	return virtualRangeUnionRegistryValue
+}
+
+func isExpectedFuzzExpandError(err error) bool {
+	if err == nil {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, `ambiguous across`) ||
+		strings.Contains(msg, `incompatible interval settings`) ||
+		strings.Contains(msg, `recording rule selector matcher`)
 }
 
 func registryForTest(t *testing.T, content string) *Registry {

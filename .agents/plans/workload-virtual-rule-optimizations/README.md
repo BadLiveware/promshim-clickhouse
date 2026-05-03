@@ -67,13 +67,12 @@ Phases are ordered by a combined estimate of:
 ## Phase index
 
 1. [`01-current-virtual-rule-union.md`](01-current-virtual-rule-union.md)
-   - Current phase: finish the virtual-rule union/matcher-pushdown work already
-     started for workload-owner queries.
+   - Completed in-loop; static-label union explainability and matcher-safe pathing are in place.
 2. [`02-selector-variant-union.md`](02-selector-variant-union.md)
-   - Highest-priority future phase: same-shape branches that differ only in safe
-     selector matchers and static output labels.
+   - Completed: safe selector-variant canonicalization + shared-selector-child
+     reuse with nested unsafe-overlap explainability and evidence-signoff.
 3. [`03-join-enrichment-shapes.md`](03-join-enrichment-shapes.md)
-   - Generalize common metadata-enrichment joins using `group_left` and
+   - Next phase to implement: common metadata-enrichment joins using `group_left` and
      `topk by (...) (1, max by (...))`.
 4. [`04-histogram-or-quantile-shapes.md`](04-histogram-or-quantile-shapes.md)
    - Collapse and share classic/native histogram fallback `or` patterns and

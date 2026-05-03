@@ -1,5 +1,7 @@
 # Phase 2 — Selector-variant union for same-shape branches
 
+**Status:** Completed (2026-05-03)
+
 ## Purpose
 
 Collapse virtual-rule branches that have the same PromQL structure but differ
@@ -139,5 +141,24 @@ Validation:
 ## Exit criteria
 
 - Same-shape selector-variant groups are collapsed with precise safety checks.
-- The workload-owner family either improves beyond phase 1 or explain metadata
-  clearly identifies non-collapsible dynamic branches.
+- Endpoint explainability captures both applied and skip decisions, including nested unsafe-overlap traces.
+- The workload-owner family either improves beyond phase 1 or explains non-collapsible branches with precise skip reasons.
+- Representative in-cluster `query_range_explain` checks show rendered size reductions on safe selector-variant trees.
+
+## Verification snapshot (2026-05-03)
+
+- Local and endpoint evidence confirms phase-2 behavior across safe and unsafe nested trees:
+  - `owner_selector_variants`:
+    - `strategy=native_sql`, `kind=aggregation`
+    - `candidateBranches=2`, `collapsedRows=1`, `remainingGroups=2`, `mode=shared_selector_child`
+    - `renderedSQL=3612`
+  - `owner_selector_nested`:
+    - `strategy=native_sql`, `kind=aggregation`
+    - `candidateBranches=3`, `collapsedRows=2`, `remainingGroups=3`, `mode=shared_selector_child`
+    - `renderedSQL=3705`
+  - nested mixed-overlap query (`(A or B) or B`):
+    - `strategy=native_sql`, `kind=binary`
+    - decisions include `unsafe_selector_overlap` skip + `shared_selector_child` applied
+    - `renderedSQL=6654`
+- Transition to phase-3 readiness:
+  - Phase-2 implementation is treated complete in this loop after full suite and endpoint evidence closure.

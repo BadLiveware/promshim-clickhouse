@@ -115,6 +115,10 @@ func recordingRuleRejectionReason(errorText string) string {
 	if errorText == "" {
 		return ""
 	}
+	lower := strings.ToLower(errorText)
+	if !strings.Contains(lower, "recording") && !strings.Contains(lower, "ambiguous") && !strings.Contains(lower, "incompatible interval") {
+		return ""
+	}
 	return errorText
 }
 

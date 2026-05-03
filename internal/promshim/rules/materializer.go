@@ -17,31 +17,34 @@ import (
 )
 
 type Materializer struct {
-	registry *Registry
-	client   *storage.Client
-	db       string
-	table    string
-	ruleSet  map[string]bool // set of rule names to materialize, or nil for all
-	stopCh   chan struct{}
-	stopOnce sync.Once
-	wg       sync.WaitGroup
+	registry    *Registry
+	client      *storage.Client
+	db          string
+	table       string
+	ruleSet     map[string]bool
+	stopCh      chan struct{}
+	stopOnce    sync.Once
+	wg          sync.WaitGroup
+	running     sync.Map
+	getRegistry func() *Registry
 }
 
-func NewMaterializer(registry *Registry, client *storage.Client, db, table string, ruleSet map[string]bool) *Materializer {
+func NewMaterializer(registry *Registry, getRegistry func() *Registry, client *storage.Client, db, table string, ruleSet map[string]bool) *Materializer {
 	return &Materializer{
-		registry: registry,
-		client:   client,
-		db:       db,
-		table:    table,
-		ruleSet:  ruleSet,
-		stopCh:   make(chan struct{}),
+		registry:    registry,
+		getRegistry: getRegistry,
+		client:      client,
+		db:          db,
+		table:       table,
+		ruleSet:     ruleSet,
+		stopCh:      make(chan struct{}),
 	}
 }
 
-func (m *Materializer) Start(ctx context.Context, registryFn func() *Registry) {
+func (m *Materializer) Start(ctx context.Context) {
 	// If the initial registry is empty (rule-syncer hasn't written files yet),
 	// retry after a short delay to catch the first sync.
-	rules := registryFn().Rules()
+	rules := m.getRegistry().Rules()
 	if len(rules) == 0 {
 		log.Printf("materializer: initial registry empty, polling until syncer+reload populates...")
 		for i := 0; i < 12; i++ {
@@ -52,7 +55,7 @@ func (m *Materializer) Start(ctx context.Context, registryFn func() *Registry) {
 				return
 			case <-time.After(10 * time.Second):
 			}
-			rules = registryFn().Rules()
+			rules = m.getRegistry().Rules()
 			if len(rules) > 0 {
 				break
 			}
@@ -74,8 +77,47 @@ func (m *Materializer) Start(ctx context.Context, registryFn func() *Registry) {
 			rule = r
 		}
 		rule := rule
+		m.running.Store(name, struct{}{})
 		m.wg.Add(1)
 		go m.runRule(ctx, rule)
+	}
+	m.wg.Add(1)
+	go m.refreshLoop(ctx)
+}
+
+func (m *Materializer) refreshLoop(ctx context.Context) {
+	defer m.wg.Done()
+	ticker := time.NewTicker(2 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-m.stopCh:
+			return
+		case <-ticker.C:
+		}
+		rules := m.getRegistry().Rules()
+		if len(rules) == 0 {
+			continue
+		}
+		for name, rule := range rules {
+			if m.ruleSet != nil && !m.ruleSet[name] {
+				continue
+			}
+			if _, exists := m.running.Load(name); exists {
+				continue
+			}
+			if rule.Interval <= 0 {
+				r := rule
+				r.Interval = 1 * time.Minute
+				rule = r
+			}
+			rule := rule
+			m.running.Store(name, struct{}{})
+			m.wg.Add(1)
+			go m.runRule(ctx, rule)
+		}
 	}
 }
 
@@ -117,7 +159,7 @@ func (m *Materializer) tryAcquireAndEval(ctx context.Context, rule RecordingRule
 
 func (m *Materializer) evaluateRule(ctx context.Context, rule RecordingRule, evalTime time.Time) error {
 	// 1. Expand nested recording rule references.
-	expanded, err := ExpandExpr(rule.Expr, m.registry)
+	expanded, err := ExpandExpr(rule.Expr, m.getRegistry())
 	if err != nil {
 		return fmt.Errorf("expand: %w", err)
 	}

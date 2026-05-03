@@ -233,7 +233,7 @@ func (m *Materializer) evaluateRule(ctx context.Context, rule RecordingRule, eva
 	if err != nil {
 		return fmt.Errorf("build insert: %w", err)
 	}
-	if err := m.client.Exec(ctx, insertSQL, nil, map[string]any{"allow_experimental_time_series_table": 1, "readonly": 0}); err != nil {
+	if err := m.client.Exec(ctx, insertSQL, nil, map[string]any{"allow_experimental_time_series_table": 1, "readonly": 0, "async_insert": 0}); err != nil {
 		log.Printf("materializer: write-back for %q failed: %v", rule.Name, err)
 		return nil
 	}

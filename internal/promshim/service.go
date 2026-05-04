@@ -1003,7 +1003,21 @@ func (h *queryService) materializedMetricNames() map[string]bool {
 			names[name] = true
 		}
 	}
+	if len(names) > 0 {
+		log.Printf("materializedMetricNames: %d metrics (sample: %v)", len(names), firstKey(names, 3))
+	}
 	return names
+}
+
+func firstKey(m map[string]bool, n int) []string {
+	out := make([]string, 0, n)
+	for k := range m {
+		out = append(out, k)
+		if len(out) >= n {
+			break
+		}
+	}
+	return out
 }
 
 func loadRecordingRuleRegistry(mode rules.Mode, patterns []string) (*rules.Registry, error) {

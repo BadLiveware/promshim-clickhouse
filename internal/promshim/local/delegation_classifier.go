@@ -19,7 +19,12 @@ type DelegationClassifierResult struct {
 // has verified against the target ClickHouse version. New constructs graduate
 // from the native-SQL tier into whole-query delegation only after compliance
 // confirms ClickHouse matches Prometheus semantics.
-func ClassifyEntireQueryDelegation(expr parser.Expr, clickHouseVersion string) DelegationClassifierResult {
+//
+// MaterializedMetrics, when non-nil, is checked against leaf selectors in the
+// expression. Materialized recording rules live in a separate MergeTree table
+// that ClickHouse's PromQL endpoint doesn't see, so those expressions must go
+// through the native SQL tier.
+func ClassifyEntireQueryDelegation(expr parser.Expr, clickHouseVersion string, materializedMetrics map[string]bool) DelegationClassifierResult {
 	version := NormalizeClickHouseVersion(clickHouseVersion)
 	if expr == nil {
 		return DelegationClassifierResult{Eligible: false, Reason: "empty expression", ClickHouseVersion: version}
@@ -29,6 +34,9 @@ func ClassifyEntireQueryDelegation(expr parser.Expr, clickHouseVersion string) D
 	}
 	if reason := unsupportedDelegationReason(expr, version); reason != "" {
 		return DelegationClassifierResult{Eligible: false, Reason: reason, ClickHouseVersion: version}
+	}
+	if len(materializedMetrics) > 0 && containsMaterializedMetric(expr, materializedMetrics) {
+		return DelegationClassifierResult{Eligible: false, Reason: "expression references materialized recording rule(s); materialized data lives in a separate table that ClickHouse PromQL cannot see", ClickHouseVersion: version}
 	}
 	return DelegationClassifierResult{Eligible: true, ClickHouseVersion: version}
 }
@@ -69,4 +77,19 @@ func NormalizeClickHouseVersion(raw string) string {
 		return "26.3"
 	}
 	return trimmed
+}
+
+// containsMaterializedMetric walks the expression AST and returns true if any
+// VectorSelector references a metric name present in materializedMetrics.
+func containsMaterializedMetric(expr parser.Expr, materializedMetrics map[string]bool) bool {
+	found := false
+	parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
+		if vs, ok := node.(*parser.VectorSelector); ok && vs.Name != "" {
+			if materializedMetrics[vs.Name] {
+				found = true
+			}
+		}
+		return nil
+	})
+	return found
 }

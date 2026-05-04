@@ -981,14 +981,15 @@ func (h *queryService) entireQueryDelegationForQuery(query string) *local.Delega
 	if err != nil {
 		return nil
 	}
-	result := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion, h.materializedMetricNames())
+	result := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion, h.recordingRuleMetricNames())
 	return &result
 }
 
-// materializedMetricNames returns the set of recording rule metric names that
-// have been materialized. These must not be delegated to ClickHouse's PromQL
-// endpoint because their data lives in the materialized MergeTree table.
-func (h *queryService) materializedMetricNames() map[string]bool {
+// recordingRuleMetricNames returns the set of all recording rule metric names.
+// Queries that reference these names must not be delegated to ClickHouse's
+// PromQL endpoint: virtual rules need expansion, materialized rules query
+// a separate MergeTree table that ClickHouse PromQL cannot see.
+func (h *queryService) recordingRuleMetricNames() map[string]bool {
 	if h.recordingRuleMode != rules.ModeVirtual {
 		return nil
 	}
@@ -999,25 +1000,9 @@ func (h *queryService) materializedMetricNames() map[string]bool {
 	all := registry.Rules()
 	names := make(map[string]bool, len(all))
 	for name := range all {
-		if registry.IsMaterialized(name) {
-			names[name] = true
-		}
-	}
-	if len(names) > 0 {
-		log.Printf("materializedMetricNames: %d metrics (sample: %v, has_count_up0=%v)", len(names), firstKey(names, 3), names["count:up0"])
+		names[name] = true
 	}
 	return names
-}
-
-func firstKey(m map[string]bool, n int) []string {
-	out := make([]string, 0, n)
-	for k := range m {
-		out = append(out, k)
-		if len(out) >= n {
-			break
-		}
-	}
-	return out
 }
 
 func loadRecordingRuleRegistry(mode rules.Mode, patterns []string) (*rules.Registry, error) {
@@ -1164,7 +1149,7 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 		return "", time.Time{}, nil, nil, nil, apiErr
 	}
 	ctx := local.PlanContext{Mode: local.EvalModeInstant, EvaluationTime: evaluationTime, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries}
-	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion, h.materializedMetricNames())
+	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion, h.recordingRuleMetricNames())
 	var queryPlan local.Plan
 	var analysis *nativeplan.Analysis
 	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !mode.ForcesLocalRoot() && !h.opts.DisableEntireQueryDelegation {
@@ -1226,7 +1211,7 @@ func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQuer
 		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, apiErr
 	}
 	planCtx := local.PlanContext{Mode: local.EvalModeRange, Start: start, End: end, Step: step, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries, NativeRangeChunkPointsPerSeries: h.opts.NativeRangeChunkPointsPerSeries, NativeRangeChunkMaxDuration: h.opts.NativeRangeChunkMaxDuration, NativeRangeChunkMaxChunks: h.opts.NativeRangeChunkMaxChunks, NativeRangePreflightSeriesThreshold: h.opts.NativeRangePreflightSeriesThreshold, NativeRangePreflightTimeout: h.opts.NativeRangePreflightTimeout, NativeRangePreflightMaxMemoryUsage: h.opts.NativeRangePreflightMaxMemoryUsage}
-	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion, h.materializedMetricNames())
+	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion, h.recordingRuleMetricNames())
 	var queryPlan local.Plan
 	var analysis *nativeplan.Analysis
 	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !mode.ForcesLocalRoot() && !h.opts.DisableEntireQueryDelegation {

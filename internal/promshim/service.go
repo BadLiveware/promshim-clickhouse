@@ -1150,7 +1150,18 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 	}
 	ctx := local.PlanContext{Mode: local.EvalModeInstant, EvaluationTime: evaluationTime, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries}
 	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion, h.recordingRuleMetricNames())
-	log.Printf("buildInstantPlan delegation: eligible=%v reason=%q expr=%s", delegation.Eligible, delegation.Reason, expr.String())
+	// Recording rules must never be delegated: virtual rules need expansion,
+	// materialized rules live in a separate MergeTree table CH can't see.
+	if delegation.Eligible {
+		if names := h.recordingRuleMetricNames(); len(names) > 0 {
+			parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
+				if vs, ok := node.(*parser.VectorSelector); ok && names[vs.Name] {
+					delegation = local.DelegationClassifierResult{Eligible: false, Reason: "query references recording rule(s)", ClickHouseVersion: h.opts.ClickHouseVersion}
+				}
+				return nil
+			})
+		}
+	}
 	var queryPlan local.Plan
 	var analysis *nativeplan.Analysis
 	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !mode.ForcesLocalRoot() && !h.opts.DisableEntireQueryDelegation {

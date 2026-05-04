@@ -20,7 +20,8 @@ type Materializer struct {
 	registry    *Registry
 	client      *storage.Client
 	db          string
-	table       string
+	sourceTable string
+	targetTable string
 	ruleSet     map[string]bool
 	stopCh      chan struct{}
 	stopOnce    sync.Once
@@ -30,14 +31,15 @@ type Materializer struct {
 	reload      func() error
 }
 
-func NewMaterializer(registry *Registry, getRegistry func() *Registry, reload func() error, client *storage.Client, db, table string, ruleSet map[string]bool) *Materializer {
+func NewMaterializer(registry *Registry, getRegistry func() *Registry, reload func() error, client *storage.Client, db, sourceTable, targetTable string, ruleSet map[string]bool) *Materializer {
 	return &Materializer{
 		registry:    registry,
 		getRegistry: getRegistry,
 		reload:      reload,
 		client:      client,
 		db:          db,
-		table:       table,
+		sourceTable: sourceTable,
+		targetTable: targetTable,
 		ruleSet:     ruleSet,
 		stopCh:      make(chan struct{}),
 	}
@@ -187,7 +189,7 @@ func (m *Materializer) evaluateRule(ctx context.Context, rule RecordingRule, eva
 	analysis := logicalpkg.Analyze(logical)
 	nativeAnalysis := nativeplan.Analyze(logical)
 
-	cfg := storage.QueryConfig{Database: m.db, Table: m.table, EnableNativeGridFunctions: false, EnableCumulativeAvgOverTime: false}
+	cfg := storage.QueryConfig{Database: m.db, Table: m.sourceTable, EnableNativeGridFunctions: false, EnableCumulativeAvgOverTime: false}
 	rq, err := renderer.Lower(renderer.LoweringCtx{
 		Config:         cfg,
 		Analysis:       analysis,
@@ -229,7 +231,7 @@ func (m *Materializer) evaluateRule(ctx context.Context, rule RecordingRule, eva
 	}
 
 	// 6. Write results back via INSERT.
-	insertSQL, err := buildMaterializationInsert(m.table, queryResult.Data, rule, evalTime)
+	insertSQL, err := buildMaterializationInsert(m.targetTable, queryResult.Data, rule, evalTime)
 	if err != nil {
 		return fmt.Errorf("build insert: %w", err)
 	}

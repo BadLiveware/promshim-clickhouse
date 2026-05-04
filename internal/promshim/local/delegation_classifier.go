@@ -2,6 +2,7 @@ package local
 
 import (
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/prometheus/prometheus/promql/parser"
@@ -85,6 +86,7 @@ func containsMaterializedMetric(expr parser.Expr, materializedMetrics map[string
 	found := false
 	parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
 		if vs, ok := node.(*parser.VectorSelector); ok && vs.Name != "" {
+			log.Printf("containsMaterializedMetric: checking %q (type=%T)", vs.Name, node)
 			if materializedMetrics[vs.Name] {
 				found = true
 			}

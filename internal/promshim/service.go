@@ -1150,6 +1150,7 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 	}
 	ctx := local.PlanContext{Mode: local.EvalModeInstant, EvaluationTime: evaluationTime, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries}
 	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion, h.recordingRuleMetricNames())
+	log.Printf("buildInstantPlan delegation: eligible=%v reason=%q expr=%s", delegation.Eligible, delegation.Reason, expr.String())
 	var queryPlan local.Plan
 	var analysis *nativeplan.Analysis
 	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !mode.ForcesLocalRoot() && !h.opts.DisableEntireQueryDelegation {

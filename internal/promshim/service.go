@@ -1004,7 +1004,7 @@ func (h *queryService) materializedMetricNames() map[string]bool {
 		}
 	}
 	if len(names) > 0 {
-		log.Printf("materializedMetricNames: %d metrics (sample: %v)", len(names), firstKey(names, 3))
+		log.Printf("materializedMetricNames: %d metrics (sample: %v, has_count_up0=%v)", len(names), firstKey(names, 3), names["count:up0"])
 	}
 	return names
 }

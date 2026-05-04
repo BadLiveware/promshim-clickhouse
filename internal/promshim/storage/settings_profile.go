@@ -26,6 +26,7 @@ const (
 
 	settingAllowTimeSeries                 = "allow_experimental_time_series_table"
 	settingQuoteDenormals                  = "output_format_json_quote_denormals"
+	settingAsyncInsert                     = "async_insert"
 	settingMaxExecutionTime                = "max_execution_time"
 	settingTimeoutOverflowMode             = "timeout_overflow_mode"
 	settingCancelHTTPReadonlyOnClientClose = "cancel_http_readonly_queries_on_client_close"
@@ -55,6 +56,7 @@ var supportedSettingsProfiles = map[string]struct{}{
 var allowlistedSettings = map[string]struct{}{
 	settingAllowTimeSeries:                 {},
 	settingQuoteDenormals:                  {},
+	settingAsyncInsert:                     {},
 	settingMaxExecutionTime:                {},
 	settingTimeoutOverflowMode:             {},
 	settingCancelHTTPReadonlyOnClientClose: {},

@@ -20,10 +20,17 @@ const (
 )
 
 type Options struct {
-	ClickHouseEndpoint                  string
-	ClickHouseNativeAddr                string
-	Database                            string
-	Table                               string
+	ClickHouseEndpoint   string
+	ClickHouseNativeAddr string
+	Database             string
+	Table                string
+	// MaterializedRuleTable is the MergeTree table used for materialized
+	// recording-rule data. We can't INSERT directly into the TimeSeries
+	// table engine (ClickHouse 26.3 doesn't support INSERT into TimeSeries),
+	// so materialized rule results live in a plain MergeTree table with
+	// compatible (timestamp, value, tags) schema. Leaf queries for
+	// materialized metrics route through this table instead of TimeSeries.
+	MaterializedRuleTable               string
 	Username                            string
 	Password                            string
 	ClickHouseCompression               string
@@ -75,6 +82,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		ClickHouseNativeAddr:                getenv("PROM_SHIM_CLICKHOUSE_NATIVE_ADDR", "127.0.0.1:9000"),
 		Database:                            getenv("PROM_SHIM_CLICKHOUSE_DATABASE", "observability"),
 		Table:                               getenv("PROM_SHIM_CLICKHOUSE_TABLE", "prometheus"),
+		MaterializedRuleTable:               getenv("PROM_SHIM_MATERIALIZED_RULE_TABLE", "promshim_rules"),
 		Username:                            getenv("PROM_SHIM_CLICKHOUSE_USERNAME", "default"),
 		Password:                            getenv("PROM_SHIM_CLICKHOUSE_PASSWORD", "otel"),
 		ClickHouseCompression:               getenv("PROM_SHIM_CLICKHOUSE_COMPRESSION", "off"),

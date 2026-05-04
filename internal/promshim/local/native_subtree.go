@@ -104,6 +104,7 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 		ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
 			return resolveDelegatedPromQL(expr, params)
 		},
+		ResolveTableOverride: Evaluator.resolveTableOverride,
 	}
 	applyNativeSubtreeRenderTagHint(&renderParams, p.NativeSubtreeRenderTagHint, p.NativeSubtreeRequireFullTags, p.NativeSubtreeRequiredLabels)
 	rendered, err := p.renderSQL(cfg, renderParams)

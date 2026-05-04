@@ -93,10 +93,19 @@ type Evaluator struct {
 	enableCumulativeAvgOverTime bool
 	client                      *storage.Client
 	localMemo                   map[string]model.RuntimeValue
+	resolveTableOverride        func(string) string
 }
 
 func NewEvaluator(database, table string, client *storage.Client) *Evaluator {
 	return &Evaluator{database: database, table: table, client: client}
+}
+
+// WithResolveTableOverride sets a function that resolves table names for
+// materialized recording-rule metrics. When non-nil, leaf selectors for
+// materialized metrics query the returned table instead of the TimeSeries table.
+func (e *Evaluator) WithResolveTableOverride(fn func(string) string) *Evaluator {
+	e.resolveTableOverride = fn
+	return e
 }
 
 func (e *Evaluator) WithPromotedTagColumns(columns map[string]struct{}) *Evaluator {

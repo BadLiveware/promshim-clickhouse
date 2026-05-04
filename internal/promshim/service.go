@@ -201,6 +201,18 @@ func NewHandler(opts Options) (http.Handler, error) {
 		recordingRuleMode:  ruleMode,
 	}
 	service.recordingRules.Store(ruleRegistry)
+
+	// Materialized recording rules live in a separate MergeTree table because
+	// ClickHouse 26.3 (and earlier) doesn't support INSERT into TimeSeries.
+	// The resolver routes leaf queries for materialized metrics to that table.
+	service.evaluator.WithResolveTableOverride(func(name string) string {
+		reg := service.currentRecordingRules()
+		if opts.MaterializedRuleTable != "" && reg.IsMaterialized(name) {
+			return opts.MaterializedRuleTable
+		}
+		return ""
+	})
+
 	service.scheduleNextRecordingRuleReload(time.Now())
 	service.shadow = shadow.NewRunner(service)
 	recordMetrics := rules.NewExpansionMetrics(service.shadow.Registry())
@@ -210,7 +222,7 @@ func NewHandler(opts Options) (http.Handler, error) {
 	if opts.MaterializeRecordingRules != "" && opts.MaterializeRecordingRules != "off" {
 		ruleSet, all := parseMaterializeRuleSet(opts.MaterializeRecordingRules)
 		ruleRegistry.SetMaterializedRules(ruleSet, all)
-		materializer := rules.NewMaterializer(ruleRegistry, func() *rules.Registry { return service.currentRecordingRules() }, func() error { return service.reloadRecordingRulesOnce() }, client, opts.Database, opts.Table, ruleSet)
+		materializer := rules.NewMaterializer(ruleRegistry, func() *rules.Registry { return service.currentRecordingRules() }, func() error { return service.reloadRecordingRulesOnce() }, client, opts.Database, opts.MaterializedRuleTable, ruleSet)
 		go materializer.Start(context.Background())
 	}
 	mux := http.NewServeMux()

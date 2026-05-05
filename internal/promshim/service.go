@@ -1164,7 +1164,7 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 	}
 	var queryPlan local.Plan
 	var analysis *nativeplan.Analysis
-	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !mode.ForcesLocalRoot() && !h.opts.DisableEntireQueryDelegation {
+	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !mode.ForcesLocalRoot() && !h.opts.DisableEntireQueryDelegation && h.recordingRuleMode != rules.ModeVirtual {
 		queryPlan, analysis, err = local.BuildEntireQueryDelegatedPlan(expr)
 		if err != nil {
 			return "", time.Time{}, nil, nil, nil, local.ApiErrorToHTTP(err)
@@ -1226,7 +1226,7 @@ func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQuer
 	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion, h.recordingRuleMetricNames())
 	var queryPlan local.Plan
 	var analysis *nativeplan.Analysis
-	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !mode.ForcesLocalRoot() && !h.opts.DisableEntireQueryDelegation {
+	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !mode.ForcesLocalRoot() && !h.opts.DisableEntireQueryDelegation && h.recordingRuleMode != rules.ModeVirtual {
 		queryPlan, analysis, err = local.BuildEntireQueryDelegatedPlan(expr)
 		if err != nil {
 			return "", time.Time{}, time.Time{}, 0, nil, nil, nil, local.ApiErrorToHTTP(err)

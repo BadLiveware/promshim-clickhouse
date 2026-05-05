@@ -61,6 +61,11 @@ type RenderParams struct {
 	// Default (nil) means no explicit tag requirement from the parent; the
 	// storage selector falls through to the full-tags base path.
 	RequiredTagLabels []string
+	// ResolveTableOverride, when set, is called for leaf-selector metrics
+	// to determine if they should query a materialized table instead of
+	// the TimeSeries table. Returns non-empty table name (without database
+	// prefix) for materialized metrics, empty to use the default table.
+	ResolveTableOverride func(metricName string) string
 	// HistogramPreparation marks child lowering that feeds a histogram-function
 	// preparation path. It lets range-row physical-shape choices stay scoped to
 	// histogram-only callers instead of relying on function-name or SQL-text

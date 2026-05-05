@@ -17,7 +17,7 @@ import (
 // RenderParams using decideHistogramChildNarrowing; non-aggregation
 // children leave params untouched so the underlying SelectorSource
 // keeps governing.
-func renderHistogramProjectionLogical(cfg storage.QueryConfig, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, n *logicalpkg.HistogramProjectionPlan, params RenderParams) (renderedFragment, error) {
+func renderHistogramProjectionLogical(cfg storage.QueryConfig, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, n *logicalpkg.HistogramProjectionPlan, params RenderParams, optimizationReport *native.OptimizationReport) (renderedFragment, error) {
 	if n == nil || n.Child == nil {
 		return renderedFragment{}, fmt.Errorf("renderer: histogram projection requires a child")
 	}
@@ -33,7 +33,7 @@ func renderHistogramProjectionLogical(cfg storage.QueryConfig, logicalAnalysis *
 		childParams.HistogramPreparation = true
 	}
 
-	histograms, err := renderClassicHistogramGroupsQueryLogical(cfg, n.Child, logicalAnalysis, analysis, childParams, "histogram_projection_child")
+	histograms, err := renderClassicHistogramGroupsQueryLogical(cfg, n.Child, logicalAnalysis, analysis, childParams, "histogram_projection_child", optimizationReport)
 	if err != nil {
 		return renderedFragment{}, err
 	}
@@ -50,11 +50,11 @@ func renderHistogramProjectionLogical(cfg storage.QueryConfig, logicalAnalysis *
 // RenderParams using histogramFunctionChildAggregation +
 // decideHistogramChildNarrowing, mirroring the projection approach in
 // renderHistogramProjectionLogical.
-func renderHistogramFunctionLogical(cfg storage.QueryConfig, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, n logicalpkg.Node, params RenderParams) (renderedFragment, error) {
+func renderHistogramFunctionLogical(cfg storage.QueryConfig, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, n logicalpkg.Node, params RenderParams, optimizationReport *native.OptimizationReport) (renderedFragment, error) {
 	if n == nil {
 		return renderedFragment{}, fmt.Errorf("renderer: histogram function requires a node")
 	}
-	return renderHistogramFunctionLogicalDirect(cfg, n, logicalAnalysis, analysis, params)
+	return renderHistogramFunctionLogicalDirect(cfg, n, logicalAnalysis, analysis, params, optimizationReport)
 }
 
 // renderHistogramFunctionLogicalDirect reads the child and per-function
@@ -64,7 +64,7 @@ func renderHistogramFunctionLogical(cfg storage.QueryConfig, logicalAnalysis *lo
 // branch iterates per-quantile scalar bindings off
 // HistogramQuantilesPlan.ParamChildren and lowers them through
 // renderHistogramQuantilesLogical.
-func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams) (renderedFragment, error) {
+func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams, optimizationReport *native.OptimizationReport) (renderedFragment, error) {
 	childNode, funcName, ok := histogramFunctionChildNode(node)
 	if !ok || childNode == nil {
 		return renderedFragment{}, errUnsupportedLowerNode
@@ -80,7 +80,7 @@ func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalp
 		childParams.HistogramPreparation = true
 	}
 
-	histograms, err := renderClassicHistogramGroupsQueryLogical(cfg, childNode, logicalAnalysis, analysis, childParams, "histogram_function_child")
+	histograms, err := renderClassicHistogramGroupsQueryLogical(cfg, childNode, logicalAnalysis, analysis, childParams, "histogram_function_child", optimizationReport)
 	if err != nil {
 		return renderedFragment{}, err
 	}
@@ -117,10 +117,11 @@ func renderHistogramFunctionLogicalDirect(cfg storage.QueryConfig, node logicalp
 			return renderedFragment{}, err
 		}
 		ctx := LoweringCtx{
-			Config:         cfg,
-			Analysis:       logicalAnalysis,
-			NativeAnalysis: analysis,
-			Params:         params,
+			Config:             cfg,
+			Analysis:           logicalAnalysis,
+			NativeAnalysis:     analysis,
+			OptimizationReport: optimizationReport,
+			Params:             params,
 		}
 		rendered, err := renderHistogramQuantilesLogical(ctx, q, params, prepared)
 		if err != nil {
@@ -235,7 +236,7 @@ func histogramFunctionChildPhysicalDecision(childNode logicalpkg.Node, mode nati
 	return physical.Decision{Kind: "histogram_child_path", Strategy: strategy, Reason: reason, Guards: guards}
 }
 
-func tryRenderDirectClassicHistogramGroupsLogical(cfg storage.QueryConfig, childNode logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams, histogramTagsExpr, leRaw, upperBoundExpr, whereExpr sqlb.Expr, prefix string) (renderedFragment, bool, error) {
+func tryRenderDirectClassicHistogramGroupsLogical(cfg storage.QueryConfig, childNode logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams, histogramTagsExpr, leRaw, upperBoundExpr, whereExpr sqlb.Expr, prefix string, optimizationReport *native.OptimizationReport) (renderedFragment, bool, error) {
 	if params.Mode != native.RenderModeInstant {
 		return renderedFragment{}, false, nil
 	}
@@ -244,7 +245,7 @@ func tryRenderDirectClassicHistogramGroupsLogical(cfg storage.QueryConfig, child
 		return renderedFragment{}, false, nil
 	}
 
-	ctx := LoweringCtx{Config: cfg, Analysis: logicalAnalysis, NativeAnalysis: analysis, Params: params}
+	ctx := LoweringCtx{Config: cfg, Analysis: logicalAnalysis, NativeAnalysis: analysis, OptimizationReport: optimizationReport, Params: params}
 	childRendered, err := Lower(ctx, agg.Child)
 	if err != nil {
 		return renderedFragment{}, false, err
@@ -316,7 +317,7 @@ func hasLabel(labels []string, want string) bool {
 // side), which the downstream SQL builders honor via
 // applyRenderParamsNarrowing in renderLeafLogical / renderSourceExprView /
 // renderAggregationSourceView.
-func renderClassicHistogramGroupsQueryLogical(cfg storage.QueryConfig, childNode logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams, prefix string) (renderedFragment, error) {
+func renderClassicHistogramGroupsQueryLogical(cfg storage.QueryConfig, childNode logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams, prefix string, optimizationReport *native.OptimizationReport) (renderedFragment, error) {
 	if childNode == nil {
 		return renderedFragment{}, fmt.Errorf("classic histogram materialization requires a child")
 	}
@@ -331,7 +332,7 @@ func renderClassicHistogramGroupsQueryLogical(cfg storage.QueryConfig, childNode
 	}
 	whereExpr := sqlb.RawLit{V: "le_raw != '' AND upper_bound IS NOT NULL"}
 
-	if direct, ok, err := tryRenderDirectClassicHistogramGroupsLogical(cfg, childNode, logicalAnalysis, analysis, params, histogramTagsExpr, leRaw, upperBoundExpr, whereExpr, prefix); err != nil {
+	if direct, ok, err := tryRenderDirectClassicHistogramGroupsLogical(cfg, childNode, logicalAnalysis, analysis, params, histogramTagsExpr, leRaw, upperBoundExpr, whereExpr, prefix, optimizationReport); err != nil {
 		return renderedFragment{}, err
 	} else if ok {
 		return direct, nil
@@ -343,7 +344,7 @@ func renderClassicHistogramGroupsQueryLogical(cfg storage.QueryConfig, childNode
 	)
 	switch params.Mode {
 	case native.RenderModeInstant:
-		if childRowsSQL, namespacedParams, ok, err := tryRenderHistogramChildRowsSQLLogical(cfg, childNode, logicalAnalysis, analysis, params, prefix); err != nil {
+		if childRowsSQL, namespacedParams, ok, err := tryRenderHistogramChildRowsSQLLogical(cfg, childNode, logicalAnalysis, analysis, params, prefix, optimizationReport); err != nil {
 			return renderedFragment{}, err
 		} else if ok {
 			childParams = namespacedParams
@@ -367,7 +368,7 @@ func renderClassicHistogramGroupsQueryLogical(cfg storage.QueryConfig, childNode
 				Where: whereExpr,
 			}
 		} else {
-			childSQL, namespacedParams, err := renderLogicalSubquery(cfg, childNode, logicalAnalysis, analysis, params, prefix)
+			childSQL, namespacedParams, err := renderLogicalSubquery(cfg, childNode, logicalAnalysis, analysis, params, prefix, optimizationReport)
 			if err != nil {
 				return renderedFragment{}, err
 			}
@@ -393,7 +394,7 @@ func renderClassicHistogramGroupsQueryLogical(cfg storage.QueryConfig, childNode
 			}
 		}
 	case native.RenderModeRange:
-		if childRowsSQL, namespacedParams, ok, err := tryRenderHistogramChildRowsSQLLogical(cfg, childNode, logicalAnalysis, analysis, params, prefix); err != nil {
+		if childRowsSQL, namespacedParams, ok, err := tryRenderHistogramChildRowsSQLLogical(cfg, childNode, logicalAnalysis, analysis, params, prefix, optimizationReport); err != nil {
 			return renderedFragment{}, err
 		} else if ok {
 			childParams = namespacedParams
@@ -417,7 +418,7 @@ func renderClassicHistogramGroupsQueryLogical(cfg storage.QueryConfig, childNode
 				Where: whereExpr,
 			}
 		} else {
-			childSQL, namespacedParams, err := renderLogicalSubquery(cfg, childNode, logicalAnalysis, analysis, params, prefix)
+			childSQL, namespacedParams, err := renderLogicalSubquery(cfg, childNode, logicalAnalysis, analysis, params, prefix, optimizationReport)
 			if err != nil {
 				return renderedFragment{}, err
 			}

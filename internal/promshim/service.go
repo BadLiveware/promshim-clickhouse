@@ -21,24 +21,44 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/rules"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/shadow"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
 type queryService struct {
-	opts                       Options
-	client                     *storage.Client
-	evaluator                  *local.Evaluator
-	promotedTagColumns         map[string]struct{}
-	timeSeriesIDType           string
-	shadow                     *shadow.Runner
-	selectorStats              *selectorStatsCache
-	selectorProbeSem           chan struct{}
-	recordingRules             atomic.Pointer[rules.Registry]
-	recordingRuleMode          rules.Mode
-	recordingRuleNextReload    atomic.Int64
-	recordingRuleReloadMu      sync.Mutex
-	recordingRuleReloadErrors  atomic.Uint64
-	recordingRuleReloadSuccess atomic.Uint64
+	opts                          Options
+	client                        *storage.Client
+	evaluator                     *local.Evaluator
+	promotedTagColumns            map[string]struct{}
+	timeSeriesIDType              string
+	shadow                        *shadow.Runner
+	selectorStats                 *selectorStatsCache
+	selectorProbeSem              chan struct{}
+	recordingRules                atomic.Pointer[rules.Registry]
+	recordingRuleMode             rules.Mode
+	recordingRuleNextReload       atomic.Int64
+	recordingRuleReloadMu         sync.Mutex
+	recordingRuleReloadErrors     atomic.Uint64
+	recordingRuleReloadSuccess    atomic.Uint64
+	recordingRuleExpansionMetrics atomic.Pointer[rules.ExpansionMetrics]
+}
+
+func parseMaterializeRuleSet(raw string) (map[string]bool, bool) {
+	if raw == "" || raw == "off" {
+		return nil, false
+	}
+	if raw == "all" {
+		return nil, true
+	}
+	parts := strings.Split(raw, ",")
+	set := map[string]bool{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			set[part] = true
+		}
+	}
+	return set, false
 }
 
 func (h *queryService) ClickHouseTransport() string {
@@ -93,6 +113,7 @@ func hSettingsProfileConfig(opts Options) storage.SettingsProfileConfig {
 		Name:                opts.ClickHouseSettingsProfile,
 		ClickHouseVersion:   opts.ClickHouseVersion,
 		RequestTimeout:      opts.RequestTimeout,
+		MaxQuerySizeBytes:   opts.ClickHouseMaxQuerySizeBytes,
 		MaxMemoryUsageBytes: opts.ClickHouseMaxMemoryUsageBytes,
 		MaxRowsToRead:       opts.ClickHouseMaxRowsToRead,
 		MaxResultRows:       opts.ClickHouseMaxResultRows,
@@ -180,8 +201,30 @@ func NewHandler(opts Options) (http.Handler, error) {
 		recordingRuleMode:  ruleMode,
 	}
 	service.recordingRules.Store(ruleRegistry)
+
+	// Materialized recording rules live in a separate MergeTree table because
+	// ClickHouse 26.3 (and earlier) doesn't support INSERT into TimeSeries.
+	// The resolver routes leaf queries for materialized metrics to that table.
+	service.evaluator.WithResolveTableOverride(func(name string) string {
+		reg := service.currentRecordingRules()
+		if opts.MaterializedRuleTable != "" && reg.IsMaterialized(name) {
+			return opts.MaterializedRuleTable
+		}
+		return ""
+	})
+
 	service.scheduleNextRecordingRuleReload(time.Now())
 	service.shadow = shadow.NewRunner(service)
+	recordMetrics := rules.NewExpansionMetrics(service.shadow.Registry())
+	ruleRegistry.SetExpansionMetrics(recordMetrics)
+	service.recordingRuleExpansionMetrics.Store(recordMetrics)
+	// Start materializer if configured.
+	if opts.MaterializeRecordingRules != "" && opts.MaterializeRecordingRules != "off" {
+		ruleSet, all := parseMaterializeRuleSet(opts.MaterializeRecordingRules)
+		ruleRegistry.SetMaterializedRules(ruleSet, all)
+		materializer := rules.NewMaterializer(ruleRegistry, func() *rules.Registry { return service.currentRecordingRules() }, func() error { return service.reloadRecordingRulesOnce() }, client, opts.Database, opts.Table, opts.MaterializedRuleTable, ruleSet)
+		go materializer.Start(context.Background())
+	}
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", service.shadow.MetricsHandler())
 	mux.Handle("/", httpapi.NewHandlerWithOptions(service, httpapi.HandlerOptions{HidePromQL: opts.HidePromQL}))
@@ -244,7 +287,7 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 			"clickHouseTransport":       h.ClickHouseTransport(),
 			"clickHouseSettingsProfile": settingsProfile,
 			"entireQueryDelegation":     h.entireQueryDelegationForQuery(req.Query),
-			"data":                      map[string]any{"resultType": resultType, "result": result},
+			"data":                      map[string]any{"resultType": resultType, "result": result, "recordingRules": recordingExpansions},
 			"plan":                      selectedExplain,
 			"routing":                   routing,
 		}}, nil
@@ -272,7 +315,6 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 		return h.rangeQueryShadow(ctx, req)
 	}
 	query, start, end, step, plan, analysis, recordingExpansions, apiErr := h.buildRangePlan(ctx, req, true)
-	_ = recordingExpansions
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -310,7 +352,7 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 			"clickHouseTransport":       h.ClickHouseTransport(),
 			"clickHouseSettingsProfile": settingsProfile,
 			"entireQueryDelegation":     h.entireQueryDelegationForQuery(req.Query),
-			"data":                      map[string]any{"resultType": resultType, "result": result},
+			"data":                      map[string]any{"resultType": resultType, "result": result, "recordingRules": recordingExpansions},
 			"plan":                      selectedExplain,
 			"routing":                   routing,
 		}}, nil
@@ -536,6 +578,15 @@ func (h *queryService) LabelValues(ctx context.Context, req httpapi.LabelValuesR
 	if apiErr != nil {
 		return nil, apiErr
 	}
+
+	var selectorMetadata []recordingRuleSelector
+	if h.recordingRuleMode == rules.ModeVirtual {
+		selectorMetadata, apiErr = parseRecordingRuleMetadataSelectors(req.Matchers)
+		if apiErr != nil {
+			return nil, apiErr
+		}
+	}
+
 	sql, params, err := storage.BuildLabelValuesQuery(h.queryConfig(), httpReq, req.Name)
 	if err != nil {
 		return nil, local.BadRequestHTTPError(err.Error())
@@ -557,6 +608,11 @@ func (h *queryService) LabelValues(ctx context.Context, req httpapi.LabelValuesR
 		if decErr != nil {
 			return nil, local.ApiErrorPtr(local.ToHTTPAPIError(*decErr))
 		}
+	}
+
+	virtualValues := h.recordingRuleLabelValues(req.Name, selectorMetadata)
+	if len(virtualValues) > 0 {
+		values = mergeMetadataValues(values, virtualValues)
 	}
 	if err := enforceMetadataItemLimit("label values", int64(len(values)), h.opts.MaxMetadataItems); err != nil {
 		return nil, local.ApiErrorToHTTP(err)
@@ -595,6 +651,130 @@ func (h *queryService) Series(ctx context.Context, req httpapi.MetadataRequest) 
 		return nil, local.ApiErrorToHTTP(err)
 	}
 	return &httpapi.Response{StatusCode: http.StatusOK, Body: map[string]any{"status": "success", "data": rows}}, nil
+}
+
+type recordingRuleSelector struct {
+	metricName string
+	matchers   []*labels.Matcher
+}
+
+func (h *queryService) recordingRuleLabelValues(name string, selectors []recordingRuleSelector) []string {
+	if h.recordingRuleMode != rules.ModeVirtual {
+		return nil
+	}
+	registry := h.currentRecordingRules()
+	if registry == nil || registry.Empty() {
+		return nil
+	}
+	if len(selectors) == 0 {
+		selectors = []recordingRuleSelector{{}}
+	}
+	seen := make(map[string]struct{})
+	for _, selector := range selectors {
+		candidates := registry.AllRules()
+		if selector.metricName != "" {
+			candidates = registry.Candidates(selector.metricName)
+		}
+		for _, rule := range candidates {
+			if !recordingRuleSelectorMatches(rule, selector.matchers) {
+				continue
+			}
+			if name == "__name__" {
+				seen[rule.Name] = struct{}{}
+				continue
+			}
+			if value, ok := mergedRuleLabels(rule)[name]; ok {
+				seen[value] = struct{}{}
+			}
+		}
+	}
+	values := make([]string, 0, len(seen))
+	for value := range seen {
+		values = append(values, value)
+	}
+	sort.Strings(values)
+	return values
+}
+
+func mergeMetadataValues(base, extra []string) []string {
+	if len(extra) == 0 {
+		return base
+	}
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	for _, value := range base {
+		seen[value] = struct{}{}
+	}
+	for _, value := range extra {
+		seen[value] = struct{}{}
+	}
+	merged := make([]string, 0, len(seen))
+	for value := range seen {
+		merged = append(merged, value)
+	}
+	sort.Strings(merged)
+	return merged
+}
+
+func parseRecordingRuleMetadataSelectors(rawMatchers []string) ([]recordingRuleSelector, *httpapi.APIError) {
+	if len(rawMatchers) == 0 {
+		return nil, nil
+	}
+	selectors := make([]recordingRuleSelector, 0, len(rawMatchers))
+	parserOpts := parser.Options{EnableBinopFillModifiers: true, EnableExperimentalFunctions: true}
+	for _, raw := range rawMatchers {
+		expr, err := parser.NewParser(parserOpts).ParseExpr(raw)
+		if err != nil {
+			return nil, local.BadRequestHTTPError(err.Error())
+		}
+		vector, ok := expr.(*parser.VectorSelector)
+		if !ok {
+			return nil, local.BadRequestHTTPError(fmt.Sprintf("invalid metric selector %q", raw))
+		}
+		selectors = append(selectors, recordingRuleSelector{
+			metricName: selectorMetadataMetricName(vector),
+			matchers:   vector.LabelMatchers,
+		})
+	}
+	return selectors, nil
+}
+
+func selectorMetadataMetricName(selector *parser.VectorSelector) string {
+	if selector.Name != "" {
+		return selector.Name
+	}
+	for _, matcher := range selector.LabelMatchers {
+		if matcher != nil && matcher.Name == "__name__" && matcher.Type == labels.MatchEqual {
+			return matcher.Value
+		}
+	}
+	return ""
+}
+
+func recordingRuleSelectorMatches(rule rules.RecordingRule, matchers []*labels.Matcher) bool {
+	staticLabels := mergedRuleLabels(rule)
+	staticLabels["__name__"] = rule.Name
+	for _, matcher := range matchers {
+		if matcher == nil {
+			continue
+		}
+		if value, ok := staticLabels[matcher.Name]; ok {
+			if !matcher.Matches(value) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func mergedRuleLabels(rule rules.RecordingRule) map[string]string {
+	out := map[string]string{}
+	for k, v := range rule.GroupLabels {
+		out[k] = v
+	}
+	for k, v := range rule.Labels {
+		out[k] = v
+	}
+	return out
 }
 
 func enforceEstimatedResponseLimits(routing httpapi.RoutingInfo, opts Options) error {
@@ -801,8 +981,46 @@ func (h *queryService) entireQueryDelegationForQuery(query string) *local.Delega
 	if err != nil {
 		return nil
 	}
-	result := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion)
+	result := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion, h.recordingRuleMetricNames())
 	return &result
+}
+
+// recordingRuleMetricNames returns the set of all recording rule metric names.
+// Queries that reference these names must not be delegated to ClickHouse's
+// PromQL endpoint: virtual rules need expansion, materialized rules query
+// a separate MergeTree table that ClickHouse PromQL cannot see.
+func (h *queryService) recordingRuleMetricNames() map[string]bool {
+	if h.recordingRuleMode != rules.ModeVirtual {
+		return nil
+	}
+	registry := h.currentRecordingRules()
+	if registry.Empty() {
+		return nil
+	}
+	all := registry.Rules()
+	names := make(map[string]bool, len(all))
+	for name := range all {
+		names[name] = true
+	}
+	return names
+}
+
+func (h *queryService) containsMaterializedRecordingRule(expr parser.Expr) bool {
+	if h.recordingRuleMode != rules.ModeVirtual {
+		return false
+	}
+	registry := h.currentRecordingRules()
+	if registry.Empty() {
+		return false
+	}
+	found := false
+	parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
+		if vs, ok := node.(*parser.VectorSelector); ok && registry.IsMaterialized(vs.Name) {
+			found = true
+		}
+		return nil
+	})
+	return found
 }
 
 func loadRecordingRuleRegistry(mode rules.Mode, patterns []string) (*rules.Registry, error) {
@@ -876,6 +1094,15 @@ func (h *queryService) reloadRecordingRulesOnce() error {
 		h.recordingRuleReloadErrors.Add(1)
 		return err
 	}
+	// Reapply materialization flags to the new registry so query-time bypass
+	// and metrics survive rule reloads.
+	if h.opts.MaterializeRecordingRules != "" && h.opts.MaterializeRecordingRules != "off" {
+		ruleSet, all := parseMaterializeRuleSet(h.opts.MaterializeRecordingRules)
+		registry.SetMaterializedRules(ruleSet, all)
+	}
+	if metrics := h.recordingRuleExpansionMetrics.Load(); metrics != nil {
+		registry.SetExpansionMetrics(metrics)
+	}
 	h.recordingRules.Store(registry)
 	h.recordingRuleReloadSuccess.Add(1)
 	return nil
@@ -924,6 +1151,7 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 	if err != nil {
 		return "", time.Time{}, nil, nil, nil, local.BadRequestHTTPError(err.Error())
 	}
+	materializedRuleQuery := h.containsMaterializedRecordingRule(expr)
 	expr, recordingExpansions, apiErr := h.expandRecordingRules(expr)
 	if apiErr != nil {
 		return "", time.Time{}, nil, nil, nil, apiErr
@@ -939,11 +1167,26 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 	if apiErr != nil {
 		return "", time.Time{}, nil, nil, nil, apiErr
 	}
+	if materializedRuleQuery {
+		mode = local.NativeLoweringModeForceSupported
+	}
 	ctx := local.PlanContext{Mode: local.EvalModeInstant, EvaluationTime: evaluationTime, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries}
-	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion)
+	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion, h.recordingRuleMetricNames())
+	// Recording rules must never be delegated: virtual rules need expansion,
+	// materialized rules live in a separate MergeTree table CH can't see.
+	if delegation.Eligible {
+		if names := h.recordingRuleMetricNames(); len(names) > 0 {
+			parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
+				if vs, ok := node.(*parser.VectorSelector); ok && names[vs.Name] {
+					delegation = local.DelegationClassifierResult{Eligible: false, Reason: "query references recording rule(s)", ClickHouseVersion: h.opts.ClickHouseVersion}
+				}
+				return nil
+			})
+		}
+	}
 	var queryPlan local.Plan
 	var analysis *nativeplan.Analysis
-	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !mode.ForcesLocalRoot() && !h.opts.DisableEntireQueryDelegation {
+	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !mode.ForcesLocalRoot() && !h.opts.DisableEntireQueryDelegation && h.recordingRuleMode != rules.ModeVirtual {
 		queryPlan, analysis, err = local.BuildEntireQueryDelegatedPlan(expr)
 		if err != nil {
 			return "", time.Time{}, nil, nil, nil, local.ApiErrorToHTTP(err)
@@ -972,6 +1215,7 @@ func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQuer
 	if err != nil {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, local.BadRequestHTTPError(err.Error())
 	}
+	materializedRuleQuery := h.containsMaterializedRecordingRule(expr)
 	expr, recordingExpansions, apiErr := h.expandRecordingRules(expr)
 	if apiErr != nil {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, apiErr
@@ -1001,11 +1245,14 @@ func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQuer
 	if apiErr != nil {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, apiErr
 	}
+	if materializedRuleQuery {
+		mode = local.NativeLoweringModeForceSupported
+	}
 	planCtx := local.PlanContext{Mode: local.EvalModeRange, Start: start, End: end, Step: step, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries, NativeRangeChunkPointsPerSeries: h.opts.NativeRangeChunkPointsPerSeries, NativeRangeChunkMaxDuration: h.opts.NativeRangeChunkMaxDuration, NativeRangeChunkMaxChunks: h.opts.NativeRangeChunkMaxChunks, NativeRangePreflightSeriesThreshold: h.opts.NativeRangePreflightSeriesThreshold, NativeRangePreflightTimeout: h.opts.NativeRangePreflightTimeout, NativeRangePreflightMaxMemoryUsage: h.opts.NativeRangePreflightMaxMemoryUsage}
-	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion)
+	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion, h.recordingRuleMetricNames())
 	var queryPlan local.Plan
 	var analysis *nativeplan.Analysis
-	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !mode.ForcesLocalRoot() && !h.opts.DisableEntireQueryDelegation {
+	if mode != local.NativeLoweringModeOff && delegation.Eligible && !mode.ForcesNativeRoot() && !mode.ForcesLocalRoot() && !h.opts.DisableEntireQueryDelegation && h.recordingRuleMode != rules.ModeVirtual {
 		queryPlan, analysis, err = local.BuildEntireQueryDelegatedPlan(expr)
 		if err != nil {
 			return "", time.Time{}, time.Time{}, 0, nil, nil, nil, local.ApiErrorToHTTP(err)

@@ -21,6 +21,12 @@ type QueryConfig struct {
 	Database string
 	Table    string
 
+	// MaterializedTable, when set, is the table to query for recording-rule
+	// metrics that have been materialized. The TimeSeries table engine does
+	// not support INSERT in ClickHouse <=26.3, so materialized data lives in
+	// a separate MergeTree table with compatible schema.
+	MaterializedTable string
+
 	// PromotedTagColumns lists Prometheus label names that are available as
 	// first-class columns on the TimeSeries tags table via ClickHouse's
 	// tags_to_columns setting. When present, selector matching can read the

@@ -117,9 +117,10 @@ func renderAbsentOverTimeWindowedSourceLogical(ctx LoweringCtx, child logicalpkg
 		lookbackMS := selector.Lookback.Milliseconds()
 		offsetMS := selector.Offset.Milliseconds()
 		childCtx := LoweringCtx{
-			Config:         ctx.Config,
-			Analysis:       ctx.Analysis,
-			NativeAnalysis: ctx.NativeAnalysis,
+			Config:             ctx.Config,
+			Analysis:           ctx.Analysis,
+			NativeAnalysis:     ctx.NativeAnalysis,
+			OptimizationReport: ctx.OptimizationReport,
 			Params: RenderParams{
 				Mode:                native.RenderModeRange,
 				StartMS:             params.StartMS,
@@ -145,9 +146,10 @@ func renderAbsentOverTimeWindowedSourceLogical(ctx LoweringCtx, child logicalpkg
 		return windowedSQL, namespacedParams, nil
 	case *logicalpkg.SubqueryPlan:
 		childCtx := LoweringCtx{
-			Config:         ctx.Config,
-			Analysis:       ctx.Analysis,
-			NativeAnalysis: ctx.NativeAnalysis,
+			Config:             ctx.Config,
+			Analysis:           ctx.Analysis,
+			NativeAnalysis:     ctx.NativeAnalysis,
+			OptimizationReport: ctx.OptimizationReport,
 			Params: RenderParams{
 				Mode:                native.RenderModeRange,
 				StartMS:             params.StartMS,

@@ -20,10 +20,17 @@ const (
 )
 
 type Options struct {
-	ClickHouseEndpoint                  string
-	ClickHouseNativeAddr                string
-	Database                            string
-	Table                               string
+	ClickHouseEndpoint   string
+	ClickHouseNativeAddr string
+	Database             string
+	Table                string
+	// MaterializedRuleTable is the MergeTree table used for materialized
+	// recording-rule data. We can't INSERT directly into the TimeSeries
+	// table engine (ClickHouse 26.3 doesn't support INSERT into TimeSeries),
+	// so materialized rule results live in a plain MergeTree table with
+	// compatible (timestamp, value, tags) schema. Leaf queries for
+	// materialized metrics route through this table instead of TimeSeries.
+	MaterializedRuleTable               string
 	Username                            string
 	Password                            string
 	ClickHouseCompression               string
@@ -37,6 +44,7 @@ type Options struct {
 	ClickHouseTLSServerName             string
 	ClickHouseVersion                   string
 	ClickHouseSettingsProfile           string
+	ClickHouseMaxQuerySizeBytes         int64
 	ClickHouseMaxMemoryUsageBytes       int64
 	ClickHouseMaxRowsToRead             int64
 	ClickHouseMaxResultRows             int64
@@ -63,6 +71,7 @@ type Options struct {
 	RecordingRuleFiles                  []string
 	RecordingRuleReloadInterval         time.Duration
 	RecordingRuleMode                   string
+	MaterializeRecordingRules           string
 
 	DisableEntireQueryDelegation bool
 }
@@ -73,6 +82,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		ClickHouseNativeAddr:                getenv("PROM_SHIM_CLICKHOUSE_NATIVE_ADDR", "127.0.0.1:9000"),
 		Database:                            getenv("PROM_SHIM_CLICKHOUSE_DATABASE", "observability"),
 		Table:                               getenv("PROM_SHIM_CLICKHOUSE_TABLE", "prometheus"),
+		MaterializedRuleTable:               getenv("PROM_SHIM_MATERIALIZED_RULE_TABLE", "promshim_rules"),
 		Username:                            getenv("PROM_SHIM_CLICKHOUSE_USERNAME", "default"),
 		Password:                            getenv("PROM_SHIM_CLICKHOUSE_PASSWORD", "otel"),
 		ClickHouseCompression:               getenv("PROM_SHIM_CLICKHOUSE_COMPRESSION", "off"),
@@ -86,6 +96,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		ClickHouseTLSServerName:             getenv("PROM_SHIM_CLICKHOUSE_TLS_SERVER_NAME", ""),
 		ClickHouseVersion:                   getenv("PROM_SHIM_CLICKHOUSE_VERSION", "26.3"),
 		ClickHouseSettingsProfile:           getenv("PROM_SHIM_CLICKHOUSE_SETTINGS_PROFILE", storage.SettingsProfileDefaultSafe),
+		ClickHouseMaxQuerySizeBytes:         getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_QUERY_SIZE_BYTES", 0),
 		ClickHouseMaxMemoryUsageBytes:       getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_MEMORY_USAGE_BYTES", 0),
 		ClickHouseMaxRowsToRead:             getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_ROWS_TO_READ", 0),
 		ClickHouseMaxResultRows:             getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_RESULT_ROWS", 0),
@@ -112,6 +123,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		RecordingRuleFiles:                  splitCSVEnv(getenv("PROM_SHIM_RECORDING_RULE_FILES", "")),
 		RecordingRuleReloadInterval:         time.Second * time.Duration(getenvInt("PROM_SHIM_RECORDING_RULE_RELOAD_INTERVAL_SECONDS", 30)),
 		RecordingRuleMode:                   getenv("PROM_SHIM_RECORDING_RULE_MODE", "off"),
+		MaterializeRecordingRules:           getenv("PROM_SHIM_RECORDING_RULE_MATERIALIZE", "off"),
 	}
 
 	if _, err := local.ParseNativeLoweringMode(string(opts.NativeLoweringMode)); err != nil {

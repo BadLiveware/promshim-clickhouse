@@ -121,6 +121,26 @@ func (c *Client) ExecuteWithSettings(ctx context.Context, sql string, params map
 	return &http.Response{StatusCode: http.StatusOK, Body: rows}, nil
 }
 
+// Exec executes a statement with no result rows (INSERT, DDL, etc).
+func (c *Client) Exec(ctx context.Context, sql string, params map[string]string, settings map[string]any) error {
+	req := QueryRequest{SQL: sql, Params: params, Settings: settings}
+	prepared, err := c.prepareQueryRequest(req)
+	if err != nil {
+		return err
+	}
+	if execer, ok := c.transport.(interface {
+		Exec(context.Context, QueryRequest) error
+	}); ok {
+		return execer.Exec(ctx, prepared)
+	}
+	// Fallback: use Query and discard rows.
+	rows, err := c.transport.Query(ctx, prepared)
+	if err != nil {
+		return err
+	}
+	return rows.Close()
+}
+
 func (c *Client) Close() error {
 	return c.transport.Close()
 }

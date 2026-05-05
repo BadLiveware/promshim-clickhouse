@@ -1561,6 +1561,91 @@ func TestExplainPlanDescribesNativeAggregationStrategy(t *testing.T) {
 	}
 }
 
+func TestExplainPlanIncludesStaticLabelUnionDiagnostics(t *testing.T) {
+	expr, err := logical.ParseExpression(`label_replace(rate(up[5m]), "__name__", "rule_a", "", ".*") or label_replace(rate(up[5m]), "__name__", "rule_b", "", ".*")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, analysis, err := BuildPlanWithContextAndAnalysis(expr, PlanContext{
+		Mode:               EvalModeRange,
+		Start:              time.Unix(0, 0).UTC(),
+		End:                time.Unix(300, 0).UTC(),
+		Step:               30 * time.Second,
+		NativeLoweringMode: NativeLoweringModeForceSupported,
+	})
+	if err != nil {
+		t.Fatalf("expected native explainable plan, got error: %v", err)
+	}
+	explain := ExplainPlanWithLowering(plan, analysis.Root)
+	if explain.Strategy != "native_sql" {
+		t.Fatalf("expected native_sql strategy, got %#v", explain.Strategy)
+	}
+	if len(explain.StaticLabelUnion) != 1 {
+		t.Fatalf("expected static-label union diagnostics, got %#v", explain.StaticLabelUnion)
+	}
+	if !explain.StaticLabelUnion[0].Applied || explain.StaticLabelUnion[0].CandidateBranches != 2 {
+		t.Fatalf("unexpected static-label union decision: %#v", explain.StaticLabelUnion[0])
+	}
+}
+
+func TestExplainPlanIncludesStaticLabelUnionSkipReason(t *testing.T) {
+	expr, err := logical.ParseExpression(`label_replace(rate(up[5m]), "team", "alpha", "", ".*") or label_replace(rate(up[5m]), "namespace", "default", "", ".*")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, analysis, err := BuildPlanWithContextAndAnalysis(expr, PlanContext{
+		Mode:               EvalModeRange,
+		Start:              time.Unix(0, 0).UTC(),
+		End:                time.Unix(300, 0).UTC(),
+		Step:               30 * time.Second,
+		NativeLoweringMode: NativeLoweringModeForceSupported,
+	})
+	if err != nil {
+		t.Fatalf("expected native explainable plan, got error: %v", err)
+	}
+	explain := ExplainPlanWithLowering(plan, analysis.Root)
+	if len(explain.StaticLabelUnion) != 1 {
+		t.Fatalf("expected static-label union diagnostics, got %#v", explain.StaticLabelUnion)
+	}
+	if explain.StaticLabelUnion[0].Applied {
+		t.Fatalf("expected skip decision, got applied=%v: %#v", explain.StaticLabelUnion[0].Applied, explain.StaticLabelUnion[0])
+	}
+	if explain.StaticLabelUnion[0].SkipReason != "incompatible_static_labels" {
+		t.Fatalf("expected incompatible_static_labels skip reason, got %#v", explain.StaticLabelUnion[0].SkipReason)
+	}
+}
+
+func TestExplainPlanIncludesStaticLabelUnionUnsafeOverlapSkipReason(t *testing.T) {
+	expr, err := logical.ParseExpression(`label_replace(rate(up[5m]), "__name__", "rule_a", "", ".*") or label_replace(rate(up[5m]), "__name__", "rule_a", "", ".*")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, analysis, err := BuildPlanWithContextAndAnalysis(expr, PlanContext{
+		Mode:               EvalModeRange,
+		Start:              time.Unix(0, 0).UTC(),
+		End:                time.Unix(300, 0).UTC(),
+		Step:               30 * time.Second,
+		NativeLoweringMode: NativeLoweringModeForceSupported,
+	})
+	if err != nil {
+		t.Fatalf("expected native explainable plan, got error: %v", err)
+	}
+	explain := ExplainPlanWithLowering(plan, analysis.Root)
+	if len(explain.StaticLabelUnion) != 1 {
+		t.Fatalf("expected static-label union diagnostics, got %#v", explain.StaticLabelUnion)
+	}
+	if explain.StaticLabelUnion[0].Applied {
+		t.Fatalf("expected skip decision, got applied=%v: %#v", explain.StaticLabelUnion[0].Applied, explain.StaticLabelUnion[0])
+	}
+	if explain.StaticLabelUnion[0].SkipReason != "unsafe_selector_overlap" {
+		t.Fatalf("expected unsafe_selector_overlap skip reason, got %#v", explain.StaticLabelUnion[0].SkipReason)
+	}
+	if explain.StaticLabelUnion[0].CandidateBranches != 2 {
+		t.Fatalf("expected two candidate branches, got %#v", explain.StaticLabelUnion[0])
+	}
+}
+
 func TestExplainPlanIncludesSparseRangeWindowPhysicalDecision(t *testing.T) {
 	expr, err := logical.ParseExpression("avg_over_time(up[1h])")
 	if err != nil {

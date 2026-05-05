@@ -129,7 +129,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 				}
 			}
 		case *logicalpkg.SubqueryPlan:
-			ctx = LoweringCtx{Config: ctx.Config, Analysis: ctx.Analysis, NativeAnalysis: ctx.NativeAnalysis, Params: suppressThreadCapForSubqueryRangeFunction(ctx.Params, child, fn), cse: ctx.cse}
+			ctx = LoweringCtx{Config: ctx.Config, Analysis: ctx.Analysis, NativeAnalysis: ctx.NativeAnalysis, OptimizationReport: ctx.OptimizationReport, Params: suppressThreadCapForSubqueryRangeFunction(ctx.Params, child, fn), cse: ctx.cse}
 			params = ctx.Params
 			if child != nil && child.Child != nil && canUseInstantRangeFunctionRowsFastPath(fn) {
 				// The subquery's child is inspected via
@@ -151,6 +151,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 		// The tags expression still prefers the narrowed selector
 		// data when available.
 		childCtx := ctx
+		childCtx.OptimizationReport = ctx.OptimizationReport
 		childRendered, err := Lower(childCtx, childNode)
 		if err != nil {
 			return renderedFragment{}, err
@@ -301,7 +302,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 				}
 			}
 		case *logicalpkg.SubqueryPlan:
-			ctx = LoweringCtx{Config: ctx.Config, Analysis: ctx.Analysis, NativeAnalysis: ctx.NativeAnalysis, Params: suppressThreadCapForSubqueryRangeFunction(ctx.Params, child, fn), cse: ctx.cse}
+			ctx = LoweringCtx{Config: ctx.Config, Analysis: ctx.Analysis, NativeAnalysis: ctx.NativeAnalysis, OptimizationReport: ctx.OptimizationReport, Params: suppressThreadCapForSubqueryRangeFunction(ctx.Params, child, fn), cse: ctx.cse}
 			params = ctx.Params
 			if child != nil && child.Child != nil {
 				// Subquery-child fast path first:
@@ -327,6 +328,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 				// directly; lowerSubquery carves out the child
 				// step-grid over the outer range envelope.
 				childCtx := ctx
+				childCtx.OptimizationReport = ctx.OptimizationReport
 				childCtx.Params = RenderParams{
 					Mode:                 native.RenderModeRange,
 					StartMS:              params.StartMS,
@@ -441,10 +443,11 @@ func canFuseRangeAggregationOp(op parser.ItemType) bool {
 
 func tryRenderFusedRangeAggregationLogicalDirect(cfg storage.QueryConfig, agg *logicalpkg.AggregationPlan, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams) (renderedFragment, bool, error) {
 	ctx := LoweringCtx{
-		Config:         cfg,
-		Analysis:       logicalAnalysis,
-		NativeAnalysis: analysis,
-		Params:         params,
+		Config:             cfg,
+		Analysis:           logicalAnalysis,
+		NativeAnalysis:     analysis,
+		OptimizationReport: nil,
+		Params:             params,
 	}
 	return tryRenderFusedRangeAggregationLogical(ctx, agg)
 }
@@ -480,10 +483,11 @@ func tryRenderSubqueryRowsSourceLogical(ctx LoweringCtx, n *logicalpkg.SubqueryP
 		Physical:            preferRangeInstantSelectorStrategy(ctx.Params.Physical, storage.RangeInstantSelectorStrategyBucketedArgMax),
 	})
 	childCtx := LoweringCtx{
-		Config:         ctx.Config,
-		Analysis:       ctx.Analysis,
-		NativeAnalysis: ctx.NativeAnalysis,
-		Params:         childParams,
+		Config:             ctx.Config,
+		Analysis:           ctx.Analysis,
+		NativeAnalysis:     ctx.NativeAnalysis,
+		OptimizationReport: ctx.OptimizationReport,
+		Params:             childParams,
 	}
 	if !canFuseRangeAggregationLogicalDirect(agg, childCtx.Params) {
 		return "", nil, false, nil

@@ -378,7 +378,7 @@ func buildHistogramIdentityTagAggregationRowsSQL(sourceSQL string, params map[st
 // falls through to the full renderLogicalSubquery path. The
 // "only-le-tags" shape check is performed on the logical tree via
 // histogramChildUsesOnlyLETagsLogical.
-func tryRenderHistogramChildRowsSQLLogical(cfg storage.QueryConfig, childNode logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams, prefix string) (string, map[string]string, bool, error) {
+func tryRenderHistogramChildRowsSQLLogical(cfg storage.QueryConfig, childNode logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, analysis *native.Analysis, params RenderParams, prefix string, optimizationReport *native.OptimizationReport) (string, map[string]string, bool, error) {
 	if childNode == nil {
 		return "", nil, false, nil
 	}
@@ -386,7 +386,7 @@ func tryRenderHistogramChildRowsSQLLogical(cfg storage.QueryConfig, childNode lo
 	if !ok || agg == nil {
 		return "", nil, false, nil
 	}
-	ctx := LoweringCtx{Config: cfg, Analysis: logicalAnalysis, NativeAnalysis: analysis, Params: params}
+	ctx := LoweringCtx{Config: cfg, Analysis: logicalAnalysis, NativeAnalysis: analysis, OptimizationReport: optimizationReport, Params: params}
 	var (
 		rowsSQL   string
 		rowParams map[string]string

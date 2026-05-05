@@ -112,7 +112,7 @@ func renderAggregationLogicalBody(ctx LoweringCtx, n *logicalpkg.AggregationPlan
 	// Branch 2: subquery fallback. Lower the logical child directly so
 	// the child SQL is driven off the logical tree, then wrap it in an
 	// aggregation-over-subquery shell.
-	childSQL, childParams, err := renderLogicalSubquery(ctx.Config, n.Child, ctx.Analysis, ctx.NativeAnalysis, sourceParams, "aggregation_child")
+	childSQL, childParams, err := renderLogicalSubquery(ctx.Config, n.Child, ctx.Analysis, ctx.NativeAnalysis, sourceParams, "aggregation_child", ctx.OptimizationReport)
 	if err != nil {
 		return renderedFragment{}, err
 	}

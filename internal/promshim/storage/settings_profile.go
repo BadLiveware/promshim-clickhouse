@@ -26,10 +26,12 @@ const (
 
 	settingAllowTimeSeries                 = "allow_experimental_time_series_table"
 	settingQuoteDenormals                  = "output_format_json_quote_denormals"
+	settingAsyncInsert                     = "async_insert"
 	settingMaxExecutionTime                = "max_execution_time"
 	settingTimeoutOverflowMode             = "timeout_overflow_mode"
 	settingCancelHTTPReadonlyOnClientClose = "cancel_http_readonly_queries_on_client_close"
 	settingReadonly                        = "readonly"
+	settingMaxQuerySize                    = "max_query_size"
 	settingMaxMemoryUsage                  = "max_memory_usage"
 	settingMaxRowsToRead                   = "max_rows_to_read"
 	settingMaxResultRows                   = "max_result_rows"
@@ -54,10 +56,12 @@ var supportedSettingsProfiles = map[string]struct{}{
 var allowlistedSettings = map[string]struct{}{
 	settingAllowTimeSeries:                 {},
 	settingQuoteDenormals:                  {},
+	settingAsyncInsert:                     {},
 	settingMaxExecutionTime:                {},
 	settingTimeoutOverflowMode:             {},
 	settingCancelHTTPReadonlyOnClientClose: {},
 	settingReadonly:                        {},
+	settingMaxQuerySize:                    {},
 	settingMaxMemoryUsage:                  {},
 	settingMaxRowsToRead:                   {},
 	settingMaxResultRows:                   {},
@@ -74,6 +78,7 @@ type SettingsProfileConfig struct {
 	Name                string
 	ClickHouseVersion   string
 	RequestTimeout      time.Duration
+	MaxQuerySizeBytes   int64
 	MaxMemoryUsageBytes int64
 	MaxRowsToRead       int64
 	MaxResultRows       int64
@@ -161,6 +166,11 @@ func ResolveSettingsProfile(cfg SettingsProfileConfig, purpose QueryPurpose, fam
 	add(settingCancelHTTPReadonlyOnClientClose, 1, "cancel_on_client_close", "")
 	add(settingReadonly, 2, "read_only_query_scope", "")
 
+	if cfg.MaxQuerySizeBytes > 0 {
+		add(settingMaxQuerySize, cfg.MaxQuerySizeBytes, "safety_query_size_cap", "")
+	} else {
+		skip(settingMaxQuerySize, "not_configured", "")
+	}
 	if cfg.MaxMemoryUsageBytes > 0 {
 		add(settingMaxMemoryUsage, cfg.MaxMemoryUsageBytes, "safety_memory_cap", "")
 	} else {

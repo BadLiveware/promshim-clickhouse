@@ -645,7 +645,7 @@ Tasks:
    the rule group interval.
 2. Apply caps for generated steps, range, and cost.
 3. Preserve output labels at every generated step.
-4. Reject ambiguous/conflicting rules.
+4. Reject conflicting duplicates (same static-label signature); otherwise union matching static-label variants at query time.
 5. Expose `rangeExpansion=true` in explain output.
 
 Validation:
@@ -745,3 +745,56 @@ The JIT recording-rule plan is complete when:
 - materialization candidates are reported from actual usage and cost evidence;
 - no blanket recording-rule remote-write loop is required for dashboard
   compatibility.
+
+## Current status (this branch)
+
+**Completed:** Phases 1-3 are largely implemented; PR A has now completed the branch-close work for phases 4 and 6.
+
+**Remaining by phase:**
+- **Phase 4:** complete
+- **Phase 5:** not started
+- **Phase 6:** complete for telemetry, bounded-range semantics, and harness/error plumbing
+- **Phase 7:** not started
+
+## Stacked PR completion plan
+
+### PR A — Finish Phases 4 & 6 (close loop, compatibility-safe)
+**Scope:** finalize virtual recording-rule harness coverage and bounded-range behavior.
+- [x] Add harness fixtures for virtual recording-rule inputs (rules file + corpus rows).
+- [x] Mount/pass recording-rule files in harness and add `recording-rules-virtual.json` corpus.
+- [x] Add corpus entries for:
+  - [x] instant selectors (match/mismatch)
+  - [x] `query_range` over instant expressions
+  - [x] range-selector expansion within bounds
+  - [x] intentional over-cap / unsafe rejection cases
+- [x] Extend harness artifact schema to include:
+  - [x] `recordingRuleExpanded`
+  - [x] `recordingRuleMode`
+  - [x] `recordingRuleRangeExpansion`
+  - [x] `recordingRuleRejectionReason`
+- [x] Add explain/response assertions in service-level tests for rejection reasons.
+- [x] Update docs for metadata semantics and current virtual-history behavior.
+
+### PR B — Finish Phase 5 (telemetry + candidate evidence)
+**Scope:** production-safe observability before materialization.
+- [ ] Add metrics:
+  - [ ] `promshim_recording_rule_expansions_total{record,mode}`
+  - [ ] `promshim_recording_rule_expansion_errors_total{record,reason}`
+  - [ ] `promshim_recording_rule_query_duration_seconds{record,mode}`
+- [ ] Track candidate signals (over-cap, frequency threshold, runtime duration).
+- [ ] Define and implement candidate selection policy + output report command.
+- [ ] Add unit tests for candidate classification and empty/empty-state handling.
+- [ ] Add report golden output checks in CI-local tests.
+
+### PR C — Implement Phase 7 (selective scheduled materialization)
+**Scope:** opt-in materialization path only.
+- [ ] Add scheduler/runner that consumes the candidate report and evaluates selected rules.
+- [ ] Generate and execute materialization SQL per rule at configured eval intervals.
+- [ ] Add write path (remote-write first; direct insert optional).
+- [ ] Add idempotency and retry semantics (dedupe/ordering/error visibility).
+- [ ] Add opt-in controls:
+  - [ ] allowlist/denylist
+  - [ ] per-rule intervals
+  - [ ] failure handling policy
+- [ ] Add parity/validation tests for materialized vs virtual output where practical.
+- [ ] Add operational docs (recovery, backfill, monitoring, disable switch).

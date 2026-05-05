@@ -1,9 +1,9 @@
 # Virtual recording rules
 
 Promshim can expose selected Prometheus recording-rule metric names without
-materializing those series in ClickHouse. In `virtual` mode, promshim rewrites an
-instant-vector reference to a configured recording rule into that rule's PromQL
-expression before planning the query.
+materializing those series in ClickHouse. In `virtual` mode, promshim rewrites
+configured recording-rule references into their PromQL expressions before
+planning the query.
 
 This is intended for dashboard and compatibility traffic that expects recording
 rule names to exist while ClickHouse remains the source of raw samples.
@@ -63,12 +63,17 @@ Common flags and environment variables:
 | `--rule-selector` | `PROM_SHIM_RULE_SYNC_SELECTOR` | empty | Kubernetes label selector for `PrometheusRule` objects. |
 | `--prometheus-version` | `PROM_SHIM_RULE_SYNC_PROMETHEUS_VERSION` | `3.0.0` | Prometheus compatibility version for rule validation. |
 | `--sync-interval` | `PROM_SHIM_RULE_SYNC_INTERVAL` | `30s` | Periodic sync interval. |
+| `--listen-addr` | `PROM_SHIM_RULE_SYNC_LISTEN_ADDR` | `:9091` | HTTP listen address for `/metrics` and health endpoints. Empty disables HTTP serving. |
 | `--once` | `PROM_SHIM_RULE_SYNC_ONCE` | `false` | Run one sync and exit. |
 
 The syncer writes each rule file with temp-file plus atomic rename semantics.
 Generated files are prefixed with `promshim-`; stale generated `.yaml` files are
 removed from the output directory. Other `.yaml` files and non-YAML files are
 left alone.
+
+Long-running syncers expose `/metrics`, `/health`, `/-/healthy`, and `/-/ready`
+on `PROM_SHIM_RULE_SYNC_LISTEN_ADDR`. Metrics include selected rules, rendered
+files, sync failures, and the last successful sync timestamp.
 
 ## Minimal Kubernetes sketch
 
@@ -120,19 +125,31 @@ Supported:
 
 - `/api/v1/query` instant-vector contexts;
 - `/api/v1/query_range` re-evaluation of instant expressions at each step;
+- nested recording-rule references with cycle and depth guards;
+- same-name recording rules can be disambiguated by matching static labels (group labels and rule labels); when static labels are distinct and no static matcher is present, matching variants are unioned at query time.
+- metadata endpoints (`/api/v1/labels`, `/api/v1/label/{name}/values`, `/api/v1/series`) include virtual recording rule static labels for matching virtual metric names and selectors.
+- range selectors over virtual rules, such as `my_recording_rule[5m]`, by
+  rewriting them to subqueries over the expanded rule expression;
+- subqueries over virtual rules, such as `my_recording_rule[5m:]`;
 - recording-rule labels and group labels on the virtual result expression;
 - live reload of rendered rule files with keep-last-good behavior.
 
+Historical virtual-rule queries are syntactic rewrites, not scheduled rule
+evaluation. A range selector over a virtual rule is evaluated from the expanded
+rule expression over the requested window. For `recorded_metric[5m]`, promshim
+uses the rule group's `interval` as the generated subquery step when configured;
+otherwise it lets the normal subquery default apply.
+
+Important: virtual mode is a query-time compatibility path, not a historical
+materialization path. It does not imply any additional persisted rule history or
+scheduler-like catch-up semantics; bounds are scoped to the explicit query range
+(or instant timestamp and range boundaries) passed in that request.
+
 Not supported in the MVP:
 
-- range selectors over virtual recording rules, such as
-  `my_recording_rule[5m]`;
 - alerting-rule evaluation;
 - materializing rule output series;
 - Prometheus rule scheduling semantics, missed evaluations, or rule state.
-
-Range selectors over virtual rules return an error because they require either
-materialized history or bounded virtual-history semantics.
 
 ## Release artifacts
 

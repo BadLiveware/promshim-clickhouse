@@ -49,6 +49,7 @@ func lowerSubquery(ctx LoweringCtx, n *logicalpkg.SubqueryPlan) (RenderedQuery, 
 			ResolveSourcePromQL: ctx.Params.ResolveSourcePromQL,
 			Physical:            ctx.Params.Physical,
 		},
+		OptimizationReport: ctx.OptimizationReport,
 	}
 	return Lower(childCtx, n.Child)
 }

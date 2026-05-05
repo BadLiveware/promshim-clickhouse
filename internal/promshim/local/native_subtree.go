@@ -104,6 +104,7 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 		ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
 			return resolveDelegatedPromQL(expr, params)
 		},
+		ResolveTableOverride: Evaluator.resolveTableOverride,
 	}
 	applyNativeSubtreeRenderTagHint(&renderParams, p.NativeSubtreeRenderTagHint, p.NativeSubtreeRequireFullTags, p.NativeSubtreeRequiredLabels)
 	rendered, err := p.renderSQL(cfg, renderParams)
@@ -185,7 +186,7 @@ func (p *nativeSubtreePlan) renderSQL(cfg storage.QueryConfig, renderParams rend
 		lowerAnalysis = logicalpkg.Analyze(p.Node)
 		lowerNativeAnaly = p.Analysis
 	}
-	rq, err := renderNativeSubtreeSQL(cfg, renderParams, lowerNode, lowerAnalysis, lowerNativeAnaly)
+	rq, err := renderNativeSubtreeSQL(cfg, renderParams, lowerNode, lowerAnalysis, lowerNativeAnaly, p.OptimizationReport)
 	if err != nil {
 		return renderer.RenderedQuery{}, WithInternalContext(err, "rendering native subtree SQL for %q", p.Expr)
 	}
@@ -196,18 +197,20 @@ func (p *nativeSubtreePlan) renderSQL(cfg storage.QueryConfig, renderParams rend
 // used by both construction-time pre-render (for explain metadata)
 // and execute-time renderSQL. Requires (node, analysis, nativeAnalysis)
 // to be non-nil — every tier-3 subtree plan and the tier-2 whole-query
-// plan populate them. Errors from Lower — including the
+// plan populate them. `optimizationReport` carries renderer-specific
+// diagnostics during lowering. Errors from Lower — including the
 // errUnsupportedLowerNode sentinel — surface to the caller as hard
 // failures; there is no Fragment fallback.
-func renderNativeSubtreeSQL(cfg storage.QueryConfig, renderParams renderer.RenderParams, node logicalpkg.Node, analysis *logicalpkg.Analysis, nativeAnalysis *nativeplan.Analysis) (renderer.RenderedQuery, error) {
+func renderNativeSubtreeSQL(cfg storage.QueryConfig, renderParams renderer.RenderParams, node logicalpkg.Node, analysis *logicalpkg.Analysis, nativeAnalysis *nativeplan.Analysis, optimizationReport *nativeplan.OptimizationReport) (renderer.RenderedQuery, error) {
 	if node == nil || analysis == nil || nativeAnalysis == nil {
 		return renderer.RenderedQuery{}, fmt.Errorf("native subtree render requires logical node, logical analysis, and native analysis")
 	}
 	return renderer.Lower(renderer.LoweringCtx{
-		Config:         cfg,
-		Analysis:       analysis,
-		NativeAnalysis: nativeAnalysis,
-		Params:         renderParams,
+		Config:             cfg,
+		Analysis:           analysis,
+		NativeAnalysis:     nativeAnalysis,
+		Params:             renderParams,
+		OptimizationReport: optimizationReport,
 	}, node)
 }
 
@@ -240,7 +243,7 @@ func preRenderNativeSubtreePlanSQL(node logicalpkg.Node, analysis *nativeplan.An
 	if node != nil {
 		logicalAnalysis = logicalpkg.Analyze(node)
 	}
-	rendered, err := renderNativeSubtreeSQL(cfg, renderParams, node, logicalAnalysis, analysis)
+	rendered, err := renderNativeSubtreeSQL(cfg, renderParams, node, logicalAnalysis, analysis, optimized.Report)
 	if err != nil {
 		return err
 	}
@@ -271,6 +274,7 @@ func (p *nativeSubtreePlan) explain() ExplainNode {
 		MaterializedColumns:  append([]string(nil), report.MaterializedColumns...),
 		SemanticBarriers:     append([]string(nil), report.SemanticBarriers...),
 		PhysicalDecisions:    append([]physical.Decision(nil), report.PhysicalDecisions...),
+		StaticLabelUnion:     append([]nativeplan.StaticLabelUnionDecision(nil), report.StaticLabelUnionDecisions...),
 		NativeRangeChunking:  p.NativeRangeChunkDecision,
 		RequiredInputStartMS: report.RequiredInputStartMS,
 		RequiredInputEndMS:   report.RequiredInputEndMS,

@@ -3,8 +3,13 @@ package storage
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math"
+	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -92,7 +97,86 @@ func (t *NativeDriverTransport) Ping(ctx context.Context) error {
 }
 
 func (t *NativeDriverTransport) Query(ctx context.Context, req QueryRequest) (Rows, error) {
-	return nil, fmt.Errorf("%w for %s transport", ErrNativeRowsNeedTypedDecoder, TransportNative)
+	if req.Format != ResultFormatJSONEachRow {
+		return nil, fmt.Errorf("%w for %s transport", ErrNativeRowsNeedTypedDecoder, TransportNative)
+	}
+	ctx = t.queryContext(ctx, req)
+	start := time.Now()
+	rows, err := t.conn.Query(ctx, req.SQL)
+	if err != nil {
+		observeQuery(TransportNative, req.Purpose, "error", time.Since(start))
+		return nil, err
+	}
+	pr, pw := io.Pipe()
+	enc := json.NewEncoder(pw)
+	go func() {
+		columns := rows.Columns()
+		types := rows.ColumnTypes()
+		// Wrap result in the {"data": [...]} structure the callers expect.
+		_, _ = io.WriteString(pw, `{"data":[`)
+		first := true
+		for rows.Next() {
+			vals := make([]any, len(columns))
+			ptrs := make([]any, len(columns))
+			rowVals := make([]any, len(columns))
+			for i := range ptrs {
+				ptrs[i] = scanTarget(types[i], &rowVals[i])
+			}
+			if scanErr := rows.Scan(ptrs...); scanErr != nil {
+				_ = pw.CloseWithError(scanErr)
+				_ = rows.Close()
+				return
+			}
+			// Resolve scanned pointers to their concrete values.
+			copy(vals, rowVals)
+			if scanErr := rows.Scan(ptrs...); scanErr != nil {
+				_ = pw.CloseWithError(scanErr)
+				_ = rows.Close()
+				return
+			}
+			row := make(map[string]any, len(columns))
+			for i, col := range columns {
+				v := vals[i]
+				// Convert time values to Unix millisecond floats for JSON
+				// decoder compatibility (callers expect float64 timestamps).
+				if t, ok := v.(time.Time); ok {
+					v = float64(t.UnixMilli())
+				} else if tp, ok := v.(*time.Time); ok && tp != nil {
+					v = float64(tp.UnixMilli())
+				} else if f, ok := v.(float64); ok {
+					// JSON can't encode NaN/Inf; replace with null.
+					if math.IsNaN(f) || math.IsInf(f, 0) {
+						v = nil
+					}
+				}
+				row[col] = v
+			}
+			if !first {
+				_, _ = io.WriteString(pw, ",")
+			}
+			first = false
+			if encErr := enc.Encode(row); encErr != nil {
+				_ = pw.CloseWithError(encErr)
+				_ = rows.Close()
+				return
+			}
+		}
+		if scanErr := rows.Err(); scanErr != nil {
+			_ = pw.CloseWithError(scanErr)
+			_ = rows.Close()
+			return
+		}
+		_ = rows.Close()
+		_, _ = io.WriteString(pw, `]}`)
+		_ = pw.Close()
+	}()
+	duration := time.Since(start)
+	obs.FromContext(ctx).Observe(duration)
+	observeQuery(TransportNative, req.Purpose, "success", duration)
+	return &httpRows{response: &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       pr,
+	}}, nil
 }
 
 func (t *NativeDriverTransport) QueryNativeRows(ctx context.Context, req QueryRequest) (chdriver.Rows, error) {
@@ -216,6 +300,21 @@ func driverParameters(params map[string]string) clickhouse.Parameters {
 		adapted[strings.TrimPrefix(key, "param_")] = value
 	}
 	return adapted
+}
+
+// scanTarget allocates a properly-typed value for scanning a ClickHouse
+// column. It returns a pointer suitable for rows.Scan and stores the
+// dereferenced value back through out. Using *any (interface{}) fails
+// for types like Datetime64 that the driver can't convert to interface{}.
+func scanTarget(ct chdriver.ColumnType, out *any) any {
+	st := ct.ScanType()
+	if st == nil {
+		return out // fall back to *any
+	}
+	v := reflect.New(st)
+	*out = v.Interface()
+	// Return the pointer (same as *out) — rows.Scan fills the pointed-to value.
+	return *out
 }
 
 func driverSQL(sql string) string {

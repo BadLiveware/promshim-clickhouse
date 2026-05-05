@@ -248,25 +248,30 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 
 	report := CompareReport{CorpusPath: cfg.CorpusPath, Manifest: manifest, Results: make([]QueryComparison, 0, len(queries)*len(subjects)*len(manifests))}
 	var firstErr error
-	appendResult := func(query QuerySpec, variantName, datasetVariant, subject, status, detail string) {
+	appendResult := func(query QuerySpec, variantName, datasetVariant, subject, status, detail string, subjectResult queryResult) {
 		severity, bucket := ClassifyComparison(status, detail)
-		report.Results = append(report.Results, QueryComparison{
-			Name:           query.Name,
-			Variant:        variantName,
-			DatasetVariant: datasetVariant,
-			Subject:        subject,
-			Query:          query.Query,
-			Status:         status,
-			Severity:       severity,
-			Bucket:         bucket,
-			CompareMode:    InferCompareMode(query),
-			Detail:         detail,
-		})
+		comparison := QueryComparison{
+			Name:                         query.Name,
+			Variant:                      variantName,
+			DatasetVariant:               datasetVariant,
+			Subject:                      subject,
+			Query:                        query.Query,
+			Status:                       status,
+			Severity:                     severity,
+			Bucket:                       bucket,
+			CompareMode:                  InferCompareMode(query),
+			Detail:                       detail,
+			RecordingRuleExpanded:        subjectResult.RecordingRuleExpanded,
+			RecordingRuleMode:            subjectResult.RecordingRuleMode,
+			RecordingRuleRangeExpansion:  subjectResult.RecordingRuleRangeExpansion,
+			RecordingRuleRejectionReason: subjectResult.RecordingRuleRejectionReason,
+		}
+		report.Results = append(report.Results, comparison)
 	}
 	for _, query := range queries {
 		variants, err := expandQueryVariants(query)
 		if err != nil {
-			appendResult(query, "", "", "harness", "error", err.Error())
+			appendResult(query, "", "", "harness", "error", err.Error(), queryResult{})
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -276,7 +281,7 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 			variant.Spec = effectiveQuerySpec(cfg, variant.Spec)
 			querySubjects, err := subjectsForQuery(variant.Spec, subjects)
 			if err != nil {
-				appendResult(variant.Spec, variant.Variant, "", "harness", "error", err.Error())
+				appendResult(variant.Spec, variant.Variant, "", "harness", "error", err.Error(), queryResult{})
 				if firstErr == nil {
 					firstErr = err
 				}
@@ -284,7 +289,7 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 			}
 			queryManifests, err := manifestsForQuery(variant.Spec, manifests)
 			if err != nil {
-				appendResult(variant.Spec, variant.Variant, "", "harness", "error", err.Error())
+				appendResult(variant.Spec, variant.Variant, "", "harness", "error", err.Error(), queryResult{})
 				if firstErr == nil {
 					firstErr = err
 				}
@@ -294,7 +299,7 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 				promResult, err := QueryAndFetch(client, cfg.PrometheusBaseURL, datasetManifest, variant.Spec)
 				if err != nil {
 					for _, subject := range querySubjects {
-						appendResult(variant.Spec, variant.Variant, datasetManifest.DatasetVariant, subject.Name, "error", err.Error())
+						appendResult(variant.Spec, variant.Variant, datasetManifest.DatasetVariant, subject.Name, "error", err.Error(), queryResult{})
 					}
 					if firstErr == nil {
 						firstErr = err
@@ -304,7 +309,7 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 				for _, subject := range querySubjects {
 					subjectResult, err := QueryAndFetch(client, subject.BaseURL, datasetManifest, variant.Spec)
 					if err != nil {
-						appendResult(variant.Spec, variant.Variant, datasetManifest.DatasetVariant, subject.Name, "error", err.Error())
+						appendResult(variant.Spec, variant.Variant, datasetManifest.DatasetVariant, subject.Name, "error", err.Error(), subjectResult)
 						if firstErr == nil {
 							firstErr = err
 						}
@@ -312,13 +317,13 @@ func RunCompare(ctx context.Context, cfg CompareConfig) (CompareReport, error) {
 					}
 					result, err := CompareQueryOutcome(variant.Spec, subject.Name, promResult, subjectResult)
 					if err != nil {
-						appendResult(variant.Spec, variant.Variant, datasetManifest.DatasetVariant, subject.Name, result, err.Error())
+						appendResult(variant.Spec, variant.Variant, datasetManifest.DatasetVariant, subject.Name, result, err.Error(), subjectResult)
 						if firstErr == nil {
 							firstErr = err
 						}
 						continue
 					}
-					appendResult(variant.Spec, variant.Variant, datasetManifest.DatasetVariant, subject.Name, result, "")
+					appendResult(variant.Spec, variant.Variant, datasetManifest.DatasetVariant, subject.Name, result, "", subjectResult)
 				}
 			}
 		}

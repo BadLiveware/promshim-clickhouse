@@ -106,6 +106,26 @@ func TestLoadOptionsFromEnvRoutingPolicy(t *testing.T) {
 	}
 }
 
+func TestLoadOptionsFromEnvClickHouseMaxQuerySize(t *testing.T) {
+	t.Setenv("PROM_SHIM_CLICKHOUSE_MAX_QUERY_SIZE_BYTES", "")
+	opts, err := LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.ClickHouseMaxQuerySizeBytes != 0 {
+		t.Fatalf("ClickHouseMaxQuerySizeBytes = %d, want 0", opts.ClickHouseMaxQuerySizeBytes)
+	}
+
+	t.Setenv("PROM_SHIM_CLICKHOUSE_MAX_QUERY_SIZE_BYTES", "1048576")
+	opts, err = LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.ClickHouseMaxQuerySizeBytes != 1048576 {
+		t.Fatalf("ClickHouseMaxQuerySizeBytes = %d, want 1048576", opts.ClickHouseMaxQuerySizeBytes)
+	}
+}
+
 func TestLoadOptionsFromEnvRejectsUnknownRoutingPolicy(t *testing.T) {
 	t.Setenv("PROM_SHIM_ROUTING_POLICY", "surprise")
 	_, err := LoadOptionsFromEnv()

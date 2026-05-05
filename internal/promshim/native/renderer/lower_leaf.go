@@ -2,6 +2,9 @@ package renderer
 
 import (
 	"fmt"
+	"strings"
+
+	"github.com/prometheus/prometheus/model/labels"
 
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
@@ -31,6 +34,14 @@ func renderLeafLogical(cfg storage.QueryConfig, leaf *logicalpkg.LeafExprPlan, p
 			return renderedFragment{}, fmt.Errorf("renderer: leaf selector analysis failed: %w", err)
 		}
 		selector = built
+	}
+
+	// If this metric is materialized, route the leaf query to the
+	// materialized table (MergeTree) instead of the TimeSeries table.
+	if params.ResolveTableOverride != nil && selector != nil {
+		if override := params.ResolveTableOverride(selector.MetricName); override != "" {
+			return renderMaterializedLeaf(cfg, override, selector, params)
+		}
 	}
 
 	switch params.Mode {
@@ -237,4 +248,116 @@ func renderSourceExprView(cfg storage.QueryConfig, view *native.SourceExprView, 
 	default:
 		return renderedFragment{}, fmt.Errorf("unknown render mode %q", params.Mode)
 	}
+}
+
+// renderMaterializedLeaf renders a simple SELECT against the materialized
+// recording-rule table (a plain MergeTree with (tags, timestamp, value)
+// columns). This avoids the TimeSeries-specific id/tags_to_columns machinery
+// that doesn't apply to the materialized table.
+func renderMaterializedLeaf(cfg storage.QueryConfig, table string, selector *native.SelectorSource, params RenderParams) (renderedFragment, error) {
+	type renderSQL int
+	const (
+		instant renderSQL = iota
+		range_
+	)
+
+	var kind renderSQL
+	switch params.Mode {
+	case native.RenderModeInstant:
+		kind = instant
+	case native.RenderModeRange:
+		kind = range_
+	default:
+		return renderedFragment{}, fmt.Errorf("renderMaterializedLeaf: unsupported mode %q", params.Mode)
+	}
+
+	qName := "`" + cfg.Database + "`.`" + table + "`"
+
+	// Build matcher conditions from the selector's label matchers.
+	// The materialized table stores tags as Array(Tuple(String, String))
+	// in the tags column; __name__ is the first element.
+	matcherSQL, err := buildMaterializedLeafMatchers(selector)
+	if err != nil {
+		return renderedFragment{}, err
+	}
+
+	var sql string
+	switch kind {
+	case instant:
+		sql = fmt.Sprintf(
+			"SELECT materialized_tags AS tags, fromUnixTimestamp64Milli({eval_ms:Int64}) AS timestamp, value "+
+				"FROM (SELECT %s AS materialized_tags, argMax(value, timestamp) AS value "+
+				"FROM %s "+
+				"WHERE %s AND "+
+				"timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND "+
+				"timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) "+
+				"GROUP BY materialized_tags) AS latest_materialized_points",
+			trimTagList(selector),
+			qName,
+			matcherSQL,
+		)
+	case range_:
+		sql = fmt.Sprintf(
+			"SELECT materialized_tags AS tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series "+
+				"FROM (SELECT %s AS materialized_tags, timestamp, value "+
+				"FROM %s "+
+				"WHERE %s AND "+
+				"timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND "+
+				"timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})) AS materialized_points "+
+				"GROUP BY materialized_tags ORDER BY materialized_tags",
+			trimTagList(selector),
+			qName,
+			matcherSQL,
+		)
+	}
+
+	queryParams := map[string]string{
+		"eval_ms":           fmt.Sprintf("%d", params.EvaluationTimeMS),
+		"required_start_ms": fmt.Sprintf("%d", params.RequiredStartMS),
+		"required_end_ms":   fmt.Sprintf("%d", params.RequiredEndMS),
+	}
+
+	return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
+}
+
+// buildMaterializedLeafMatchers builds WHERE conditions for the materialized
+// table from the selector's label matchers. Metrics are stored with __name__
+// as tags[].1; other matchers check has(tags, tuple('key', 'value')).
+func buildMaterializedLeafMatchers(selector *native.SelectorSource) (string, error) {
+	parts := []string{fmt.Sprintf("arrayExists(tag -> tag.1 = '__name__' AND tag.2 = %s, tags)", escapeLiteral(selector.MetricName))}
+	for _, m := range selector.Matchers {
+		if m.Name == "__name__" {
+			continue
+		}
+		switch m.Type {
+		case labels.MatchEqual:
+			parts = append(parts, fmt.Sprintf("has(tags, tuple(%s, %s))",
+				escapeLiteral(m.Name), escapeLiteral(m.Value)))
+		case labels.MatchNotEqual:
+			parts = append(parts, fmt.Sprintf("NOT has(tags, tuple(%s, %s))",
+				escapeLiteral(m.Name), escapeLiteral(m.Value)))
+		case labels.MatchRegexp:
+			parts = append(parts, fmt.Sprintf("arrayExists(tag -> tag.1 = %s AND match(tag.2, %s), tags)",
+				escapeLiteral(m.Name), escapeLiteral(m.Value)))
+		case labels.MatchNotRegexp:
+			parts = append(parts, fmt.Sprintf("NOT arrayExists(tag -> tag.1 = %s AND match(tag.2, %s), tags)",
+				escapeLiteral(m.Name), escapeLiteral(m.Value)))
+		}
+	}
+	return strings.Join(parts, " AND "), nil
+}
+
+// trimTagList generates an arrayFilter expression that strips __name__ from
+// tags, matching the leaf selector output format. For the materialized table
+// we always return full tags minus __name__ since tag narrowing isn't supported.
+func trimTagList(selector *native.SelectorSource) string {
+	return "arrayFilter(tag -> tag.1 != '__name__', tags)"
+}
+
+// escapeLiteral returns a single-quoted, properly escaped ClickHouse string
+// literal for use in SQL queries.
+func escapeLiteral(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "'", "\\'")
+	return "'" + s + "'"
 }

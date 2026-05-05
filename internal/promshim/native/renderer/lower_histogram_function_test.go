@@ -204,3 +204,163 @@ func TestLowerHistogramFunctionNilErrors(t *testing.T) {
 		t.Fatalf("expected non-sentinel error for nil node, got sentinel")
 	}
 }
+
+func TestLowerHistogramFunctionRecognizesFallbackOrShape(t *testing.T) {
+	query := `histogram_quantile(0.99, sum(rate(coredns_dns_request_size_bytes[5m])) by (proto) or sum(rate(coredns_dns_request_size_bytes_bucket[5m])) by (le, proto))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "histogram_fallback_or")
+	if !ok || decision.Strategy != "recognized" {
+		t.Fatalf("expected histogram_fallback_or=recognized decision, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerHistogramFunctionRejectsFallbackOrWhenNoBucketSide(t *testing.T) {
+	query := `histogram_quantile(0.99, sum(rate(coredns_dns_request_size_bytes[5m])) by (proto) or sum(rate(other_metric[5m])) by (proto))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "histogram_fallback_or")
+	if !ok || decision.Strategy != "not_recognized" {
+		t.Fatalf("expected histogram_fallback_or=not_recognized decision, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerHistogramFunctionRejectsFallbackOrWhenNotHistogramQuantile(t *testing.T) {
+	query := `sum(rate(foo[5m])) or sum(rate(foo_bucket[5m])) by (le)`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if _, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "histogram_fallback_or"); ok {
+		t.Fatalf("did not expect histogram_fallback_or decision for non-histogram_quantile expression")
+	}
+}
+
+func TestLowerHistogramFunctionRejectsFallbackOrWhenBothSidesHaveLe(t *testing.T) {
+	query := `histogram_quantile(0.99, sum(rate(coredns_dns_request_size_bytes_bucket[5m])) by (le, proto) or sum(rate(coredns_dns_response_size_bytes_bucket[5m])) by (le, proto))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "histogram_fallback_or")
+	if !ok || decision.Strategy != "not_recognized" || len(decision.Rejected) == 0 {
+		t.Fatalf("expected histogram_fallback_or=not_recognized with rejected alternatives, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerHistogramFunctionRejectsFallbackOrWhenNeitherSideHasLe(t *testing.T) {
+	query := `histogram_quantile(0.99, sum(rate(foo[5m])) by (proto) or sum(rate(bar[5m])) by (proto))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "histogram_fallback_or")
+	if !ok || decision.Strategy != "not_recognized" || len(decision.Rejected) == 0 {
+		t.Fatalf("expected histogram_fallback_or=not_recognized with rejected alternatives, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerHistogramFunctionRecognizesRepeatedQuantileInputs(t *testing.T) {
+	query := `histogram_quantile(0.99, sum(rate(coredns_dns_request_size_bytes_bucket[5m])) by (le, proto)) + histogram_quantile(0.90, sum(rate(coredns_dns_request_size_bytes_bucket[5m])) by (le, proto))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "histogram_repeated_quantile")
+	if !ok || decision.Strategy != "recognized" {
+		t.Fatalf("expected histogram_repeated_quantile=recognized decision, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerHistogramFunctionRejectsRepeatedQuantileWhenNoRepetition(t *testing.T) {
+	query := `histogram_quantile(0.99, sum(rate(coredns_dns_request_size_bytes_bucket[5m])) by (le, proto)) + avg_over_time(memory_usage_bytes[1h])`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if _, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "histogram_repeated_quantile"); ok {
+		t.Fatalf("did not expect repeated quantile decision for single histogram_quantile expression")
+	}
+}
+
+func TestLowerHistogramFunctionReportsSemanticsPreservation(t *testing.T) {
+	query := `histogram_quantile(0.99, sum(rate(coredns_dns_request_size_bytes_bucket[5m])) by (le, proto))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "histogram_semantics_preservation")
+	if !ok || decision.Strategy != "preserved" {
+		t.Fatalf("expected histogram_semantics_preservation=preserved decision, got %#v", rq.PhysicalDecisions)
+	}
+}
+
+func TestLowerHistogramFunctionReportsSemanticsPreservationForFallbackOr(t *testing.T) {
+	query := `histogram_quantile(0.99, sum(rate(coredns_dns_request_size_bytes[5m])) by (proto) or sum(rate(coredns_dns_request_size_bytes_bucket[5m])) by (le, proto))`
+	root, analysis, nativeAnalysis := buildLowerInputs(t, query)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	decision, ok := findPhysicalDecisionByKind(rq.PhysicalDecisions, "histogram_semantics_preservation")
+	if !ok || decision.Strategy != "preserved" {
+		t.Fatalf("expected histogram_semantics_preservation=preserved decision, got %#v", rq.PhysicalDecisions)
+	}
+}

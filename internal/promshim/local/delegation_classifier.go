@@ -19,7 +19,14 @@ type DelegationClassifierResult struct {
 // has verified against the target ClickHouse version. New constructs graduate
 // from the native-SQL tier into whole-query delegation only after compliance
 // confirms ClickHouse matches Prometheus semantics.
-func ClassifyEntireQueryDelegation(expr parser.Expr, clickHouseVersion string) DelegationClassifierResult {
+//
+// RecordingRuleNames, when non-empty, is the set of all recording rule metric
+// names. Any query that directly references a recording rule metric name must
+// NOT be delegated to ClickHouse's PromQL endpoint because:
+//   - Virtual rules must be expanded by promshim before execution.
+//   - Materialized rules live in a separate MergeTree table that ClickHouse
+//     PromQL cannot see.
+func ClassifyEntireQueryDelegation(expr parser.Expr, clickHouseVersion string, recordingRuleNames map[string]bool) DelegationClassifierResult {
 	version := NormalizeClickHouseVersion(clickHouseVersion)
 	if expr == nil {
 		return DelegationClassifierResult{Eligible: false, Reason: "empty expression", ClickHouseVersion: version}
@@ -29,6 +36,9 @@ func ClassifyEntireQueryDelegation(expr parser.Expr, clickHouseVersion string) D
 	}
 	if reason := unsupportedDelegationReason(expr, version); reason != "" {
 		return DelegationClassifierResult{Eligible: false, Reason: reason, ClickHouseVersion: version}
+	}
+	if len(recordingRuleNames) > 0 && containsRecordedMetric(expr, recordingRuleNames) {
+		return DelegationClassifierResult{Eligible: false, Reason: "expression references a recording rule; recording rules must be expanded by promshim and/or query the materialized table", ClickHouseVersion: version}
 	}
 	return DelegationClassifierResult{Eligible: true, ClickHouseVersion: version}
 }
@@ -69,4 +79,21 @@ func NormalizeClickHouseVersion(raw string) string {
 		return "26.3"
 	}
 	return trimmed
+}
+
+// containsRecordedMetric walks the expression AST and returns true if any
+// VectorSelector references a recording-rule metric name. Recording rules
+// must not be delegated because they either need expansion (virtual) or
+// query the materialized MergeTree table (materialized).
+func containsRecordedMetric(expr parser.Expr, recordingRuleNames map[string]bool) bool {
+	found := false
+	parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
+		if vs, ok := node.(*parser.VectorSelector); ok && vs.Name != "" {
+			if recordingRuleNames[vs.Name] {
+				found = true
+			}
+		}
+		return nil
+	})
+	return found
 }

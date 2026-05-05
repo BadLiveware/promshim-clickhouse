@@ -46,19 +46,29 @@ type OptimizationContext struct {
 }
 
 type OptimizationReport struct {
-	RulesApplied         []string
-	PushedPredicates     []string
-	InferredPredicates   []string
-	RequiredColumns      []string
-	MaterializedColumns  []string
-	SemanticBarriers     []string
-	PhysicalDecisions    []physical.Decision
-	RenderedSQL          string
-	RequiredInputStartMS int64
-	RequiredInputEndMS   int64
-	FunctionCatalog      []string
-	AppliedRewrites      []string
-	JoinNormalization    string
+	RulesApplied              []string
+	PushedPredicates          []string
+	InferredPredicates        []string
+	RequiredColumns           []string
+	MaterializedColumns       []string
+	SemanticBarriers          []string
+	PhysicalDecisions         []physical.Decision
+	RenderedSQL               string
+	RequiredInputStartMS      int64
+	RequiredInputEndMS        int64
+	FunctionCatalog           []string
+	AppliedRewrites           []string
+	JoinNormalization         string
+	StaticLabelUnionDecisions []StaticLabelUnionDecision
+}
+
+type StaticLabelUnionDecision struct {
+	Applied           bool   `json:"applied"`
+	CandidateBranches int    `json:"candidateBranches"`
+	CollapsedRows     int    `json:"collapsedRows"`
+	RemainingGroups   int    `json:"remainingGroups"`
+	Mode              string `json:"mode,omitempty"`
+	SkipReason        string `json:"skipReason,omitempty"`
 }
 
 type OptimizedFragment struct {
@@ -210,7 +220,7 @@ func (m *matcherInterner) internSlice(matchers []*labels.Matcher) []*labels.Matc
 	if len(matchers) == 0 {
 		return nil
 	}
-	interned := matchers[:0]
+	interned := make([]*labels.Matcher, 0, len(matchers))
 	for _, matcher := range matchers {
 		if matcher == nil {
 			continue
@@ -334,6 +344,11 @@ func requiredInputBoundsFromInfo(info *LoweringInfo, ctx OptimizationContext) (i
 	default:
 		if ctx.EvaluationTimeMS == 0 && ctx.StartMS == 0 && ctx.EndMS == 0 {
 			return 0, 0, false
+		}
+		if ctx.StartMS > 0 && ctx.EndMS > 0 {
+			endMS := ctx.EndMS - offsetMS
+			startMS := ctx.StartMS - offsetMS - lookbackMS
+			return startMS, endMS, true
 		}
 		endMS := ctx.EvaluationTimeMS - offsetMS
 		startMS := endMS - lookbackMS

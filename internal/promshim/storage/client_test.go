@@ -138,9 +138,11 @@ func TestNativeTransportExecuteRequiresTypedDecoder(t *testing.T) {
 	}
 	defer func() { _ = client.Close() }()
 
-	_, err = client.Execute(context.Background(), "SELECT 1", nil)
+	// JSONEachRow format is now supported via native transport; the typed-decoder
+	// guard only applies to other formats.
+	_, err = client.Query(context.Background(), QueryRequest{SQL: "SELECT 1"})
 	if err == nil || !strings.Contains(err.Error(), ErrNativeRowsNeedTypedDecoder.Error()) {
-		t.Fatalf("Execute native error = %v, want typed decoder error", err)
+		t.Fatalf("Query native (non-JSON) error = %v, want typed decoder error", err)
 	}
 }
 

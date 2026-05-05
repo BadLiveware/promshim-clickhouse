@@ -409,6 +409,11 @@ func logicalRequiredInputBounds(n logicalpkg.Node, ctx native.OptimizationContex
 		if ctx.EvaluationTimeMS == 0 && ctx.StartMS == 0 && ctx.EndMS == 0 {
 			return 0, 0, false
 		}
+		if ctx.StartMS > 0 && ctx.EndMS > 0 {
+			endMS := ctx.EndMS - offsetMS
+			startMS := ctx.StartMS - offsetMS - lookbackMS
+			return startMS, endMS, true
+		}
 		endMS := ctx.EvaluationTimeMS - offsetMS
 		startMS := endMS - lookbackMS
 		return startMS, endMS, true
@@ -422,12 +427,13 @@ func logicalRequiredInputBounds(n logicalpkg.Node, ctx native.OptimizationContex
 //
 // The returned SQL has the trailing FORMAT/SETTINGS lines stripped
 // (trimRenderedQuerySQL).
-func renderLogicalSubquery(cfg storage.QueryConfig, node logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, nativeAnalysis *native.Analysis, params RenderParams, prefix string) (string, map[string]string, error) {
+func renderLogicalSubquery(cfg storage.QueryConfig, node logicalpkg.Node, logicalAnalysis *logicalpkg.Analysis, nativeAnalysis *native.Analysis, params RenderParams, prefix string, optimizationReport *native.OptimizationReport) (string, map[string]string, error) {
 	rendered, err := Lower(LoweringCtx{
-		Config:         cfg,
-		Analysis:       logicalAnalysis,
-		NativeAnalysis: nativeAnalysis,
-		Params:         params,
+		Config:             cfg,
+		Analysis:           logicalAnalysis,
+		NativeAnalysis:     nativeAnalysis,
+		Params:             params,
+		OptimizationReport: optimizationReport,
 	}, node)
 	if err != nil {
 		return "", nil, err

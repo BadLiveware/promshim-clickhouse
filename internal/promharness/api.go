@@ -17,16 +17,28 @@ type apiEnvelope struct {
 	ErrorType string `json:"errorType"`
 	Error     string `json:"error"`
 	Data      struct {
-		ResultType string          `json:"resultType"`
-		Result     json.RawMessage `json:"result"`
+		ResultType     string               `json:"resultType"`
+		Result         json.RawMessage      `json:"result"`
+		RecordingRules []queryRecordingRule `json:"recordingRules"`
 	} `json:"data"`
 }
 
+type queryRecordingRule struct {
+	Record       string `json:"record"`
+	Mode         string `json:"mode"`
+	VirtualRange string `json:"virtualRange,omitempty"`
+	VirtualStep  string `json:"virtualStep,omitempty"`
+}
+
 type queryResult struct {
-	Status    string
-	ErrorType string
-	Error     string
-	Data      normalizedResult
+	Status                       string
+	ErrorType                    string
+	Error                        string
+	Data                         normalizedResult
+	RecordingRuleExpanded        bool
+	RecordingRuleMode            string
+	RecordingRuleRangeExpansion  bool
+	RecordingRuleRejectionReason string
 }
 
 type normalizedResult struct {
@@ -83,13 +95,59 @@ func QueryAndFetch(client *http.Client, baseURL string, manifest Manifest, spec 
 		return queryResult{}, err
 	}
 	if envelope.Status != "success" {
-		return queryResult{Status: "error", ErrorType: envelope.ErrorType, Error: envelope.Error}, nil
+		return queryResult{
+			Status:                       "error",
+			ErrorType:                    envelope.ErrorType,
+			Error:                        envelope.Error,
+			RecordingRuleRejectionReason: recordingRuleRejectionReason(envelope.Error),
+		}, nil
 	}
+	expanded, mode, rangeExpansion := summarizeRecordingRuleExpansions(envelope.Data.RecordingRules)
 	normalized, err := normalizeAPIResult(envelope.Data.ResultType, envelope.Data.Result)
 	if err != nil {
 		return queryResult{}, err
 	}
-	return queryResult{Status: "success", Data: normalized}, nil
+	return queryResult{Status: "success", Data: normalized, RecordingRuleExpanded: expanded, RecordingRuleMode: mode, RecordingRuleRangeExpansion: rangeExpansion}, nil
+}
+
+func recordingRuleRejectionReason(errorText string) string {
+	errorText = strings.TrimSpace(errorText)
+	if errorText == "" {
+		return ""
+	}
+	lower := strings.ToLower(errorText)
+	if !strings.Contains(lower, "recording") && !strings.Contains(lower, "ambiguous") && !strings.Contains(lower, "incompatible interval") {
+		return ""
+	}
+	return errorText
+}
+
+func summarizeRecordingRuleExpansions(expansions []queryRecordingRule) (bool, string, bool) {
+	if len(expansions) == 0 {
+		return false, "", false
+	}
+	seenModes := make(map[string]struct{}, len(expansions))
+	for _, expansion := range expansions {
+		mode := strings.TrimSpace(expansion.Mode)
+		if mode == "" {
+			continue
+		}
+		seenModes[mode] = struct{}{}
+	}
+	if len(seenModes) == 0 {
+		return true, "", false
+	}
+	ordered := make([]string, 0, len(seenModes))
+	rangeExpanded := false
+	for mode := range seenModes {
+		ordered = append(ordered, mode)
+		if mode == "range_virtual" || mode == "subquery_virtual" {
+			rangeExpanded = true
+		}
+	}
+	sort.Strings(ordered)
+	mode := strings.Join(ordered, ",")
+	return true, mode, rangeExpanded
 }
 
 func buildQueryURL(baseURL string, manifest Manifest, spec QuerySpec) (string, error) {

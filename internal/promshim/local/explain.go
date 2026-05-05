@@ -87,32 +87,33 @@ type planEstimate struct {
 }
 
 type ExplainNode struct {
-	Kind                 string                          `json:"kind"`
-	Strategy             string                          `json:"strategy"`
-	SelectedStrategy     string                          `json:"selectedStrategy,omitempty"`
-	NativeScope          string                          `json:"nativeScope,omitempty"`
-	Expr                 string                          `json:"expr,omitempty"`
-	Reason               string                          `json:"reason,omitempty"`
-	FallbackReason       string                          `json:"fallbackReason,omitempty"`
-	Estimate             *planEstimate                   `json:"estimate,omitempty"`
-	ChunkPointsPerSeries int64                           `json:"chunkPointsPerSeries,omitempty"`
-	NativeRangeChunking  *nativeRangeChunkDecision       `json:"nativeRangeChunking,omitempty"`
-	Lowering             *nativeplan.ExplainInfo         `json:"lowering,omitempty"`
-	RulesApplied         []string                        `json:"rulesApplied,omitempty"`
-	PushedPredicates     []string                        `json:"pushedPredicates,omitempty"`
-	InferredPredicates   []string                        `json:"inferredPredicates,omitempty"`
-	RequiredColumns      []string                        `json:"requiredColumns,omitempty"`
-	MaterializedColumns  []string                        `json:"materializedColumns,omitempty"`
-	SemanticBarriers     []string                        `json:"semanticBarriers,omitempty"`
-	PhysicalDecisions    []physical.Decision             `json:"physicalDecisions,omitempty"`
-	RequiredInputStartMS int64                           `json:"requiredInputStartMs,omitempty"`
-	RequiredInputEndMS   int64                           `json:"requiredInputEndMs,omitempty"`
-	RenderedSQL          string                          `json:"renderedSQL,omitempty"`
-	SettingsProfile      *storage.SettingsProfileExplain `json:"settingsProfile,omitempty"`
-	LogicalOptimization  *LogicalOptimizationExplain     `json:"logicalOptimization,omitempty"`
-	JoinShape            string                          `json:"joinShape,omitempty"`
-	JoinLabels           []string                        `json:"joinLabels,omitempty"`
-	Children             []ExplainNode                   `json:"children,omitempty"`
+	Kind                 string                                `json:"kind"`
+	Strategy             string                                `json:"strategy"`
+	SelectedStrategy     string                                `json:"selectedStrategy,omitempty"`
+	NativeScope          string                                `json:"nativeScope,omitempty"`
+	Expr                 string                                `json:"expr,omitempty"`
+	Reason               string                                `json:"reason,omitempty"`
+	FallbackReason       string                                `json:"fallbackReason,omitempty"`
+	Estimate             *planEstimate                         `json:"estimate,omitempty"`
+	ChunkPointsPerSeries int64                                 `json:"chunkPointsPerSeries,omitempty"`
+	NativeRangeChunking  *nativeRangeChunkDecision             `json:"nativeRangeChunking,omitempty"`
+	Lowering             *nativeplan.ExplainInfo               `json:"lowering,omitempty"`
+	RulesApplied         []string                              `json:"rulesApplied,omitempty"`
+	PushedPredicates     []string                              `json:"pushedPredicates,omitempty"`
+	InferredPredicates   []string                              `json:"inferredPredicates,omitempty"`
+	RequiredColumns      []string                              `json:"requiredColumns,omitempty"`
+	MaterializedColumns  []string                              `json:"materializedColumns,omitempty"`
+	SemanticBarriers     []string                              `json:"semanticBarriers,omitempty"`
+	PhysicalDecisions    []physical.Decision                   `json:"physicalDecisions,omitempty"`
+	StaticLabelUnion     []nativeplan.StaticLabelUnionDecision `json:"staticLabelUnion,omitempty"`
+	RequiredInputStartMS int64                                 `json:"requiredInputStartMs,omitempty"`
+	RequiredInputEndMS   int64                                 `json:"requiredInputEndMs,omitempty"`
+	RenderedSQL          string                                `json:"renderedSQL,omitempty"`
+	SettingsProfile      *storage.SettingsProfileExplain       `json:"settingsProfile,omitempty"`
+	LogicalOptimization  *LogicalOptimizationExplain           `json:"logicalOptimization,omitempty"`
+	JoinShape            string                                `json:"joinShape,omitempty"`
+	JoinLabels           []string                              `json:"joinLabels,omitempty"`
+	Children             []ExplainNode                         `json:"children,omitempty"`
 }
 
 func estimateRangePointsPerSeries(ctx PlanContext) int64 {

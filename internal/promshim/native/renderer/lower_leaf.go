@@ -285,22 +285,25 @@ func renderMaterializedLeaf(cfg storage.QueryConfig, table string, selector *nat
 	switch kind {
 	case instant:
 		sql = fmt.Sprintf(
-			"SELECT %s AS tags, fromUnixTimestamp64Milli({eval_ms:Int64}) AS timestamp, any(value) AS value "+
+			"SELECT materialized_tags AS tags, fromUnixTimestamp64Milli({eval_ms:Int64}) AS timestamp, value "+
+				"FROM (SELECT %s AS materialized_tags, argMax(value, timestamp) AS value "+
 				"FROM %s "+
 				"WHERE %s AND "+
 				"timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND "+
-				"timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})",
+				"timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) "+
+				"GROUP BY materialized_tags) AS latest_materialized_points",
 			trimTagList(selector),
 			qName,
 			matcherSQL,
 		)
 	case range_:
 		sql = fmt.Sprintf(
-			"SELECT %s AS tags, timestamp, value "+
+			"SELECT materialized_tags AS tags, timestamp, value "+
+				"FROM (SELECT %s AS materialized_tags, timestamp, value "+
 				"FROM %s "+
 				"WHERE %s AND "+
 				"timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND "+
-				"timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})",
+				"timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})) AS materialized_points",
 			trimTagList(selector),
 			qName,
 			matcherSQL,

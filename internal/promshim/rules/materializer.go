@@ -178,10 +178,11 @@ func (m *Materializer) evaluateRule(ctx context.Context, rule RecordingRule, eva
 
 	// 2. Build logical plan, render native SQL (labels are applied to results,
 	// not to the expression AST, to keep SQL clean).
-	// Use a ±5s window around the eval time for the materializer query.
-	// The TimeSeries table is populated at roughly 1s granularity by
-	// the OTel collector; exact ms-level timestamp match would miss all.
+	// Use the standard instant-vector lookback window for materialization.
+	// Evaluating at an exact millisecond would miss normal scrape samples;
+	// Prometheus selectors use a 5m lookback ending at the eval time.
 	evalTS := evalTime.UnixMilli()
+	requiredStartMS := evalTS - int64(5*time.Minute/time.Millisecond)
 	logical, err := logicalpkg.ToLogical(expanded.Expr)
 	if err != nil {
 		return fmt.Errorf("logical: %w", err)
@@ -197,8 +198,8 @@ func (m *Materializer) evaluateRule(ctx context.Context, rule RecordingRule, eva
 		Params: renderer.RenderParams{
 			Mode:             nativeplan.RenderModeInstant,
 			EvaluationTimeMS: evalTS,
-			RequiredStartMS:  evalTS - 5000,
-			RequiredEndMS:    evalTS + 5000,
+			RequiredStartMS:  requiredStartMS,
+			RequiredEndMS:    evalTS,
 			ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
 				return "", fmt.Errorf("rule materialization does not support delegated PromQL")
 			},
@@ -254,7 +255,7 @@ func buildMaterializationInsert(table string, rows []struct {
 	parts := make([]string, 0, len(rows))
 	for _, row := range rows {
 		tags := buildTagsArray(row.Tags, rule)
-		parts = append(parts, fmt.Sprintf("(toUnixTimestamp64Milli(toDateTime64(%f, 3)), %s, %s)", row.Timestamp, sqlFloat(row.Value), tags))
+		parts = append(parts, fmt.Sprintf("(fromUnixTimestamp64Milli(%d), %s, %s)", int64(row.Timestamp), sqlFloat(row.Value), tags))
 	}
 	return fmt.Sprintf("INSERT INTO %s (timestamp, value, tags) VALUES %s", table, strings.Join(parts, ", ")), nil
 }

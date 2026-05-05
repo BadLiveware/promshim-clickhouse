@@ -1005,6 +1005,24 @@ func (h *queryService) recordingRuleMetricNames() map[string]bool {
 	return names
 }
 
+func (h *queryService) containsMaterializedRecordingRule(expr parser.Expr) bool {
+	if h.recordingRuleMode != rules.ModeVirtual {
+		return false
+	}
+	registry := h.currentRecordingRules()
+	if registry.Empty() {
+		return false
+	}
+	found := false
+	parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
+		if vs, ok := node.(*parser.VectorSelector); ok && registry.IsMaterialized(vs.Name) {
+			found = true
+		}
+		return nil
+	})
+	return found
+}
+
 func loadRecordingRuleRegistry(mode rules.Mode, patterns []string) (*rules.Registry, error) {
 	if mode != rules.ModeVirtual || len(patterns) == 0 {
 		return rules.EmptyRegistry(), nil
@@ -1133,6 +1151,7 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 	if err != nil {
 		return "", time.Time{}, nil, nil, nil, local.BadRequestHTTPError(err.Error())
 	}
+	materializedRuleQuery := h.containsMaterializedRecordingRule(expr)
 	expr, recordingExpansions, apiErr := h.expandRecordingRules(expr)
 	if apiErr != nil {
 		return "", time.Time{}, nil, nil, nil, apiErr
@@ -1147,6 +1166,9 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 	mode, apiErr := h.nativeLoweringModeForRequest(req.NativeLoweringMode)
 	if apiErr != nil {
 		return "", time.Time{}, nil, nil, nil, apiErr
+	}
+	if materializedRuleQuery {
+		mode = local.NativeLoweringModeForceSupported
 	}
 	ctx := local.PlanContext{Mode: local.EvalModeInstant, EvaluationTime: evaluationTime, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries}
 	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion, h.recordingRuleMetricNames())
@@ -1193,6 +1215,7 @@ func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQuer
 	if err != nil {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, local.BadRequestHTTPError(err.Error())
 	}
+	materializedRuleQuery := h.containsMaterializedRecordingRule(expr)
 	expr, recordingExpansions, apiErr := h.expandRecordingRules(expr)
 	if apiErr != nil {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, apiErr
@@ -1221,6 +1244,9 @@ func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQuer
 	mode, apiErr := h.nativeLoweringModeForRequest(req.NativeLoweringMode)
 	if apiErr != nil {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, apiErr
+	}
+	if materializedRuleQuery {
+		mode = local.NativeLoweringModeForceSupported
 	}
 	planCtx := local.PlanContext{Mode: local.EvalModeRange, Start: start, End: end, Step: step, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries, NativeRangeChunkPointsPerSeries: h.opts.NativeRangeChunkPointsPerSeries, NativeRangeChunkMaxDuration: h.opts.NativeRangeChunkMaxDuration, NativeRangeChunkMaxChunks: h.opts.NativeRangeChunkMaxChunks, NativeRangePreflightSeriesThreshold: h.opts.NativeRangePreflightSeriesThreshold, NativeRangePreflightTimeout: h.opts.NativeRangePreflightTimeout, NativeRangePreflightMaxMemoryUsage: h.opts.NativeRangePreflightMaxMemoryUsage}
 	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion, h.recordingRuleMetricNames())

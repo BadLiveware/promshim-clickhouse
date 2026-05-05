@@ -74,10 +74,14 @@ func TestLowerMaterializedLeafRangeUsesProjectedTagAlias(t *testing.T) {
 	for _, want := range []string{
 		"FROM `observability`.`promshim_rules`",
 		"arrayFilter(tag -> tag.1 != '__name__', tags) AS materialized_tags",
-		"SELECT materialized_tags AS tags, timestamp, value",
+		"SELECT materialized_tags AS tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series",
+		"GROUP BY materialized_tags ORDER BY materialized_tags",
 	} {
 		if !strings.Contains(normalized, want) {
 			t.Fatalf("lowered SQL missing %q:\n%s", want, rq.SQL)
 		}
+	}
+	if strings.Contains(normalized, "SELECT materialized_tags AS tags, timestamp, value") {
+		t.Fatalf("range materialized leaf returned row shape instead of range matrix shape:\n%s", rq.SQL)
 	}
 }

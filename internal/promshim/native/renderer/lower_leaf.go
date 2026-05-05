@@ -298,12 +298,13 @@ func renderMaterializedLeaf(cfg storage.QueryConfig, table string, selector *nat
 		)
 	case range_:
 		sql = fmt.Sprintf(
-			"SELECT materialized_tags AS tags, timestamp, value "+
+			"SELECT materialized_tags AS tags, arraySort(item -> item.1, groupArray((timestamp, value))) AS time_series "+
 				"FROM (SELECT %s AS materialized_tags, timestamp, value "+
 				"FROM %s "+
 				"WHERE %s AND "+
 				"timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND "+
-				"timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})) AS materialized_points",
+				"timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})) AS materialized_points "+
+				"GROUP BY materialized_tags ORDER BY materialized_tags",
 			trimTagList(selector),
 			qName,
 			matcherSQL,

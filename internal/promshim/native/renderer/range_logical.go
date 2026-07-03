@@ -202,7 +202,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 							return renderedFragment{}, err
 						}
 						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
-						sql, err := buildRangeFunctionOverRowsSQL(trimRenderedQuerySQL(rowsSQL), fn, tagsExpr, params.StartMS, params.EndMS, params.StepMS, lookbackMS, offsetMS)
+						sql, err := buildRangeFunctionOverRowsSQL(trimRenderedQuerySQL(rowsSQL), fn, tagsExpr, params.StartMS, params.EndMS, params.StepMS, lookbackMS, offsetMS, false)
 						if err != nil {
 							return renderedFragment{}, err
 						}
@@ -293,7 +293,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 						return renderedFragment{}, err
 					}
 					tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
-					sql, err := buildRangeFunctionOverWindowedArraysSQL(trimRenderedQuerySQL(childRendered.SQL), fn, tagsExpr, paramNumber, paramNumbers, params.StartMS, params.EndMS, params.StepMS, lookbackMS, offsetMS)
+					sql, err := buildRangeFunctionOverWindowedArraysSQL(trimRenderedQuerySQL(childRendered.SQL), fn, tagsExpr, paramNumber, paramNumbers, params.StartMS, params.EndMS, params.StepMS, lookbackMS, offsetMS, false)
 					if err != nil {
 						return renderedFragment{}, err
 					}
@@ -314,9 +314,9 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 					var sql string
 					childTagsExpr := subqueryRowsOutputTagsExprLogical(child, fn)
 					if canUseRangeFunctionRowsFastPath(fn) {
-						sql, err = buildRangeFunctionOverRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, childTagsExpr, params.StartMS, params.EndMS, params.StepMS, child.Range.Milliseconds(), child.Offset.Milliseconds())
+						sql, err = buildRangeFunctionOverRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, childTagsExpr, params.StartMS, params.EndMS, params.StepMS, child.Range.Milliseconds(), child.Offset.Milliseconds(), true)
 					} else {
-						sql, err = buildRangeFunctionOverWindowedRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, paramNumber, paramNumbers, params.StartMS, params.EndMS, params.StepMS, child.Range.Milliseconds(), child.Offset.Milliseconds())
+						sql, err = buildRangeFunctionOverWindowedRowsSQL(trimRenderedQuerySQL(childRowsSQL), fn, paramNumber, paramNumbers, params.StartMS, params.EndMS, params.StepMS, child.Range.Milliseconds(), child.Offset.Milliseconds(), true)
 					}
 					if err != nil {
 						return renderedFragment{}, err
@@ -344,7 +344,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 				if err != nil {
 					return renderedFragment{}, err
 				}
-				sql, err := buildRangeFunctionOverWindowedArraysSQL(trimRenderedQuerySQL(childRendered.SQL), fn, rangeFunctionTagsExpr(fn), paramNumber, paramNumbers, params.StartMS, params.EndMS, params.StepMS, child.Range.Milliseconds(), child.Offset.Milliseconds())
+				sql, err := buildRangeFunctionOverWindowedArraysSQL(trimRenderedQuerySQL(childRendered.SQL), fn, rangeFunctionTagsExpr(fn), paramNumber, paramNumbers, params.StartMS, params.EndMS, params.StepMS, child.Range.Milliseconds(), child.Offset.Milliseconds(), true)
 				if err != nil {
 					return renderedFragment{}, err
 				}

@@ -275,3 +275,65 @@ func TestLowerRangeFunctionNilErrors(t *testing.T) {
 		t.Fatalf("expected non-sentinel error for nil node, got sentinel")
 	}
 }
+
+// TestLowerRangeFunctionOverSubqueryUsesLeftOpenWindow verifies that
+// range-mode windows over subquery-derived sources are left-open
+// (t-range, t] like Prometheus 3.x, while raw-sample selector windows
+// keep the legacy closed lower bound. Subquery grid points sit exactly
+// on step-aligned timestamps, so a closed lower bound would double-count
+// the boundary evaluation (issue #33: subquery off-by-one).
+func TestLowerRangeFunctionOverSubqueryUsesLeftOpenWindow(t *testing.T) {
+	params := RenderParams{Mode: native.RenderModeRange, StartMS: 3_600_000, EndMS: 3_900_000, StepMS: 60_000}
+
+	t.Run("subquery_child_left_open", func(t *testing.T) {
+		root, analysis, nativeAnalysis := buildLowerInputs(t, `count_over_time(up[15m:1m])`)
+		rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: params}, root)
+		if err != nil {
+			t.Fatalf("Lower: %v", err)
+		}
+		if !strings.Contains(rq.SQL, "tupleElement(point, 1) > grid.eval_ts - toIntervalMillisecond(900000)") {
+			t.Fatalf("expected left-open subquery window lower bound, got %s", rq.SQL)
+		}
+		if strings.Contains(rq.SQL, "tupleElement(point, 1) >= grid.eval_ts - toIntervalMillisecond(900000)") {
+			t.Fatalf("subquery window lower bound must not be closed, got %s", rq.SQL)
+		}
+	})
+
+	t.Run("raw_selector_child_stays_closed", func(t *testing.T) {
+		root, analysis, nativeAnalysis := buildLowerInputs(t, `deriv(cpu_usage[10m])`)
+		rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: params}, root)
+		if err != nil {
+			t.Fatalf("Lower: %v", err)
+		}
+		if !strings.Contains(rq.SQL, "tupleElement(point, 1) >= grid.eval_ts - toIntervalMillisecond(600000)") {
+			t.Fatalf("expected closed raw-sample window lower bound, got %s", rq.SQL)
+		}
+	})
+}
+
+// TestLowerInstantRangeFunctionOverSubqueryEnvelopeExcludesBoundary
+// verifies end to end that instant-mode lowering of a range function over
+// a subquery carves the child grid strictly after t-range: at a
+// minute-aligned evaluation time the [15m:1m] envelope must contain
+// exactly 15 evaluation points, matching Prometheus.
+func TestLowerInstantRangeFunctionOverSubqueryEnvelopeExcludesBoundary(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `count_over_time(up[15m:1m])`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 3_600_000},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if got, want := rq.QueryParams["param_start_ms"], "2760000"; got != want {
+		t.Fatalf("expected subquery grid start %q (strictly after t-range), got %q", want, got)
+	}
+	if got, want := rq.QueryParams["param_end_ms"], "3600000"; got != want {
+		t.Fatalf("expected subquery grid end %q, got %q", want, got)
+	}
+	if got, want := rq.QueryParams["param_step_ms"], "60000"; got != want {
+		t.Fatalf("expected subquery grid step %q, got %q", want, got)
+	}
+}

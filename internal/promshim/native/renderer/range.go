@@ -10,12 +10,24 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 )
 
-func buildWindowedArraysSourceSQL(sourceSQL, fn string, startMS, endMS, stepMS, rangeMS, offsetMS int64) (string, error) {
+// windowStartComparatorSQL returns the SQL comparison operator for the
+// lower bound of a per-step range window. Subquery-derived sources use the
+// left-open Prometheus 3.x interval (t-range, t] — their points sit exactly
+// on step-aligned timestamps, so the boundary point at t-range must be
+// excluded. Raw-sample sources keep the legacy closed lower bound.
+func windowStartComparatorSQL(leftOpenStart bool) string {
+	if leftOpenStart {
+		return ">"
+	}
+	return ">="
+}
+
+func buildWindowedArraysSourceSQL(sourceSQL, fn string, startMS, endMS, stepMS, rangeMS, offsetMS int64, leftOpenStart bool) (string, error) {
 	grid := &sqlb.Select{Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: emit.GridEvalTSLiteral(startMS, endMS, stepMS)}, Alias: "eval_ts"}}}
 	windowColumns := []sqlb.ColExpr{
 		{Expr: sqlb.Ident("source.tags"), Alias: "tags"},
 		{Expr: sqlb.Ident("grid.eval_ts"), Alias: "eval_ts"},
-		{Expr: sqlb.RawLit{V: "arrayFilter(point -> tupleElement(point, 1) <= grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(offsetMS, 10) + ") AND tupleElement(point, 1) >= grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(offsetMS+rangeMS, 10) + "), source.time_series)"}, Alias: "window_series"},
+		{Expr: sqlb.RawLit{V: "arrayFilter(point -> tupleElement(point, 1) <= grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(offsetMS, 10) + ") AND tupleElement(point, 1) " + windowStartComparatorSQL(leftOpenStart) + " grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(offsetMS+rangeMS, 10) + "), source.time_series)"}, Alias: "window_series"},
 	}
 	if rangeWindowSourceNeedsTimestamps(fn) {
 		windowColumns = append(windowColumns, sqlb.ColExpr{Expr: sqlb.RawLit{V: emit.WindowPointTimestamps("window_series")}, Alias: "window_timestamps"})
@@ -54,7 +66,7 @@ func buildWindowedArraysSourceSQL(sourceSQL, fn string, startMS, endMS, stepMS, 
 	return buildNativeWrapperSQL(stepWindows)
 }
 
-func buildWindowedRowsSourceSQL(sourceRowsSQL string, startMS, endMS, stepMS, rangeMS, offsetMS int64) (string, error) {
+func buildWindowedRowsSourceSQL(sourceRowsSQL string, startMS, endMS, stepMS, rangeMS, offsetMS int64, leftOpenStart bool) (string, error) {
 	grid := &sqlb.Select{Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: emit.GridEvalTSLiteral(startMS, endMS, stepMS)}, Alias: "eval_ts"}}}
 	stepWindows := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
@@ -70,22 +82,22 @@ func buildWindowedRowsSourceSQL(sourceRowsSQL string, startMS, endMS, stepMS, ra
 			{Expr: sqlb.RawLit{V: "toFloat64(arraySum(arrayMap((p, c) -> if(c != p, 1, 0), window_values_prev, window_values_cur)))"}, Alias: "changes_count"},
 		},
 		From:    sqlb.Join{Left: sqlb.SubSelect{S: grid, Alias: "grid"}, Right: rawRenderedSubquerySourceWithAlias(sourceRowsSQL, "source"), Kind: "CROSS"},
-		Where:   sqlb.RawLit{V: "source.timestamp <= grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(offsetMS, 10) + ") AND source.timestamp >= grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(offsetMS+rangeMS, 10) + ")"},
+		Where:   sqlb.RawLit{V: "source.timestamp <= grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(offsetMS, 10) + ") AND source.timestamp " + windowStartComparatorSQL(leftOpenStart) + " grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(offsetMS+rangeMS, 10) + ")"},
 		GroupBy: []sqlb.Expr{sqlb.Ident("source.tags"), sqlb.Ident("grid.eval_ts")},
 	}
 	return buildNativeWrapperSQL(stepWindows)
 }
 
-func buildRangeFunctionOverWindowedArraysSQL(sourceSQL, fn, finalTagsExpr string, paramNumber *float64, paramNumbers []*float64, startMS, endMS, stepMS, rangeMS, offsetMS int64) (string, error) {
-	windowedSourceSQL, err := buildWindowedArraysSourceSQL(sourceSQL, fn, startMS, endMS, stepMS, rangeMS, offsetMS)
+func buildRangeFunctionOverWindowedArraysSQL(sourceSQL, fn, finalTagsExpr string, paramNumber *float64, paramNumbers []*float64, startMS, endMS, stepMS, rangeMS, offsetMS int64, leftOpenStart bool) (string, error) {
+	windowedSourceSQL, err := buildWindowedArraysSourceSQL(sourceSQL, fn, startMS, endMS, stepMS, rangeMS, offsetMS, leftOpenStart)
 	if err != nil {
 		return "", err
 	}
 	return buildRangeFunctionOverWindowedSourceSQL(windowedSourceSQL, fn, finalTagsExpr, paramNumber, paramNumbers, rangeMS)
 }
 
-func buildRangeFunctionOverWindowedRowsSQL(sourceRowsSQL, fn string, paramNumber *float64, paramNumbers []*float64, startMS, endMS, stepMS, rangeMS, offsetMS int64) (string, error) {
-	windowedSourceSQL, err := buildWindowedRowsSourceSQL(sourceRowsSQL, startMS, endMS, stepMS, rangeMS, offsetMS)
+func buildRangeFunctionOverWindowedRowsSQL(sourceRowsSQL, fn string, paramNumber *float64, paramNumbers []*float64, startMS, endMS, stepMS, rangeMS, offsetMS int64, leftOpenStart bool) (string, error) {
+	windowedSourceSQL, err := buildWindowedRowsSourceSQL(sourceRowsSQL, startMS, endMS, stepMS, rangeMS, offsetMS, leftOpenStart)
 	if err != nil {
 		return "", err
 	}
@@ -253,7 +265,7 @@ func buildInstantRateOverRowsSQL(sourceRowsSQL, finalTagsExpr string, evaluation
 	return buildNativeWrapperSQL(outer)
 }
 
-func buildRangeFunctionOverRowsSQL(sourceRowsSQL, fn, finalTagsExpr string, startMS, endMS, stepMS, rangeMS, offsetMS int64) (string, error) {
+func buildRangeFunctionOverRowsSQL(sourceRowsSQL, fn, finalTagsExpr string, startMS, endMS, stepMS, rangeMS, offsetMS int64, leftOpenStart bool) (string, error) {
 	valueExpr, err := rangeFunctionRowsFastPathValueExpr(fn, "source.value")
 	if err != nil {
 		return "", fmt.Errorf("range row fast path for %s is not implemented yet", fn)
@@ -266,7 +278,7 @@ func buildRangeFunctionOverRowsSQL(sourceRowsSQL, fn, finalTagsExpr string, star
 			{Expr: valueExpr, Alias: "value"},
 		},
 		From:    sqlb.Join{Left: sqlb.SubSelect{S: grid, Alias: "grid"}, Right: rawRenderedSubquerySourceWithAlias(sourceRowsSQL, "source"), Kind: "CROSS"},
-		Where:   sqlb.RawLit{V: "source.timestamp <= grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(offsetMS, 10) + ") AND source.timestamp >= grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(offsetMS+rangeMS, 10) + ")"},
+		Where:   sqlb.RawLit{V: "source.timestamp <= grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(offsetMS, 10) + ") AND source.timestamp " + windowStartComparatorSQL(leftOpenStart) + " grid.eval_ts - toIntervalMillisecond(" + strconv.FormatInt(offsetMS+rangeMS, 10) + ")"},
 		GroupBy: []sqlb.Expr{sqlb.Ident("source.tags"), sqlb.Ident("grid.eval_ts")},
 	}
 	outer := &sqlb.Select{

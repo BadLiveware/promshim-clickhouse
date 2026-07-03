@@ -2851,14 +2851,16 @@ func TestLocalSubqueryPlanExecutesChildAcrossInstantWindow(t *testing.T) {
 	if len(matrix.Series) != 1 {
 		t.Fatalf("expected one output series, got %#v", matrix.Series)
 	}
-	if len(matrix.Series[0].Values) != 3 {
-		t.Fatalf("expected three subquery points, got %#v", matrix.Series[0].Values)
+	// Prometheus evaluates subqueries over the left-open window (t-range, t]:
+	// at t=180 with [2m:1m] the boundary point at 60 is excluded.
+	if len(matrix.Series[0].Values) != 2 {
+		t.Fatalf("expected two subquery points, got %#v", matrix.Series[0].Values)
 	}
-	if matrix.Series[0].Values[0].Timestamp != 60 || matrix.Series[0].Values[1].Timestamp != 120 || matrix.Series[0].Values[2].Timestamp != 180 {
+	if matrix.Series[0].Values[0].Timestamp != 120 || matrix.Series[0].Values[1].Timestamp != 180 {
 		t.Fatalf("unexpected subquery timestamps: %#v", matrix.Series[0].Values)
 	}
-	if len(calls) != 3 {
-		t.Fatalf("expected three child evaluations, got %d", len(calls))
+	if len(calls) != 2 {
+		t.Fatalf("expected two child evaluations, got %d", len(calls))
 	}
 }
 
@@ -2869,7 +2871,7 @@ func TestLocalSubqueryPlanRejectsInnerPointCap(t *testing.T) {
 		Expr:               expr,
 		Range:              2 * time.Minute,
 		Step:               time.Minute,
-		MaxPointsPerSeries: 2,
+		MaxPointsPerSeries: 1,
 		Child: testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, _ EvalParams) (model.RuntimeValue, error) {
 			calls++
 			return model.VectorValue{}, nil
@@ -2877,7 +2879,7 @@ func TestLocalSubqueryPlanRejectsInnerPointCap(t *testing.T) {
 	}
 
 	_, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(180, 0).UTC()})
-	if err == nil || !strings.Contains(err.Error(), "exceeding configured limit 2") {
+	if err == nil || !strings.Contains(err.Error(), "exceeding configured limit 1") {
 		t.Fatalf("expected subquery point cap error, got %v", err)
 	}
 	if calls != 0 {
@@ -3359,10 +3361,10 @@ func TestLocalSubqueryPlanUsesLocalPathForDelegatedMatrixRootInInstantMode(t *te
 	if !ok {
 		t.Fatalf("expected matrix result, got %T", value)
 	}
-	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 2 {
 		t.Fatalf("expected local matrix-root points, got %#v", matrix.Series)
 	}
-	if calls != 3 {
+	if calls != 2 {
 		t.Fatalf("expected local child to be called per subquery step, got %d", calls)
 	}
 }
@@ -3386,10 +3388,12 @@ func TestLocalSubqueryPlanAppliesTimestampAndOffset(t *testing.T) {
 		t.Fatalf("expected successful timestamp+offset subquery execution, got error: %v", err)
 	}
 	matrix := value.(model.MatrixValue)
-	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
-		t.Fatalf("expected one series with three points, got %#v", matrix.Series)
+	// end = @300 - 1m offset = 240; left-open window (120, 240] excludes
+	// the aligned boundary point at 120.
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 2 {
+		t.Fatalf("expected one series with two points, got %#v", matrix.Series)
 	}
-	expected := []int64{120, 180, 240}
+	expected := []int64{180, 240}
 	if len(calls) != len(expected) {
 		t.Fatalf("expected %d child evaluations, got %d", len(expected), len(calls))
 	}
@@ -3415,10 +3419,10 @@ func TestLocalSubqueryPlanDefaultsMissingStepToOneMinute(t *testing.T) {
 		t.Fatalf("expected successful default-step subquery execution, got error: %v", err)
 	}
 	matrix := value.(model.MatrixValue)
-	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
-		t.Fatalf("expected one series with three points, got %#v", matrix.Series)
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 2 {
+		t.Fatalf("expected one series with two points, got %#v", matrix.Series)
 	}
-	want := []int64{60, 120, 180}
+	want := []int64{120, 180}
 	if len(calls) != len(want) {
 		t.Fatalf("expected %d child evaluations, got %d", len(want), len(calls))
 	}
@@ -3445,10 +3449,12 @@ func TestLocalSubqueryPlanExecutesLocalRangeMode(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected matrix result, got %T", value)
 	}
-	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 6 {
-		t.Fatalf("expected one series with six points, got %#v", matrix.Series)
+	// Envelope starts strictly after outer.start - range = -120, so the
+	// first aligned evaluation point is -60.
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 5 {
+		t.Fatalf("expected one series with five points, got %#v", matrix.Series)
 	}
-	want := []int64{-120, -60, 0, 60, 120, 180}
+	want := []int64{-60, 0, 60, 120, 180}
 	if len(calls) != len(want) {
 		t.Fatalf("expected %d child evaluations, got %d", len(want), len(calls))
 	}
@@ -3475,10 +3481,10 @@ func TestLocalSubqueryPlanExecutesAnchoredLocalRangeMode(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected matrix result, got %T", value)
 	}
-	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 3 {
+	if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != 2 {
 		t.Fatalf("expected anchored subquery to materialize one fixed window, got %#v", matrix.Series)
 	}
-	want := []int64{60, 120, 180}
+	want := []int64{120, 180}
 	if len(calls) != len(want) {
 		t.Fatalf("expected %d child evaluations, got %d", len(want), len(calls))
 	}
@@ -3655,4 +3661,99 @@ func valueTransformChildShape(info *nativeplan.LoweringInfo) nativeplan.SubtreeS
 		return ""
 	}
 	return info.Children[idx].SubtreeShape
+}
+
+// TestAlignLocalSubqueryStepStart pins the Prometheus 3.x subquery grid
+// start for the local executor: the first absolute multiple of step
+// STRICTLY after the window start (left-open interval (t-range, t]).
+func TestAlignLocalSubqueryStepStart(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		windowStartMS int64
+		stepMS        int64
+		want          int64
+	}{
+		{name: "aligned_boundary_excluded", windowStartMS: 2_700_000, stepMS: 60_000, want: 2_760_000},
+		{name: "unaligned_rounds_up", windowStartMS: 2_701_000, stepMS: 60_000, want: 2_760_000},
+		{name: "zero_boundary_excluded", windowStartMS: 0, stepMS: 60_000, want: 60_000},
+		{name: "negative_unaligned", windowStartMS: -90_000, stepMS: 60_000, want: -60_000},
+		{name: "negative_aligned_boundary_excluded", windowStartMS: -120_000, stepMS: 60_000, want: -60_000},
+		{name: "non_positive_step_passthrough", windowStartMS: 123, stepMS: 0, want: 123},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := alignLocalSubqueryStepStart(tc.windowStartMS, tc.stepMS); got != tc.want {
+				t.Fatalf("alignLocalSubqueryStepStart(%d, %d) = %d, want %d", tc.windowStartMS, tc.stepMS, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestLocalSubqueryPlanMatchesPrometheusPointCounts pins the reproducer
+// shapes from issue #33 plus edge cases: the local subquery grid must
+// contain exactly the step-aligned points inside the left-open window
+// (t-range, t], matching Prometheus.
+func TestLocalSubqueryPlanMatchesPrometheusPointCounts(t *testing.T) {
+	const alignedEval = 3600 // seconds; multiple of 1m and 5m
+	for _, tc := range []struct {
+		name      string
+		rng       time.Duration
+		step      time.Duration
+		evalTime  int64 // seconds
+		wantCalls []int64
+	}{
+		{name: "15m_1m_aligned", rng: 15 * time.Minute, step: time.Minute, evalTime: alignedEval,
+			wantCalls: []int64{2760, 2820, 2880, 2940, 3000, 3060, 3120, 3180, 3240, 3300, 3360, 3420, 3480, 3540, 3600}},
+		{name: "15m_5m_aligned", rng: 15 * time.Minute, step: 5 * time.Minute, evalTime: alignedEval,
+			wantCalls: []int64{3000, 3300, 3600}},
+		{name: "1h_5m_aligned", rng: time.Hour, step: 5 * time.Minute, evalTime: alignedEval,
+			wantCalls: []int64{300, 600, 900, 1200, 1500, 1800, 2100, 2400, 2700, 3000, 3300, 3600}},
+		{name: "16m_5m_misaligned_window", rng: 16 * time.Minute, step: 5 * time.Minute, evalTime: alignedEval,
+			wantCalls: []int64{2700, 3000, 3300, 3600}},
+		{name: "15m_5m_unaligned_eval", rng: 15 * time.Minute, step: 5 * time.Minute, evalTime: alignedEval + 10,
+			wantCalls: []int64{3000, 3300, 3600}},
+		{name: "1m_5m_step_gt_window", rng: time.Minute, step: 5 * time.Minute, evalTime: alignedEval,
+			wantCalls: []int64{3600}},
+		{name: "1m_5m_empty_window", rng: time.Minute, step: 5 * time.Minute, evalTime: alignedEval - 150,
+			wantCalls: []int64{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := make([]int64, 0)
+			plan := &localSubqueryPlan{
+				Expr:  mustParseExpr(t, "(up * 100)[2m:1m]"), // expression text is irrelevant here
+				Range: tc.rng,
+				Step:  tc.step,
+				Child: testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+					calls = append(calls, params.EvaluationTime.Unix())
+					ts := float64(params.EvaluationTime.Unix())
+					return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: ts, Value: 1}}}, nil
+				}},
+			}
+
+			value, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(tc.evalTime, 0).UTC()})
+			if err != nil {
+				t.Fatalf("execute: %v", err)
+			}
+			matrix, ok := value.(model.MatrixValue)
+			if !ok {
+				t.Fatalf("expected matrix result, got %T", value)
+			}
+			if len(calls) != len(tc.wantCalls) {
+				t.Fatalf("expected %d child evaluations, got %d (%v)", len(tc.wantCalls), len(calls), calls)
+			}
+			for i := range tc.wantCalls {
+				if calls[i] != tc.wantCalls[i] {
+					t.Fatalf("expected child call %d at %d, got %d", i, tc.wantCalls[i], calls[i])
+				}
+			}
+			if len(tc.wantCalls) == 0 {
+				if len(matrix.Series) != 0 {
+					t.Fatalf("expected empty matrix for empty window, got %#v", matrix.Series)
+				}
+				return
+			}
+			if len(matrix.Series) != 1 || len(matrix.Series[0].Values) != len(tc.wantCalls) {
+				t.Fatalf("expected one series with %d points, got %#v", len(tc.wantCalls), matrix.Series)
+			}
+		})
+	}
 }

@@ -10,8 +10,8 @@ import (
 // fused range-function over windowed arrays. It is consumed by the logical
 // aggregation_range_fused_logical.go body for both the selector-child
 // non-fast-path branch and the subquery-child branch.
-func buildRangeFunctionOverWindowedArraysRowsSQL(sourceSQL, fn, tagsExpr string, paramNumber *float64, paramNumbers []*float64, startMS, endMS, stepMS, rangeMS, offsetMS int64) (string, error) {
-	windowedSourceSQL, err := buildWindowedArraysSourceSQL(sourceSQL, fn, startMS, endMS, stepMS, rangeMS, offsetMS)
+func buildRangeFunctionOverWindowedArraysRowsSQL(sourceSQL, fn, tagsExpr string, paramNumber *float64, paramNumbers []*float64, startMS, endMS, stepMS, rangeMS, offsetMS int64, leftOpenStart bool) (string, error) {
+	windowedSourceSQL, err := buildWindowedArraysSourceSQL(sourceSQL, fn, startMS, endMS, stepMS, rangeMS, offsetMS, leftOpenStart)
 	if err != nil {
 		return "", err
 	}

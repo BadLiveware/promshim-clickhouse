@@ -127,12 +127,18 @@ func selectorEffectiveMatchers(selector *native.SelectorSource) []*labels.Matche
 	return matchers
 }
 
+// alignSubqueryStepStart returns the first subquery evaluation timestamp
+// STRICTLY after windowStartMS that is an absolute multiple of stepMS.
+// Prometheus 3.x evaluates subqueries over the left-open interval
+// (t-range, t]: the grid start is aligned to absolute step multiples and
+// the point exactly at t-range is excluded (promql/engine.go, SubqueryExpr:
+// "if newEv.startTimestamp <= ev.startTimestamp-offset-range { += interval }").
 func alignSubqueryStepStart(windowStartMS, stepMS int64) int64 {
 	if stepMS <= 0 {
 		return windowStartMS
 	}
 	aligned := (windowStartMS / stepMS) * stepMS
-	if aligned < windowStartMS {
+	if aligned <= windowStartMS {
 		aligned += stepMS
 	}
 	return aligned

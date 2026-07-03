@@ -294,6 +294,30 @@ func TestAlignSubqueryStepStart(t *testing.T) {
 	}
 }
 
+func TestAlignSubqueryStepEnd(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		windowEndMS int64
+		stepMS      int64
+		want        int64
+	}{
+		{name: "aligned_identity", windowEndMS: 3_600_000, stepMS: 60_000, want: 3_600_000},
+		{name: "unaligned_floors_down", windowEndMS: 3_601_000, stepMS: 60_000, want: 3_600_000},
+		{name: "just_below_next_multiple", windowEndMS: 3_659_999, stepMS: 60_000, want: 3_600_000},
+		{name: "zero_identity", windowEndMS: 0, stepMS: 60_000, want: 0},
+		// Floor, not Go truncation: trunc(-90000/60000)*60000 = -60000 > end.
+		{name: "negative_unaligned_true_floor", windowEndMS: -90_000, stepMS: 60_000, want: -120_000},
+		{name: "negative_aligned_identity", windowEndMS: -120_000, stepMS: 60_000, want: -120_000},
+		{name: "non_positive_step_passthrough", windowEndMS: 123, stepMS: 0, want: 123},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := alignSubqueryStepEnd(tc.windowEndMS, tc.stepMS); got != tc.want {
+				t.Fatalf("alignSubqueryStepEnd(%d, %d) = %d, want %d", tc.windowEndMS, tc.stepMS, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestSubqueryEnvelopeLeftOpenWindow pins the instant-mode subquery
 // envelope against Prometheus semantics with absolute expected values
 // (not recomputed through the same alignment helper). The evaluation

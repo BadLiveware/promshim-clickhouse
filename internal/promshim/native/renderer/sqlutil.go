@@ -127,13 +127,42 @@ func selectorEffectiveMatchers(selector *native.SelectorSource) []*labels.Matche
 	return matchers
 }
 
+// alignSubqueryStepStart returns the first subquery evaluation timestamp
+// STRICTLY after windowStartMS that is an absolute multiple of stepMS.
+// Prometheus 3.x evaluates subqueries over the left-open interval
+// (t-range, t]: the grid start is aligned to absolute step multiples and
+// the point exactly at t-range is excluded (promql/engine.go, SubqueryExpr:
+// "if newEv.startTimestamp <= ev.startTimestamp-offset-range { += interval }").
 func alignSubqueryStepStart(windowStartMS, stepMS int64) int64 {
 	if stepMS <= 0 {
 		return windowStartMS
 	}
 	aligned := (windowStartMS / stepMS) * stepMS
-	if aligned < windowStartMS {
+	if aligned <= windowStartMS {
 		aligned += stepMS
+	}
+	return aligned
+}
+
+// alignSubqueryStepEnd returns the last subquery evaluation timestamp at
+// or before windowEndMS that is an absolute multiple of stepMS.
+// Prometheus's subquery grid never contains the raw end (t-offset) unless
+// it is itself a step multiple: the inner evaluator walks start,
+// start+step, ... while <= end, so the last point is
+// floor((t-offset)/step)*step (promql/engine.go, SubqueryExpr case sets
+// the inner evaluator's endTimestamp to the raw t-offset and the range
+// loop floors). The rendered grid expressions key their stop bound off
+// the envelope end (emit.GridEvalTSParams uses end + step) and would emit
+// one extra evaluation point past an unaligned end, so the envelope end
+// must be clamped to the grid. Mirrors the floor semantics of the local
+// executor's `!ts.After(end)` loop in local/planner_labels.go.
+func alignSubqueryStepEnd(windowEndMS, stepMS int64) int64 {
+	if stepMS <= 0 {
+		return windowEndMS
+	}
+	aligned := (windowEndMS / stepMS) * stepMS
+	if aligned > windowEndMS {
+		aligned -= stepMS
 	}
 	return aligned
 }

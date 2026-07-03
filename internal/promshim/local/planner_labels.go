@@ -248,12 +248,18 @@ func (p *localSubqueryPlan) executionWindow(params EvalParams) (time.Time, time.
 	return time.UnixMilli(startMS).UTC(), end, step, nil
 }
 
+// alignLocalSubqueryStepStart returns the first subquery evaluation
+// timestamp STRICTLY after windowStartMS that is an absolute multiple of
+// stepMS. Prometheus 3.x evaluates subqueries over the left-open interval
+// (t-range, t]: the grid start is aligned to absolute step multiples and
+// the point exactly at t-range is excluded (promql/engine.go, SubqueryExpr
+// case). Mirrors alignSubqueryStepStart in native/renderer/sqlutil.go.
 func alignLocalSubqueryStepStart(windowStartMS, stepMS int64) int64 {
 	if stepMS <= 0 {
 		return windowStartMS
 	}
 	alignedStartMS := (windowStartMS / stepMS) * stepMS
-	if alignedStartMS < windowStartMS {
+	if alignedStartMS <= windowStartMS {
 		alignedStartMS += stepMS
 	}
 	return alignedStartMS

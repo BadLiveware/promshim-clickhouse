@@ -79,18 +79,23 @@ func StaleNaNFilter(columnSQL string) string {
 
 // GridEvalTSParams returns the arrayJoin grid expression keyed off the
 // standard {start_ms:Int64}/{end_ms:Int64}/{step_ms:Int64} query parameters.
-// Stop bound is `end_ms + step_ms` so the grid is inclusive of end_ms when
-// it lies on a step boundary. Shape used by the selector-side range
-// queries.
+// range() emits start_ms + k*step_ms strictly below the stop bound, so with
+// stop `end_ms + step_ms` the grid includes end_ms when end_ms - start_ms is
+// a multiple of step_ms — and OVERSHOOTS by one grid point past end_ms when
+// it is not. Callers must bind an end_ms that lies on the start_ms-phased
+// step grid (subquery envelopes clamp via alignSubqueryStepEnd). Shape used
+// by the selector-side range queries.
 func GridEvalTSParams() string {
 	return "arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), " +
 		"range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64})))"
 }
 
 // GridEvalTSLiteral returns the arrayJoin grid expression with start/end/step
-// baked in as integer literals. Stop bound is `endMS + 1` so endMS is
-// included regardless of step alignment. Shape used by renderer-side grids
-// once the evaluation range is resolved.
+// baked in as integer literals. range() emits startMS + k*stepMS strictly
+// below the stop bound, so with stop `endMS + 1` the grid never overshoots
+// endMS; endMS itself is emitted only when endMS - startMS is a multiple of
+// stepMS. Shape used by renderer-side grids once the evaluation range is
+// resolved.
 func GridEvalTSLiteral(startMS, endMS, stepMS int64) string {
 	return "arrayJoin(arrayMap(ts_ms -> fromUnixTimestamp64Milli(ts_ms), " +
 		"range(" + strconv.FormatInt(startMS, 10) +

@@ -138,7 +138,7 @@ func renderAbsentOverTimeWindowedSourceLogical(ctx LoweringCtx, child logicalpkg
 		if err != nil {
 			return "", nil, err
 		}
-		windowedSQL, err := buildWindowedArraysSourceSQL(namespacedSQL, "absent_over_time", params.StartMS, params.EndMS, params.StepMS, lookbackMS, offsetMS)
+		windowedSQL, err := buildWindowedArraysSourceSQL(namespacedSQL, "absent_over_time", params.StartMS, params.EndMS, params.StepMS, lookbackMS, offsetMS, false)
 		if err != nil {
 			return "", nil, err
 		}
@@ -166,7 +166,7 @@ func renderAbsentOverTimeWindowedSourceLogical(ctx LoweringCtx, child logicalpkg
 		if err != nil {
 			return "", nil, err
 		}
-		windowedSQL, err := buildWindowedArraysSourceSQL(namespacedSQL, "absent_over_time", params.StartMS, params.EndMS, params.StepMS, c.Range.Milliseconds(), c.Offset.Milliseconds())
+		windowedSQL, err := buildWindowedArraysSourceSQL(namespacedSQL, "absent_over_time", params.StartMS, params.EndMS, params.StepMS, c.Range.Milliseconds(), c.Offset.Milliseconds(), true)
 		if err != nil {
 			return "", nil, err
 		}

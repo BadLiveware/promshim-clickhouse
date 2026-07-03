@@ -70,6 +70,12 @@ func subqueryRenderEnvelopeLogical(n *logicalpkg.SubqueryPlan, params RenderPara
 	}
 	rangeMS := n.Range.Milliseconds()
 	offsetMS := n.Offset.Milliseconds()
+	// The envelope end must be clamped DOWN to the last absolute step
+	// multiple (alignSubqueryStepEnd) after the grid start is derived from
+	// the raw window start: Prometheus's subquery grid contains only
+	// absolute multiples of step, and the rendered grid stop bounds
+	// (range(start, end + step, step) in emit.GridEvalTSParams) would
+	// otherwise emit an extra evaluation point past an unaligned t-offset.
 	switch params.Mode {
 	case native.RenderModeInstant:
 		endMS := params.EvaluationTimeMS
@@ -80,21 +86,21 @@ func subqueryRenderEnvelopeLogical(n *logicalpkg.SubqueryPlan, params RenderPara
 		}
 		endMS -= offsetMS
 		startMS := alignSubqueryStepStart(endMS-rangeMS, stepMS)
-		return startMS, endMS, stepMS, nil
+		return startMS, alignSubqueryStepEnd(endMS, stepMS), stepMS, nil
 	case native.RenderModeRange:
 		if n.Timestamp != nil {
 			endMS := *n.Timestamp - offsetMS
 			startMS := alignSubqueryStepStart(endMS-rangeMS, stepMS)
-			return startMS, endMS, stepMS, nil
+			return startMS, alignSubqueryStepEnd(endMS, stepMS), stepMS, nil
 		}
 		if resolved, ok := resolveSubqueryStartEndMS(n.StartOrEnd, params); ok {
 			endMS := resolved - offsetMS
 			startMS := alignSubqueryStepStart(endMS-rangeMS, stepMS)
-			return startMS, endMS, stepMS, nil
+			return startMS, alignSubqueryStepEnd(endMS, stepMS), stepMS, nil
 		}
 		endMS := params.EndMS - offsetMS
 		startMS := alignSubqueryStepStart(params.StartMS-offsetMS-rangeMS, stepMS)
-		return startMS, endMS, stepMS, nil
+		return startMS, alignSubqueryStepEnd(endMS, stepMS), stepMS, nil
 	default:
 		return 0, 0, 0, fmt.Errorf("native subquery rendering in %s mode is not implemented yet", params.Mode)
 	}

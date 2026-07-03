@@ -299,6 +299,60 @@ func TestLowerRangeFunctionOverSubqueryUsesLeftOpenWindow(t *testing.T) {
 		}
 	})
 
+	// sum_over_time over a fusible aggregation subquery child routes
+	// through the rows fast path (buildRangeFunctionOverRowsSQL), whose
+	// window bound is a per-row source.timestamp comparator rather than the
+	// arrays tupleElement form. Pin its left-open lower bound directly.
+	t.Run("rows_fast_path_subquery_child_left_open", func(t *testing.T) {
+		root, analysis, nativeAnalysis := buildLowerInputs(t, `sum_over_time(sum(rate(http_requests_total[1m]))[15m:1m])`)
+		rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: params}, root)
+		if err != nil {
+			t.Fatalf("Lower: %v", err)
+		}
+		if !strings.Contains(rq.SQL, "source.timestamp > grid.eval_ts - toIntervalMillisecond(900000)") {
+			t.Fatalf("expected left-open rows fast-path window lower bound, got %s", rq.SQL)
+		}
+		if strings.Contains(rq.SQL, "source.timestamp >= grid.eval_ts - toIntervalMillisecond(900000)") {
+			t.Fatalf("rows fast-path window lower bound must not be closed, got %s", rq.SQL)
+		}
+	})
+
+	// quantile_over_time is not a rows fast-path function, so a fusible
+	// aggregation subquery child routes through buildWindowedRowsSourceSQL
+	// (the groupArray rows-window builder). Pin its left-open source.timestamp
+	// bound too.
+	t.Run("windowed_rows_subquery_child_left_open", func(t *testing.T) {
+		root, analysis, nativeAnalysis := buildLowerInputs(t, `quantile_over_time(0.5, sum(rate(http_requests_total[1m]))[15m:1m])`)
+		rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: params}, root)
+		if err != nil {
+			t.Fatalf("Lower: %v", err)
+		}
+		if !strings.Contains(rq.SQL, "source.timestamp > grid.eval_ts - toIntervalMillisecond(900000)") {
+			t.Fatalf("expected left-open windowed-rows window lower bound, got %s", rq.SQL)
+		}
+		if strings.Contains(rq.SQL, "source.timestamp >= grid.eval_ts - toIntervalMillisecond(900000)") {
+			t.Fatalf("windowed-rows window lower bound must not be closed, got %s", rq.SQL)
+		}
+	})
+
+	// Aggregation over a range function over a subquery routes through the
+	// fused arrays-rows builder (buildRangeFunctionOverWindowedArraysRowsSQL
+	// in aggregation_range_fused.go), whose window bound uses the arrays
+	// tupleElement form. Pin its left-open bound and the absence of >=.
+	t.Run("fused_range_aggregation_subquery_child_left_open", func(t *testing.T) {
+		root, analysis, nativeAnalysis := buildLowerInputs(t, `sum(quantile_over_time(0.5, http_requests_total[15m:1m]))`)
+		rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: params}, root)
+		if err != nil {
+			t.Fatalf("Lower: %v", err)
+		}
+		if !strings.Contains(rq.SQL, "tupleElement(point, 1) > grid.eval_ts - toIntervalMillisecond(900000)") {
+			t.Fatalf("expected left-open fused-aggregation window lower bound, got %s", rq.SQL)
+		}
+		if strings.Contains(rq.SQL, "tupleElement(point, 1) >= grid.eval_ts - toIntervalMillisecond(900000)") {
+			t.Fatalf("fused-aggregation window lower bound must not be closed, got %s", rq.SQL)
+		}
+	})
+
 	t.Run("raw_selector_child_stays_closed", func(t *testing.T) {
 		root, analysis, nativeAnalysis := buildLowerInputs(t, `deriv(cpu_usage[10m])`)
 		rq, err := Lower(LoweringCtx{Config: testRenderConfig(), Analysis: analysis, NativeAnalysis: nativeAnalysis, Params: params}, root)

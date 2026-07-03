@@ -391,3 +391,100 @@ func TestLowerInstantRangeFunctionOverSubqueryEnvelopeExcludesBoundary(t *testin
 		t.Fatalf("expected subquery grid step %q, got %q", want, got)
 	}
 }
+
+// TestLowerInstantRangeFunctionOverSubqueryUnalignedEvalClampsGridEnd is
+// the issue #33 defect-2 probe shape: count_over_time(up[15m:5m]) at an
+// instant t with t % step != 0. The subquery child's leaf grid renders
+// range({start_ms}, {end_ms} + {step_ms}, {step_ms}); if end_ms is bound
+// to the unaligned t, that stop bound emits an extra evaluation point at
+// the first step multiple past t, and the instant range function (which
+// aggregates the whole child envelope without a window filter) counts it:
+// promshim answered 4 where Prometheus answers 3. The envelope end must
+// be clamped to floor(t/step)*step. Promqltest-verified: at t=3660s the
+// grid is exactly {3000s, 3300s, 3600s}.
+func TestLowerInstantRangeFunctionOverSubqueryUnalignedEvalClampsGridEnd(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `count_over_time(up[15m:5m])`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 3_660_000},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if !strings.Contains(rq.SQL, "range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64})") {
+		t.Fatalf("expected leaf grid range({start_ms}, {end_ms} + {step_ms}, {step_ms}) in SQL, got %s", rq.SQL)
+	}
+	if got, want := rq.QueryParams["param_start_ms"], "3000000"; got != want {
+		t.Fatalf("expected subquery grid start %q, got %q", want, got)
+	}
+	if got, want := rq.QueryParams["param_end_ms"], "3600000"; got != want {
+		t.Fatalf("expected subquery grid end %q (last absolute step multiple <= t), got %q", want, got)
+	}
+	if got, want := rq.QueryParams["param_step_ms"], "300000"; got != want {
+		t.Fatalf("expected subquery grid step %q, got %q", want, got)
+	}
+}
+
+// TestLowerRangeModeRangeFunctionOverAnchoredSubqueryClampsGridEnd covers
+// the range-mode variant: an @-anchored subquery whose fixed inner end
+// (1810s) is not a multiple of the 5m subquery step. Unlike the plain
+// range-mode case, the outer per-step window filter does not mask an
+// overshoot here — once eval_ts passes the extra point it leaks into the
+// window. Promqltest-verified inner grid: {1200s, 1500s, 1800s}.
+func TestLowerRangeModeRangeFunctionOverAnchoredSubqueryClampsGridEnd(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `count_over_time(up[15m:5m] @ 1810)`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         RenderParams{Mode: native.RenderModeRange, StartMS: 3_600_000, EndMS: 3_720_000, StepMS: 60_000},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if got, want := rq.QueryParams["param_start_ms"], "1200000"; got != want {
+		t.Fatalf("expected anchored subquery grid start %q, got %q", want, got)
+	}
+	if got, want := rq.QueryParams["param_end_ms"], "1800000"; got != want {
+		t.Fatalf("expected anchored subquery grid end %q (last absolute step multiple <= anchor), got %q", want, got)
+	}
+	if got, want := rq.QueryParams["param_step_ms"], "300000"; got != want {
+		t.Fatalf("expected anchored subquery grid step %q, got %q", want, got)
+	}
+}
+
+// TestLowerInstantFusedSubqueryRowsGridEndIsStepAligned pins the fused
+// aggregation-over-range-function subquery path at unaligned t. The fused
+// rows (sum(count_over_time(up[1m])) evaluated over the subquery
+// envelope) render their evaluation grid through the parameterized
+// range({start_ms}, {end_ms} + {step_ms}, {step_ms}) shape, and the outer
+// instant sum_over_time aggregates every row without a window filter — so
+// an unclamped end_ms binding emits an extra evaluation point past t and
+// inflates the result. The bound envelope must be the Prometheus grid
+// {3000s, 3300s, 3600s} exactly.
+func TestLowerInstantFusedSubqueryRowsGridEndIsStepAligned(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `sum_over_time(sum(count_over_time(up[1m]))[15m:5m])`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         RenderParams{Mode: native.RenderModeInstant, EvaluationTimeMS: 3_660_000},
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	if !strings.Contains(rq.SQL, "range({start_ms:Int64}, {end_ms:Int64} + {step_ms:Int64}, {step_ms:Int64})") {
+		t.Fatalf("expected fused rows grid range({start_ms}, {end_ms} + {step_ms}, {step_ms}) in SQL, got %s", rq.SQL)
+	}
+	if got, want := rq.QueryParams["param_start_ms"], "3000000"; got != want {
+		t.Fatalf("expected fused subquery grid start %q, got %q", want, got)
+	}
+	if got, want := rq.QueryParams["param_end_ms"], "3600000"; got != want {
+		t.Fatalf("expected fused subquery grid end %q (last absolute step multiple <= t), got %q", want, got)
+	}
+	if got, want := rq.QueryParams["param_step_ms"], "300000"; got != want {
+		t.Fatalf("expected fused subquery grid step %q, got %q", want, got)
+	}
+}

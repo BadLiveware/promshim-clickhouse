@@ -3694,11 +3694,14 @@ func TestAlignLocalSubqueryStepStart(t *testing.T) {
 // (t-range, t], matching Prometheus.
 func TestLocalSubqueryPlanMatchesPrometheusPointCounts(t *testing.T) {
 	const alignedEval = 3600 // seconds; multiple of 1m and 5m
+	anchor1810 := int64(1_810_000) // milliseconds; NOT a multiple of 5m
 	for _, tc := range []struct {
 		name      string
 		rng       time.Duration
 		step      time.Duration
-		evalTime  int64 // seconds
+		offset    time.Duration
+		timestamp *int64 // @ anchor, milliseconds
+		evalTime  int64  // seconds
 		wantCalls []int64
 	}{
 		{name: "15m_1m_aligned", rng: 15 * time.Minute, step: time.Minute, evalTime: alignedEval,
@@ -3715,13 +3718,24 @@ func TestLocalSubqueryPlanMatchesPrometheusPointCounts(t *testing.T) {
 			wantCalls: []int64{3600}},
 		{name: "1m_5m_empty_window", rng: time.Minute, step: 5 * time.Minute, evalTime: alignedEval - 150,
 			wantCalls: []int64{}},
+		// Unaligned t with offset: window end 3660-90=3570s is off-grid;
+		// the grid must stop at floor(3570/300)*300 = 3300s, never emit a
+		// point at or past 3570s. Promqltest-verified.
+		{name: "15m_5m_offset_90s_unaligned_eval", rng: 15 * time.Minute, step: 5 * time.Minute, offset: 90 * time.Second, evalTime: alignedEval + 60,
+			wantCalls: []int64{2700, 3000, 3300}},
+		// @-anchored unaligned end (1810s, step 5m): grid must stop at
+		// 1800s regardless of the outer evaluation time. Promqltest-verified.
+		{name: "15m_5m_at_1810", rng: 15 * time.Minute, step: 5 * time.Minute, timestamp: &anchor1810, evalTime: alignedEval,
+			wantCalls: []int64{1200, 1500, 1800}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := make([]int64, 0)
 			plan := &localSubqueryPlan{
-				Expr:  mustParseExpr(t, "(up * 100)[2m:1m]"), // expression text is irrelevant here
-				Range: tc.rng,
-				Step:  tc.step,
+				Expr:      mustParseExpr(t, "(up * 100)[2m:1m]"), // expression text is irrelevant here
+				Range:     tc.rng,
+				Step:      tc.step,
+				Offset:    tc.offset,
+				Timestamp: tc.timestamp,
 				Child: testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 					calls = append(calls, params.EvaluationTime.Unix())
 					ts := float64(params.EvaluationTime.Unix())

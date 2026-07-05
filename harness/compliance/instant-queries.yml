@@ -1,0 +1,76 @@
+# Instant-mode differential coverage for the compliance suite.
+#
+# The upstream prometheus/compliance tester only issues query_range requests,
+# so the instant fast paths (e.g. buildInstantRateOverRowsSQL) were never
+# differentially validated against reference Prometheus. This corpus is
+# evaluated at the pinned fixture end_time via /api/v1/query on both promshim
+# (:29091) and reference Prometheus (:29090) and compared within Prometheus's
+# default float tolerance.
+#
+# Scope: the counter/rate/increase family (the class that hid the instant-rate
+# counter-reset bug) plus a representative spread across gauge aggregation,
+# selectors, and range-vector functions. Kept small on purpose — a handful of
+# instant queries, not a combinatorial expansion.
+#
+# Gaps stay visible: do NOT add entries here to paper over a divergence, and do
+# NOT allowlist instant divergences in expected-failures.json. A failure here is
+# a real shim bug or a genuine reference-side difference to be reported.
+queries:
+  # --- counter/rate/increase family: the reset-sensitive class ---
+  - rate(demo_cpu_usage_seconds_total{mode="idle"}[1h])
+  - rate(demo_cpu_usage_seconds_total[1h])
+  - rate(demo_cpu_usage_seconds_total[5m])
+  - increase(demo_cpu_usage_seconds_total[1h])
+  - increase(demo_cpu_usage_seconds_total[5m])
+  - irate(demo_cpu_usage_seconds_total[5m])
+  - idelta(demo_cpu_usage_seconds_total[5m])
+  - resets(demo_cpu_usage_seconds_total[1h])
+  - changes(demo_cpu_usage_seconds_total[1h])
+  - sum(rate(demo_cpu_usage_seconds_total[1h]))
+  - sum by (mode) (rate(demo_cpu_usage_seconds_total[1h]))
+  - avg by (mode) (rate(demo_cpu_usage_seconds_total[1h]))
+  - histogram_quantile(0.9, sum by (le) (rate(demo_api_request_duration_seconds_bucket[1h])))
+
+  # --- gauge aggregation and selectors ---
+  - demo_memory_usage_bytes
+  - sum(demo_memory_usage_bytes)
+  - sum by (job) (demo_memory_usage_bytes)
+  - max(demo_memory_usage_bytes)
+  - topk(3, demo_memory_usage_bytes)
+  - count(demo_num_cpus)
+
+  # --- range-vector aggregation over gauges ---
+  - avg_over_time(demo_memory_usage_bytes[1h])
+  - max_over_time(demo_memory_usage_bytes[1h])
+  - min_over_time(demo_memory_usage_bytes[1h])
+  - sum_over_time(demo_memory_usage_bytes[5m])
+  - delta(demo_memory_usage_bytes[1h])
+  - deriv(demo_memory_usage_bytes[1h])
+  - stddev_over_time(demo_memory_usage_bytes[1h])
+
+  # --- arithmetic / scalar ---
+  # (demo_memory_usage_bytes % 1.2345 is intentionally excluded: ClickHouse
+  # native modulo drifts by sub-1e-6 vs Go math.Mod on large operands, an
+  # accepted primitive difference already covered by the range suite's
+  # native-modulo-small-float-drift tolerance. Including it under the strict
+  # instant gate would produce a false regression.)
+  - demo_memory_usage_bytes / 1024
+
+# Pre-existing, separately-tracked divergences: evaluated and reported every run
+# so they stay VISIBLE and any change surfaces, but they do NOT gate. This is not
+# expected-failures.json and must never hide an in-scope shim bug — each entry
+# needs a note pointing at the tracked defect.
+#
+# The rate/increase offset extrapolation bug below was discovered by this very
+# instant coverage. It is INDEPENDENT of the counter-reset fix that added this
+# corpus: the extrapolation factor is anchored at the raw evaluation time instead
+# of (evaluation time - offset), so rate/increase/delta with an `offset` modifier
+# read ~8% low. It affects BOTH instant and range modes (the range compliance
+# corpus happens not to exercise `rate(...offset...)`, which is why it went
+# unnoticed). Fixing it is out of scope here; tracked separately. Do NOT
+# allowlist it in expected-failures.json.
+known_divergences:
+  - query: rate(demo_cpu_usage_seconds_total{mode="idle"}[1h] offset 5m)
+    note: "pre-existing offset extrapolation anchoring bug (reads ~8% low); independent of the counter-reset fix; affects range mode too; tracked separately"
+  - query: increase(demo_cpu_usage_seconds_total{mode="idle"}[1h] offset 5m)
+    note: "pre-existing offset extrapolation anchoring bug (reads ~8% low); independent of the counter-reset fix; affects range mode too; tracked separately"

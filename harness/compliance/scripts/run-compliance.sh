@@ -90,6 +90,42 @@ jq '{
   unsupported: [.results[] | select(.unsupported == true)] | length
 }' < "$OUTPUT_FILE"
 
+# Instant-mode differential coverage. The upstream tester only issues
+# query_range requests, so the instant fast paths went differentially
+# unvalidated (this is how the instant-rate counter-reset bug hid). Compare a
+# curated instant corpus at the same pinned end_time on both targets. Gate in
+# prefer mode (a divergence is a real bug, never allowlisted); informational in
+# native mode like the range gap report.
+INSTANT_EVAL_TIME="$(awk -F"'" '/end_time:/ {print $2; exit}' "${ROOT}/test-promshim.yml")"
+INSTANT_CORPUS="${ROOT}/instant-queries.yml"
+if [[ -z "$INSTANT_EVAL_TIME" ]]; then
+  echo ">> WARNING: could not read end_time from test-promshim.yml; skipping instant differential coverage." >&2
+elif [[ ! -f "$INSTANT_CORPUS" ]]; then
+  echo ">> WARNING: instant corpus not found (${INSTANT_CORPUS}); skipping instant differential coverage." >&2
+else
+  instant_parts=( "compliance-report-instant" )
+  [[ -n "$suffix" ]] && instant_parts+=( "$suffix" )
+  instant_parts+=( "$STAMP" )
+  IFS=- INSTANT_OUTPUT_FILE="${OUTPUT_DIR}/$(printf '%s' "${instant_parts[*]}").json"; unset IFS
+  instant_args=(
+    --corpus "$INSTANT_CORPUS"
+    --reference-url "http://localhost:29090"
+    --test-url "http://localhost:29091"
+    --eval-time "$INSTANT_EVAL_TIME"
+    --json-out "$INSTANT_OUTPUT_FILE"
+  )
+  [[ -n "$mode" ]] && instant_args+=( --mode "$mode" )
+  if [[ "$mode" == "native" ]]; then
+    echo
+    echo ">> Instant differential coverage${mode_banner} (informational)"
+    (cd "$REPO_ROOT" && go run ./cmd/promshim-instant-compliance "${instant_args[@]}") || true
+  else
+    echo
+    echo ">> Instant differential coverage${mode_banner} (gated)"
+    (cd "$REPO_ROOT" && go run ./cmd/promshim-instant-compliance "${instant_args[@]}" --gate)
+  fi
+fi
+
 if [[ "$mode" == "native" ]]; then
   # Native-mode gaps are tracked openly, not allowlisted. The outer
   # runner calls scripts/native-gap-report.sh for a categorized view;

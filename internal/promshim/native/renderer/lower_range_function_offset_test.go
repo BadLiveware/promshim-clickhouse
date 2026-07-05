@@ -129,6 +129,62 @@ func TestInstantRateSubqueryOffsetAnchor_Fallback(t *testing.T) {
 	assertAnchor(t, rq.SQL, instantShiftedAnchor, instantUnshiftedAnchor)
 }
 
+// subqueryInstantParams derives the production required bounds for a
+// subquery query and returns instant RenderParams carrying them, mirroring
+// TestInstantRateSubqueryOffsetAnchor_Fallback.
+func subqueryInstantParams(t *testing.T, query string) RenderParams {
+	t.Helper()
+	root, _, _ := buildLowerInputs(t, query)
+	startMS, endMS, ok := LogicalRequiredInputBounds(root, native.OptimizationContext{
+		Mode:             native.RenderModeInstant,
+		EvaluationTimeMS: offsetTestEvalMS,
+	})
+	if !ok {
+		t.Fatalf("LogicalRequiredInputBounds returned !ok for %q", query)
+	}
+	return RenderParams{
+		Mode:             native.RenderModeInstant,
+		EvaluationTimeMS: offsetTestEvalMS,
+		RequiredStartMS:  startMS,
+		RequiredEndMS:    endMS,
+	}
+}
+
+func TestInstantRateSubqueryAtModifierAnchor(t *testing.T) {
+	// Subquery child with a literal @ (range_logical.go: sub.Timestamp != nil):
+	// the extrapolation anchor is the subquery's @ time (1699998200000), not
+	// the outer evaluation time. Matches instantShiftedAnchor (== @ time).
+	query := `rate(http_requests_total[5m:15s] @ 1699998200)`
+	rq := lowerForTest(t, query, subqueryInstantParams(t, query))
+	assertAnchor(t, rq.SQL, instantShiftedAnchor, instantUnshiftedAnchor)
+}
+
+func TestInstantRateSubqueryAtModifierWithOffsetAnchor(t *testing.T) {
+	// Subquery @ combined with the subquery's own offset: the effective
+	// anchor is @ts - offset = 1699998200000 - 1800000 = 1699996400000
+	// (Prometheus's evalSubquery carries both the subquery @ and offset).
+	query := `rate(http_requests_total[5m:15s] @ 1699998200 offset 30m)`
+	rq := lowerForTest(t, query, subqueryInstantParams(t, query))
+	const wantAnchor = "((1699996400000) - 300000.0)" // @ts - 30m
+	assertAnchor(t, rq.SQL, wantAnchor, instantUnshiftedAnchor)
+}
+
+func TestInstantRateSubqueryAtStartEndAnchor(t *testing.T) {
+	// Subquery @ start()/@ end() (range_logical.go: resolveSubqueryStartEndMS):
+	// in instant mode both resolve to the evaluation time, so the anchor is
+	// the raw eval time (== instantUnshiftedAnchor here, which is correct for
+	// this shape rather than the bug).
+	for _, query := range []string{
+		`rate(http_requests_total[5m:15s] @ start())`,
+		`rate(http_requests_total[5m:15s] @ end())`,
+	} {
+		t.Run(query, func(t *testing.T) {
+			rq := lowerForTest(t, query, subqueryInstantParams(t, query))
+			assertAnchor(t, rq.SQL, instantUnshiftedAnchor, "")
+		})
+	}
+}
+
 func TestInstantRateAtModifierAnchor(t *testing.T) {
 	// rate(x[5m] @ 1699998200) evaluated at 1700000000: the anchor is
 	// the @ time, not the outer evaluation time.

@@ -735,6 +735,13 @@ func rangeFunctionOffset(expr parser.Expr) time.Duration {
 // rate/increase/delta call's argument, or nil when the argument carries no
 // @ modifier. Like rangeFunctionOffset, the subquery's own @ applies for
 // subquery arguments.
+//
+// TODO: this only reads a literal @ timestamp; it does not resolve
+// @ start()/@ end() (parser.StartOrEnd), which the renderer handles via
+// resolveSubqueryStartEndMS. In instant mode start()/end() equal the
+// evaluation time so the current nil result is correct, but a range-mode
+// local evaluation would resolve start()/end() to the range endpoints and
+// would drift here. Left as pre-existing incompleteness for issue #36.
 func rangeFunctionTimestampMS(expr parser.Expr) *int64 {
 	call, ok := expr.(*parser.Call)
 	if !ok || len(call.Args) == 0 {

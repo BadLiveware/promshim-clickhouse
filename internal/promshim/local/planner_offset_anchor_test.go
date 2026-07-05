@@ -124,3 +124,45 @@ func TestLocalIncreasePlanOffsetShiftsExtrapolationAnchor(t *testing.T) {
 	}
 }
 
+// The tests below cover subquery arguments: rangeFunctionOffset and
+// rangeFunctionTimestampMS read the *subquery's* own offset/@ (Prometheus's
+// evalSubquery synthesizes a MatrixSelector carrying them), so the tier-4
+// anchor math must shift by them exactly as for a matrix selector. The child
+// (the evaluated subquery samples) is stubbed with the same static matrix
+// used above, so the assertions isolate the plan-level anchor arithmetic.
+
+func TestLocalRatePlanSubqueryOffsetShiftsExtrapolationAnchor(t *testing.T) {
+	// rate(test_counter[5m:15s] offset 30m): the subquery offset shifts the
+	// extrapolation window end to eval-30m. Samples cover (eval-35m, eval-30m],
+	// so the factor is 1 and the rate is exactly 91.3/s. Without the offset
+	// subtraction the anchor stays at the raw eval time and the factor flips
+	// negative (the issue #36 defect).
+	child := &staticMatrixPlan{matrix: counterWindowMatrix(anchorTestEvalSec - 1800.0)}
+	vector := executeInstantPlanForAnchorTest(t, `rate(test_counter[5m:15s] offset 30m)`, child)
+	if got := vector.Samples[0].Value; math.Abs(got-anchorTestRateSec) > 1e-9 {
+		t.Errorf("subquery rate with offset 30m: expected %.3f, got %.3f", anchorTestRateSec, got)
+	}
+}
+
+func TestLocalRatePlanSubqueryAtModifierShiftsExtrapolationAnchor(t *testing.T) {
+	// rate(test_counter[5m:15s] @ 1699998200): the subquery @ pins the anchor
+	// to the @ time regardless of the outer evaluation time.
+	child := &staticMatrixPlan{matrix: counterWindowMatrix(1_699_998_200.0)}
+	vector := executeInstantPlanForAnchorTest(t, `rate(test_counter[5m:15s] @ 1699998200)`, child)
+	if got := vector.Samples[0].Value; math.Abs(got-anchorTestRateSec) > 1e-9 {
+		t.Errorf("subquery rate with @: expected %.3f, got %.3f", anchorTestRateSec, got)
+	}
+}
+
+func TestLocalRatePlanSubqueryAtWithOffsetShiftsExtrapolationAnchor(t *testing.T) {
+	// rate(test_counter[5m:15s] @ 1700001800 offset 30m): the effective anchor
+	// is @ts - offset = 1700001800 - 1800 = 1700000000 (== anchorTestEvalSec),
+	// so the @ and the offset combine. Samples cover (anchor-5m, anchor], factor
+	// 1, rate exactly 91.3/s.
+	child := &staticMatrixPlan{matrix: counterWindowMatrix(anchorTestEvalSec)}
+	vector := executeInstantPlanForAnchorTest(t, `rate(test_counter[5m:15s] @ 1700001800 offset 30m)`, child)
+	if got := vector.Samples[0].Value; math.Abs(got-anchorTestRateSec) > 1e-9 {
+		t.Errorf("subquery rate with @ + offset: expected %.3f, got %.3f", anchorTestRateSec, got)
+	}
+}
+

@@ -160,9 +160,12 @@ func (p *localIncreasePlan) explain() ExplainNode {
 }
 
 type localDeltaPlan struct {
-	Expr  string
-	Func  string
-	Child Plan
+	Expr      string
+	Func      string
+	Range     time.Duration
+	Offset    time.Duration
+	Timestamp *int64
+	Child     Plan
 }
 
 func (p *localDeltaPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
@@ -175,7 +178,15 @@ func (p *localDeltaPlan) execute(ctx context.Context, Evaluator *Evaluator, para
 		var vector model.VectorValue
 		switch p.Func {
 		case "delta":
-			vector, err = exec.ApplyDelta(childValue)
+			// Prometheus's delta extrapolates to the window boundaries just
+			// like rate/increase (extrapolatedRate with isCounter=false);
+			// idelta below does not.
+			if p.Range > 0 {
+				rangeEnd := extrapolationRangeEndSeconds(params, p.Timestamp, p.Offset)
+				vector, err = exec.ApplyDeltaWithBounds(childValue, rangeEnd-p.Range.Seconds(), rangeEnd)
+			} else {
+				vector, err = exec.ApplyDelta(childValue)
+			}
 		case "idelta":
 			vector, err = exec.ApplyIDelta(childValue)
 		default:

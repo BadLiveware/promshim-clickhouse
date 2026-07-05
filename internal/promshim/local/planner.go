@@ -574,7 +574,7 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nati
 		if err != nil {
 			return nil, WithInternalContext(err, "building execution child plan for %s %q", node.Func, node.ExprString())
 		}
-		return annotateQueryPlan(&localDeltaPlan{Expr: node.ExprString(), Func: node.Func, Child: child}, analysis.InfoFor(node)), nil
+		return annotateQueryPlan(&localDeltaPlan{Expr: node.ExprString(), Func: node.Func, Range: rangeFunctionWindow(node.Expr), Offset: rangeFunctionOffset(node.Expr), Timestamp: rangeFunctionTimestampMS(node.Expr), Child: child}, analysis.InfoFor(node)), nil
 	case *logicalChangesPlan:
 		if ctx.AllowsNativePlanning() {
 			if nativePlan, ok, err := maybeBuildNativeChangesPlan(node, ctx, analysis); err != nil {

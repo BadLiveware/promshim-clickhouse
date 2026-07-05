@@ -890,7 +890,12 @@ func directRangeWindowAggregateSpec(fn string) ([]sqlb.ColExpr, string, error) {
 		// (by d.id + eval bucket) has no ordered neighbour access, so build the
 		// time-ordered value array and fold adjacent pairs with the same
 		// reset-aware delta used by the window-join path.
-		orderedValues := "arrayMap(x -> x.2, arraySort(x -> x.1, groupArray((toUnixTimestamp64Milli(d.timestamp), " + valueExpr + "))))"
+		// Full-tuple arraySort (not arraySort(x -> x.1, ...)): sorting by
+		// timestamp alone is nondeterministic when two samples share a
+		// timestamp, which changes which value each pairwise fold sees. Sorting
+		// the whole (timestamp, value) tuple breaks ties by value, matching the
+		// renderer's rate idiom (renderer/range.go).
+		orderedValues := "arrayMap(x -> x.2, arraySort(groupArray((toUnixTimestamp64Milli(d.timestamp), " + valueExpr + "))))"
 		counterDeltaExpr := "arraySum(arrayMap((p, c) -> if(isNaN(c) OR isNaN(p), toFloat64(0), if(c < p, c, c - p)), arrayPopBack(" + orderedValues + "), arrayPopFront(" + orderedValues + ")))"
 		return []sqlb.ColExpr{
 			{Expr: sqlb.RawLit{V: "countIf(isNaN(" + valueExpr + "))"}, Alias: "nan_count"},

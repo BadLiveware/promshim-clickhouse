@@ -380,7 +380,7 @@ func TestAggregationByRateRangeUsesSparseDirectAggregateWhenNonOverlapping(t *te
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
 	}
-	for _, expected := range []string{"arraySort(x -> x.1, groupArray((toUnixTimestamp64Milli(d.timestamp)", "if(c < p, c, c - p)", "GROUP BY d.id, eval_ms", "ARRAY JOIN", "positiveModulo(", "GROUP BY tags, timestamp"} {
+	for _, expected := range []string{"arraySort(groupArray((toUnixTimestamp64Milli(d.timestamp)", "if(c < p, c, c - p)", "GROUP BY d.id, eval_ms", "ARRAY JOIN", "positiveModulo(", "GROUP BY tags, timestamp"} {
 		if !strings.Contains(rq.SQL, expected) {
 			t.Fatalf("expected sparse direct rate aggregation SQL to contain %q, got:\n%s", expected, rq.SQL)
 		}

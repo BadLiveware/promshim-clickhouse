@@ -74,6 +74,12 @@ type report struct {
 	Results        []caseResult `json:"results"`
 	KnownResults   []caseResult `json:"knownDivergenceResults,omitempty"`
 	KnownDiverging int          `json:"knownDivergingObserved"`
+	// KnownStale counts known_divergences entries that no longer diverge (now
+	// pass). A stale entry is a lie: it claims a tracked divergence that is
+	// gone, so it silently suppresses nothing while pretending to. In gate mode
+	// this fails the gate to force the operator to delete the entry (or promote
+	// it to a gating `queries:` entry now that it passes).
+	KnownStale int `json:"knownDivergenceStale"`
 }
 
 func main() {
@@ -109,35 +115,10 @@ func main() {
 		ToleranceFrac: *tolFrac,
 		ToleranceAbs:  *tolAbs,
 	}
-
-	for _, query := range corpus.Queries {
-		result := compareQuery(client, *referenceURL, *testURL, query, *evalTime, *tolFrac, *tolAbs)
-		rep.Results = append(rep.Results, result)
-		rep.Total++
-		switch result.Status {
-		case "pass":
-			rep.Passed++
-		case "diff":
-			rep.Diffs++
-		default:
-			rep.Errors++
-		}
+	compare := func(query string) caseResult {
+		return compareQuery(client, *referenceURL, *testURL, query, *evalTime, *tolFrac, *tolAbs)
 	}
-
-	// Known, separately-tracked divergences are evaluated for visibility but
-	// never gate. They fail loudly in the log so any *change* is noticed.
-	for _, kd := range corpus.KnownDivergences {
-		result := compareQuery(client, *referenceURL, *testURL, kd.Query, *evalTime, *tolFrac, *tolAbs)
-		if result.Detail == "" {
-			result.Detail = kd.Note
-		} else {
-			result.Detail = kd.Note + " | observed: " + result.Detail
-		}
-		rep.KnownResults = append(rep.KnownResults, result)
-		if result.Status != "pass" {
-			rep.KnownDiverging++
-		}
-	}
+	evaluateCorpus(&rep, corpus, compare)
 
 	label := ""
 	if rep.Mode != "" {
@@ -152,8 +133,12 @@ func main() {
 		fmt.Printf("   [%s] %s\n        %s\n", strings.ToUpper(r.Status), r.Query, r.Detail)
 	}
 	if len(rep.KnownResults) > 0 {
-		fmt.Printf(">> Known (tracked, non-gating) divergences: %d queries, %d still diverging\n", len(rep.KnownResults), rep.KnownDiverging)
+		fmt.Printf(">> Known (tracked, non-gating) divergences: %d queries, %d still diverging, %d STALE (now passing)\n", len(rep.KnownResults), rep.KnownDiverging, rep.KnownStale)
 		for _, r := range rep.KnownResults {
+			if r.Status == "pass" {
+				fmt.Printf("   [KNOWN:STALE] %s\n        no longer diverges — delete this known_divergences entry or promote it to queries: (%s)\n", r.Query, r.Detail)
+				continue
+			}
 			fmt.Printf("   [KNOWN:%s] %s\n        %s\n", strings.ToUpper(r.Status), r.Query, r.Detail)
 		}
 	}
@@ -166,10 +151,55 @@ func main() {
 		fmt.Printf(">> Instant report written to: %s\n", *jsonOut)
 	}
 
-	if *gate && (rep.Diffs > 0 || rep.Errors > 0) {
-		fmt.Fprintf(os.Stderr, ">> Instant differential coverage FAILED%s: %d diff, %d error\n", label, rep.Diffs, rep.Errors)
+	if *gate && gateFailed(rep) {
+		fmt.Fprintf(os.Stderr, ">> Instant differential coverage FAILED%s: %d diff, %d error, %d stale known_divergences\n", label, rep.Diffs, rep.Errors, rep.KnownStale)
 		os.Exit(1)
 	}
+}
+
+// evaluateCorpus runs the gating queries and the non-gating known_divergences
+// through compare and tallies the report. compare is injected so the loop is
+// testable without a live HTTP stack.
+func evaluateCorpus(rep *report, corpus queryCorpus, compare func(query string) caseResult) {
+	for _, query := range corpus.Queries {
+		result := compare(query)
+		rep.Results = append(rep.Results, result)
+		rep.Total++
+		switch result.Status {
+		case "pass":
+			rep.Passed++
+		case "diff":
+			rep.Diffs++
+		default:
+			rep.Errors++
+		}
+	}
+
+	// Known, separately-tracked divergences are evaluated for visibility but
+	// never gate on the divergence itself. They are reported every run so a
+	// change is noticed; an entry that has started passing is STALE and gates
+	// (see gateFailed) so the allowlist cannot silently rot.
+	for _, kd := range corpus.KnownDivergences {
+		result := compare(kd.Query)
+		if result.Detail == "" {
+			result.Detail = kd.Note
+		} else {
+			result.Detail = kd.Note + " | observed: " + result.Detail
+		}
+		rep.KnownResults = append(rep.KnownResults, result)
+		if result.Status == "pass" {
+			rep.KnownStale++
+		} else {
+			rep.KnownDiverging++
+		}
+	}
+}
+
+// gateFailed reports whether a gated run should exit non-zero: any real
+// divergence or error in the gating corpus, or any stale known_divergences
+// entry (one that no longer diverges and must be removed or promoted).
+func gateFailed(rep report) bool {
+	return rep.Diffs > 0 || rep.Errors > 0 || rep.KnownStale > 0
 }
 
 func loadCorpus(path string) (queryCorpus, error) {

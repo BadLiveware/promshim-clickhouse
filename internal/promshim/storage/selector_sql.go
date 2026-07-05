@@ -1080,6 +1080,10 @@ func buildRangeInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource
 	// functions applied over the subquery. Group by id (1:1 with tags when
 	// unnarrowed) and carry the per-series tags through with any().
 	outerTagsExpr := sqlb.Expr(sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("tags")}})
+	// ORDER BY tags is only a meaningful total order in the unnarrowed 1:1
+	// id<->tags case; under narrowed projections rows sharing tags have
+	// undefined relative order, which is fine because narrowed leaves always
+	// feed a parent aggregation that re-groups by tags.
 	orderBy := []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}}
 	if !selector.NeedTags {
 		outerTagsExpr = emit.EmptyTagsArray()

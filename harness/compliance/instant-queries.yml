@@ -44,6 +44,11 @@ queries:
   - sum by (instance) (resets(demo_cpu_usage_seconds_total[1h]))
   - sum by (mode) (increase(demo_cpu_usage_seconds_total[1h]))
   - sum by (mode) (changes(demo_cpu_usage_seconds_total[1h]))
+  # Non-pairwise variant: pre-fix, the merged window silently averaged across
+  # the interleaved series instead of summing per-series averages. The bare
+  # avg_over_time/sum_over_time entries below never narrow tags, so this is the
+  # entry locking in per-id collation for non-pairwise window functions too.
+  - sum by (mode) (avg_over_time(demo_cpu_usage_seconds_total[1h]))
 
   # --- gauge aggregation and selectors ---
   - demo_memory_usage_bytes

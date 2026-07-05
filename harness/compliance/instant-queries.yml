@@ -31,6 +31,20 @@ queries:
   - avg by (mode) (rate(demo_cpu_usage_seconds_total[1h]))
   - histogram_quantile(0.9, sum by (le) (rate(demo_api_request_duration_seconds_bucket[1h])))
 
+  # --- multi-series-collapse under a by-clause: a `by (label)` aggregation
+  # narrows the child selector's tag projection so several series share the same
+  # tags. The native instant range-vector materialization must still collate the
+  # (timestamp, value) window per series id; grouping the window by the narrowed
+  # tags folds distinct series into one interleaved array and makes every
+  # pairwise/reset-sensitive range function count spurious deltas across series
+  # boundaries. These gate on rate/increase/changes/resets (all four
+  # pairwise-sensitive functions) plus a mode-grouped and an instance-grouped
+  # variant. Regression coverage for the cross-series reset-detection fix.
+  - sum by (mode) (resets(demo_cpu_usage_seconds_total[1h]))
+  - sum by (instance) (resets(demo_cpu_usage_seconds_total[1h]))
+  - sum by (mode) (increase(demo_cpu_usage_seconds_total[1h]))
+  - sum by (mode) (changes(demo_cpu_usage_seconds_total[1h]))
+
   # --- gauge aggregation and selectors ---
   - demo_memory_usage_bytes
   - sum(demo_memory_usage_bytes)
@@ -69,8 +83,15 @@ queries:
 # corpus happens not to exercise `rate(...offset...)`, which is why it went
 # unnoticed). Fixing it is out of scope here; tracked separately. Do NOT
 # allowlist it in expected-failures.json.
+#
+# OBSOLESCENCE: this is issue #36, fixed on origin branch
+# fix/extrapolation-anchor-offset (upstream PR #40). When that branch lands both
+# entries below MUST be deleted (or promoted to gating `queries:` entries, since
+# they will then match reference). This is not optional bookkeeping: once the fix
+# lands these queries pass, the driver's gate flags them `[KNOWN:STALE]` and
+# fails, forcing the removal mechanically.
 known_divergences:
   - query: rate(demo_cpu_usage_seconds_total{mode="idle"}[1h] offset 5m)
-    note: "pre-existing offset extrapolation anchoring bug (reads ~8% low); independent of the counter-reset fix; affects range mode too; tracked separately"
+    note: "issue #36 offset extrapolation anchoring bug (reads ~8% low); fixed by origin fix/extrapolation-anchor-offset (PR #40) — delete or promote when that lands; independent of the counter-reset fix; affects range mode too"
   - query: increase(demo_cpu_usage_seconds_total{mode="idle"}[1h] offset 5m)
-    note: "pre-existing offset extrapolation anchoring bug (reads ~8% low); independent of the counter-reset fix; affects range mode too; tracked separately"
+    note: "issue #36 offset extrapolation anchoring bug (reads ~8% low); fixed by origin fix/extrapolation-anchor-offset (PR #40) — delete or promote when that lands; independent of the counter-reset fix; affects range mode too"

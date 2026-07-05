@@ -380,10 +380,15 @@ func TestAggregationByRateRangeUsesSparseDirectAggregateWhenNonOverlapping(t *te
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
 	}
-	for _, expected := range []string{"deltaSumTimestamp(", "GROUP BY d.id, eval_ms", "ARRAY JOIN", "positiveModulo(", "GROUP BY tags, timestamp"} {
+	for _, expected := range []string{"arraySort(x -> x.1, groupArray((toUnixTimestamp64Milli(d.timestamp)", "if(c < p, c, c - p)", "GROUP BY d.id, eval_ms", "ARRAY JOIN", "positiveModulo(", "GROUP BY tags, timestamp"} {
 		if !strings.Contains(rq.SQL, expected) {
 			t.Fatalf("expected sparse direct rate aggregation SQL to contain %q, got:\n%s", expected, rq.SQL)
 		}
+	}
+	// The sparse rate aggregate must compute a reset-aware delta, not the
+	// reset-unaware deltaSumTimestamp that undercounts counter resets.
+	if strings.Contains(rq.SQL, "deltaSumTimestamp(") {
+		t.Fatalf("expected sparse direct rate aggregation to avoid reset-unaware deltaSumTimestamp, got:\n%s", rq.SQL)
 	}
 	if strings.Contains(rq.SQL, "timeSeriesRateToGrid(") {
 		t.Fatalf("expected sparse non-overlap rate aggregation to avoid native-grid arrays, got:\n%s", rq.SQL)

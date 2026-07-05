@@ -883,12 +883,21 @@ func directRangeWindowAggregateSpec(fn string) ([]sqlb.ColExpr, string, error) {
 		}, "if(nan_count > 0 OR finite_count = 0, nan, max_value)", nil
 	case "rate":
 		factor := rateExtrapolationFactorSQL("first_timestamp_ms", "last_timestamp_ms", "sample_count", "toUnixTimestamp64Milli(eval_ts)", "{lookback_ms:Int64}")
+		// Prometheus treats a decrease between adjacent samples as a counter
+		// reset: each pair contributes `if(curr < prev, curr, curr - prev)`.
+		// ClickHouse's deltaSumTimestamp contributes 0 on a decrease, which
+		// undercounts whenever a reset falls in the window. The grouping here
+		// (by d.id + eval bucket) has no ordered neighbour access, so build the
+		// time-ordered value array and fold adjacent pairs with the same
+		// reset-aware delta used by the window-join path.
+		orderedValues := "arrayMap(x -> x.2, arraySort(x -> x.1, groupArray((toUnixTimestamp64Milli(d.timestamp), " + valueExpr + "))))"
+		counterDeltaExpr := "arraySum(arrayMap((p, c) -> if(isNaN(c) OR isNaN(p), toFloat64(0), if(c < p, c, c - p)), arrayPopBack(" + orderedValues + "), arrayPopFront(" + orderedValues + ")))"
 		return []sqlb.ColExpr{
 			{Expr: sqlb.RawLit{V: "countIf(isNaN(" + valueExpr + "))"}, Alias: "nan_count"},
 			{Expr: sqlb.RawLit{V: "toUnixTimestamp64Milli(min(d.timestamp))"}, Alias: "first_timestamp_ms"},
 			{Expr: sqlb.RawLit{V: "toUnixTimestamp64Milli(max(d.timestamp))"}, Alias: "last_timestamp_ms"},
 			{Expr: sqlb.RawLit{V: "toUnixTimestamp64Milli(max(d.timestamp)) - toUnixTimestamp64Milli(min(d.timestamp))"}, Alias: "window_duration_ms"},
-			{Expr: sqlb.RawLit{V: "deltaSumTimestamp(" + valueExpr + ", toUnixTimestamp64Milli(d.timestamp))"}, Alias: "counter_delta_sum"},
+			{Expr: sqlb.RawLit{V: counterDeltaExpr}, Alias: "counter_delta_sum"},
 		}, "if(nan_count > 0 OR sample_count <= 1 OR window_duration_ms <= 0, nan, counter_delta_sum * (" + factor + ") / (toFloat64({lookback_ms:Int64}) / 1000.0))", nil
 	default:
 		return nil, "", fmt.Errorf("direct aggregate range-window selector SQL does not support %q", fn)

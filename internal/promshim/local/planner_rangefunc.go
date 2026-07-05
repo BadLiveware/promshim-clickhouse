@@ -67,10 +67,23 @@ func (p *localRangeFunctionPlan) explain() ExplainNode {
 }
 
 type localRatePlan struct {
-	Expr  string
-	Func  string
-	Range time.Duration
-	Child Plan
+	Expr      string
+	Func      string
+	Range     time.Duration
+	Offset    time.Duration
+	Timestamp *int64
+	Child     Plan
+}
+
+// extrapolationRangeEndSeconds mirrors Prometheus's extrapolatedRate
+// anchoring (promql/functions.go): the extrapolation window ends at
+// t - offset, with an @ modifier pinning t to the @ time.
+func extrapolationRangeEndSeconds(params EvalParams, timestampMS *int64, offset time.Duration) float64 {
+	anchorMS := params.EvaluationTime.UnixMilli()
+	if timestampMS != nil {
+		anchorMS = *timestampMS
+	}
+	return float64(anchorMS)/1000.0 - offset.Seconds()
 }
 
 func (p *localRatePlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
@@ -84,7 +97,7 @@ func (p *localRatePlan) execute(ctx context.Context, Evaluator *Evaluator, param
 		switch p.Func {
 		case "rate":
 			if p.Range > 0 {
-				rangeEnd := float64(params.EvaluationTime.UnixNano()) / float64(time.Second)
+				rangeEnd := extrapolationRangeEndSeconds(params, p.Timestamp, p.Offset)
 				vector, err = exec.ApplyRateWithBounds(childValue, rangeEnd-p.Range.Seconds(), rangeEnd)
 			} else {
 				vector, err = exec.ApplyRate(childValue)
@@ -110,9 +123,11 @@ func (p *localRatePlan) explain() ExplainNode {
 }
 
 type localIncreasePlan struct {
-	Expr  string
-	Range time.Duration
-	Child Plan
+	Expr      string
+	Range     time.Duration
+	Offset    time.Duration
+	Timestamp *int64
+	Child     Plan
 }
 
 func (p *localIncreasePlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
@@ -122,7 +137,7 @@ func (p *localIncreasePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 		if err != nil {
 			return nil, WithInternalContext(err, "evaluating increase child in instant mode")
 		}
-		rangeEnd := float64(params.EvaluationTime.UnixNano()) / float64(time.Second)
+		rangeEnd := extrapolationRangeEndSeconds(params, p.Timestamp, p.Offset)
 		var vector model.VectorValue
 		if p.Range > 0 {
 			vector, err = exec.ApplyIncreaseInstantWithBounds(childValue, rangeEnd-p.Range.Seconds(), rangeEnd)

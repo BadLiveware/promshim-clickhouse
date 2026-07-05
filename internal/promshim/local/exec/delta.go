@@ -15,6 +15,7 @@ func ApplyDelta(input model.RuntimeValue) (model.VectorValue, error) {
 	return applyDeltaMatrix(matrix)
 }
 
+
 func ApplyIDelta(input model.RuntimeValue) (model.VectorValue, error) {
 	matrix, ok := input.(model.MatrixValue)
 	if !ok {

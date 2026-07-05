@@ -209,22 +209,28 @@ func buildInstantRateOverRowsSQL(sourceRowsSQL, finalTagsExpr string, evaluation
 		},
 		From: rawRenderedSubquerySource(trimRenderedQuerySQL(sourceRowsSQL)),
 	}
-	groupedFrom := sqlb.Source(sqlb.SubSelect{S: prepared})
-	counterDeltaExpr := "deltaSumTimestamp(" + valueExpr + ", toUnixTimestamp64Milli(timestamp))"
-	if rangeMS < 60_000 {
-		annotated := &sqlb.Select{
-			Columns: []sqlb.ColExpr{
-				{Expr: sqlb.Ident("id"), Alias: "id"},
-				{Expr: sqlb.Ident("final_tags"), Alias: "final_tags"},
-				{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
-				{Expr: sqlb.Ident("value"), Alias: "value"},
-				{Expr: sqlb.RawLit{V: "lagInFrame(value, 1, nan) OVER (PARTITION BY id, final_tags ORDER BY timestamp)"}, Alias: "prev_value"},
-			},
-			From: sqlb.SubSelect{S: prepared},
-		}
-		groupedFrom = sqlb.SubSelect{S: annotated}
-		counterDeltaExpr = "sum(if(isNaN(value) OR isNaN(prev_value), toFloat64(0), if(value < prev_value, value, value - prev_value)))"
+	// Prometheus counter-reset semantics: iterating samples in time order,
+	// each adjacent pair contributes `if(curr < prev, curr, curr - prev)` to
+	// the running delta (a decrease is treated as a reset, so the post-reset
+	// value itself is the increase). ClickHouse's deltaSumTimestamp instead
+	// contributes 0 for a decrease, undercounting whenever a reset falls in
+	// the window. Use the reset-aware lagInFrame formulation for every window
+	// size so instant rate matches Prometheus. Earlier code kept windows >= 60s
+	// on deltaSumTimestamp to avoid materializing prev_value rows before
+	// aggregation; that was a perf-only shortcut and returned wrong values on
+	// resets, so correctness wins here.
+	annotated := &sqlb.Select{
+		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("id"), Alias: "id"},
+			{Expr: sqlb.Ident("final_tags"), Alias: "final_tags"},
+			{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
+			{Expr: sqlb.Ident("value"), Alias: "value"},
+			{Expr: sqlb.RawLit{V: "lagInFrame(value, 1, nan) OVER (PARTITION BY id, final_tags ORDER BY timestamp)"}, Alias: "prev_value"},
+		},
+		From: sqlb.SubSelect{S: prepared},
 	}
+	groupedFrom := sqlb.Source(sqlb.SubSelect{S: annotated})
+	counterDeltaExpr := "sum(if(isNaN(value) OR isNaN(prev_value), toFloat64(0), if(value < prev_value, value, value - prev_value)))"
 	grouped := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
 			{Expr: sqlb.Ident("id"), Alias: "id"},

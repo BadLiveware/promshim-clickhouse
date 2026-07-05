@@ -503,7 +503,64 @@ func TestBuildRangeMatrixSelectorQuerySQLOmitsTagsProjectionWhenUnneeded(t *test
 	if !strings.Contains(sql, "CAST([], 'Array(Tuple(String, String))') AS tags") {
 		t.Fatalf("expected synthesized empty tags in tagless range matrix selector SQL, got %q", sql)
 	}
-	if !strings.Contains(sql, "GROUP BY tags") {
-		t.Fatalf("expected tagless range matrix selector SQL to still group by synthesized tags alias, got %q", sql)
+	// Windows are collated per series id, not per tags: grouping by the
+	// (possibly narrowed) tags would fold distinct series into one window and
+	// break pairwise/reset-sensitive range functions.
+	if !strings.Contains(sql, "GROUP BY id") {
+		t.Fatalf("expected range matrix selector SQL to group windows by series id, got %q", sql)
+	}
+	if strings.Contains(sql, "GROUP BY tags") {
+		t.Fatalf("expected range matrix selector SQL to avoid grouping windows by tags, got %q", sql)
+	}
+}
+
+// TestBuildRangeMatrixSelectorQuerySQLGroupsWindowsByIDUnderNarrowedTags is the
+// cross-series reset-detection regression guard: a parent `by (label)`
+// aggregation narrows the selector's tag projection so several series share the
+// same tags, so the instant range-vector materialization must group its
+// (timestamp, value) window by series id — never by the narrowed tags — or a
+// reset-sensitive range function folds samples across series boundaries.
+func TestBuildRangeMatrixSelectorQuerySQLGroupsWindowsByIDUnderNarrowedTags(t *testing.T) {
+	selector := selectorSourceFromMatchers("demo_cpu_usage_seconds_total", nil, time.Hour, 0, SelectorKindRangeVector)
+	selector.RequireFullTags = false
+	selector.RequiredTagLabels = []string{"mode"}
+
+	sql, _, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -3600000, 0)
+	if err != nil {
+		t.Fatalf("expected range matrix selector SQL, got error: %v", err)
+	}
+	// Tags are narrowed to the by-clause label, so distinct series can share
+	// them; the window collation must still key on id.
+	if !strings.Contains(sql, "d.id AS id") {
+		t.Fatalf("expected narrowed range matrix selector rows to carry series id, got %q", sql)
+	}
+	if !strings.Contains(sql, "GROUP BY id") || strings.Contains(sql, "GROUP BY tags") {
+		t.Fatalf("expected narrowed range matrix selector SQL to group windows by id, not tags, got %q", sql)
+	}
+	if !strings.Contains(sql, "any(tags) AS tags") {
+		t.Fatalf("expected per-id window to carry tags via any(tags), got %q", sql)
+	}
+}
+
+// TestBuildRangeInstantSelectorSourceGroupsWindowsByIDUnderNarrowedTags covers
+// the subquery / instant-vector-over-range source path (buildRangeInstantSelectorSourceSQL):
+// same cross-series fold hazard, same per-id grouping requirement.
+func TestBuildRangeInstantSelectorSourceGroupsWindowsByIDUnderNarrowedTags(t *testing.T) {
+	selector := selectorSourceFromMatchers("demo_cpu_usage_seconds_total", nil, time.Minute, 0, SelectorKindInstantVector)
+	selector.RequireFullTags = false
+	selector.RequiredTagLabels = []string{"mode"}
+
+	sql, _, err := BuildRangeSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -600000, 0, 0, 600000, 60000)
+	if err != nil {
+		t.Fatalf("expected range instant selector SQL, got error: %v", err)
+	}
+	if !strings.Contains(sql, "grid.id AS id") {
+		t.Fatalf("expected instant-vector range source rows to carry series id, got %q", sql)
+	}
+	if !strings.Contains(sql, "GROUP BY id") || strings.Contains(sql, "GROUP BY tags") {
+		t.Fatalf("expected instant-vector range source SQL to group windows by id, not tags, got %q", sql)
+	}
+	if !strings.Contains(sql, "any(tags) AS tags") {
+		t.Fatalf("expected per-id window to carry tags via any(tags), got %q", sql)
 	}
 }

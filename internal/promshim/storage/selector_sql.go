@@ -1072,7 +1072,14 @@ func buildRangeInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource
 	if err != nil {
 		return "", nil, err
 	}
-	outerTagsExpr := sqlb.Expr(sqlb.Ident("tags"))
+	// Collate each subquery step series per id, not per tags. As with the range
+	// matrix source, the tags column can be narrowed by projection pushdown for
+	// a parent `by (...)` aggregation; grouping the (timestamp, value)
+	// groupArray by narrowed tags would merge samples from distinct series into
+	// one interleaved window and corrupt pairwise/reset-sensitive range
+	// functions applied over the subquery. Group by id (1:1 with tags when
+	// unnarrowed) and carry the per-series tags through with any().
+	outerTagsExpr := sqlb.Expr(sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("tags")}})
 	orderBy := []sqlb.OrderExpr{{Expr: sqlb.Ident("tags")}}
 	if !selector.NeedTags {
 		outerTagsExpr = emit.EmptyTagsArray()
@@ -1084,7 +1091,7 @@ func buildRangeInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource
 			{Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"},
 		},
 		From:    sqlb.RawSource{SQL: rawSubquerySQL(innerSQL)},
-		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
+		GroupBy: []sqlb.Expr{sqlb.Ident("id")},
 		OrderBy: orderBy,
 	}
 	sql, _, err := outer.Build()
@@ -1186,6 +1193,7 @@ func (p rangeInstantSelectorRowsPlan) RenderRowsSQL() (string, error) {
 	}
 	inner := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("grid.id"), Alias: "id"},
 			{Expr: p.innerTagsExpr(), Alias: "tags"},
 			{Expr: sqlb.Ident("grid.eval_ts"), Alias: "timestamp"},
 			{Expr: sqlb.Ident("d.value"), Alias: "value"},
@@ -1257,6 +1265,7 @@ func (p rangeInstantSelectorRowsPlan) RenderBucketedArgMaxRowsSQL() (string, err
 	}
 	query := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
+			{Expr: sqlb.Ident("id"), Alias: "id"},
 			{Expr: sqlb.Ident("tags"), Alias: "tags"},
 			{Expr: sqlb.Ident("eval_ts"), Alias: "timestamp"},
 			{Expr: sqlb.ArgMax(sqlb.Ident("value"), sqlb.Ident("sample_ts")), Alias: "value"},
@@ -1406,17 +1415,26 @@ func shouldFilterSparseRangeInstantSelectorSamples(lookbackMS, stepMS int64) boo
 }
 
 func buildRangeMatrixSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
-	innerSQL, params, err := buildRangeMatrixSelectorRowsSQL(cfg, selector, requiredStartMS, requiredEndMS, false)
+	// Collate each range window per series id, not per tags. The tags column
+	// may be narrowed to a subset of labels (projection pushdown for a parent
+	// `by (...)` aggregation), which collapses distinct series to identical
+	// tags. Grouping the (timestamp, value) groupArray by those narrowed tags
+	// would fold samples from several series into one interleaved window, so a
+	// pairwise/reset-sensitive range function (rate, increase, changes, resets)
+	// would count spurious deltas across series boundaries. Grouping by id
+	// keeps one window per series; id ↔ tags is 1:1 when tags are unnarrowed, so
+	// this is equivalent there and only diverges (correctly) under projection.
+	innerSQL, params, err := buildRangeMatrixSelectorRowsSQL(cfg, selector, requiredStartMS, requiredEndMS, true)
 	if err != nil {
 		return "", nil, err
 	}
 	outer := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
-			{Expr: sqlb.Ident("tags"), Alias: "tags"},
+			{Expr: sqlb.Call{Name: "any", Args: []sqlb.Expr{sqlb.Ident("tags")}}, Alias: "tags"},
 			{Expr: emit.SortedTimeSeriesGroupArray(), Alias: "time_series"},
 		},
 		From:    sqlb.RawSource{SQL: rawSubquerySQL(innerSQL)},
-		GroupBy: []sqlb.Expr{sqlb.Ident("tags")},
+		GroupBy: []sqlb.Expr{sqlb.Ident("id")},
 	}
 	sql, _, err := outer.Build()
 	if err != nil {

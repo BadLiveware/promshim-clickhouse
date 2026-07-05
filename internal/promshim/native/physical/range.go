@@ -206,10 +206,19 @@ func CanUseSparseDirectAggregateBuckets(fn string, lookbackMS, offsetMS, stepMS 
 	}
 }
 
+// CanUseSparseDirectRateBuckets gates the storage sparse direct-rate path
+// (directRangeWindowAggregateSpec in storage/selector_sql.go), whose
+// extrapolation factor is anchored at the *unshifted* eval_ts. The
+// offsetMS == 0 guard is therefore correctness-critical, not just a
+// performance heuristic: relaxing it without shifting that anchor to
+// eval_ts - offset reintroduces the issue #36 extrapolation bug.
 func CanUseSparseDirectRateBuckets(fn string, lookbackMS, offsetMS, stepMS int64) bool {
 	return fn == "rate" && lookbackMS > 0 && stepMS > 0 && offsetMS == 0 && lookbackMS <= stepMS
 }
 
+// CanUseNativeGridRangeFunction's offsetMS != 0 rejection is likewise
+// correctness-critical for rate/delta: the native-grid kernels anchor at
+// the unshifted grid timestamps (see CanUseSparseDirectRateBuckets).
 func CanUseNativeGridRangeFunction(fn string, lookbackMS, offsetMS int64) bool {
 	if lookbackMS <= 0 || offsetMS != 0 {
 		return false

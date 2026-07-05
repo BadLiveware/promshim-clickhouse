@@ -15,7 +15,7 @@ func buildRangeFunctionOverWindowedArraysRowsSQL(sourceSQL, fn, tagsExpr string,
 	if err != nil {
 		return "", err
 	}
-	valueExpr := rangeFunctionValueExpr(fn, "window_series", "window_values", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", rangeMS)
+	valueExpr := rangeFunctionValueExpr(fn, "window_series", "window_values", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", rangeExtrapolationAnchorExpr(offsetMS), rangeMS)
 	rows := &sqlb.Select{
 		Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: tagsExpr}, Alias: "tags"}, {Expr: sqlb.Ident("eval_ts"), Alias: "timestamp"}, {Expr: sqlb.RawLit{V: valueExpr}, Alias: "value"}},
 		From:    rawRenderedSubquerySourceWithAlias(trimRenderedQuerySQL(windowedSourceSQL), "step_windows"),

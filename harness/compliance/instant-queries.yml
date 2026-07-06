@@ -50,6 +50,26 @@ queries:
   # entry locking in per-id collation for non-pairwise window functions too.
   - sum by (mode) (avg_over_time(demo_cpu_usage_seconds_total[1h]))
 
+  # --- F19: histogram_quantile bucket-series collapse under aggregation
+  # narrowing. histogram_quantile(q, sum by (le)(rate(<bucket>[1h]))) is the
+  # WORST case of the per-id collation bug: `sum by (le)` narrows the bucket
+  # selector's tag projection to `le` alone, so every bucket series that shares
+  # an `le` (here 27 per le: 3 instances x 9 handler combos) collapses to the
+  # same tags. Pre-fix, buildRangeMatrixSelectorSourceSQL collated the rate
+  # window with GROUP BY tags, interleaving all those bucket series into one
+  # window; the counter-reset-sensitive rate then counted spurious cross-series
+  # deltas, and the histogram_quantile built on those corrupt per-le rates
+  # returned wildly wrong quantiles (observed ~139x off in the lab). The fix
+  # (GROUP BY id + any(tags)) is the SAME per-id collation as the reset entries
+  # above; F19 was fixed incidentally by it. These entries pin it deliberately.
+  #   (a) maximal collapse, {}-group: only `le` survives the narrowing.
+  - histogram_quantile(0.99, sum by (le) (rate(demo_api_request_duration_seconds_bucket[1h])))
+  #   (b) partial collapse: `by (le, instance)` keeps instance, so each window
+  #   folds only the 9 handler combos per (le, instance) rather than all 27 —
+  #   exercises the narrowing path at a different collapse factor and a lower
+  #   quantile than (a).
+  - histogram_quantile(0.9, sum by (le, instance) (rate(demo_api_request_duration_seconds_bucket[1h])))
+
   # --- gauge aggregation and selectors ---
   - demo_memory_usage_bytes
   - sum(demo_memory_usage_bytes)

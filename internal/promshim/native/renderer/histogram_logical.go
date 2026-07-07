@@ -2,6 +2,7 @@ package renderer
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/emit"
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
@@ -254,10 +255,20 @@ func tryRenderDirectClassicHistogramGroupsLogical(cfg storage.QueryConfig, child
 		return renderedFragment{}, false, err
 	}
 
+	// Normalize every child row to the constant evaluation instant before
+	// bucket coalescing, mirroring the non-direct instant aggregation path
+	// (storage.BuildInstantAggregationRowsSubquerySQL). Instant selector
+	// children emit each series' own last-sample time, so keeping the raw
+	// per-series timestamp in the coalesce grouping key fragments buckets
+	// from series with staggered scrape times into separate partial
+	// histograms (issue #38). Prometheus evaluates all buckets at one
+	// instant, so the fused sum must coalesce them at that instant too;
+	// this also keeps the emitted result timestamp at the evaluation time.
+	evaluationTimestampExpr := sqlb.RawLit{V: "fromUnixTimestamp64Milli(" + strconv.FormatInt(params.EvaluationTimeMS, 10) + ")"}
 	innerRows := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
 			{Expr: sqlb.Ident("tags"), Alias: "tags"},
-			{Expr: sqlb.Ident("timestamp"), Alias: "timestamp"},
+			{Expr: evaluationTimestampExpr, Alias: "timestamp"},
 			{Expr: sqlb.Ident("value"), Alias: "value"},
 			{Expr: leRaw, Alias: "le_raw"},
 		},

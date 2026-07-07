@@ -176,6 +176,7 @@ func TestLowerHistogramQuantileCoalescesGroupedRateDirectly(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"histogram_function_child_direct_child_rows",
+		"SELECT tags AS tags, fromUnixTimestamp64Milli(1700000000000) AS timestamp, value AS value",
 		"GROUP BY histogram_tags, timestamp, upper_bound",
 		"GROUP BY histogram_tags, timestamp",
 	} {
@@ -189,6 +190,82 @@ func TestLowerHistogramQuantileCoalescesGroupedRateDirectly(t *testing.T) {
 	} {
 		if strings.Contains(rq.SQL, unwanted) {
 			t.Fatalf("expected grouped histogram quantile to avoid intermediate child aggregation %q, got:\n%s", unwanted, rq.SQL)
+		}
+	}
+}
+
+// TestLowerHistogramQuantileDirectPathCoalescesAtEvaluationTime locks in the
+// issue #38 fix: the fused direct histogram path must stamp every child row
+// with the constant evaluation instant before bucket coalescing. An instant
+// selector child emits each series' own last-sample time, so grouping by the
+// raw row timestamp fragments buckets from series with staggered scrape times
+// into separate partial histograms. This bites hardest on groups formed from
+// series MISSING one of the by-labels (the `{}` group), which aggregate
+// heterogeneous sources with unaligned scrape offsets. With the timestamp
+// pinned to fromUnixTimestamp64Milli(<eval>), the coalesce GROUP BY has
+// exactly one timestamp partition per group, so all buckets merge into one
+// histogram per group regardless of per-series timestamps — matching
+// Prometheus, which evaluates all buckets at one instant and groups by
+// signature-without-le. The emitted result timestamp stays the evaluation
+// time.
+func TestLowerHistogramQuantileDirectPathCoalescesAtEvaluationTime(t *testing.T) {
+	// `node` is absent on some series in the reported scenario; those series
+	// collapse into the `{}` group, whose buckets must still coalesce.
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `histogram_quantile(0.99, sum by (le, node) (http_request_duration_seconds_bucket))`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	for _, expected := range []string{
+		// Direct fused path is in play.
+		"histogram_function_child_direct_child_rows",
+		// Child rows are normalized to the constant evaluation instant, so
+		// the timestamp grouping key below cannot fragment by per-series
+		// last-sample times.
+		"SELECT tags AS tags, fromUnixTimestamp64Milli(1700000000000) AS timestamp, value AS value",
+		// Labeled groups still coalesce per histogram identity.
+		"GROUP BY histogram_tags, timestamp, upper_bound",
+		"GROUP BY histogram_tags, timestamp",
+	} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected direct histogram coalescing SQL to contain %q, got:\n%s", expected, rq.SQL)
+		}
+	}
+	// The raw per-series row timestamp must not feed the coalesce grouping.
+	if strings.Contains(rq.SQL, "SELECT tags AS tags, timestamp AS timestamp, value AS value, tupleElement(arrayFirst(tag -> tag.1 = 'le', tags), 2) AS le_raw FROM (") {
+		t.Fatalf("direct histogram path still projects the raw per-series timestamp into the coalesce grouping:\n%s", rq.SQL)
+	}
+}
+
+// TestLowerHistogramQuantileDirectPathLEOnlyCoalescesAtEvaluationTime covers
+// the `sum by (le)` shape: every series lands in the single empty-tags group,
+// so the coalesce grouping degenerates to (timestamp, upper_bound). The
+// timestamp key must be the constant evaluation instant or series with
+// staggered last-sample times split the lone histogram apart (issue #38).
+func TestLowerHistogramQuantileDirectPathLEOnlyCoalescesAtEvaluationTime(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `histogram_quantile(0.5, sum by (le) (http_request_duration_seconds_bucket))`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsInstant(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	for _, expected := range []string{
+		"histogram_function_child_direct_child_rows",
+		"SELECT tags AS tags, fromUnixTimestamp64Milli(1700000000000) AS timestamp, value AS value",
+		"GROUP BY timestamp, upper_bound",
+		") AS coalesced_histogram_rows GROUP BY timestamp)",
+	} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected le-only direct histogram coalescing SQL to contain %q, got:\n%s", expected, rq.SQL)
 		}
 	}
 }

@@ -193,6 +193,55 @@ func TestLowerHistogramQuantileCoalescesGroupedRateDirectly(t *testing.T) {
 	}
 }
 
+// TestLowerHistogramQuantileCollatesBucketWindowsPerID pins the F19 fix: when a
+// histogram_quantile is built on sum by (le)(rate(<bucket>[range])), the
+// by (le) aggregation narrows the bucket selector's tag projection to `le`
+// alone, so every bucket series that shares an `le` collapses to the same tags.
+// The rate window over that selector must collate per series id, not per
+// (narrowed) tags — otherwise all same-le bucket series interleave into one
+// window and the counter-reset-sensitive rate counts spurious cross-series
+// deltas, corrupting every per-le rate the quantile is built on (observed ~139x
+// off in the lab). The child materialization must therefore group by id and
+// carry tags through with any(tags), never group by the narrowed tags directly.
+// This is the same per-id collation shared with the resets/increase entries; it
+// is asserted here specifically for the histogram bucket-collapse shape so a
+// future golden regeneration cannot silently revert it.
+func TestLowerHistogramQuantileCollatesBucketWindowsPerID(t *testing.T) {
+	root, analysis, nativeAnalysis := buildLowerInputs(t, `histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[1h])))`)
+	rq, err := Lower(LoweringCtx{
+		Config:         testRenderConfig(),
+		Analysis:       analysis,
+		NativeAnalysis: nativeAnalysis,
+		Params:         testRenderParamsRange(),
+	}, root)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+	// Fixed shape: the child window materialization selects the series id,
+	// carries the narrowed tags through with any(tags), and collates GROUP BY id.
+	for _, expected := range []string{
+		"SELECT any(tags) AS tags,",
+		"SELECT d.id AS id,",
+		") GROUP BY id",
+	} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected per-id collation fragment %q in bucket-collapse histogram SQL, got:\n%s", expected, rq.SQL)
+		}
+	}
+	// Pre-F19-fix bug shape: the child window selected `series.tags AS tags`
+	// (no id) and collated GROUP BY the narrowed tags. Assert neither survives.
+	// (The outer histogram coalescing legitimately uses GROUP BY tags, timestamp;
+	// this guards only the bare child-window grouping.)
+	for _, forbidden := range []string{
+		"SELECT series.tags AS tags, d.timestamp",
+		") GROUP BY tags\n",
+	} {
+		if strings.Contains(rq.SQL, forbidden) {
+			t.Fatalf("bucket-collapse histogram SQL must not collate the child window by narrowed tags (found %q):\n%s", forbidden, rq.SQL)
+		}
+	}
+}
+
 // TestLowerHistogramFunctionNilErrors exercises the defensive nil guard in
 // lowerHistogramFunction. A nil node must return a non-sentinel error.
 func TestLowerHistogramFunctionNilErrors(t *testing.T) {

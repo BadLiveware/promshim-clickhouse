@@ -44,6 +44,18 @@ The shim's native-SQL path is under active development. Any PromQL shape the shi
 
 The allowlist (`expected-failures.json`) is reserved strictly for failures that are **not** shim gaps — failures driven by reference-side implementation details we can't reproduce exactly (e.g., Prometheus's TSDB iteration order leaking into `topk` tie-breaks). If you're tempted to add a shim-side limitation, don't; let it fail loudly until it's fixed.
 
+## Instant-mode differential coverage
+
+The upstream `prometheus/compliance` tester only issues `query_range` requests, so promshim's instant (`/api/v1/query`) fast paths were never differentially validated against reference Prometheus — that blind spot hid an instant-rate counter-reset bug (native `deltaSumTimestamp` contributes 0 on a reset, undercounting `rate(...[1h])` when a counter resets inside the window).
+
+Each pass now also runs `cmd/promshim-instant-compliance` over `instant-queries.yml`: a curated instant corpus (the counter/rate/increase family plus a representative gauge/aggregation/range-function spread) evaluated at the same pinned `end_time` on both targets and compared within Prometheus's default float tolerance. It gates in `prefer` mode (a divergence is a real bug, never allowlisted) and is informational in `native` mode, mirroring the range flow. Reports land beside the range reports as `compliance-report-instant-{prefer,native}-<stamp>.json`.
+
+To keep the instant gate honest, `demo_memory_usage_bytes % 1.2345` is intentionally excluded from `instant-queries.yml` — its sub-1e-6 ClickHouse-vs-Go modulo drift is an accepted primitive difference already covered by the range suite's `native-modulo-small-float-drift` tolerance.
+
+`instant-queries.yml` also has a `known_divergences` section: queries with a pre-existing, separately-tracked reference-vs-shim divergence that is out of scope for the change that added the coverage. These are still evaluated and reported on every run (so the divergence stays visible and any change surfaces) but do not gate on the divergence itself. This is not `expected-failures.json` and must never hide an in-scope shim bug — every entry carries a `note` pointing at the tracked defect. It currently holds the `rate(...offset...)` / `increase(...offset...)` extrapolation-anchoring bug (the factor is anchored at the raw eval time instead of eval-time-minus-offset, reading ~8% low; affects both instant and range modes), surfaced by this instant coverage and tracked separately.
+
+The section cannot silently rot: in gate mode a `known_divergences` entry that **stops** diverging (now matches reference) is flagged `[KNOWN:STALE]` and **fails the gate**. A stale entry is a claim of a tracked divergence that no longer exists, so it must be deleted (or promoted to a gating `queries:` entry now that it passes) — the gate forces that mechanically rather than letting the allowlist accumulate dead entries. An entry that still diverges stays reported and non-gating.
+
 ## Two passes
 
 Each full run does two passes against the same frozen fixture:

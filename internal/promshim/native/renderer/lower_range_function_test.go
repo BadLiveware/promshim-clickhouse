@@ -83,7 +83,10 @@ func TestLowerRangeFunctionGolden(t *testing.T) {
 	}
 }
 
-func TestLowerLongInstantRateUsesGuardedDirectAggregate(t *testing.T) {
+// Long-window instant rate must use the reset-aware lagInFrame delta, not
+// deltaSumTimestamp (which contributes 0 on a counter reset and undercounts
+// the increase). Regression coverage for the instant-rate reset bug.
+func TestLowerLongInstantRateUsesResetAwareDelta(t *testing.T) {
 	root, analysis, nativeAnalysis := buildLowerInputs(t, `rate(demo_cpu_usage_seconds_total[5m])`)
 	rq, err := Lower(LoweringCtx{
 		Config:         testRenderConfig(),
@@ -94,11 +97,16 @@ func TestLowerLongInstantRateUsesGuardedDirectAggregate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
 	}
-	if !strings.Contains(rq.SQL, "deltaSumTimestamp(") {
-		t.Fatalf("expected guarded instant rate aggregate SQL to contain deltaSumTimestamp, got %s", rq.SQL)
+	if strings.Contains(rq.SQL, "deltaSumTimestamp(") {
+		t.Fatalf("expected long instant rate to avoid reset-unaware deltaSumTimestamp, got %s", rq.SQL)
 	}
-	if strings.Contains(rq.SQL, "lagInFrame(") {
-		t.Fatalf("expected guarded instant rate aggregate to avoid lagInFrame, got %s", rq.SQL)
+	for _, expected := range []string{
+		"lagInFrame(value, 1, nan) OVER (PARTITION BY id, final_tags ORDER BY timestamp)",
+		"sum(if(isNaN(value) OR isNaN(prev_value), toFloat64(0), if(value < prev_value, value, value - prev_value)))",
+	} {
+		if !strings.Contains(rq.SQL, expected) {
+			t.Fatalf("expected reset-aware instant rate SQL to contain %q, got %s", expected, rq.SQL)
+		}
 	}
 }
 

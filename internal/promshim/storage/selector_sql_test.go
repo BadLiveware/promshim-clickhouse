@@ -263,12 +263,17 @@ func TestBuildRangeWindowSelectorDirectAggregateRowsQuerySQLUsesGroupedRateAlias
 	if err != nil {
 		t.Fatalf("expected direct aggregate rows SQL for rate, got error: %v", err)
 	}
-	for _, expected := range []string{"count() AS sample_count", "countIf(isNaN(ifNull(toFloat64(d.value), nan))) AS nan_count", "toUnixTimestamp64Milli(min(d.timestamp)) AS first_timestamp_ms", "toUnixTimestamp64Milli(max(d.timestamp)) AS last_timestamp_ms", "toUnixTimestamp64Milli(max(d.timestamp)) - toUnixTimestamp64Milli(min(d.timestamp)) AS window_duration_ms", "deltaSumTimestamp(ifNull(toFloat64(d.value), nan), toUnixTimestamp64Milli(d.timestamp)) AS counter_delta_sum", "counter_delta_sum * (if(", "toFloat64({lookback_ms:Int64}) / 1000.0", "windowed.id = series.id", "ARRAY JOIN", "positiveModulo(", "GROUP BY d.id, eval_ms"} {
+	for _, expected := range []string{"count() AS sample_count", "countIf(isNaN(ifNull(toFloat64(d.value), nan))) AS nan_count", "toUnixTimestamp64Milli(min(d.timestamp)) AS first_timestamp_ms", "toUnixTimestamp64Milli(max(d.timestamp)) AS last_timestamp_ms", "toUnixTimestamp64Milli(max(d.timestamp)) - toUnixTimestamp64Milli(min(d.timestamp)) AS window_duration_ms", "arraySort(groupArray((toUnixTimestamp64Milli(d.timestamp), ifNull(toFloat64(d.value), nan))))", "if(c < p, c, c - p)", "AS counter_delta_sum", "counter_delta_sum * (if(", "toFloat64({lookback_ms:Int64}) / 1000.0", "windowed.id = series.id", "ARRAY JOIN", "positiveModulo(", "GROUP BY d.id, eval_ms"} {
 		if !strings.Contains(sql, expected) {
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)
 		}
 	}
-	for _, unwanted := range []string{"window_series", "window_values", "arrayPopBack(", "arrayPopFront(", "GROUP BY grid.id, grid.tags, grid.eval_ts", "GROUP BY grid.id, grid.eval_ts"} {
+	// Reset-aware delta, not the reset-unaware deltaSumTimestamp which
+	// undercounts counter resets inside the window.
+	if strings.Contains(sql, "deltaSumTimestamp(") {
+		t.Fatalf("expected direct aggregate rows rate SQL to avoid deltaSumTimestamp, got %q", sql)
+	}
+	for _, unwanted := range []string{"window_series", "window_values", "GROUP BY grid.id, grid.tags, grid.eval_ts", "GROUP BY grid.id, grid.eval_ts"} {
 		if strings.Contains(sql, unwanted) {
 			t.Fatalf("expected direct aggregate rows SQL to avoid %q, got %q", unwanted, sql)
 		}
@@ -498,7 +503,64 @@ func TestBuildRangeMatrixSelectorQuerySQLOmitsTagsProjectionWhenUnneeded(t *test
 	if !strings.Contains(sql, "CAST([], 'Array(Tuple(String, String))') AS tags") {
 		t.Fatalf("expected synthesized empty tags in tagless range matrix selector SQL, got %q", sql)
 	}
-	if !strings.Contains(sql, "GROUP BY tags") {
-		t.Fatalf("expected tagless range matrix selector SQL to still group by synthesized tags alias, got %q", sql)
+	// Windows are collated per series id, not per tags: grouping by the
+	// (possibly narrowed) tags would fold distinct series into one window and
+	// break pairwise/reset-sensitive range functions.
+	if !strings.Contains(sql, "GROUP BY id") {
+		t.Fatalf("expected range matrix selector SQL to group windows by series id, got %q", sql)
+	}
+	if strings.Contains(sql, "GROUP BY tags") {
+		t.Fatalf("expected range matrix selector SQL to avoid grouping windows by tags, got %q", sql)
+	}
+}
+
+// TestBuildRangeMatrixSelectorQuerySQLGroupsWindowsByIDUnderNarrowedTags is the
+// cross-series reset-detection regression guard: a parent `by (label)`
+// aggregation narrows the selector's tag projection so several series share the
+// same tags, so the instant range-vector materialization must group its
+// (timestamp, value) window by series id — never by the narrowed tags — or a
+// reset-sensitive range function folds samples across series boundaries.
+func TestBuildRangeMatrixSelectorQuerySQLGroupsWindowsByIDUnderNarrowedTags(t *testing.T) {
+	selector := selectorSourceFromMatchers("demo_cpu_usage_seconds_total", nil, time.Hour, 0, SelectorKindRangeVector)
+	selector.RequireFullTags = false
+	selector.RequiredTagLabels = []string{"mode"}
+
+	sql, _, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -3600000, 0)
+	if err != nil {
+		t.Fatalf("expected range matrix selector SQL, got error: %v", err)
+	}
+	// Tags are narrowed to the by-clause label, so distinct series can share
+	// them; the window collation must still key on id.
+	if !strings.Contains(sql, "d.id AS id") {
+		t.Fatalf("expected narrowed range matrix selector rows to carry series id, got %q", sql)
+	}
+	if !strings.Contains(sql, "GROUP BY id") || strings.Contains(sql, "GROUP BY tags") {
+		t.Fatalf("expected narrowed range matrix selector SQL to group windows by id, not tags, got %q", sql)
+	}
+	if !strings.Contains(sql, "any(tags) AS tags") {
+		t.Fatalf("expected per-id window to carry tags via any(tags), got %q", sql)
+	}
+}
+
+// TestBuildRangeInstantSelectorSourceGroupsWindowsByIDUnderNarrowedTags covers
+// the subquery / instant-vector-over-range source path (buildRangeInstantSelectorSourceSQL):
+// same cross-series fold hazard, same per-id grouping requirement.
+func TestBuildRangeInstantSelectorSourceGroupsWindowsByIDUnderNarrowedTags(t *testing.T) {
+	selector := selectorSourceFromMatchers("demo_cpu_usage_seconds_total", nil, time.Minute, 0, SelectorKindInstantVector)
+	selector.RequireFullTags = false
+	selector.RequiredTagLabels = []string{"mode"}
+
+	sql, _, err := BuildRangeSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, -600000, 0, 0, 600000, 60000)
+	if err != nil {
+		t.Fatalf("expected range instant selector SQL, got error: %v", err)
+	}
+	if !strings.Contains(sql, "grid.id AS id") {
+		t.Fatalf("expected instant-vector range source rows to carry series id, got %q", sql)
+	}
+	if !strings.Contains(sql, "GROUP BY id") || strings.Contains(sql, "GROUP BY tags") {
+		t.Fatalf("expected instant-vector range source SQL to group windows by id, not tags, got %q", sql)
+	}
+	if !strings.Contains(sql, "any(tags) AS tags") {
+		t.Fatalf("expected per-id window to carry tags via any(tags), got %q", sql)
 	}
 }

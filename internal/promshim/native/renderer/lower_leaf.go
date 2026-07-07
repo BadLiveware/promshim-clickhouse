@@ -180,9 +180,12 @@ func renderSourceExprView(cfg storage.QueryConfig, view *native.SourceExprView, 
 		if view.Selector != nil {
 			storageSel := nativeSelectorToStorage(view.Selector)
 			applyRenderParamsNarrowing(&storageSel, params)
-			// timestamp() folded over a bare selector reads the selected
-			// sample's real time, not the emitted (evaluation-time) row
-			// timestamp; make the selector expose it as sample_timestamp.
+			// Any {timestamp}-bearing value template folded over a bare
+			// selector compiles against the selected sample's real time
+			// (exposed as sample_timestamp), not the emitted
+			// evaluation-time row timestamp. That is required for
+			// timestamp(); time() folds share the same placeholder and
+			// get sample time too — a pre-existing conflation.
 			needSampleTimestamp := strings.Contains(view.ValueExpr, "{timestamp}")
 			storageSel.NeedSampleTimestamp = needSampleTimestamp
 			sql, queryParams, err := storage.BuildInstantSelectorQuerySQL(cfg, storageSel, params.RequiredStartMS, params.RequiredEndMS, params.EvaluationTimeMS)

@@ -26,7 +26,7 @@ optimization experiments.
 
 | Corpus | Rows | Keep split? | Use when |
 | --- | ---: | --- | --- |
-| `queries.json` | 152 | Yes. It is the broad main-harness default and includes many first-party PromQL shapes. | Checking general shim parity on the main fixture. |
+| `queries.json` | 154 | Yes. It is the broad main-harness default and includes many first-party PromQL shapes. | Checking general shim parity on the main fixture. |
 | `common-dashboard-subset.json` | 92 | Yes. It is a promoted dashboard-shaped subset with documented exclusions. | Running the default dashboard suite or checking user-facing dashboard compatibility. |
 | `native-lowering-starter.json` | 22 | Yes. It is smaller and roadmap-focused, with metadata buckets. | Iterating on native lowering coverage without the full default corpus. |
 | `native-measurement-prereqs.json` | 30 | Yes. It is native-only and includes expected-error, offset, step, and dataset-variant rows. | Measuring native-only readiness and public error envelopes. |

@@ -209,6 +209,20 @@
     "timeOffsetSeconds": 540
   },
   {
+    "name": "count_over_time_no_step_subquery_instant",
+    "endpoint": "query",
+    "query": "count_over_time(harness_up[5m:])",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "count_over_time_no_step_subquery_range",
+    "endpoint": "query_range",
+    "query": "count_over_time(harness_up[5m:])",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 120
+  },
+  {
     "name": "max_over_time_subquery_local_instant",
     "endpoint": "query",
     "query": "max_over_time((harness_up * 100)[5m:60s])",

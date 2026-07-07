@@ -164,12 +164,12 @@ wait_for_tcp() {
 }
 
 log "Waiting for ClickHouse (:28123), Prometheus (:29090), promshim (:29091)."
-wait_for_http "ClickHouse"           "http://localhost:28123/ping"
+wait_for_http "ClickHouse"           "http://127.0.0.1:28123/ping"
 if [[ "${PROM_SHIM_CLICKHOUSE_TRANSPORT:-native}" == "native" ]]; then
-  wait_for_tcp "ClickHouse native" "localhost" "29000"
+  wait_for_tcp "ClickHouse native" "127.0.0.1" "29000"
 fi
-wait_for_http "Prometheus reference" "http://localhost:29090/-/ready"
-wait_for_http "promshim"             "http://localhost:29091/-/ready"
+wait_for_http "Prometheus reference" "http://127.0.0.1:29090/-/ready"
+wait_for_http "promshim"             "http://127.0.0.1:29091/-/ready"
 
 COMPLIANCE_EVAL_TIME=$(awk -F"'" '/end_time:/ {print $2; exit}' "${COMPLIANCE_DIR}/test-promshim.yml")
 if [[ -z "$COMPLIANCE_EVAL_TIME" ]]; then
@@ -233,10 +233,10 @@ while (( $(date +%s) < fixture_state_deadline )); do
   SHIM_FIXTURE_PRESENT=0
   PROM_FIXTURE_EMPTY=0
   SHIM_FIXTURE_EMPTY=0
-  fixture_present_for "http://localhost:29090" && PROM_FIXTURE_PRESENT=1
-  fixture_present_for "http://localhost:29091" && SHIM_FIXTURE_PRESENT=1
-  fixture_empty_for "http://localhost:29090" && PROM_FIXTURE_EMPTY=1
-  fixture_empty_for "http://localhost:29091" && SHIM_FIXTURE_EMPTY=1
+  fixture_present_for "http://127.0.0.1:29090" && PROM_FIXTURE_PRESENT=1
+  fixture_present_for "http://127.0.0.1:29091" && SHIM_FIXTURE_PRESENT=1
+  fixture_empty_for "http://127.0.0.1:29090" && PROM_FIXTURE_EMPTY=1
+  fixture_empty_for "http://127.0.0.1:29091" && SHIM_FIXTURE_EMPTY=1
   if (( (PROM_FIXTURE_PRESENT == 1 || PROM_FIXTURE_EMPTY == 1) && (SHIM_FIXTURE_PRESENT == 1 || SHIM_FIXTURE_EMPTY == 1) )); then
     fixture_state_known=1
     break
@@ -251,8 +251,13 @@ if (( PROM_FIXTURE_PRESENT == 1 && SHIM_FIXTURE_PRESENT == 1 )); then
   log "Compliance fixture already present in Prometheus and ClickHouse."
 elif (( PROM_FIXTURE_EMPTY == 1 && SHIM_FIXTURE_EMPTY == 1 )); then
   log "Seeding compliance fixture into Prometheus and ClickHouse."
+  # Pin the endpoints to 127.0.0.1: on hosts where localhost resolves to
+  # ::1 first, the docker-proxy IPv6 listener accepts and then resets,
+  # which can leave the fixture partially (or doubly) seeded.
   (cd "$REPO_ROOT" && go run ./cmd/promshim-compliance-seed \
     --target both \
+    --prom-endpoint "http://127.0.0.1:29090/api/v1/write" \
+    --ch-endpoint "http://default:otel@127.0.0.1:29092/write" \
     --end-time "$COMPLIANCE_EVAL_TIME" \
     --duration 2h \
     --step 5s)
@@ -263,13 +268,13 @@ fi
 log "Asserting compliance fixture data is queryable from both targets."
 fixture_deadline=$(( $(date +%s) + READY_TIMEOUT ))
 while (( $(date +%s) < fixture_deadline )); do
-  if fixture_present_for "http://localhost:29090" && fixture_present_for "http://localhost:29091"; then
+  if fixture_present_for "http://127.0.0.1:29090" && fixture_present_for "http://127.0.0.1:29091"; then
     break
   fi
   sleep 1
 done
-assert_fixture_for "Prometheus reference" "http://localhost:29090"
-assert_fixture_for "promshim/ClickHouse" "http://localhost:29091"
+assert_fixture_for "Prometheus reference" "http://127.0.0.1:29090"
+assert_fixture_for "promshim/ClickHouse" "http://127.0.0.1:29091"
 
 if [[ "${PROM_SHIM_CLICKHOUSE_TRANSPORT:-native}" == "native" ]]; then
   # The native TCP listener can accept a first query while ClickHouse is still
@@ -308,11 +313,11 @@ if (( SKIP_NATIVE == 0 )); then
   log "Recreating promshim with native-only lowering (force_supported)."
   docker compose -f docker-compose.yml -f docker-compose.native-only.yml up -d promshim >/dev/null
 
-  wait_for_http "promshim (native-only)" "http://localhost:29091/-/ready"
+  wait_for_http "promshim (native-only)" "http://127.0.0.1:29091/-/ready"
   log "Probing native-only promshim -> ClickHouse integration."
   smoke_deadline=$(( $(date +%s) + READY_TIMEOUT ))
   while (( $(date +%s) < smoke_deadline )); do
-    if curl -fsS "http://localhost:29091/api/v1/query?query=up" >/dev/null 2>&1; then
+    if curl -fsS "http://127.0.0.1:29091/api/v1/query?query=up" >/dev/null 2>&1; then
       break
     fi
     sleep 1

@@ -81,7 +81,7 @@ func buildRangeFunctionOverWindowedArraysSQL(sourceSQL, fn, finalTagsExpr string
 	if err != nil {
 		return "", err
 	}
-	return buildRangeFunctionOverWindowedSourceSQL(windowedSourceSQL, fn, finalTagsExpr, paramNumber, paramNumbers, rangeMS)
+	return buildRangeFunctionOverWindowedSourceSQL(windowedSourceSQL, fn, finalTagsExpr, paramNumber, paramNumbers, rangeMS, offsetMS)
 }
 
 func buildRangeFunctionOverWindowedRowsSQL(sourceRowsSQL, fn string, paramNumber *float64, paramNumbers []*float64, startMS, endMS, stepMS, rangeMS, offsetMS int64) (string, error) {
@@ -89,7 +89,7 @@ func buildRangeFunctionOverWindowedRowsSQL(sourceRowsSQL, fn string, paramNumber
 	if err != nil {
 		return "", err
 	}
-	return buildRangeFunctionOverWindowedSourceSQL(windowedSourceSQL, fn, rangeFunctionTagsExpr(fn), paramNumber, paramNumbers, rangeMS)
+	return buildRangeFunctionOverWindowedSourceSQL(windowedSourceSQL, fn, rangeFunctionTagsExpr(fn), paramNumber, paramNumbers, rangeMS, offsetMS)
 }
 
 func rangeWindowSourceNeedsTimestamps(fn string) bool {
@@ -136,8 +136,8 @@ func rangeWindowSourceNeedsChangesCount(fn string) bool {
 	return fn == "changes"
 }
 
-func buildRangeFunctionOverWindowedSourceSQL(windowedSourceSQL, fn, finalTagsExpr string, paramNumber *float64, paramNumbers []*float64, rangeMS int64) (string, error) {
-	valueExpr := rangeFunctionValueExpr(fn, "window_series", "window_values", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", rangeMS)
+func buildRangeFunctionOverWindowedSourceSQL(windowedSourceSQL, fn, finalTagsExpr string, paramNumber *float64, paramNumbers []*float64, rangeMS, offsetMS int64) (string, error) {
+	valueExpr := rangeFunctionValueExpr(fn, "window_series", "window_values", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", rangeExtrapolationAnchorExpr(offsetMS), rangeMS)
 	perStep := &sqlb.Select{
 		Columns: []sqlb.ColExpr{{Expr: sqlb.RawLit{V: finalTagsExpr}, Alias: "final_tags"}, {Expr: sqlb.Ident("eval_ts"), Alias: "timestamp"}, {Expr: sqlb.RawLit{V: valueExpr}, Alias: "value"}},
 		From:    rawRenderedSubquerySourceWithAlias(trimRenderedQuerySQL(windowedSourceSQL), "step_windows"),
@@ -198,7 +198,7 @@ func buildInstantRangeFunctionOverRowsSQL(sourceRowsSQL, fn, finalTagsExpr strin
 	return buildNativeWrapperSQL(outer)
 }
 
-func buildInstantRateOverRowsSQL(sourceRowsSQL, finalTagsExpr string, evaluationTimeMS, rangeMS int64) (string, error) {
+func buildInstantRateOverRowsSQL(sourceRowsSQL, finalTagsExpr string, evaluationTimeMS, extrapolationAnchorMS, rangeMS int64) (string, error) {
 	valueExpr := emit.NullableFloatCoerce("value")
 	prepared := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
@@ -239,7 +239,11 @@ func buildInstantRateOverRowsSQL(sourceRowsSQL, finalTagsExpr string, evaluation
 		From:    groupedFrom,
 		GroupBy: []sqlb.Expr{sqlb.Ident("id"), sqlb.Ident("final_tags")},
 	}
-	factor := scalarExtrapolationFactorSQL("first_timestamp_ms", "last_timestamp_ms", "sample_count", strconv.FormatInt(evaluationTimeMS, 10), rangeMS)
+	// The extrapolation window ends at eval - offset (or the resolved @
+	// anchor), which is not the output timestamp when the selector carries
+	// an offset or @ modifier. Mirrors extrapolatedRate in
+	// prometheus/promql/functions.go.
+	factor := scalarExtrapolationFactorSQL("first_timestamp_ms", "last_timestamp_ms", "sample_count", strconv.FormatInt(extrapolationAnchorMS, 10), rangeMS)
 	rangeSeconds := storage.NativeFloatLiteral(float64(rangeMS) / 1000.0)
 	outer := &sqlb.Select{
 		Columns: []sqlb.ColExpr{
@@ -291,7 +295,7 @@ func rangeFunctionRowsFastPathValueExpr(fn, valueIdent string) (sqlb.Expr, error
 	}
 }
 
-func buildInstantRangeFunctionSQL(sourceSQL, fn, tagsExpr string, paramNumber *float64, paramNumbers []*float64, evaluationTimeMS int64, rangeMS int64) (string, error) {
+func buildInstantRangeFunctionSQL(sourceSQL, fn, tagsExpr string, paramNumber *float64, paramNumbers []*float64, evaluationTimeMS, extrapolationAnchorMS int64, rangeMS int64) (string, error) {
 	timestampExpr := "tupleElement(arrayElement(time_series, length(time_series)), 1)"
 	if fn == "predict_linear" {
 		timestampExpr = "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"
@@ -350,7 +354,7 @@ func buildInstantRangeFunctionSQL(sourceSQL, fn, tagsExpr string, paramNumber *f
 	if instantRangeFunctionNeedsTimestamps(fn) {
 		timestampsSource = "range_timestamps"
 	}
-	valueExpr := rangeFunctionValueExpr(fn, "time_series", valuesSource, paramNumber, paramNumbers, timestampsSource, strconv.FormatInt(evaluationTimeMS, 10), rangeMS)
+	valueExpr := rangeFunctionValueExpr(fn, "time_series", valuesSource, paramNumber, paramNumbers, timestampsSource, strconv.FormatInt(evaluationTimeMS, 10), strconv.FormatInt(extrapolationAnchorMS, 10), rangeMS)
 	query := &sqlb.Select{
 		Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("tags"), Alias: "tags"}, {Expr: sqlb.Ident("timestamp"), Alias: "timestamp"}, {Expr: sqlb.RawLit{V: valueExpr}, Alias: "value"}},
 		From:    sqlb.SubSelect{S: bound},
@@ -461,6 +465,19 @@ func paramsInputHasMetricName(params RenderParams) bool {
 	return false
 }
 
+// rangeExtrapolationAnchorExpr returns the SQL expression for the
+// extrapolation-window end used by rate/increase/delta in range mode: the
+// per-step grid eval_ts shifted left by the selector (or subquery) offset.
+// Prometheus's extrapolatedRate anchors rangeEnd at t-offset and rangeStart
+// at t-(offset+range); the shift is emitted only when offsetMS != 0 so
+// zero-offset SQL stays byte-identical to the historical shape.
+func rangeExtrapolationAnchorExpr(offsetMS int64) string {
+	if offsetMS == 0 {
+		return "toFloat64(toUnixTimestamp64Milli(eval_ts))"
+	}
+	return "(toFloat64(toUnixTimestamp64Milli(eval_ts)) - " + strconv.FormatInt(offsetMS, 10) + ".0)"
+}
+
 // extrapolationFactorSQL builds a ClickHouse expression for Prometheus's
 // rate/delta/increase extrapolation factor. Returns 1.0 when rangeMS <= 0
 // (caller unable to supply window duration) or the sample count is insufficient.
@@ -495,7 +512,17 @@ func scalarExtrapolationFactorSQL(firstMSExpr, lastMSExpr, sampleCountExpr, eval
 	return "if((" + sampledMS + ") <= 0, 1.0, (" + extrapolateTo + ") / (" + sampledMS + "))"
 }
 
-func rangeFunctionValueExpr(fn, seriesExpr, valuesSourceExpr string, paramNumber *float64, paramNumbers []*float64, timestampsSourceExpr string, interceptTimeMSExpr string, rangeMS int64) string {
+// rangeFunctionValueExpr renders the per-window value expression for a
+// range function. Two distinct time anchors are threaded in:
+//
+//   - interceptTimeMSExpr: the regression intercept for deriv /
+//     predict_linear. Prometheus anchors these at the *unshifted*
+//     evaluation time (enh.Ts), even under offset/@.
+//   - extrapolationAnchorMSExpr: the extrapolation-window end for
+//     rate / increase / delta. Prometheus anchors this at
+//     eval - offset (or the resolved @ time); see extrapolatedRate in
+//     prometheus/promql/functions.go.
+func rangeFunctionValueExpr(fn, seriesExpr, valuesSourceExpr string, paramNumber *float64, paramNumbers []*float64, timestampsSourceExpr string, interceptTimeMSExpr string, extrapolationAnchorMSExpr string, rangeMS int64) string {
 	series := sqlb.RawLit{V: seriesExpr}
 	valuesExpr := sqlb.Expr(sqlb.Call{Name: "arrayMap", Args: []sqlb.Expr{sqlb.RawLit{V: "point -> " + emit.NullableFloatCoerce("tupleElement(point, 2)")}, series}})
 	if valuesSourceExpr != "" {
@@ -588,7 +615,7 @@ func rangeFunctionValueExpr(fn, seriesExpr, valuesSourceExpr string, paramNumber
 		}
 		return interpolatedQuantileExpr(*paramNumber, renderSQLExprNoParams(valuesExpr))
 	case "increase":
-		factor := extrapolationFactorSQL(timestampsExpr, seriesLength, interceptTimeMSExpr, rangeMS)
+		factor := extrapolationFactorSQL(timestampsExpr, seriesLength, extrapolationAnchorMSExpr, rangeMS)
 		resultExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(counterDeltaExpr) + ") * (" + factor + ")"}
 		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{hasNaN, sqlb.RawLit{V: "nan"}, resultExpr}})
 	case "changes":
@@ -604,7 +631,7 @@ func rangeFunctionValueExpr(fn, seriesExpr, valuesSourceExpr string, paramNumber
 		if valuesSourceExpr == "range_values" {
 			durationExpr = sqlb.Ident("range_duration_ms")
 		}
-		factor := extrapolationFactorSQL(timestampsExpr, seriesLength, interceptTimeMSExpr, rangeMS)
+		factor := extrapolationFactorSQL(timestampsExpr, seriesLength, extrapolationAnchorMSExpr, rangeMS)
 		rangeSeconds := storage.NativeFloatLiteral(float64(rangeMS) / 1000.0)
 		condition := sqlb.RawLit{V: renderSQLExprNoParams(hasNaN) + " OR (" + renderSQLExprNoParams(durationExpr) + ") <= 0"}
 		resultExpr := sqlb.RawLit{V: "(" + renderSQLExprNoParams(counterDeltaExpr) + ") * (" + factor + ") / (" + rangeSeconds + ")"}
@@ -623,7 +650,7 @@ func rangeFunctionValueExpr(fn, seriesExpr, valuesSourceExpr string, paramNumber
 		firstValue := sqlb.Call{Name: "arrayElement", Args: []sqlb.Expr{valuesExpr, sqlb.RawLit{V: "1"}}}
 		lastValue := arrayElementAtLength(valuesExpr)
 		condition := sqlb.RawLit{V: "isNaN(" + renderSQLExprNoParams(firstValue) + ") OR isNaN(" + renderSQLExprNoParams(lastValue) + ")"}
-		factor := extrapolationFactorSQL(timestampsExpr, seriesLength, interceptTimeMSExpr, rangeMS)
+		factor := extrapolationFactorSQL(timestampsExpr, seriesLength, extrapolationAnchorMSExpr, rangeMS)
 		resultExpr := sqlb.RawLit{V: "((" + renderSQLExprNoParams(lastValue) + ") - (" + renderSQLExprNoParams(firstValue) + ")) * (" + factor + ")"}
 		return renderSQLExprNoParams(sqlb.Call{Name: "if", Args: []sqlb.Expr{condition, sqlb.RawLit{V: "nan"}, resultExpr}})
 	case "idelta":

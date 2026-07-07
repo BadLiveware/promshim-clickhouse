@@ -55,6 +55,15 @@ python3 "${ROOT}/scripts/patch-queries-for-prom3.py" \
   --input "${SUBMODULE}/promql-test-queries.yml" \
   --output "${PATCHED_QUERIES}"
 
+# Project-specific corpus entries live outside the pinned upstream
+# submodule. The upstream file ends inside its test_cases list, so the
+# supplemental entries (pre-indented `- query:` items) concatenate cleanly.
+EXTRA_QUERIES="${ROOT}/promshim-extra-queries.yml"
+if [[ -f "$EXTRA_QUERIES" ]]; then
+  echo ">> Appending promshim supplemental corpus from ${EXTRA_QUERIES}"
+  cat "$EXTRA_QUERIES" >> "$PATCHED_QUERIES"
+fi
+
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 name_parts=( "compliance-report" )
 [[ -n "$suffix" ]] && name_parts+=( "$suffix" )

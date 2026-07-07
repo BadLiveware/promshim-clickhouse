@@ -1,0 +1,31 @@
+# promshim supplemental compliance corpus.
+#
+# Appended verbatim to the patched upstream corpus's trailing test_cases
+# list by harness/compliance/scripts/run-compliance.sh, so every line must
+# be a `  - query:` entry indented to match the upstream file (two spaces).
+#
+# Issue #36 regression coverage: rate/increase/delta must anchor the
+# Prometheus extrapolation factor at eval - offset (or the @ time), not the
+# raw evaluation time. The upstream corpus has no offset-carrying
+# extrapolation entries, so the bug was invisible to compliance.
+#
+# The @ entry pins 1776807042 = 2026-04-21T21:30:42Z, 15 minutes before the
+# fixture end_time configured in test-promshim.yml.
+
+  # rate with offset (issue #36).
+  - query: 'rate(demo_cpu_usage_seconds_total[5m] offset 1m)'
+  - query: 'rate(demo_cpu_usage_seconds_total[5m] offset 5m)'
+  - query: 'rate(demo_cpu_usage_seconds_total[5m] offset 10m)'
+  # increase with offset (issue #36).
+  - query: 'increase(demo_cpu_usage_seconds_total[5m] offset 1m)'
+  - query: 'increase(demo_cpu_usage_seconds_total[5m] offset 5m)'
+  - query: 'increase(demo_cpu_usage_seconds_total[5m] offset 10m)'
+  # delta with offset (issue #36).
+  - query: 'delta(demo_memory_usage_bytes[5m] offset 1m)'
+  - query: 'delta(demo_memory_usage_bytes[5m] offset 5m)'
+  - query: 'delta(demo_memory_usage_bytes[5m] offset 10m)'
+  # @-pinned rate (issue #36).
+  - query: 'rate(demo_cpu_usage_seconds_total[5m] @ 1776807042)'
+  # Fused aggregation over an offset rate with a window much larger than
+  # the offset (the F22 production shape).
+  - query: 'sum(rate(demo_cpu_usage_seconds_total[1h] offset 1m))'

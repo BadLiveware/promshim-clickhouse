@@ -19,7 +19,7 @@ func ApplyIncreaseInstantWithBounds(input model.RuntimeValue, rangeStart, rangeE
 	if !ok {
 		return model.VectorValue{}, unsupportedf("increase requires matrix input, got %T", input)
 	}
-	return applyExtrapolatedCounterMatrix(matrix, rangeStart, rangeEnd, false)
+	return applyExtrapolatedMatrix(matrix, rangeStart, rangeEnd, true, false)
 }
 
 func applyIncreaseMatrix(matrix model.MatrixValue) (model.VectorValue, error) {

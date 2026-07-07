@@ -134,6 +134,12 @@ func TestNativeGridAndSparseRateGuards(t *testing.T) {
 	if CanUseSparseDirectRateBuckets("rate", 300_000, 0, 60_000) {
 		t.Fatalf("expected overlapping rate window to reject sparse direct rate buckets")
 	}
+	// Correctness guard, not a heuristic: the sparse direct-rate SQL anchors
+	// its extrapolation factor at the unshifted eval_ts (issue #36). Offset
+	// windows must stay rejected until that anchor is offset-shifted.
+	if CanUseSparseDirectRateBuckets("rate", 3_600_000, 60_000, 3_600_000) {
+		t.Fatalf("expected offset rate window to reject sparse direct rate buckets")
+	}
 	if !CanUseNativeGridRangeFunction("rate", 300_000, 0) {
 		t.Fatalf("expected 5m zero-offset rate to allow native-grid range function")
 	}

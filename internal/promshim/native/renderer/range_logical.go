@@ -108,7 +108,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 							return renderedFragment{}, err
 						}
 						tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
-						sql, err := buildInstantRateOverRowsSQL(trimRenderedQuerySQL(rowsSQL), tagsExpr, params.EvaluationTimeMS, leafInfo.LeafSelector.Lookback.Milliseconds())
+						sql, err := buildInstantRateOverRowsSQL(trimRenderedQuerySQL(rowsSQL), tagsExpr, params.EvaluationTimeMS, instantExtrapolationAnchorMS(child, params), leafInfo.LeafSelector.Lookback.Milliseconds())
 						if err != nil {
 							return renderedFragment{}, err
 						}
@@ -170,7 +170,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 		} else if sub, isSub := childNode.(*logicalpkg.SubqueryPlan); isSub && sub != nil {
 			childRangeMS = sub.Range.Milliseconds()
 		}
-		sql, err := buildInstantRangeFunctionSQL(childRendered.SQL, fn, tagsExpr, paramNumber, paramNumbers, params.EvaluationTimeMS, childRangeMS)
+		sql, err := buildInstantRangeFunctionSQL(childRendered.SQL, fn, tagsExpr, paramNumber, paramNumbers, params.EvaluationTimeMS, instantExtrapolationAnchorMS(childNode, params), childRangeMS)
 		if err != nil {
 			return renderedFragment{}, err
 		}
@@ -261,7 +261,7 @@ func renderRangeFunctionLogicalBody(ctx LoweringCtx, n logicalpkg.Node) (rendere
 							if err != nil {
 								return renderedFragment{}, err
 							}
-							windowValueExpr := rangeFunctionValueExpr(fn, "window_series", "window_values", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", lookbackMS)
+							windowValueExpr := rangeFunctionValueExpr(fn, "window_series", "window_values", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", rangeExtrapolationAnchorExpr(offsetMS), lookbackMS)
 							tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(params))
 							sql, queryParams, err := storage.BuildRangeWindowSelectorQuerySQLWithFinalTags(cfg, *source.Selector, childRequiredStartMS, childRequiredEndMS, params.StartMS, params.EndMS, params.StepMS, fn, windowValueExpr, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
 							if err != nil {
@@ -519,4 +519,32 @@ func subqueryRowsOutputHasMetricNameLogical(n *logicalpkg.SubqueryPlan) bool {
 // rows emitted by a subquery child, given the outer range function name.
 func subqueryRowsOutputTagsExprLogical(n *logicalpkg.SubqueryPlan, outerFn string) string {
 	return rangeFunctionTagsExprFromInput(outerFn, subqueryRowsOutputHasMetricNameLogical(n))
+}
+
+// instantExtrapolationAnchorMS returns the absolute extrapolation-window
+// end (ms) for rate/increase/delta in instant mode, mirroring Prometheus's
+// extrapolatedRate anchoring at t - offset with @ pinning the anchor.
+//
+// For a subquery child the *subquery's* offset/@ apply (Prometheus's
+// evalSubquery synthesizes a MatrixSelector carrying the subquery's offset
+// and timestamp; the inner selector's offset only shifts the inner
+// evaluation). For selector leaves the anchor is params.RequiredEndMS,
+// which production derives via LogicalRequiredInputBounds as
+// (resolved anchor) - offset — the same window end the samples were
+// fetched with. When RequiredEndMS is unset (zero) the evaluation time is
+// used, which preserves the historical zero-offset SQL.
+func instantExtrapolationAnchorMS(childNode logicalpkg.Node, params RenderParams) int64 {
+	if sub, ok := childNode.(*logicalpkg.SubqueryPlan); ok && sub != nil {
+		anchorMS := params.EvaluationTimeMS
+		if sub.Timestamp != nil {
+			anchorMS = *sub.Timestamp
+		} else if resolved, resolvedOK := resolveSubqueryStartEndMS(sub.StartOrEnd, params); resolvedOK {
+			anchorMS = resolved
+		}
+		return anchorMS - sub.Offset.Milliseconds()
+	}
+	if params.RequiredEndMS != 0 {
+		return params.RequiredEndMS
+	}
+	return params.EvaluationTimeMS
 }

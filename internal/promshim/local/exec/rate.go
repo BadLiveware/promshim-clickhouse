@@ -20,7 +20,7 @@ func ApplyRateWithBounds(input model.RuntimeValue, rangeStart, rangeEnd float64)
 	if !ok {
 		return model.VectorValue{}, unsupportedf("rate requires matrix input, got %T", input)
 	}
-	return applyExtrapolatedCounterMatrix(matrix, rangeStart, rangeEnd, true)
+	return applyExtrapolatedMatrix(matrix, rangeStart, rangeEnd, true, true)
 }
 
 func ApplyIRate(input model.RuntimeValue) (model.VectorValue, error) {
@@ -53,13 +53,13 @@ func applyRateMatrix(matrix model.MatrixValue) (model.VectorValue, error) {
 	return model.VectorValue{Samples: out}, nil
 }
 
-func applyExtrapolatedCounterMatrix(matrix model.MatrixValue, rangeStart, rangeEnd float64, isRate bool) (model.VectorValue, error) {
+func applyExtrapolatedMatrix(matrix model.MatrixValue, rangeStart, rangeEnd float64, isCounter, isRate bool) (model.VectorValue, error) {
 	out := make([]model.InstantSample, 0, len(matrix.Series))
 	for _, series := range matrix.Series {
 		if len(series.Values) < 2 {
 			continue
 		}
-		value := extrapolatedCounterValue(series.Values, rangeStart, rangeEnd, isRate)
+		value := extrapolatedValue(series.Values, rangeStart, rangeEnd, isCounter, isRate)
 		last := series.Values[len(series.Values)-1]
 		out = append(out, model.InstantSample{Metric: model.DropMetricName(series.Metric), Timestamp: last.Timestamp, Value: value})
 	}
@@ -67,16 +67,31 @@ func applyExtrapolatedCounterMatrix(matrix model.MatrixValue, rangeStart, rangeE
 	return model.VectorValue{Samples: out}, nil
 }
 
-func extrapolatedCounterValue(values []model.RangePoint, rangeStart, rangeEnd float64, isRate bool) float64 {
+// extrapolatedValue mirrors extrapolatedRate in
+// prometheus/promql/functions.go: the raw difference over the samples is
+// extrapolated to the [rangeStart, rangeEnd] window. Counters (rate,
+// increase) accumulate reset-corrected deltas and clamp the start-side
+// extrapolation at the implied zero crossing; gauges (delta) use the plain
+// last-first difference.
+func extrapolatedValue(values []model.RangePoint, rangeStart, rangeEnd float64, isCounter, isRate bool) float64 {
 	if len(values) < 2 || rangeEnd <= rangeStart {
-		return math.NaN()
-	}
-	delta, hasNaN := increaseDelta(values)
-	if hasNaN {
 		return math.NaN()
 	}
 	first := values[0]
 	last := values[len(values)-1]
+	var delta float64
+	if isCounter {
+		var hasNaN bool
+		delta, hasNaN = increaseDelta(values)
+		if hasNaN {
+			return math.NaN()
+		}
+	} else {
+		if math.IsNaN(first.Value) || math.IsNaN(last.Value) {
+			return math.NaN()
+		}
+		delta = last.Value - first.Value
+	}
 	sampledInterval := last.Timestamp - first.Timestamp
 	if sampledInterval <= 0 {
 		return math.NaN()
@@ -89,7 +104,7 @@ func extrapolatedCounterValue(values []model.RangePoint, rangeStart, rangeEnd fl
 	if durationToStart >= extrapolationThreshold {
 		durationToStart = averageDurationBetweenSamples / 2
 	}
-	if delta > 0 && first.Value >= 0 {
+	if isCounter && delta > 0 && first.Value >= 0 {
 		durationToZero := sampledInterval * (first.Value / delta)
 		if durationToZero < durationToStart {
 			durationToStart = durationToZero

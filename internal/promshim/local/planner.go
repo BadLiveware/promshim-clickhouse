@@ -548,7 +548,7 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nati
 		if err != nil {
 			return nil, WithInternalContext(err, "building execution child plan for %s %q", node.Func, node.ExprString())
 		}
-		return annotateQueryPlan(&localRatePlan{Expr: node.ExprString(), Func: node.Func, Range: rangeFunctionWindow(node.Expr), Child: child}, analysis.InfoFor(node)), nil
+		return annotateQueryPlan(&localRatePlan{Expr: node.ExprString(), Func: node.Func, Range: rangeFunctionWindow(node.Expr), Offset: rangeFunctionOffset(node.Expr), Timestamp: rangeFunctionTimestampMS(node.Expr), Child: child}, analysis.InfoFor(node)), nil
 	case *logicalIncreasePlan:
 		if ctx.AllowsNativePlanning() {
 			if nativePlan, ok, err := maybeBuildNativeIncreasePlan(node, ctx, analysis); err != nil {
@@ -561,7 +561,7 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nati
 		if err != nil {
 			return nil, WithInternalContext(err, "building execution child plan for increase %q", node.ExprString())
 		}
-		return annotateQueryPlan(&localIncreasePlan{Expr: node.ExprString(), Range: rangeFunctionWindow(node.Expr), Child: child}, analysis.InfoFor(node)), nil
+		return annotateQueryPlan(&localIncreasePlan{Expr: node.ExprString(), Range: rangeFunctionWindow(node.Expr), Offset: rangeFunctionOffset(node.Expr), Timestamp: rangeFunctionTimestampMS(node.Expr), Child: child}, analysis.InfoFor(node)), nil
 	case *logicalDeltaPlan:
 		if ctx.AllowsNativePlanning() {
 			if nativePlan, ok, err := maybeBuildNativeDeltaPlan(node, ctx, analysis); err != nil {
@@ -574,7 +574,7 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nati
 		if err != nil {
 			return nil, WithInternalContext(err, "building execution child plan for %s %q", node.Func, node.ExprString())
 		}
-		return annotateQueryPlan(&localDeltaPlan{Expr: node.ExprString(), Func: node.Func, Child: child}, analysis.InfoFor(node)), nil
+		return annotateQueryPlan(&localDeltaPlan{Expr: node.ExprString(), Func: node.Func, Range: rangeFunctionWindow(node.Expr), Offset: rangeFunctionOffset(node.Expr), Timestamp: rangeFunctionTimestampMS(node.Expr), Child: child}, analysis.InfoFor(node)), nil
 	case *logicalChangesPlan:
 		if ctx.AllowsNativePlanning() {
 			if nativePlan, ok, err := maybeBuildNativeChangesPlan(node, ctx, analysis); err != nil {
@@ -705,6 +705,58 @@ func rangeFunctionWindow(expr parser.Expr) time.Duration {
 		return arg.Range
 	default:
 		return 0
+	}
+}
+
+// rangeFunctionOffset returns the offset that shifts the extrapolation
+// window of a rate/increase/delta call: the selector's offset for a
+// matrix-selector argument, or the subquery's own offset for a subquery
+// argument (mirroring Prometheus's evalSubquery, which synthesizes a
+// MatrixSelector carrying the subquery's offset).
+func rangeFunctionOffset(expr parser.Expr) time.Duration {
+	call, ok := expr.(*parser.Call)
+	if !ok || len(call.Args) == 0 {
+		return 0
+	}
+	switch arg := call.Args[0].(type) {
+	case *parser.MatrixSelector:
+		if vs, ok := arg.VectorSelector.(*parser.VectorSelector); ok {
+			return vs.OriginalOffset
+		}
+		return 0
+	case *parser.SubqueryExpr:
+		return arg.OriginalOffset
+	default:
+		return 0
+	}
+}
+
+// rangeFunctionTimestampMS returns the @ anchor (ms) of a
+// rate/increase/delta call's argument, or nil when the argument carries no
+// @ modifier. Like rangeFunctionOffset, the subquery's own @ applies for
+// subquery arguments.
+//
+// TODO: this only reads a literal @ timestamp; it does not resolve
+// @ start()/@ end() (parser.StartOrEnd), which the renderer handles via
+// resolveSubqueryStartEndMS. In instant mode start()/end() equal the
+// evaluation time so the current nil result is correct, but a range-mode
+// local evaluation would resolve start()/end() to the range endpoints and
+// would drift here. Left as pre-existing incompleteness for issue #36.
+func rangeFunctionTimestampMS(expr parser.Expr) *int64 {
+	call, ok := expr.(*parser.Call)
+	if !ok || len(call.Args) == 0 {
+		return nil
+	}
+	switch arg := call.Args[0].(type) {
+	case *parser.MatrixSelector:
+		if vs, ok := arg.VectorSelector.(*parser.VectorSelector); ok {
+			return cloneInt64Pointer(vs.Timestamp)
+		}
+		return nil
+	case *parser.SubqueryExpr:
+		return cloneInt64Pointer(arg.Timestamp)
+	default:
+		return nil
 	}
 }
 

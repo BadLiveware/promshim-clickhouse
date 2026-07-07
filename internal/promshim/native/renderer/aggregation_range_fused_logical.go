@@ -264,7 +264,7 @@ func renderRangeFunctionRowsLogicalSQL(ctx LoweringCtx, rangeNode logicalpkg.Nod
 				if err != nil {
 					return "", nil, nil, err
 				}
-				windowValueExpr := rangeFunctionValueExpr(fn, "window_series", "window_values", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", lookbackMS)
+				windowValueExpr := rangeFunctionValueExpr(fn, "window_series", "window_values", paramNumber, paramNumbers, "window_timestamps", "toFloat64(toUnixTimestamp64Milli(eval_ts))", rangeExtrapolationAnchorExpr(offsetMS), lookbackMS)
 				tagsExpr := rangeFunctionTagsExprFromInput(fn, paramsInputHasMetricName(ctx.Params))
 				sql, queryParams, err := storage.BuildRangeWindowSelectorRowsQuerySQLWithFinalTags(ctx.Config, *source.Selector, childRequiredStartMS, childRequiredEndMS, ctx.Params.StartMS, ctx.Params.EndMS, ctx.Params.StepMS, fn, windowValueExpr, tagsExpr, minimumSeriesLengthForRangeFunction(fn))
 				return sql, queryParams, []physical.Decision{decision.Explain("range_window_aggregate")}, err

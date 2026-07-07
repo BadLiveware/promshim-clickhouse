@@ -15,6 +15,18 @@ func ApplyDelta(input model.RuntimeValue) (model.VectorValue, error) {
 	return applyDeltaMatrix(matrix)
 }
 
+// ApplyDeltaWithBounds applies Prometheus's extrapolating delta
+// (extrapolatedRate with isCounter=false, isRate=false): the raw
+// last-first difference is extrapolated to the [rangeStart, rangeEnd]
+// window boundaries.
+func ApplyDeltaWithBounds(input model.RuntimeValue, rangeStart, rangeEnd float64) (model.VectorValue, error) {
+	matrix, ok := input.(model.MatrixValue)
+	if !ok {
+		return model.VectorValue{}, unsupportedf("delta requires matrix input, got %T", input)
+	}
+	return applyExtrapolatedMatrix(matrix, rangeStart, rangeEnd, false, false)
+}
+
 func ApplyIDelta(input model.RuntimeValue) (model.VectorValue, error) {
 	matrix, ok := input.(model.MatrixValue)
 	if !ok {

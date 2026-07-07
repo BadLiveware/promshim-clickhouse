@@ -50,12 +50,18 @@ var binaryVectorJoinCases = []struct {
 	{name: "rate_div_group_left", query: `rate(http_requests_total[5m]) / ignoring(code) group_left() rate(http_requests_total[5m])`},
 	// — arithmetic sub —
 	{name: "sub_up_up", query: `up - up`},
+	// — set ops with a shared selector and a comparison filter (issue #39):
+	//   the shared CTE must render plain, not MATERIALIZED —
+	{name: "unless_eq_filter", query: `up unless (up == 0)`},
+	{name: "and_eq_filter", query: `up and (up == 0)`},
+	{name: "or_eq_filter", query: `up or (up == 0)`},
+	{name: "unless_on_eq_filter", query: `up unless on(instance) (up == 0)`},
 }
 
 // goldenBinaryVectorJoinCases selects the subset of binaryVectorJoinCases
 // that receive golden files: the first six canonical shapes plus the rate
-// group_left case.
-var goldenBinaryVectorJoinCases = []int{0, 1, 2, 3, 5, 7, 8, 10}
+// group_left case and the filtered set-op shapes.
+var goldenBinaryVectorJoinCases = []int{0, 1, 2, 3, 5, 7, 8, 10, 12, 13, 14, 15}
 
 // TestLowerBinaryVectorJoinGolden locks in the exact SQL for the golden
 // subset in both instant and range modes. Run with -update to regenerate.

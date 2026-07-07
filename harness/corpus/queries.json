@@ -299,6 +299,30 @@
     "timeOffsetSeconds": 540
   },
   {
+    "name": "set_unless_shared_selector_eq_filter_instant",
+    "endpoint": "query",
+    "query": "harness_up unless (harness_up == 0)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "set_and_shared_selector_eq_filter_instant",
+    "endpoint": "query",
+    "query": "harness_up and (harness_up == 0)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "set_or_shared_selector_eq_filter_instant",
+    "endpoint": "query",
+    "query": "harness_up or (harness_up == 0)",
+    "timeOffsetSeconds": 540
+  },
+  {
+    "name": "set_unless_on_shared_selector_eq_filter_instant",
+    "endpoint": "query",
+    "query": "harness_up unless on(job,instance,namespace,pod,service) (harness_up == 0)",
+    "timeOffsetSeconds": 540
+  },
+  {
     "name": "label_join_instant",
     "endpoint": "query",
     "query": "label_join(harness_up, \"job_instance\", \"/\", \"job\", \"instance\")",
@@ -586,6 +610,38 @@
     "name": "set_unless_range",
     "endpoint": "query_range",
     "query": "harness_up unless on(job,instance,namespace,pod,service) harness_up{job=\"definitely_missing\"}",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "set_unless_shared_selector_eq_filter_range",
+    "endpoint": "query_range",
+    "query": "harness_up unless (harness_up == 0)",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "set_and_shared_selector_eq_filter_range",
+    "endpoint": "query_range",
+    "query": "harness_up and (harness_up == 0)",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "set_or_shared_selector_eq_filter_range",
+    "endpoint": "query_range",
+    "query": "harness_up or (harness_up == 0)",
+    "startOffsetSeconds": 300,
+    "endOffsetSeconds": 540,
+    "stepSeconds": 60
+  },
+  {
+    "name": "set_unless_on_shared_selector_eq_filter_range",
+    "endpoint": "query_range",
+    "query": "harness_up unless on(job,instance,namespace,pod,service) (harness_up == 0)",
     "startOffsetSeconds": 300,
     "endOffsetSeconds": 540,
     "stepSeconds": 60

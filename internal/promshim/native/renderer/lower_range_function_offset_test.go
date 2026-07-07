@@ -111,27 +111,12 @@ func TestInstantRateSubqueryOffsetAnchor_Fallback(t *testing.T) {
 	// inner selector has no offset, so production required bounds stay
 	// anchored at the evaluation time.
 	query := `rate(http_requests_total[5m:15s] offset 30m)`
-	root, _, _ := buildLowerInputs(t, query)
-	startMS, endMS, ok := LogicalRequiredInputBounds(root, native.OptimizationContext{
-		Mode:             native.RenderModeInstant,
-		EvaluationTimeMS: offsetTestEvalMS,
-	})
-	if !ok {
-		t.Fatalf("LogicalRequiredInputBounds returned !ok")
-	}
-	params := RenderParams{
-		Mode:             native.RenderModeInstant,
-		EvaluationTimeMS: offsetTestEvalMS,
-		RequiredStartMS:  startMS,
-		RequiredEndMS:    endMS,
-	}
-	rq := lowerForTest(t, query, params)
+	rq := lowerForTest(t, query, subqueryInstantParams(t, query))
 	assertAnchor(t, rq.SQL, instantShiftedAnchor, instantUnshiftedAnchor)
 }
 
 // subqueryInstantParams derives the production required bounds for a
-// subquery query and returns instant RenderParams carrying them, mirroring
-// TestInstantRateSubqueryOffsetAnchor_Fallback.
+// subquery query and returns instant RenderParams carrying them.
 func subqueryInstantParams(t *testing.T, query string) RenderParams {
 	t.Helper()
 	root, _, _ := buildLowerInputs(t, query)

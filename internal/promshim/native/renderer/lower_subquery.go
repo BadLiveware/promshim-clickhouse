@@ -30,7 +30,7 @@ func lowerSubquery(ctx LoweringCtx, n *logicalpkg.SubqueryPlan) (RenderedQuery, 
 	if ctx.Analysis == nil || ctx.Analysis.InfoFor(n) == nil {
 		return RenderedQuery{}, fmt.Errorf("renderer: subquery missing analysis")
 	}
-	startMS, endMS, stepMS, err := subqueryRenderEnvelopeLogical(n, ctx.Params)
+	startMS, endMS, stepMS, err := subqueryRenderEnvelopeLogical(n, ctx.Params, ctx.Config.DefaultEvaluationInterval.Milliseconds())
 	if err != nil {
 		return RenderedQuery{}, err
 	}
@@ -57,14 +57,14 @@ func lowerSubquery(ctx LoweringCtx, n *logicalpkg.SubqueryPlan) (RenderedQuery, 
 // envelope for a subquery from the logical plan fields. It carves out
 // the child step-grid over either the current instant
 // (RenderModeInstant) or the outer range envelope (RenderModeRange).
-func subqueryRenderEnvelopeLogical(n *logicalpkg.SubqueryPlan, params RenderParams) (int64, int64, int64, error) {
+func subqueryRenderEnvelopeLogical(n *logicalpkg.SubqueryPlan, params RenderParams, defaultStepMS int64) (int64, int64, int64, error) {
 	if n == nil {
 		return 0, 0, 0, fmt.Errorf("subquery plan is missing metadata")
 	}
 	if n.Range <= 0 {
 		return 0, 0, 0, fmt.Errorf("subquery range must be greater than zero")
 	}
-	stepMS := subqueryStepMS(n, params)
+	stepMS := subqueryStepMS(n, defaultStepMS)
 	if stepMS <= 0 {
 		return 0, 0, 0, fmt.Errorf("subquery step must be greater than zero")
 	}
@@ -100,12 +100,16 @@ func subqueryRenderEnvelopeLogical(n *logicalpkg.SubqueryPlan, params RenderPara
 	}
 }
 
-func subqueryStepMS(n *logicalpkg.SubqueryPlan, params RenderParams) int64 {
+// subqueryStepMS resolves the subquery's inner grid step. A missing step is
+// filled with the server-side default evaluation interval — never the outer
+// query step — matching Prometheus (promql/engine.go: SubqueryExpr.Step == 0
+// -> noStepSubqueryIntervalFn). An explicit step is never overridden.
+func subqueryStepMS(n *logicalpkg.SubqueryPlan, defaultStepMS int64) int64 {
 	if n.Step > 0 {
 		return n.Step.Milliseconds()
 	}
-	if params.Mode == native.RenderModeRange && params.StepMS > 0 {
-		return params.StepMS
+	if defaultStepMS > 0 {
+		return defaultStepMS
 	}
 	return time.Minute.Milliseconds()
 }

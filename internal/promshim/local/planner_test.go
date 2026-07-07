@@ -133,7 +133,7 @@ func TestResolveDelegatedPromQLRewritesAtStartEndForRange(t *testing.T) {
 		Mode:  EvalModeRange,
 		Start: time.Unix(100, 0).UTC(),
 		End:   time.Unix(200, 0).UTC(),
-	})
+	}, 0)
 	if err != nil {
 		t.Fatalf("expected @ start()/end() rewrite, got error: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestResolveDelegatedPromQLRewritesAtStartEndForInstantToEvaluationTime(t *t
 	}
 
 	evalTime := time.Unix(321, 0).UTC()
-	promQL, err := resolveDelegatedPromQL(expr, EvalParams{Mode: EvalModeInstant, EvaluationTime: evalTime})
+	promQL, err := resolveDelegatedPromQL(expr, EvalParams{Mode: EvalModeInstant, EvaluationTime: evalTime}, 0)
 	if err != nil {
 		t.Fatalf("expected @ start() rewrite for instant mode, got error: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestResolveDelegatedPromQLRewritesSubqueryAtStartForRange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	promQL, err := resolveDelegatedPromQL(expr, EvalParams{Mode: EvalModeRange, Start: time.Unix(100, 0).UTC(), End: time.Unix(200, 0).UTC(), Step: time.Minute})
+	promQL, err := resolveDelegatedPromQL(expr, EvalParams{Mode: EvalModeRange, Start: time.Unix(100, 0).UTC(), End: time.Unix(200, 0).UTC(), Step: time.Minute}, 0)
 	if err != nil {
 		t.Fatalf("expected subquery @ start() rewrite, got error: %v", err)
 	}
@@ -179,6 +179,48 @@ func TestResolveDelegatedPromQLRewritesSubqueryAtStartForRange(t *testing.T) {
 	}
 	if !strings.Contains(promQL, "100") {
 		t.Fatalf("expected rewritten subquery to contain start unix seconds, got %q", promQL)
+	}
+}
+
+// TestResolveDelegatedPromQLFillsNoStepSubqueryInterval locks that delegated
+// PromQL text makes the no-step subquery default explicit, so ClickHouse's
+// PromQL engine cannot substitute its own default (or the outer step) for
+// promshim's configured default evaluation interval. Explicit steps are
+// never rewritten.
+func TestResolveDelegatedPromQLFillsNoStepSubqueryInterval(t *testing.T) {
+	rangeParams := EvalParams{Mode: EvalModeRange, Start: time.Unix(100, 0).UTC(), End: time.Unix(200, 0).UTC(), Step: 300 * time.Second}
+	for _, tc := range []struct {
+		name        string
+		query       string
+		interval    time.Duration
+		want        string
+		wantAbsent  string
+		occurrences int
+	}{
+		{name: "no_step_filled_with_1m_fallback", query: "up[15m:]", interval: 0, want: ":1m]", occurrences: 1},
+		{name: "no_step_filled_with_configured_interval", query: "up[15m:]", interval: 30 * time.Second, want: ":30s]", occurrences: 1},
+		{name: "explicit_step_untouched", query: "up[15m:2m]", interval: 30 * time.Second, want: ":2m]", wantAbsent: ":30s]", occurrences: 1},
+		{name: "nested_subqueries_both_filled", query: "max_over_time(last_over_time(up[10m:])[20m:])", interval: 90 * time.Second, want: ":1m30s]", occurrences: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			expr, err := logical.ParseExpression(tc.query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			promQL, err := resolveDelegatedPromQL(expr, rangeParams, tc.interval)
+			if err != nil {
+				t.Fatalf("resolveDelegatedPromQL: %v", err)
+			}
+			if got := strings.Count(promQL, tc.want); got != tc.occurrences {
+				t.Fatalf("expected %d occurrence(s) of %q in delegated text, got %d: %q", tc.occurrences, tc.want, got, promQL)
+			}
+			if tc.wantAbsent != "" && strings.Contains(promQL, tc.wantAbsent) {
+				t.Fatalf("expected delegated text to not contain %q, got %q", tc.wantAbsent, promQL)
+			}
+			if strings.Contains(promQL, ":]") {
+				t.Fatalf("expected no empty subquery step to survive delegation, got %q", promQL)
+			}
+		})
 	}
 }
 
@@ -3427,6 +3469,104 @@ func TestLocalSubqueryPlanDefaultsMissingStepToOneMinute(t *testing.T) {
 			t.Fatalf("expected child call %d at %d, got %d", i, want[i], calls[i])
 		}
 	}
+}
+
+// TestBuildPlanThreadsDefaultEvaluationIntervalToSubqueryPlan asserts the
+// planner captures PlanContext.DefaultEvaluationInterval on the subquery
+// plan node at build time, so nested subqueries keep the configured
+// server-side default even though child EvalParams are reconstructed.
+func TestBuildPlanThreadsDefaultEvaluationIntervalToSubqueryPlan(t *testing.T) {
+	expr, err := logical.ParseExpression("(up * 100)[10m:]")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := buildPlanWithContext(expr, PlanContext{Mode: EvalModeInstant, NativeLoweringMode: NativeLoweringModeOff, DefaultEvaluationInterval: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("expected local subquery plan, got error: %v", err)
+	}
+	subquery, ok := built.(*localSubqueryPlan)
+	if !ok {
+		t.Fatalf("expected localSubqueryPlan, got %T", built)
+	}
+	if subquery.DefaultEvaluationInterval != 30*time.Second {
+		t.Fatalf("expected DefaultEvaluationInterval 30s threaded from PlanContext, got %v", subquery.DefaultEvaluationInterval)
+	}
+}
+
+// TestLocalSubqueryPlanRangeModeNoStepUsesDefaultEvaluationInterval locks
+// issue #35: a no-step subquery evaluated in range mode must fill its step
+// with the server-side default evaluation interval (1m), never the outer
+// query step. With the outer step at 300s the buggy behavior would evaluate
+// the child every 300s (5 calls); the fixed behavior evaluates every 60s.
+func TestLocalSubqueryPlanRangeModeNoStepUsesDefaultEvaluationInterval(t *testing.T) {
+	expr := mustParseExpr(t, "(up * 100)[10m:]")
+	calls := make([]int64, 0)
+	plan := &localSubqueryPlan{Expr: expr, Range: 10 * time.Minute, Step: 0, Child: testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+		calls = append(calls, params.EvaluationTime.Unix())
+		return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: float64(params.EvaluationTime.Unix()), Value: 1}}}, nil
+	}}}
+
+	_, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeRange, Start: time.Unix(600, 0).UTC(), End: time.Unix(1200, 0).UTC(), Step: 300 * time.Second})
+	if err != nil {
+		t.Fatalf("expected range-mode no-step subquery execution, got error: %v", err)
+	}
+	if len(calls) != 21 {
+		t.Fatalf("expected 21 child evaluations on the 60s default grid, got %d (%v)", len(calls), calls)
+	}
+	for i, ts := range calls {
+		if want := int64(i * 60); ts != want {
+			t.Fatalf("expected child call %d at %d (60s default interval), got %d", i, want, ts)
+		}
+	}
+}
+
+// TestLocalSubqueryPlanUsesConfiguredDefaultEvaluationInterval covers the
+// configured (non-1m) server default and confirms an explicit subquery step
+// always wins over it.
+func TestLocalSubqueryPlanUsesConfiguredDefaultEvaluationInterval(t *testing.T) {
+	newChild := func(calls *[]int64) testQueryPlan {
+		return testQueryPlan{executeFn: func(_ context.Context, _ *Evaluator, params EvalParams) (model.RuntimeValue, error) {
+			*calls = append(*calls, params.EvaluationTime.Unix())
+			return model.VectorValue{Samples: []model.InstantSample{{Metric: map[string]string{"job": "api"}, Timestamp: float64(params.EvaluationTime.Unix()), Value: 1}}}, nil
+		}}
+	}
+
+	t.Run("no_step_uses_configured_interval", func(t *testing.T) {
+		expr := mustParseExpr(t, "(up * 100)[2m:]")
+		calls := make([]int64, 0)
+		plan := &localSubqueryPlan{Expr: expr, Range: 2 * time.Minute, Step: 0, DefaultEvaluationInterval: 30 * time.Second, Child: newChild(&calls)}
+		if _, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(120, 0).UTC()}); err != nil {
+			t.Fatalf("expected configured-interval subquery execution, got error: %v", err)
+		}
+		want := []int64{0, 30, 60, 90, 120}
+		if len(calls) != len(want) {
+			t.Fatalf("expected %d child evaluations, got %d (%v)", len(want), len(calls), calls)
+		}
+		for i := range want {
+			if calls[i] != want[i] {
+				t.Fatalf("expected child call %d at %d, got %d", i, want[i], calls[i])
+			}
+		}
+	})
+
+	t.Run("explicit_step_wins_over_configured_interval", func(t *testing.T) {
+		expr := mustParseExpr(t, "(up * 100)[2m:1m]")
+		calls := make([]int64, 0)
+		plan := &localSubqueryPlan{Expr: expr, Range: 2 * time.Minute, Step: time.Minute, DefaultEvaluationInterval: 30 * time.Second, Child: newChild(&calls)}
+		if _, err := plan.execute(context.Background(), &Evaluator{}, EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(120, 0).UTC()}); err != nil {
+			t.Fatalf("expected explicit-step subquery execution, got error: %v", err)
+		}
+		want := []int64{0, 60, 120}
+		if len(calls) != len(want) {
+			t.Fatalf("expected %d child evaluations, got %d (%v)", len(want), len(calls), calls)
+		}
+		for i := range want {
+			if calls[i] != want[i] {
+				t.Fatalf("expected child call %d at %d, got %d", i, want[i], calls[i])
+			}
+		}
+	})
 }
 
 func TestLocalSubqueryPlanExecutesLocalRangeMode(t *testing.T) {

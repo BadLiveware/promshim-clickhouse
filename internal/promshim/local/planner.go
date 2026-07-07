@@ -91,6 +91,7 @@ type Evaluator struct {
 	promotedTagColumns          map[string]struct{}
 	enableNativeGridFunctions   bool
 	enableCumulativeAvgOverTime bool
+	defaultEvaluationInterval   time.Duration
 	client                      *storage.Client
 	localMemo                   map[string]model.RuntimeValue
 }
@@ -114,8 +115,22 @@ func (e *Evaluator) WithCumulativeAvgOverTime(enabled bool) *Evaluator {
 	return e
 }
 
+func (e *Evaluator) WithDefaultEvaluationInterval(interval time.Duration) *Evaluator {
+	e.defaultEvaluationInterval = interval
+	return e
+}
+
+// noStepSubqueryInterval is the server-side interval used to fill subquery
+// steps omitted in expressions like `expr[15m:]`.
+func (e *Evaluator) noStepSubqueryInterval() time.Duration {
+	if e.defaultEvaluationInterval > 0 {
+		return e.defaultEvaluationInterval
+	}
+	return DefaultEvaluationInterval
+}
+
 func (e *Evaluator) queryConfig() storage.QueryConfig {
-	return storage.QueryConfig{Database: e.database, Table: e.table, PromotedTagColumns: e.promotedTagColumns, EnableNativeGridFunctions: e.enableNativeGridFunctions, EnableCumulativeAvgOverTime: e.enableCumulativeAvgOverTime}
+	return storage.QueryConfig{Database: e.database, Table: e.table, PromotedTagColumns: e.promotedTagColumns, EnableNativeGridFunctions: e.enableNativeGridFunctions, EnableCumulativeAvgOverTime: e.enableCumulativeAvgOverTime, DefaultEvaluationInterval: e.noStepSubqueryInterval()}
 }
 
 func (e *Evaluator) Evaluate(ctx context.Context, plan Plan, params EvalParams) (model.RuntimeValue, error) {
@@ -129,7 +144,7 @@ func (e *Evaluator) Evaluate(ctx context.Context, plan Plan, params EvalParams) 
 }
 
 func (e *Evaluator) executeDelegated(ctx context.Context, expr parser.Expr, params EvalParams) (model.RuntimeValue, error) {
-	promQL, err := resolveDelegatedPromQL(expr, params)
+	promQL, err := resolveDelegatedPromQL(expr, params, e.noStepSubqueryInterval())
 	if err != nil {
 		return nil, WithInternalContext(err, "resolving delegated PromQL for %q", expr.String())
 	}
@@ -661,7 +676,7 @@ func buildExecPlanWithAnalysis(plan logicalPlan, ctx PlanContext, analysis *nati
 		if err != nil {
 			return nil, WithInternalContext(err, "building execution child plan for subquery %q", node.ExprString())
 		}
-		return annotateQueryPlan(&localSubqueryPlan{Expr: node.Expr, Range: node.Range, Step: node.Step, Offset: node.Offset, Timestamp: cloneInt64Pointer(node.Timestamp), StartOrEnd: node.StartOrEnd, DelegatedLeafCompatible: node.DelegatedLeafCompatible, MaxPointsPerSeries: ctx.MaxRangePointsPerSeries, Child: child}, analysis.InfoFor(node)), nil
+		return annotateQueryPlan(&localSubqueryPlan{Expr: node.Expr, Range: node.Range, Step: node.Step, Offset: node.Offset, Timestamp: cloneInt64Pointer(node.Timestamp), StartOrEnd: node.StartOrEnd, DelegatedLeafCompatible: node.DelegatedLeafCompatible, MaxPointsPerSeries: ctx.MaxRangePointsPerSeries, DefaultEvaluationInterval: ctx.DefaultEvaluationInterval, Child: child}, analysis.InfoFor(node)), nil
 	case *logicalLabelReplacePlan:
 		if ctx.AllowsNativePlanning() {
 			if nativePlan, ok, err := maybeBuildNativeLabelReplacePlan(node, ctx, analysis); err != nil {

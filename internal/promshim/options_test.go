@@ -29,6 +29,36 @@ func TestLoadOptionsFromEnvClickHouseTransportDefaultAndHTTP(t *testing.T) {
 	}
 }
 
+func TestLoadOptionsFromEnvDefaultEvaluationInterval(t *testing.T) {
+	t.Setenv("PROM_SHIM_DEFAULT_EVALUATION_INTERVAL_SECONDS", "")
+	opts, err := LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatalf("LoadOptionsFromEnv default: %v", err)
+	}
+	if opts.DefaultEvaluationInterval != local.DefaultEvaluationInterval {
+		t.Fatalf("default DefaultEvaluationInterval = %v, want %v", opts.DefaultEvaluationInterval, local.DefaultEvaluationInterval)
+	}
+
+	t.Setenv("PROM_SHIM_DEFAULT_EVALUATION_INTERVAL_SECONDS", "15")
+	opts, err = LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatalf("LoadOptionsFromEnv 15s: %v", err)
+	}
+	if opts.DefaultEvaluationInterval != 15*time.Second {
+		t.Fatalf("DefaultEvaluationInterval = %v, want %v", opts.DefaultEvaluationInterval, 15*time.Second)
+	}
+
+	// Invalid values fall back to the 1m Prometheus default.
+	t.Setenv("PROM_SHIM_DEFAULT_EVALUATION_INTERVAL_SECONDS", "0")
+	opts, err = LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatalf("LoadOptionsFromEnv zero: %v", err)
+	}
+	if opts.DefaultEvaluationInterval != local.DefaultEvaluationInterval {
+		t.Fatalf("zero DefaultEvaluationInterval = %v, want fallback %v", opts.DefaultEvaluationInterval, local.DefaultEvaluationInterval)
+	}
+}
+
 func TestLoadOptionsFromEnvClickHouseTransportNative(t *testing.T) {
 	t.Setenv("PROM_SHIM_CLICKHOUSE_TRANSPORT", "native")
 	opts, err := LoadOptionsFromEnv()

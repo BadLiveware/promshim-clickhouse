@@ -13,6 +13,11 @@ const (
 	DefaultNativeRangePreflightSeriesThreshold int64 = 1000
 	DefaultNativeRangePreflightTimeout               = 50 * time.Millisecond
 	DefaultNativeRangePreflightMaxMemoryUsage  int64 = 64 << 20
+	// DefaultEvaluationInterval mirrors Prometheus's
+	// --query.default-evaluation-interval default. It fills the step of
+	// subqueries that omit one (`expr[15m:]`) and is a server-side
+	// constant: it must never depend on the request's step parameter.
+	DefaultEvaluationInterval = time.Minute
 )
 
 type PlanContext struct {
@@ -26,6 +31,7 @@ type PlanContext struct {
 	PreferNativeAggregationPushdown     bool
 	EnableNativeGridFunctions           bool
 	EnableCumulativeAvgOverTime         bool
+	DefaultEvaluationInterval           time.Duration
 	MaxRangePointsPerSeries             int64
 	RangeChunkPointsPerSeries           int64
 	NativeRangeChunkPointsPerSeries     int64
@@ -54,6 +60,7 @@ func DefaultPlanContext(mode EvalMode) PlanContext {
 		ClickHouseVersion:                   NormalizeClickHouseVersion(""),
 		NativeLoweringMode:                  NativeLoweringModePrefer,
 		PreferNativeAggregationPushdown:     false,
+		DefaultEvaluationInterval:           DefaultEvaluationInterval,
 		MaxRangePointsPerSeries:             DefaultMaxRangePointsPerSeries,
 		RangeChunkPointsPerSeries:           DefaultRangeChunkPointsPerSeries,
 		NativeRangeChunkPointsPerSeries:     DefaultNativeRangeChunkPointsPerSeries,

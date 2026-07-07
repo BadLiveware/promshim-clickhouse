@@ -41,6 +41,7 @@ type Options struct {
 	ClickHouseMaxRowsToRead             int64
 	ClickHouseMaxResultRows             int64
 	NativeLoweringMode                  local.NativeLoweringMode
+	DefaultEvaluationInterval           time.Duration
 	RoutingPolicy                       RoutingPolicy
 	CostRoutingLocalFamilies            []string
 	MaxRangePointsPerSeries             int64
@@ -90,6 +91,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		ClickHouseMaxRowsToRead:             getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_ROWS_TO_READ", 0),
 		ClickHouseMaxResultRows:             getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_RESULT_ROWS", 0),
 		NativeLoweringMode:                  local.NativeLoweringMode(getenv("PROM_SHIM_NATIVE_LOWERING_MODE", string(local.NativeLoweringModePrefer))),
+		DefaultEvaluationInterval:           time.Second * time.Duration(getenvInt("PROM_SHIM_DEFAULT_EVALUATION_INTERVAL_SECONDS", int(local.DefaultEvaluationInterval/time.Second))),
 		RoutingPolicy:                       RoutingPolicy(getenv("PROM_SHIM_ROUTING_POLICY", string(RoutingPolicyStrict))),
 		CostRoutingLocalFamilies:            splitCSVEnv(getenv("PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES", "")),
 		MaxRangePointsPerSeries:             getenvInt64("PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES", local.DefaultMaxRangePointsPerSeries),
@@ -246,6 +248,9 @@ func normalizeOptions(opts Options) Options {
 	opts.NativeGridFunctions = normalizeNativeGridFunctionsMode(opts.NativeGridFunctions)
 	opts.CumulativeAvgOverTime = normalizePreferOffMode(opts.CumulativeAvgOverTime)
 	opts.NativeLoweringMode = local.NormalizeNativeLoweringMode(opts.NativeLoweringMode)
+	if opts.DefaultEvaluationInterval <= 0 {
+		opts.DefaultEvaluationInterval = local.DefaultEvaluationInterval
+	}
 	opts.RoutingPolicy = NormalizeRoutingPolicy(opts.RoutingPolicy)
 	if opts.MaxRangePointsPerSeries <= 0 {
 		opts.MaxRangePointsPerSeries = local.DefaultMaxRangePointsPerSeries

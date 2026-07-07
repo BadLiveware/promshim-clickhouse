@@ -77,11 +77,20 @@ func localIndentSQL(sql string, spaces int) string {
 }
 
 func wrapInstantSourceQuery(sourceSQL, valueExpr, tagsExpr string) (string, error) {
+	return wrapInstantSourceQueryWithRowTimestamp(sourceSQL, valueExpr, tagsExpr, sqlb.Ident("timestamp"))
+}
+
+// wrapInstantSourceQueryWithRowTimestamp is wrapInstantSourceQuery with an
+// explicit expression for the {timestamp} template placeholder. Selector-
+// backed sources pass sample_timestamp (the selected sample's real time)
+// because their emitted timestamp column is the evaluation time, while
+// timestamp() over a bare selector must observe the sample time.
+func wrapInstantSourceQueryWithRowTimestamp(sourceSQL, valueExpr, tagsExpr string, rowTimestampExpr sqlb.Expr) (string, error) {
 	sourceTagsExpr, err := storage.CompileSourceTagsTemplate(tagsExpr, sqlb.Ident("tags"))
 	if err != nil {
 		return "", err
 	}
-	sourceValueExpr, err := storage.CompileSourceValueTemplate(valueExpr, sqlb.Ident("value"), sqlb.Ident("timestamp"))
+	sourceValueExpr, err := storage.CompileSourceValueTemplate(valueExpr, sqlb.Ident("value"), rowTimestampExpr)
 	if err != nil {
 		return "", err
 	}

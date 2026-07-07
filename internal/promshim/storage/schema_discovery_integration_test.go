@@ -109,7 +109,7 @@ func TestSchemaDiscoveryIntegrationPromotedTagsAndIDType(t *testing.T) {
 		t.Fatalf("job matcher: %v", err)
 	}
 	selector := selectorSourceFromMatchers("up", []*labels.Matcher{jobMatcher}, 5*time.Minute, 0, SelectorKindInstantVector)
-	sql, params, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: database, Table: table, PromotedTagColumns: promoted}, selector, sampleMS-5*60*1000, sampleMS)
+	sql, params, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: database, Table: table, PromotedTagColumns: promoted}, selector, sampleMS-5*60*1000, sampleMS, sampleMS)
 	if err != nil {
 		t.Fatalf("BuildInstantSelectorQuerySQL: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestSchemaDiscoveryIntegrationPromotedTagsAndIDType(t *testing.T) {
 	}
 
 	allSelector := selectorSourceFromMatchers("up", nil, 5*time.Minute, 0, SelectorKindInstantVector)
-	allSQL, allParams, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: database, Table: table, PromotedTagColumns: promoted}, allSelector, sampleMS-5*60*1000, sampleMS)
+	allSQL, allParams, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: database, Table: table, PromotedTagColumns: promoted}, allSelector, sampleMS-5*60*1000, sampleMS, sampleMS)
 	if err != nil {
 		t.Fatalf("BuildInstantSelectorQuerySQL all series: %v", err)
 	}

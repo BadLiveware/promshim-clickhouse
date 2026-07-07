@@ -402,10 +402,12 @@ func labelKey(metric map[string]string) string {
 	}
 	sort.Strings(keys)
 	var builder strings.Builder
+	// Quote both name and value so label values containing ',' or '='
+	// cannot produce a key that collides with a different label set.
 	for _, key := range keys {
-		builder.WriteString(key)
+		builder.WriteString(strconv.Quote(key))
 		builder.WriteByte('=')
-		builder.WriteString(metric[key])
+		builder.WriteString(strconv.Quote(metric[key]))
 		builder.WriteByte(',')
 	}
 	return builder.String()

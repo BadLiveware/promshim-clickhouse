@@ -33,7 +33,7 @@ optimization experiments.
 | `native-rollout-modes.json` | 10 | Yes. It is a shim-only rollout-mode parity probe. | Reproducing rollout-control checks for `off`, `prefer`, `explain`, `shadow`, and explicit explain requests. |
 | `staleness-probes.json` | 6 | Yes. It isolates staleness behavior. | Reproducing staleness-sensitive instant and range checks. |
 | `harness-variant-probes.json`, `dataset-variant-probes.json` | 2-4 each | Yes. They isolate harness expansion and seeded dataset-variant behavior. | Reproducing variant expansion or dataset-shape checks without the broader native measurement corpus. |
-| `histogram-native-support.json` | 2 | Yes. It is a focused native-only histogram quantile gate. | Checking grouped/rate-fed classic histogram support. |
+| `histogram-native-support.json` | 3 | Yes. It is a focused native-only histogram quantile gate. | Checking grouped/rate-fed classic histogram support and staggered-timestamp bucket coalescing. |
 
 ### Dashboard promotion corpora
 

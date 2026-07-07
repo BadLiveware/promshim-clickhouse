@@ -12,5 +12,13 @@
     "query": "histogram_quantile(0.9, sum by(job, le) (rate(harness_request_duration_seconds_bucket{job=~\"api\"}[5m])))",
     "timeOffsetSeconds": 540,
     "subjects": ["shim"]
+  },
+  {
+    "name": "histogram_quantile_grouped_absent_label_staggered_instant",
+    "endpoint": "query",
+    "query": "histogram_quantile(0.99, sum by(le, k8s_cluster_name) (harness_request_duration_seconds_bucket))",
+    "timeOffsetSeconds": 480,
+    "datasetVariants": ["baseline", "resets_gaps"],
+    "subjects": ["shim"]
   }
 ]

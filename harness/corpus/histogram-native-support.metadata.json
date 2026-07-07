@@ -1,9 +1,10 @@
 {
-  "recommendedCommand": "./scripts/run-harness.sh --corpus histogram-native-support.json --subjects shim --native-only --dataset-variants baseline,histogram_burst",
+  "recommendedCommand": "./scripts/run-harness.sh --corpus histogram-native-support.json --subjects shim --native-only --dataset-variants baseline,histogram_burst,resets_gaps",
   "purpose": "Focused native-only Prometheus-parity validation corpus for classic histogram quantile support over grouped/rate-fed bucket inputs.",
   "notes": [
     "Exercises histogram_quantile on canonical grouped/rate-fed classic histogram bucket inputs.",
     "Uses baseline and histogram_burst dataset variants to catch bucket-shape regressions.",
+    "histogram_quantile_grouped_absent_label_staggered_instant pins the issue #38 regression: an instant quantile over sum by(le, <label absent on the bucket series>) must coalesce buckets from series with staggered last-sample times (resets_gaps variant) into one histogram per group instead of fragmenting by per-series timestamp on the fused direct path. Its timeOffsetSeconds of 480 assumes the default seed parameters (PROM_HARNESS_STEP_SECONDS=60, PROM_HARNESS_POINTS=10) so the evaluation lands on a resets_gaps gap point for job=api,instance=a; with non-default seeding the case still runs but loses the staggered-timestamp signal.",
     "Other classic-histogram helper functions added in native SQL are currently covered by unit/native-renderer tests; Prometheus result parity over those classic bucket-only shapes is not yet used as a harness gate here."
   ]
 }

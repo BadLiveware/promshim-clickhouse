@@ -220,8 +220,16 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 	evalStart := time.Now()
 	value, err := h.evaluator.Evaluate(ctx, selectedPlan, local.EvalParams{Mode: local.EvalModeInstant, EvaluationTime: evaluationTime})
 	strictEvalDuration := time.Since(evalStart)
+	var execFallback *nativeExecutionFallbackReport
 	if err != nil {
-		return nil, local.ApiErrorToHTTP(err)
+		fbValue, fbExplain, fbReport, fbAPIErr := h.instantExecutionFallback(ctx, req, mode, selectedExplain, evaluationTime, err)
+		if fbAPIErr != nil {
+			return nil, fbAPIErr
+		}
+		if fbReport == nil {
+			return nil, local.ApiErrorToHTTP(err)
+		}
+		value, selectedExplain, execFallback = fbValue, fbExplain, fbReport
 	}
 	value, apiErr = applyQueryLimit(value, req.Limit)
 	if apiErr != nil {
@@ -230,7 +238,7 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, local.ApiErrorToHTTP(err)
 	}
-	if policy == RoutingPolicyCostShadow {
+	if policy == RoutingPolicyCostShadow && execFallback == nil {
 		h.runCostShadowInstant(ctx, req, value, routing, strictEvalDuration)
 	}
 	if req.Explain || mode.ForcesExplainResponse() {
@@ -238,7 +246,7 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 		if err != nil {
 			return nil, local.ApiErrorToHTTP(local.NewExecutionErrorf("rendering instant query response: %v", err))
 		}
-		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Body: map[string]any{
+		body := map[string]any{
 			"status":                    "success",
 			"nativeLoweringMode":        string(mode),
 			"clickHouseTransport":       h.ClickHouseTransport(),
@@ -247,7 +255,11 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 			"data":                      map[string]any{"resultType": resultType, "result": result},
 			"plan":                      selectedExplain,
 			"routing":                   routing,
-		}}, nil
+		}
+		if execFallback != nil {
+			body["executionFallback"] = execFallback
+		}
+		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Body: body}, nil
 	}
 	return &httpapi.Response{Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, PhysicalDecisions: physicalDecisionSummary(selectedExplain), Stream: func(w http.ResponseWriter) error {
 		return httpapi.WritePromSuccessInstantValue(w, value)
@@ -286,8 +298,16 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 	evalStart := time.Now()
 	value, err := h.evaluator.Evaluate(ctx, selectedPlan, local.EvalParams{Mode: local.EvalModeRange, Start: start, End: end, Step: step})
 	strictEvalDuration := time.Since(evalStart)
+	var execFallback *nativeExecutionFallbackReport
 	if err != nil {
-		return nil, local.ApiErrorToHTTP(err)
+		fbValue, fbExplain, fbReport, fbAPIErr := h.rangeExecutionFallback(ctx, req, mode, selectedExplain, start, end, step, err)
+		if fbAPIErr != nil {
+			return nil, fbAPIErr
+		}
+		if fbReport == nil {
+			return nil, local.ApiErrorToHTTP(err)
+		}
+		value, selectedExplain, execFallback = fbValue, fbExplain, fbReport
 	}
 	value, apiErr = applyQueryLimit(value, req.Limit)
 	if apiErr != nil {
@@ -296,7 +316,7 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 	if err := enforceResponseLimits(value, h.opts); err != nil {
 		return nil, local.ApiErrorToHTTP(err)
 	}
-	if policy == RoutingPolicyCostShadow {
+	if policy == RoutingPolicyCostShadow && execFallback == nil {
 		h.runCostShadowRange(ctx, req, value, routing, strictEvalDuration)
 	}
 	if req.Explain || mode.ForcesExplainResponse() {
@@ -304,7 +324,7 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 		if err != nil {
 			return nil, local.ApiErrorToHTTP(local.NewExecutionErrorf("rendering range query response: %v", err))
 		}
-		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Body: map[string]any{
+		body := map[string]any{
 			"status":                    "success",
 			"nativeLoweringMode":        string(mode),
 			"clickHouseTransport":       h.ClickHouseTransport(),
@@ -313,7 +333,11 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 			"data":                      map[string]any{"resultType": resultType, "result": result},
 			"plan":                      selectedExplain,
 			"routing":                   routing,
-		}}, nil
+		}
+		if execFallback != nil {
+			body["executionFallback"] = execFallback
+		}
+		return &httpapi.Response{StatusCode: http.StatusOK, Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, Body: body}, nil
 	}
 	return &httpapi.Response{Strategy: selectedExplain.Strategy, FallbackReason: selectedExplain.FallbackReason, SettingsProfile: settingsProfile.Name, Routing: &routing, PhysicalDecisions: physicalDecisionSummary(selectedExplain), Stream: func(w http.ResponseWriter) error {
 		return httpapi.WritePromSuccessRangeValue(w, value)
@@ -916,6 +940,14 @@ func (h *queryService) expandRecordingRules(expr parser.Expr) (parser.Expr, []ru
 }
 
 func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string, time.Time, local.Plan, *nativeplan.Analysis, []rules.Expansion, *httpapi.APIError) {
+	return h.buildInstantPlanWithMode(req, nil)
+}
+
+// buildInstantPlanWithMode builds the instant plan. When forcedMode is
+// non-nil it is used verbatim instead of resolving the mode from the request,
+// bypassing the AllowRequestRoutingOverrides gate — internal replans (e.g.
+// the execution-time local fallback) are not client overrides.
+func (h *queryService) buildInstantPlanWithMode(req httpapi.InstantQueryRequest, forcedMode *local.NativeLoweringMode) (string, time.Time, local.Plan, *nativeplan.Analysis, []rules.Expansion, *httpapi.APIError) {
 	query := req.Query
 	if query == "" {
 		return "", time.Time{}, nil, nil, nil, local.BadRequestHTTPError("missing required parameter 'query'")
@@ -935,9 +967,14 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 			return "", time.Time{}, nil, nil, nil, local.BadRequestHTTPError(err.Error())
 		}
 	}
-	mode, apiErr := h.nativeLoweringModeForRequest(req.NativeLoweringMode)
-	if apiErr != nil {
-		return "", time.Time{}, nil, nil, nil, apiErr
+	var mode local.NativeLoweringMode
+	if forcedMode != nil {
+		mode = local.NormalizeNativeLoweringMode(*forcedMode)
+	} else {
+		mode, apiErr = h.nativeLoweringModeForRequest(req.NativeLoweringMode)
+		if apiErr != nil {
+			return "", time.Time{}, nil, nil, nil, apiErr
+		}
 	}
 	ctx := local.PlanContext{Mode: local.EvalModeInstant, EvaluationTime: evaluationTime, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries}
 	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion)
@@ -964,6 +1001,14 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 }
 
 func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQueryRequest, applyPreflight bool) (string, time.Time, time.Time, time.Duration, local.Plan, *nativeplan.Analysis, []rules.Expansion, *httpapi.APIError) {
+	return h.buildRangePlanWithMode(ctx, req, applyPreflight, nil)
+}
+
+// buildRangePlanWithMode builds the range plan. When forcedMode is non-nil
+// it is used verbatim instead of resolving the mode from the request,
+// bypassing the AllowRequestRoutingOverrides gate — internal replans (e.g.
+// the execution-time local fallback) are not client overrides.
+func (h *queryService) buildRangePlanWithMode(ctx context.Context, req httpapi.RangeQueryRequest, applyPreflight bool, forcedMode *local.NativeLoweringMode) (string, time.Time, time.Time, time.Duration, local.Plan, *nativeplan.Analysis, []rules.Expansion, *httpapi.APIError) {
 	query := req.Query
 	if query == "" {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, local.BadRequestHTTPError("missing required parameter 'query'")
@@ -997,9 +1042,14 @@ func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQuer
 	if step <= 0 {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, local.BadRequestHTTPError("step must be greater than zero")
 	}
-	mode, apiErr := h.nativeLoweringModeForRequest(req.NativeLoweringMode)
-	if apiErr != nil {
-		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, apiErr
+	var mode local.NativeLoweringMode
+	if forcedMode != nil {
+		mode = local.NormalizeNativeLoweringMode(*forcedMode)
+	} else {
+		mode, apiErr = h.nativeLoweringModeForRequest(req.NativeLoweringMode)
+		if apiErr != nil {
+			return "", time.Time{}, time.Time{}, 0, nil, nil, nil, apiErr
+		}
 	}
 	planCtx := local.PlanContext{Mode: local.EvalModeRange, Start: start, End: end, Step: step, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries, NativeRangeChunkPointsPerSeries: h.opts.NativeRangeChunkPointsPerSeries, NativeRangeChunkMaxDuration: h.opts.NativeRangeChunkMaxDuration, NativeRangeChunkMaxChunks: h.opts.NativeRangeChunkMaxChunks, NativeRangePreflightSeriesThreshold: h.opts.NativeRangePreflightSeriesThreshold, NativeRangePreflightTimeout: h.opts.NativeRangePreflightTimeout, NativeRangePreflightMaxMemoryUsage: h.opts.NativeRangePreflightMaxMemoryUsage}
 	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion)

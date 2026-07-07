@@ -49,13 +49,21 @@ var (
 		Name: "promshim_routing_candidates_total",
 		Help: "Total CBE candidates by policy, family, candidate, selected status, served status, and eligibility state.",
 	}, []string{"policy", "family", "candidate", "selected", "served", "state"})
+	ExecutionFallbacks = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "promshim_native_execution_fallback_total",
+		Help: "Total execution-time fallbacks from a committed native plan to full local execution in adaptive native-lowering modes.",
+	}, []string{"endpoint", "mode", "from_strategy", "outcome"})
 )
 
 func RegisterMetrics(registry *prometheus.Registry) {
 	if registry == nil {
 		return
 	}
-	registry.MustRegister(Decisions, ShadowRuns, ShadowDuration, ShadowDivergences, ShadowCandidateOutcomes, EstimateMissing, OverCap, PredictionError, StatsProbes, EstimateCache, Candidates)
+	registry.MustRegister(Decisions, ShadowRuns, ShadowDuration, ShadowDivergences, ShadowCandidateOutcomes, EstimateMissing, OverCap, PredictionError, StatsProbes, EstimateCache, Candidates, ExecutionFallbacks)
+}
+
+func ObserveExecutionFallback(endpoint, mode, fromStrategy, outcome string) {
+	ExecutionFallbacks.WithLabelValues(label(endpoint, "unknown"), label(mode, "unknown"), label(fromStrategy, "unknown"), label(outcome, "unknown")).Inc()
 }
 
 func ObserveDecision(policy, decision, strictStrategy, selectedStrategy, family, reason string) {

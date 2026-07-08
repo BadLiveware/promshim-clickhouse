@@ -57,6 +57,18 @@ func TestLoadOptionsFromEnvDefaultEvaluationInterval(t *testing.T) {
 	if opts.DefaultEvaluationInterval != local.DefaultEvaluationInterval {
 		t.Fatalf("zero DefaultEvaluationInterval = %v, want fallback %v", opts.DefaultEvaluationInterval, local.DefaultEvaluationInterval)
 	}
+
+	// A seconds value large enough to overflow the nanosecond multiplication
+	// must fall back to the default rather than wrapping to a small positive
+	// Duration (18446744074s wraps to ~290ms and would bypass the <= 0 guard).
+	t.Setenv("PROM_SHIM_DEFAULT_EVALUATION_INTERVAL_SECONDS", "18446744074")
+	opts, err = LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatalf("LoadOptionsFromEnv overflow: %v", err)
+	}
+	if opts.DefaultEvaluationInterval != local.DefaultEvaluationInterval {
+		t.Fatalf("overflow DefaultEvaluationInterval = %v, want fallback %v", opts.DefaultEvaluationInterval, local.DefaultEvaluationInterval)
+	}
 }
 
 func TestLoadOptionsFromEnvClickHouseTransportNative(t *testing.T) {

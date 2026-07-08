@@ -248,6 +248,47 @@ func TestExplainHasClickHouseSideNodeRecursesIntoChildren(t *testing.T) {
 	if !explainHasClickHouseSideNode(nested) {
 		t.Fatalf("expected nested ClickHouse-side node to be fallback-eligible")
 	}
+	// A pure-local chunked range plan reports the "chunked_local" strategy.
+	// It is local-family and must NOT be treated as ClickHouse-side: a local
+	// retry gains nothing and would fabricate a misleading native->local
+	// fallback. Its native counterpart "chunked_native" IS ClickHouse-side.
+	chunkedLocal := local.ExplainNode{
+		Kind:     "range_chunk",
+		Strategy: "chunked_local",
+		Children: []local.ExplainNode{{Strategy: "local"}},
+	}
+	if explainHasClickHouseSideNode(chunkedLocal) {
+		t.Fatalf("expected pure-local chunked range plan (chunked_local) to be ineligible for fallback")
+	}
+	chunkedNative := local.ExplainNode{
+		Kind:     "range_chunk",
+		Strategy: "chunked_native",
+		Children: []local.ExplainNode{{Strategy: "native_sql"}},
+	}
+	if !explainHasClickHouseSideNode(chunkedNative) {
+		t.Fatalf("expected chunked_native range plan to be fallback-eligible")
+	}
+}
+
+func TestIsClickHouseSideStrategy(t *testing.T) {
+	// Locks the ClickHouse-side strategy set. These are the ExplainNode.Strategy
+	// values that execute against ClickHouse.
+	clickHouseSide := []string{"native_sql", "native_sql_expression", "delegated_promql", "chunked_native"}
+	for _, strategy := range clickHouseSide {
+		if !isClickHouseSideStrategy(strategy) {
+			t.Fatalf("strategy %q should be ClickHouse-side", strategy)
+		}
+	}
+	// Local-family strategies, the empty root/pre-finalize strategy, and any
+	// unknown/future strategy fail safe to NOT ClickHouse-side (not
+	// fallback-eligible) so a local failure stays a visible error instead of
+	// fabricating a native->local fallback.
+	localFamily := []string{"local", "chunked_local", "", "some_future_strategy"}
+	for _, strategy := range localFamily {
+		if isClickHouseSideStrategy(strategy) {
+			t.Fatalf("strategy %q should not be ClickHouse-side", strategy)
+		}
+	}
 }
 
 func TestInstantExecutionFallbackLocalPlanBuildErrorReservesNative(t *testing.T) {

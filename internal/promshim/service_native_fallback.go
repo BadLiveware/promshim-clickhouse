@@ -57,12 +57,44 @@ func executionFallbackMode(mode local.NativeLoweringMode) bool {
 	}
 }
 
-// explainHasClickHouseSideNode reports whether the plan tree contains any
-// node executed on the ClickHouse side (native_sql / chunked_native /
-// delegated_promql — anything non-local). A pure-local plan gains nothing
-// from a local retry, so it is not a fallback candidate.
+// isClickHouseSideStrategy reports whether an ExplainNode.Strategy names a
+// node executed on the ClickHouse side. The set is matched explicitly rather
+// than by negating "local", because the local-family strategies are not just
+// "local": a chunked range plan whose child runs locally reports the
+// pure-local strategy "chunked_local" (see chunkedRangePlan.explain), and the
+// pre-finalize/root nodes carry the empty strategy. Negating "local" alone
+// misclassified "chunked_local" as ClickHouse-side, making a pure-local
+// chunked range plan wrongly fallback-eligible: on a local execution failure
+// it would run a redundant local retry and record a misleading
+// native->local fallback.
+//
+// Fail-safe for unknown/future strategies: an unrecognized strategy is treated
+// as NOT ClickHouse-side (not fallback-eligible). The alternative — treating
+// unknown strategies as ClickHouse-side — would, on a genuinely-local
+// execution failure, fabricate a native->local fallback that both masks the
+// real error behind a local re-run and pollutes the native_execution_fallback
+// metric that this feature exists to make render bugs visible on. Failing
+// toward "not eligible" keeps such a failure a visible, honest error (the
+// pre-feature 502) instead of silently degrading. A new ClickHouse-side
+// strategy must be added here deliberately; TestIsClickHouseSideStrategy locks
+// the set so the gap surfaces at development time rather than in production.
+func isClickHouseSideStrategy(strategy string) bool {
+	switch strategy {
+	case "native_sql", "native_sql_expression", "delegated_promql", "chunked_native":
+		return true
+	default:
+		// "local", "chunked_local", "" (root/pre-finalize) and any unknown
+		// strategy are treated as local-family / not fallback-eligible.
+		return false
+	}
+}
+
+// explainHasClickHouseSideNode reports whether the plan tree contains any node
+// executed on the ClickHouse side (see isClickHouseSideStrategy). A pure-local
+// plan — including a pure-local chunked range plan — gains nothing from a
+// local retry, so it is not a fallback candidate.
 func explainHasClickHouseSideNode(node local.ExplainNode) bool {
-	if node.Strategy != "" && node.Strategy != "local" {
+	if isClickHouseSideStrategy(node.Strategy) {
 		return true
 	}
 	for _, child := range node.Children {

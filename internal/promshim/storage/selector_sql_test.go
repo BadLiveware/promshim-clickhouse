@@ -20,7 +20,7 @@ func TestBuildInstantSelectorQuerySQLCompilesMatchersAndBounds(t *testing.T) {
 	}
 	selector := selectorSourceFromMatchers("up", []*labels.Matcher{jobRE, namespaceNEQ}, 5*time.Minute, 0, SelectorKindInstantVector)
 
-	sql, params, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, 1000, 2000)
+	sql, params, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, 1000, 2000, 2500)
 	if err != nil {
 		t.Fatalf("expected instant selector SQL, got error: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestBuildInstantSelectorQuerySQLAnchorsRegexMatchers(t *testing.T) {
 	}
 	selector := selectorSourceFromMatchers("up", []*labels.Matcher{jobRE, envNotRE}, 5*time.Minute, 0, SelectorKindInstantVector)
 
-	_, params, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, 1000, 2000)
+	_, params, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, 1000, 2000, 2500)
 	if err != nil {
 		t.Fatalf("expected instant selector SQL, got error: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestBuildInstantSelectorQuerySQLSupportsEqualityAndNegativeRegex(t *testing
 	}
 	selector := selectorSourceFromMatchers("", []*labels.Matcher{instanceEQ, envNotRE}, 5*time.Minute, 0, SelectorKindInstantVector)
 
-	sql, params, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, 1000, 2000)
+	sql, params, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, 1000, 2000, 2500)
 	if err != nil {
 		t.Fatalf("expected instant selector SQL, got error: %v", err)
 	}
@@ -88,13 +88,44 @@ func TestBuildInstantSelectorQuerySQLSupportsEqualityAndNegativeRegex(t *testing
 func TestBuildInstantSelectorQuerySQLMatchesNormalizedBuilderShape(t *testing.T) {
 	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, 0, SelectorKindInstantVector)
 
-	sql, _, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, 1000, 2000)
+	sql, _, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, 1000, 2000, 2500)
 	if err != nil {
 		t.Fatalf("expected instant selector SQL, got error: %v", err)
 	}
-	expected := "SELECT series.tags AS tags, max(d.timestamp) AS timestamp, argMax(d.value, d.timestamp) AS value FROM timeSeriesData(`observability`.`prometheus`) AS d INNER JOIN ( SELECT DISTINCT src.id, arrayConcat([tuple('__name__', src.metric_name)], arrayMap((k, v) -> tuple(k, v), mapKeys(src.tags), mapValues(src.tags))) AS tags FROM timeSeriesTags(`observability`.`prometheus`) AS src WHERE src.metric_name = {instant_matcher_0_value:String} AND src.max_time >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND src.min_time <= fromUnixTimestamp64Milli({required_end_ms:Int64}) ) AS series ON d.id = series.id WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) GROUP BY d.id, series.tags HAVING NOT isNaN(value) ORDER BY tags SETTINGS allow_experimental_time_series_table = 1 FORMAT JSONEachRow"
+	expected := "SELECT series.tags AS tags, fromUnixTimestamp64Milli(2500) AS timestamp, argMax(d.value, d.timestamp) AS value FROM timeSeriesData(`observability`.`prometheus`) AS d INNER JOIN ( SELECT DISTINCT src.id, arrayConcat([tuple('__name__', src.metric_name)], arrayMap((k, v) -> tuple(k, v), mapKeys(src.tags), mapValues(src.tags))) AS tags FROM timeSeriesTags(`observability`.`prometheus`) AS src WHERE src.metric_name = {instant_matcher_0_value:String} AND src.max_time >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND src.min_time <= fromUnixTimestamp64Milli({required_end_ms:Int64}) ) AS series ON d.id = series.id WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) GROUP BY d.id, series.tags HAVING NOT isNaN(value) ORDER BY tags SETTINGS allow_experimental_time_series_table = 1 FORMAT JSONEachRow"
 	if sqlb.NormalizeSQL(sql) != expected {
 		t.Fatalf("unexpected normalized SQL:\nwant: %s\n got: %s", expected, sqlb.NormalizeSQL(sql))
+	}
+}
+
+// The emitted row timestamp is the evaluation time, never the per-series
+// sample time (Prometheus instant-vector semantics: offset/@ shift sample
+// selection only). The evaluation time here is deliberately non-step-aligned
+// and outside the offset-shifted required window to prove it is threaded
+// verbatim rather than derived from the selection bounds.
+func TestBuildInstantSelectorQuerySQLWithOffsetEmitsEvaluationTime(t *testing.T) {
+	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, 197*time.Second, SelectorKindInstantVector)
+
+	evaluationTimeMS := int64(1700000123456)
+	offsetMS := int64(197 * 1000)
+	lookbackMS := int64(5 * 60 * 1000)
+	requiredEndMS := evaluationTimeMS - offsetMS
+	requiredStartMS := requiredEndMS - lookbackMS
+	sql, params, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, requiredStartMS, requiredEndMS, evaluationTimeMS)
+	if err != nil {
+		t.Fatalf("expected instant selector SQL, got error: %v", err)
+	}
+	if !strings.Contains(sql, "fromUnixTimestamp64Milli(1700000123456) AS timestamp") {
+		t.Fatalf("expected evaluation-time timestamp column, got %q", sql)
+	}
+	if strings.Contains(sql, "max(d.timestamp) AS timestamp") {
+		t.Fatalf("expected no per-series sample timestamp column, got %q", sql)
+	}
+	if !strings.Contains(sql, "argMax(d.value, d.timestamp) AS value") {
+		t.Fatalf("expected latest-sample value selection to stay on real sample timestamps, got %q", sql)
+	}
+	if params["param_required_start_ms"] != "1699999626456" || params["param_required_end_ms"] != "1699999926456" {
+		t.Fatalf("expected offset-shifted selection window params, got %#v", params)
 	}
 }
 
@@ -144,7 +175,7 @@ func TestBuildInstantSelectorQuerySQLUsesPromotedTagColumns(t *testing.T) {
 	selector.RequiredTagLabels = []string{"instance"}
 	cfg := QueryConfig{Database: "observability", Table: "prometheus", PromotedTagColumns: map[string]struct{}{"instance": {}, "job": {}}}
 
-	sql, params, err := BuildInstantSelectorQuerySQL(cfg, selector, 1000, 2000)
+	sql, params, err := BuildInstantSelectorQuerySQL(cfg, selector, 1000, 2000, 2500)
 	if err != nil {
 		t.Fatalf("expected instant selector SQL, got error: %v", err)
 	}
@@ -175,7 +206,7 @@ func TestBuildInstantSelectorQuerySQLOmitsTagsProjectionWhenUnneeded(t *testing.
 	selector.NeedTags = false
 	selector.RequireFullTags = false
 
-	sql, _, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, 1000, 2000)
+	sql, _, err := BuildInstantSelectorQuerySQL(QueryConfig{Database: "observability", Table: "prometheus"}, selector, 1000, 2000, 2500)
 	if err != nil {
 		t.Fatalf("expected instant selector SQL, got error: %v", err)
 	}

@@ -299,8 +299,22 @@ func aggregationSourceIsIdentity(source AggregationSource) bool {
 	return strings.TrimSpace(source.ValueExpr) == "{value}" && (strings.TrimSpace(source.TagsExpr) == "" || strings.TrimSpace(source.TagsExpr) == "{tags}")
 }
 
+// aggregationSourceValueNeedsSampleTimestamp reports whether the source's
+// value template reads the row timestamp of a selector-backed source. The
+// selector's emitted timestamp column is the evaluation time (Prometheus
+// instant-vector semantics), but timestamp() applied directly to a selector
+// must see the underlying sample time, so the selector emits it under the
+// dedicated sample_timestamp column and templates compile against that.
+func aggregationSourceValueNeedsSampleTimestamp(source AggregationSource) bool {
+	return source.Selector != nil && strings.Contains(source.ValueExpr, "{timestamp}")
+}
+
 func renderAggregationInstantSourceSubquery(source AggregationSource, sourceSQL string) (*sqlb.Select, error) {
-	sourceValueExpr, err := CompileSourceValueTemplate(source.ValueExpr, sqlb.Ident("value"), sqlb.Ident("timestamp"))
+	timestampExpr := sqlb.Expr(sqlb.Ident("timestamp"))
+	if aggregationSourceValueNeedsSampleTimestamp(source) {
+		timestampExpr = sqlb.Ident("sample_timestamp")
+	}
+	sourceValueExpr, err := CompileSourceValueTemplate(source.ValueExpr, sqlb.Ident("value"), timestampExpr)
 	if err != nil {
 		return nil, err
 	}

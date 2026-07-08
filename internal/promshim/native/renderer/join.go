@@ -44,7 +44,7 @@ func assembleInfoJoinSQL(cfg storage.QueryConfig, childSQL string, childParams m
 	joinCfg := storage.InfoJoinConfig{IdentifyingLabels: []string{"instance", "job"}, CopyLabelNames: append([]string(nil), copyLabelNames...), DropUnmatched: dropUnmatched, InfoNameMatchers: infoNameMatchers}
 	switch params.Mode {
 	case native.RenderModeInstant:
-		infoSQL, infoParams, err := storage.BuildInstantSelectorQuerySQL(cfg, selector, params.EvaluationTimeMS-native.DefaultInstantSelectorLookback.Milliseconds(), params.EvaluationTimeMS)
+		infoSQL, infoParams, err := storage.BuildInstantSelectorQuerySQL(cfg, selector, params.EvaluationTimeMS-native.DefaultInstantSelectorLookback.Milliseconds(), params.EvaluationTimeMS, params.EvaluationTimeMS)
 		if err != nil {
 			return renderedFragment{}, err
 		}

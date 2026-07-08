@@ -29,9 +29,16 @@ type SelectorSource struct {
 	LookbackMS           int64
 	OffsetMS             int64
 	RangeInstantStrategy RangeInstantSelectorStrategy
+	// NeedSampleTimestamp makes the instant selector emit the selected
+	// sample's real time as an extra sample_timestamp column. The row
+	// timestamp column is always the evaluation time (Prometheus
+	// instant-vector semantics), but timestamp() reads the underlying
+	// sample time when applied directly to a selector, so consumers
+	// whose value template references {timestamp} set this flag.
+	NeedSampleTimestamp bool
 }
 
-func BuildInstantSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
+func BuildInstantSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, evaluationTimeMS int64) (string, map[string]string, error) {
 	var (
 		sql    string
 		params map[string]string
@@ -41,7 +48,7 @@ func BuildInstantSelectorQuerySQL(cfg QueryConfig, selector SelectorSource, requ
 	case SelectorKindRangeVector:
 		sql, params, err = buildRangeMatrixSelectorSourceSQL(cfg, selector, requiredStartMS, requiredEndMS)
 	default:
-		sql, params, err = buildInstantSelectorSourceSQL(cfg, selector, requiredStartMS, requiredEndMS)
+		sql, params, err = buildInstantSelectorSourceSQL(cfg, selector, requiredStartMS, requiredEndMS, evaluationTimeMS)
 	}
 	if err != nil {
 		return "", nil, err
@@ -965,7 +972,11 @@ func buildInstantSourceQuerySQL(cfg QueryConfig, source AggregationSource, evalu
 		if startMS == 0 {
 			startMS = evaluationTimeMS
 		}
-		return buildInstantSelectorSourceSQL(cfg, *source.Selector, startMS, endMS)
+		selector := *source.Selector
+		if aggregationSourceValueNeedsSampleTimestamp(source) {
+			selector.NeedSampleTimestamp = true
+		}
+		return buildInstantSelectorSourceSQL(cfg, selector, startMS, endMS, evaluationTimeMS)
 	}
 	params := baseParams(cfg)
 	params["param_promql"] = source.PromQLLeaf
@@ -1001,14 +1012,21 @@ FROM prometheusQueryRange(
 )`), params, nil
 }
 
-func buildInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS int64) (string, map[string]string, error) {
+func buildInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, requiredStartMS, requiredEndMS, evaluationTimeMS int64) (string, map[string]string, error) {
 	matchedSeriesSQL, params, err := buildMatchedSeriesSQL(cfg, selector, "instant", requiredStartMS, requiredEndMS, true)
 	if err != nil {
 		return "", nil, err
 	}
+	// Prometheus instant-vector semantics: the emitted row timestamp is
+	// the evaluation time, never the per-series sample time — offset/@
+	// only shift which samples are selected (the required window and the
+	// argMax below). Matches the aggregation path in sql.go.
 	columns := []sqlb.ColExpr{
-		{Expr: sqlb.Call{Name: "max", Args: []sqlb.Expr{sqlb.Ident("d.timestamp")}}, Alias: "timestamp"},
+		{Expr: sqlb.RawLit{V: "fromUnixTimestamp64Milli(" + strconv.FormatInt(evaluationTimeMS, 10) + ")"}, Alias: "timestamp"},
 		{Expr: sqlb.Call{Name: "argMax", Args: []sqlb.Expr{sqlb.Ident("d.value"), sqlb.Ident("d.timestamp")}}, Alias: "value"},
+	}
+	if selector.NeedSampleTimestamp {
+		columns = append(columns, sqlb.ColExpr{Expr: sqlb.Call{Name: "max", Args: []sqlb.Expr{sqlb.Ident("d.timestamp")}}, Alias: "sample_timestamp"})
 	}
 	groupBy := []sqlb.Expr{sqlb.Ident("d.id")}
 	var orderBy []sqlb.OrderExpr

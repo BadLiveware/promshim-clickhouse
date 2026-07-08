@@ -2,9 +2,11 @@ package renderer
 
 import (
 	"fmt"
+	"strings"
 
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/sqlb"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 )
 
@@ -38,7 +40,7 @@ func renderLeafLogical(cfg storage.QueryConfig, leaf *logicalpkg.LeafExprPlan, p
 		if selector != nil {
 			storageSel := nativeSelectorToStorage(selector)
 			applyRenderParamsNarrowing(&storageSel, params)
-			sql, queryParams, err := storage.BuildInstantSelectorQuerySQL(cfg, storageSel, params.RequiredStartMS, params.RequiredEndMS)
+			sql, queryParams, err := storage.BuildInstantSelectorQuerySQL(cfg, storageSel, params.RequiredStartMS, params.RequiredEndMS, params.EvaluationTimeMS)
 			if err != nil {
 				return renderedFragment{}, err
 			}
@@ -178,14 +180,26 @@ func renderSourceExprView(cfg storage.QueryConfig, view *native.SourceExprView, 
 		if view.Selector != nil {
 			storageSel := nativeSelectorToStorage(view.Selector)
 			applyRenderParamsNarrowing(&storageSel, params)
-			sql, queryParams, err := storage.BuildInstantSelectorQuerySQL(cfg, storageSel, params.RequiredStartMS, params.RequiredEndMS)
+			// Any {timestamp}-bearing value template folded over a bare
+			// selector compiles against the selected sample's real time
+			// (exposed as sample_timestamp), not the emitted
+			// evaluation-time row timestamp. That is required for
+			// timestamp(); time() folds share the same placeholder and
+			// get sample time too — a pre-existing conflation.
+			needSampleTimestamp := strings.Contains(view.ValueExpr, "{timestamp}")
+			storageSel.NeedSampleTimestamp = needSampleTimestamp
+			sql, queryParams, err := storage.BuildInstantSelectorQuerySQL(cfg, storageSel, params.RequiredStartMS, params.RequiredEndMS, params.EvaluationTimeMS)
 			if err != nil {
 				return renderedFragment{}, err
 			}
 			if isIdentity {
 				return renderedFragment{RawSQL: trimRenderedQuerySQL(sql), ExtraParams: queryParams}, nil
 			}
-			wrappedSQL, err := wrapInstantSourceQuery(sql, view.ValueExpr, view.TagsExpr)
+			rowTimestampExpr := sqlb.Expr(sqlb.Ident("timestamp"))
+			if needSampleTimestamp {
+				rowTimestampExpr = sqlb.Ident("sample_timestamp")
+			}
+			wrappedSQL, err := wrapInstantSourceQueryWithRowTimestamp(sql, view.ValueExpr, view.TagsExpr, rowTimestampExpr)
 			if err != nil {
 				return renderedFragment{}, err
 			}

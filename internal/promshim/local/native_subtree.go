@@ -131,7 +131,7 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 		if err != nil {
 			return nil, WithInternalContext(NormalizeInternalError(err), "executing/decoding native subtree instant result for %q", p.Expr)
 		}
-		evalTimestamp := float64(params.EvaluationTime.UnixNano()) / float64(time.Second)
+		evalTimestamp := float64(params.EvaluationTime.Unix()) + float64(params.EvaluationTime.Nanosecond())/float64(time.Second)
 		runtimeTransform := runtimeValueTransformForPlan(p)
 		for i := range samples {
 			samples[i].Timestamp = evalTimestamp

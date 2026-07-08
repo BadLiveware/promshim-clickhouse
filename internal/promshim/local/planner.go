@@ -146,6 +146,16 @@ func (e *Evaluator) executeDelegated(ctx context.Context, expr parser.Expr, para
 			if isBareSelectorExpr(expr) {
 				samples = dropNaNInstantSamples(samples)
 			}
+			// Prometheus instant-vector semantics: the result timestamp is
+			// always the evaluation time; offset/@ shift sample selection
+			// only. ClickHouse prometheusQuery() may return the shifted
+			// sample timestamp (observed on 26.1), so normalize here
+			// regardless of what the endpoint emits — mirroring the
+			// native-subtree instant path.
+			evalTimestamp := float64(params.EvaluationTime.Unix()) + float64(params.EvaluationTime.Nanosecond())/float64(time.Second)
+			for i := range samples {
+				samples[i].Timestamp = evalTimestamp
+			}
 			return model.VectorValue{Samples: samples}, nil
 		case parser.ValueTypeMatrix:
 			series, err := e.executeDelegatedRangeSeries(ctx, sql, queryParams)

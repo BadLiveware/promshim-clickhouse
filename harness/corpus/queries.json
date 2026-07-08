@@ -18,6 +18,24 @@
     "timeOffsetSeconds": 540
   },
   {
+    "name": "selector_offset_nonaligned_instant",
+    "endpoint": "query",
+    "query": "harness_up offset 97s",
+    "timeOffsetSeconds": 547
+  },
+  {
+    "name": "scalar_offset_nonaligned_instant",
+    "endpoint": "query",
+    "query": "scalar(harness_up{job=\"api\",instance=\"a\"} offset 97s)",
+    "timeOffsetSeconds": 547
+  },
+  {
+    "name": "timestamp_offset_nonaligned_instant",
+    "endpoint": "query",
+    "query": "timestamp(harness_up offset 97s)",
+    "timeOffsetSeconds": 547
+  },
+  {
     "name": "regex_matcher_instant",
     "endpoint": "query",
     "query": "harness_up{job=~\"api|worker\"}",

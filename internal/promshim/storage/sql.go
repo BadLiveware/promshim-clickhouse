@@ -41,6 +41,13 @@ type QueryConfig struct {
 	// ClickHouse results in the shim process.
 	MaxMetadataSeries int64
 	MaxMetadataItems  int64
+
+	// DefaultEvaluationInterval fills the step of subqueries that omit one
+	// (`expr[15m:]`), mirroring Prometheus's
+	// --query.default-evaluation-interval. It is a server-side constant and
+	// must never depend on the request's step parameter. Zero means the
+	// consumer falls back to the 1m Prometheus default.
+	DefaultEvaluationInterval time.Duration
 }
 
 type AggregationSource struct {

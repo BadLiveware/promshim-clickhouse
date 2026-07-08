@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/model"
 	nativeplan "github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -3567,6 +3570,55 @@ func TestLocalSubqueryPlanUsesConfiguredDefaultEvaluationInterval(t *testing.T) 
 			}
 		}
 	})
+}
+
+// TestLocalSubqueryPlanDelegatedPathUsesPlanCapturedInterval locks that the
+// delegated branch of localSubqueryPlan.execute fills a no-step subquery with
+// the plan-captured DefaultEvaluationInterval, matching the local
+// executionWindow branch, rather than the evaluator-level default. The two are
+// set to divergent values here (plan 30s, evaluator 90s) so the delegated
+// PromQL text unambiguously reveals which one was used; in production both are
+// sourced from the same Options.DefaultEvaluationInterval and cannot differ.
+func TestLocalSubqueryPlanDelegatedPathUsesPlanCapturedInterval(t *testing.T) {
+	var capturedPromQL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatalf("parse multipart form: %v", err)
+		}
+		capturedPromQL = r.FormValue("param_promql")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintln(w, `{"tags":[["job","api"]],"timestamp":"2026-04-20 11:34:00.000","value":1}`)
+	}))
+	defer server.Close()
+
+	client, err := storage.NewClient(storage.Config{Endpoint: server.URL, RequestTimeout: time.Second})
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	// Vector-valued root wrapping a no-step subquery so the instant-mode
+	// delegated path is taken (a matrix-root subquery would fall to local).
+	expr := mustParseExpr(t, "last_over_time(up[15m:])")
+	plan := &localSubqueryPlan{
+		Expr:                      expr,
+		Range:                     15 * time.Minute,
+		DelegatedLeafCompatible:   true,
+		DefaultEvaluationInterval: 30 * time.Second,
+	}
+	evaluator := &Evaluator{database: "observability", table: "prometheus", client: client, defaultEvaluationInterval: 90 * time.Second}
+
+	if _, err := plan.execute(context.Background(), evaluator, EvalParams{Mode: EvalModeInstant, EvaluationTime: time.Unix(1234, 0).UTC()}); err != nil {
+		t.Fatalf("expected delegated subquery execution, got error: %v", err)
+	}
+
+	// The subquery step is the plan-captured 30s (the range carries a 1ms
+	// delegation pad, so match on the step token only).
+	if !strings.Contains(capturedPromQL, ":30s]") {
+		t.Fatalf("expected delegated PromQL to fill the no-step subquery with the plan-captured 30s interval, got %q", capturedPromQL)
+	}
+	if strings.Contains(capturedPromQL, "1m30s") {
+		t.Fatalf("delegated PromQL used the evaluator-level 90s interval instead of the plan-captured value, got %q", capturedPromQL)
+	}
 }
 
 func TestLocalSubqueryPlanExecutesLocalRangeMode(t *testing.T) {

@@ -144,7 +144,18 @@ func (e *Evaluator) Evaluate(ctx context.Context, plan Plan, params EvalParams) 
 }
 
 func (e *Evaluator) executeDelegated(ctx context.Context, expr parser.Expr, params EvalParams) (model.RuntimeValue, error) {
-	promQL, err := resolveDelegatedPromQL(expr, params, e.noStepSubqueryInterval())
+	return e.executeDelegatedWithInterval(ctx, expr, params, e.noStepSubqueryInterval())
+}
+
+// executeDelegatedWithInterval is executeDelegated with the no-step subquery
+// fill interval supplied explicitly. Callers that captured a planning-time
+// interval (localSubqueryPlan.DefaultEvaluationInterval) pass it here so the
+// delegated path fills no-step subqueries with the same value the local
+// execution path would use. A non-positive interval falls through to
+// resolveDelegatedPromQL's own default, matching the local executionWindow
+// fallback.
+func (e *Evaluator) executeDelegatedWithInterval(ctx context.Context, expr parser.Expr, params EvalParams, noStepSubqueryInterval time.Duration) (model.RuntimeValue, error) {
+	promQL, err := resolveDelegatedPromQL(expr, params, noStepSubqueryInterval)
 	if err != nil {
 		return nil, WithInternalContext(err, "resolving delegated PromQL for %q", expr.String())
 	}

@@ -168,7 +168,10 @@ type localSubqueryPlan struct {
 func (p *localSubqueryPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 	useDelegatedPath := p.DelegatedLeafCompatible && (params.Mode != EvalModeInstant || p.Expr == nil || p.Expr.Type() != parser.ValueTypeMatrix)
 	if useDelegatedPath {
-		value, err := Evaluator.executeDelegated(ctx, p.Expr, params)
+		// Fill no-step subqueries with the plan-captured planning-time interval
+		// so the delegated path agrees with the local executionWindow branch,
+		// rather than the evaluator-level default.
+		value, err := Evaluator.executeDelegatedWithInterval(ctx, p.Expr, params, p.DefaultEvaluationInterval)
 		if err != nil {
 			return nil, WithInternalContext(err, "executing delegated subquery expression %q", p.Expr.String())
 		}

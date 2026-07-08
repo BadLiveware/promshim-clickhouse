@@ -1,6 +1,7 @@
 package promshim
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -346,5 +347,125 @@ func TestLoadOptionsFromEnvPromotedTagColumns(t *testing.T) {
 	}
 	if !opts.DiscoverPromotedTagColumns {
 		t.Fatalf("DiscoverPromotedTagColumns = false, want true")
+	}
+}
+
+// overflowSeconds is large enough to wrap the nanosecond multiplication for a
+// seconds-scaled Duration (18446744074s * 1e9ns ~= a small positive ~290ms).
+const overflowSeconds = "18446744074"
+
+func TestLoadOptionsFromEnvDurationOverflowFallsBack(t *testing.T) {
+	cases := []struct {
+		name  string
+		env   string
+		value string
+		want  time.Duration
+		got   func(Options) time.Duration
+	}{
+		{
+			name:  "request timeout overflow -> 30s",
+			env:   "PROM_SHIM_REQUEST_TIMEOUT_SECONDS",
+			value: overflowSeconds,
+			want:  30 * time.Second,
+			got:   func(o Options) time.Duration { return o.RequestTimeout },
+		},
+		{
+			name:  "conn max lifetime overflow -> 1h",
+			env:   "PROM_SHIM_CLICKHOUSE_CONN_MAX_LIFETIME_SECONDS",
+			value: overflowSeconds,
+			want:  time.Hour,
+			got:   func(o Options) time.Duration { return o.ClickHouseConnMaxLifetime },
+		},
+		{
+			name:  "native range chunk max overflow -> default cap",
+			env:   "PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS",
+			value: overflowSeconds,
+			want:  local.DefaultNativeRangeChunkMaxDuration,
+			got:   func(o Options) time.Duration { return o.NativeRangeChunkMaxDuration },
+		},
+		{
+			name:  "recording rule reload overflow -> 30s",
+			env:   "PROM_SHIM_RECORDING_RULE_RELOAD_INTERVAL_SECONDS",
+			value: overflowSeconds,
+			want:  30 * time.Second,
+			got:   func(o Options) time.Duration { return o.RecordingRuleReloadInterval },
+		},
+		{
+			// Millisecond-scaled: wraps at the larger threshold
+			// math.MaxInt64/1e6 (~9.22e12 ms), so use a value just above it.
+			name:  "native range preflight timeout overflow -> default",
+			env:   "PROM_SHIM_NATIVE_RANGE_PREFLIGHT_TIMEOUT_MS",
+			value: "9223372036855",
+			want:  local.DefaultNativeRangePreflightTimeout,
+			got:   func(o Options) time.Duration { return o.NativeRangePreflightTimeout },
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(tc.env, tc.value)
+			opts, err := LoadOptionsFromEnv()
+			if err != nil {
+				t.Fatalf("LoadOptionsFromEnv: %v", err)
+			}
+			if got := tc.got(opts); got != tc.want {
+				t.Fatalf("%s = %v, want fallback %v (not the wrapped value)", tc.env, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadOptionsFromEnvDurationBoundaryConverts(t *testing.T) {
+	// A large-but-valid seconds value must convert exactly, proving the guard
+	// does not over-trigger below the overflow threshold.
+	t.Setenv("PROM_SHIM_REQUEST_TIMEOUT_SECONDS", "9223372036")
+	opts, err := LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatalf("LoadOptionsFromEnv: %v", err)
+	}
+	if want := 9223372036 * time.Second; opts.RequestTimeout != want {
+		t.Fatalf("RequestTimeout = %v, want %v", opts.RequestTimeout, want)
+	}
+}
+
+func TestLoadOptionsFromEnvDurationZeroStaysZero(t *testing.T) {
+	// 0 is a meaningful "uncapped"/"disabled" state downstream and must survive
+	// both conversion and normalizeOptions rather than defaulting.
+	t.Setenv("PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS", "0")
+	t.Setenv("PROM_SHIM_NATIVE_RANGE_PREFLIGHT_TIMEOUT_MS", "0")
+	opts, err := LoadOptionsFromEnv()
+	if err != nil {
+		t.Fatalf("LoadOptionsFromEnv: %v", err)
+	}
+	if opts.NativeRangeChunkMaxDuration != 0 {
+		t.Fatalf("NativeRangeChunkMaxDuration = %v, want 0 (uncapped)", opts.NativeRangeChunkMaxDuration)
+	}
+	if opts.NativeRangePreflightTimeout != 0 {
+		t.Fatalf("NativeRangePreflightTimeout = %v, want 0", opts.NativeRangePreflightTimeout)
+	}
+}
+
+func TestScaleDuration(t *testing.T) {
+	const fallback = 7 * time.Second
+	secLimit := math.MaxInt64 / int64(time.Second)
+
+	cases := []struct {
+		name  string
+		count int64
+		unit  time.Duration
+		want  time.Duration
+	}{
+		{name: "zero stays zero", count: 0, unit: time.Second, want: 0},
+		{name: "small value converts", count: 5, unit: time.Second, want: 5 * time.Second},
+		{name: "exact boundary converts", count: secLimit, unit: time.Second, want: time.Duration(secLimit) * time.Second},
+		{name: "boundary plus one falls back", count: secLimit + 1, unit: time.Second, want: fallback},
+		{name: "millisecond small value converts", count: 75, unit: time.Millisecond, want: 75 * time.Millisecond},
+		{name: "millisecond boundary plus one falls back", count: math.MaxInt64/int64(time.Millisecond) + 1, unit: time.Millisecond, want: fallback},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := scaleDuration(tc.count, tc.unit, fallback); got != tc.want {
+				t.Fatalf("scaleDuration(%d, %v) = %v, want %v", tc.count, tc.unit, got, tc.want)
+			}
+		})
 	}
 }

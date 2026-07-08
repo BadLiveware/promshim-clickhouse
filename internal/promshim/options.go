@@ -78,11 +78,11 @@ func LoadOptionsFromEnv() (Options, error) {
 		Username:                            getenv("PROM_SHIM_CLICKHOUSE_USERNAME", "default"),
 		Password:                            getenv("PROM_SHIM_CLICKHOUSE_PASSWORD", "otel"),
 		ClickHouseCompression:               getenv("PROM_SHIM_CLICKHOUSE_COMPRESSION", "off"),
-		RequestTimeout:                      time.Second * time.Duration(getenvInt("PROM_SHIM_REQUEST_TIMEOUT_SECONDS", 30)),
+		RequestTimeout:                      scaleDuration(int64(getenvInt("PROM_SHIM_REQUEST_TIMEOUT_SECONDS", 30)), time.Second, 30*time.Second),
 		ClickHouseTransport:                 storage.TransportKind(getenv("PROM_SHIM_CLICKHOUSE_TRANSPORT", string(storage.TransportNative))),
 		ClickHouseMaxOpenConns:              getenvInt("PROM_SHIM_CLICKHOUSE_MAX_OPEN_CONNS", 10),
 		ClickHouseMaxIdleConns:              getenvInt("PROM_SHIM_CLICKHOUSE_MAX_IDLE_CONNS", 10),
-		ClickHouseConnMaxLifetime:           time.Second * time.Duration(getenvInt("PROM_SHIM_CLICKHOUSE_CONN_MAX_LIFETIME_SECONDS", 3600)),
+		ClickHouseConnMaxLifetime:           scaleDuration(int64(getenvInt("PROM_SHIM_CLICKHOUSE_CONN_MAX_LIFETIME_SECONDS", 3600)), time.Second, time.Hour),
 		ClickHouseNativeSecure:              getenvBool("PROM_SHIM_CLICKHOUSE_NATIVE_SECURE", false),
 		ClickHouseTLSInsecureSkipVerify:     getenvBool("PROM_SHIM_CLICKHOUSE_TLS_INSECURE_SKIP_VERIFY", false),
 		ClickHouseTLSServerName:             getenv("PROM_SHIM_CLICKHOUSE_TLS_SERVER_NAME", ""),
@@ -98,10 +98,10 @@ func LoadOptionsFromEnv() (Options, error) {
 		MaxRangePointsPerSeries:             getenvInt64("PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES", local.DefaultMaxRangePointsPerSeries),
 		RangeChunkPointsPerSeries:           getenvInt64("PROM_SHIM_RANGE_CHUNK_POINTS_PER_SERIES", local.DefaultRangeChunkPointsPerSeries),
 		NativeRangeChunkPointsPerSeries:     getenvInt64("PROM_SHIM_NATIVE_RANGE_CHUNK_POINTS_PER_SERIES", local.DefaultNativeRangeChunkPointsPerSeries),
-		NativeRangeChunkMaxDuration:         time.Second * time.Duration(getenvInt64("PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS", int64(local.DefaultNativeRangeChunkMaxDuration/time.Second))),
+		NativeRangeChunkMaxDuration:         scaleDuration(getenvInt64("PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_SECONDS", int64(local.DefaultNativeRangeChunkMaxDuration/time.Second)), time.Second, local.DefaultNativeRangeChunkMaxDuration),
 		NativeRangeChunkMaxChunks:           getenvInt64("PROM_SHIM_NATIVE_RANGE_CHUNK_MAX_CHUNKS", local.DefaultNativeRangeChunkMaxChunks),
 		NativeRangePreflightSeriesThreshold: getenvInt64("PROM_SHIM_NATIVE_RANGE_PREFLIGHT_SERIES_THRESHOLD", local.DefaultNativeRangePreflightSeriesThreshold),
-		NativeRangePreflightTimeout:         time.Millisecond * time.Duration(getenvInt64("PROM_SHIM_NATIVE_RANGE_PREFLIGHT_TIMEOUT_MS", int64(local.DefaultNativeRangePreflightTimeout/time.Millisecond))),
+		NativeRangePreflightTimeout:         scaleDuration(getenvInt64("PROM_SHIM_NATIVE_RANGE_PREFLIGHT_TIMEOUT_MS", int64(local.DefaultNativeRangePreflightTimeout/time.Millisecond)), time.Millisecond, local.DefaultNativeRangePreflightTimeout),
 		NativeRangePreflightMaxMemoryUsage:  getenvInt64("PROM_SHIM_NATIVE_RANGE_PREFLIGHT_MAX_MEMORY_BYTES", local.DefaultNativeRangePreflightMaxMemoryUsage),
 		MaxResponseSeries:                   getenvInt64("PROM_SHIM_MAX_RESPONSE_SERIES", defaultMaxResponseSeries),
 		MaxResponsePoints:                   getenvInt64("PROM_SHIM_MAX_RESPONSE_POINTS", defaultMaxResponsePoints),
@@ -113,7 +113,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		AllowRequestRoutingOverrides:        getenvBool("PROM_SHIM_ALLOW_REQUEST_ROUTING_OVERRIDES", false),
 		HidePromQL:                          !getenvBool("PROM_SHIM_LOG_PROMQL", true),
 		RecordingRuleFiles:                  splitCSVEnv(getenv("PROM_SHIM_RECORDING_RULE_FILES", "")),
-		RecordingRuleReloadInterval:         time.Second * time.Duration(getenvInt("PROM_SHIM_RECORDING_RULE_RELOAD_INTERVAL_SECONDS", 30)),
+		RecordingRuleReloadInterval:         scaleDuration(int64(getenvInt("PROM_SHIM_RECORDING_RULE_RELOAD_INTERVAL_SECONDS", 30)), time.Second, 30*time.Second),
 		RecordingRuleMode:                   getenv("PROM_SHIM_RECORDING_RULE_MODE", "off"),
 	}
 
@@ -198,6 +198,18 @@ func getenvInt(key string, fallback int) int {
 	return parsed
 }
 
+// scaleDuration multiplies count by unit, guarding against int64 overflow in
+// the nanosecond multiplication (e.g. 18446744074 seconds wraps to a small
+// positive ~290ms Duration that would slip past non-positive fallback checks).
+// On overflow it returns fallback so an oversized env value behaves like any
+// other invalid value for that variable.
+func scaleDuration(count int64, unit time.Duration, fallback time.Duration) time.Duration {
+	if count > math.MaxInt64/int64(unit) {
+		return fallback
+	}
+	return time.Duration(count) * unit
+}
+
 // secondsToDuration converts a seconds count into a Duration, guarding against
 // int64 overflow in the nanosecond multiplication. A seconds value large enough
 // to wrap (e.g. 18446744074, which would land on a small positive ~290ms
@@ -205,10 +217,10 @@ func getenvInt(key string, fallback int) int {
 // overflow or a non-positive input it returns 0 so that normalization applies
 // the configured default.
 func secondsToDuration(seconds int) time.Duration {
-	if seconds <= 0 || int64(seconds) > math.MaxInt64/int64(time.Second) {
+	if seconds <= 0 {
 		return 0
 	}
-	return time.Duration(seconds) * time.Second
+	return scaleDuration(int64(seconds), time.Second, 0)
 }
 
 func getenvInt64(key string, fallback int64) int64 {

@@ -74,13 +74,20 @@ func TestHTTPJSONTransportExecutePreservesHTTPRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	defer func() { _ = response.Body.Close() }()
 	payload, err := io.ReadAll(response.Body)
 	if err != nil {
 		t.Fatalf("read response body: %v", err)
 	}
 	if got := string(payload); got != "{\"ok\":true}\n" {
 		t.Fatalf("response body = %q", got)
+	}
+	// The round-trip is observed when the caller closes the body, so ch_millis
+	// spans the full body-streaming lifecycle rather than just header receipt.
+	if got := metrics.Roundtrips(); got != 0 {
+		t.Fatalf("roundtrips before close = %d, want 0", got)
+	}
+	if err := response.Body.Close(); err != nil {
+		t.Fatalf("close response body: %v", err)
 	}
 	if got := metrics.Roundtrips(); got != 1 {
 		t.Fatalf("roundtrips = %d, want 1", got)
@@ -121,6 +128,79 @@ func TestHTTPJSONTransportMapsHTTPStatusErrors(t *testing.T) {
 				t.Fatalf("message = %q, want ClickHouse body", queryErr.Message)
 			}
 		})
+	}
+}
+
+// TestHTTPJSONTransportObservesBodyStreamingLifecycle proves ch_millis spans the
+// body-streaming phase, not just header receipt. The server flushes headers, then
+// sleeps before writing the body so the delay happens while the client reads the
+// body (after httpClient.Do has already returned). This also exercises the
+// Execute path, which returns the unwrapped *http.Response whose Body is the
+// observing wrapper.
+func TestHTTPJSONTransportObservesBodyStreamingLifecycle(t *testing.T) {
+	const streamDelay = 40 * time.Millisecond
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		time.Sleep(streamDelay)
+		_, _ = io.WriteString(w, "{\"ok\":true}\n")
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{Endpoint: server.URL, RequestTimeout: time.Second})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	ctx, metrics := obs.WithCHMetrics(context.Background())
+	response, err := client.Execute(ctx, "SELECT 1", nil)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	// Reading the body blocks until the server finishes streaming (~streamDelay).
+	payload, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if got := string(payload); got != "{\"ok\":true}\n" {
+		t.Fatalf("body = %q", got)
+	}
+	// Observation is deferred to Close, so nothing is counted until we close.
+	if got := metrics.Roundtrips(); got != 0 {
+		t.Fatalf("roundtrips before close = %d, want 0", got)
+	}
+	if err := response.Body.Close(); err != nil {
+		t.Fatalf("close body: %v", err)
+	}
+	if got := metrics.Roundtrips(); got != 1 {
+		t.Fatalf("roundtrips = %d, want 1", got)
+	}
+	if got := metrics.Millis(); got < streamDelay.Milliseconds() {
+		t.Fatalf("millis = %d, want >= %d (body-streaming time must be counted)", got, streamDelay.Milliseconds())
+	}
+}
+
+// TestHTTPJSONTransportObservesDispatchError covers the transport error branch:
+// when httpClient.Do fails there is no body to stream, so the dispatch latency is
+// observed immediately as one round-trip.
+func TestHTTPJSONTransportObservesDispatchError(t *testing.T) {
+	// Port 1 refuses connections, so httpClient.Do returns an error.
+	client, err := NewClient(Config{Endpoint: "http://127.0.0.1:1", RequestTimeout: 500 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	ctx, metrics := obs.WithCHMetrics(context.Background())
+	if _, err := client.Execute(ctx, "SELECT 1", nil); err == nil {
+		t.Fatal("Execute error = nil, want dispatch failure")
+	}
+	if got := metrics.Roundtrips(); got != 1 {
+		t.Fatalf("roundtrips = %d, want 1 (dispatch error observed immediately)", got)
 	}
 }
 

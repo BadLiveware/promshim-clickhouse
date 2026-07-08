@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/obs"
@@ -84,17 +86,21 @@ func (t *HTTPJSONTransport) Query(ctx context.Context, req QueryRequest) (Rows, 
 
 	start := time.Now()
 	response, err := t.httpClient.Do(request)
-	duration := time.Since(start)
-	obs.FromContext(ctx).Observe(duration)
 	if err != nil {
+		// No response body to stream; observe the dispatch latency now.
+		duration := time.Since(start)
+		obs.FromContext(ctx).Observe(duration)
 		observeQuery(TransportHTTP, req.Purpose, "error", duration)
 		return nil, err
 	}
 	if response.StatusCode >= 400 {
-		observeQuery(TransportHTTP, req.Purpose, "error", duration)
+		// The error body is read inline here, so time.Since spans it fully.
 		defer func() { _ = response.Body.Close() }()
 		var payload bytes.Buffer
 		_, _ = payload.ReadFrom(response.Body)
+		duration := time.Since(start)
+		obs.FromContext(ctx).Observe(duration)
+		observeQuery(TransportHTTP, req.Purpose, "error", duration)
 		message := strings.TrimSpace(payload.String())
 		if message == "" {
 			message = response.Status
@@ -104,8 +110,15 @@ func (t *HTTPJSONTransport) Query(ctx context.Context, req QueryRequest) (Rows, 
 		}
 		return nil, &QueryError{StatusCode: http.StatusBadGateway, ErrorType: "execution", Message: message}
 	}
-	observeQuery(TransportHTTP, req.Purpose, "success", duration)
-	return &httpRows{response: response}, nil
+	// Do returns as soon as the response headers arrive, but ClickHouse streams
+	// the result while the caller reads the body. Wrap the body so the round-trip
+	// is observed once at Close, making ch_millis span the full query lifecycle
+	// including body streaming. The wrapper is installed on response.Body so
+	// closing the body observes regardless of whether the caller takes the Rows
+	// (Client.Query) or the unwrapped *http.Response (Client.Execute).
+	rows := &httpRows{response: response, body: response.Body, ctx: ctx, start: start, purpose: req.Purpose}
+	response.Body = rows
+	return rows, nil
 }
 
 func (t *HTTPJSONTransport) Close() error {
@@ -115,12 +128,27 @@ func (t *HTTPJSONTransport) Close() error {
 
 type httpRows struct {
 	response *http.Response
+	body     io.ReadCloser
+	ctx      context.Context
+	start    time.Time
+	purpose  QueryPurpose
+	once     sync.Once
 }
 
 func (r *httpRows) Read(p []byte) (int, error) {
-	return r.response.Body.Read(p)
+	return r.body.Read(p)
 }
 
 func (r *httpRows) Close() error {
-	return r.response.Body.Close()
+	err := r.body.Close()
+	r.observe()
+	return err
+}
+
+func (r *httpRows) observe() {
+	r.once.Do(func() {
+		duration := time.Since(r.start)
+		obs.FromContext(r.ctx).Observe(duration)
+		observeQuery(TransportHTTP, r.purpose, "success", duration)
+	})
 }

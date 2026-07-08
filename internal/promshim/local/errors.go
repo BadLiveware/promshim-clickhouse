@@ -33,6 +33,13 @@ type internalError interface {
 type promshimError struct {
 	kind    internalErrorKind
 	message string
+	// cause preserves the original error so its errors.Is / errors.As
+	// identity survives normalization. Without it, normalizing an
+	// unrecognized error (e.g. context.Canceled) into the default execution
+	// kind would erase the sentinel, and ExecutionFallbackEligible could
+	// misclassify a canceled/timed-out evaluation as retryable. It is nil for
+	// the New*Errorf constructors, which have no underlying cause.
+	cause error
 }
 
 func (e *promshimError) Error() string {
@@ -41,6 +48,10 @@ func (e *promshimError) Error() string {
 
 func (e *promshimError) Kind() internalErrorKind {
 	return e.kind
+}
+
+func (e *promshimError) Unwrap() error {
+	return e.cause
 }
 
 type contextualInternalError struct {
@@ -119,7 +130,7 @@ func NormalizeInternalError(err error) error {
 		}
 	}
 
-	return &promshimError{kind: internalErrorKindExecution, message: err.Error()}
+	return &promshimError{kind: internalErrorKindExecution, message: err.Error(), cause: err}
 }
 
 func normalizeQueryError(err *storage.QueryError) error {

@@ -2,6 +2,7 @@ package local
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -93,6 +94,55 @@ func TestExecutionFallbackEligible(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := ExecutionFallbackEligible(tc.err); got != tc.want {
 				t.Fatalf("ExecutionFallbackEligible(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestExecutionFallbackEligibleContextThroughShimWrapping reproduces the exact
+// wrapping the evaluation path applies to a context error and asserts the
+// sentinel identity survives it, so a canceled / timed-out evaluation is never
+// misclassified as retryable execution-class. The chunked range executor wraps
+// child errors via WithInternalContext (see chunkedRangePlan.evaluate), which
+// runs NormalizeInternalError first — the path that previously erased the
+// context.Canceled / context.DeadlineExceeded sentinel by copying only its
+// message into a fresh promshimError with no Unwrap chain.
+func TestExecutionFallbackEligibleContextThroughShimWrapping(t *testing.T) {
+	sentinels := []struct {
+		name string
+		err  error
+	}{
+		{name: "canceled", err: context.Canceled},
+		{name: "deadline", err: context.DeadlineExceeded},
+	}
+	for _, sentinel := range sentinels {
+		t.Run(sentinel.name, func(t *testing.T) {
+			// NormalizeInternalError alone must preserve the sentinel.
+			normalized := NormalizeInternalError(sentinel.err)
+			if !errors.Is(normalized, sentinel.err) {
+				t.Fatalf("NormalizeInternalError erased the %s sentinel: %v", sentinel.name, normalized)
+			}
+			if ExecutionFallbackEligible(normalized) {
+				t.Fatalf("normalized %s must not be fallback-eligible", sentinel.name)
+			}
+
+			// The chunked-executor wrapping shape: WithInternalContext (which
+			// normalizes internally) applied to the raw context error.
+			wrapped := WithInternalContext(sentinel.err, "executing chunked range subquery start=%s end=%s", "t0", "t1")
+			if !errors.Is(wrapped, sentinel.err) {
+				t.Fatalf("WithInternalContext erased the %s sentinel: %v", sentinel.name, wrapped)
+			}
+			if ExecutionFallbackEligible(wrapped) {
+				t.Fatalf("WithInternalContext-wrapped %s must not be fallback-eligible", sentinel.name)
+			}
+
+			// Doubly wrapped, as nested evaluation contexts would produce.
+			doubleWrapped := WithInternalContext(wrapped, "merging chunked range subquery")
+			if !errors.Is(doubleWrapped, sentinel.err) {
+				t.Fatalf("doubly-wrapped %s lost its sentinel: %v", sentinel.name, doubleWrapped)
+			}
+			if ExecutionFallbackEligible(doubleWrapped) {
+				t.Fatalf("doubly-wrapped %s must not be fallback-eligible", sentinel.name)
 			}
 		})
 	}

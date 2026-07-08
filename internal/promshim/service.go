@@ -230,6 +230,7 @@ func (h *queryService) InstantQuery(ctx context.Context, req httpapi.InstantQuer
 			return nil, local.ApiErrorToHTTP(err)
 		}
 		value, selectedExplain, execFallback = fbValue, fbExplain, fbReport
+		markRoutingServedLocal(&routing)
 	}
 	value, apiErr = applyQueryLimit(value, req.Limit)
 	if apiErr != nil {
@@ -308,6 +309,7 @@ func (h *queryService) RangeQuery(ctx context.Context, req httpapi.RangeQueryReq
 			return nil, local.ApiErrorToHTTP(err)
 		}
 		value, selectedExplain, execFallback = fbValue, fbExplain, fbReport
+		markRoutingServedLocal(&routing)
 	}
 	value, apiErr = applyQueryLimit(value, req.Limit)
 	if apiErr != nil {

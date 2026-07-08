@@ -101,6 +101,19 @@ func TestInstantQueryPreferModeFallsBackToLocalOnExecutionError(t *testing.T) {
 	if got := res.Header().Get("X-Promshim-Fallback-Reason"); got != "native_execution_error" {
 		t.Fatalf("X-Promshim-Fallback-Reason = %q, want native_execution_error", got)
 	}
+	// Served-view observability must reflect the local execution that was
+	// actually served, not the native plan that failed.
+	if got := res.Header().Get("X-Promshim-Strategy"); got != "local" {
+		t.Fatalf("X-Promshim-Strategy = %q, want local", got)
+	}
+	if got := res.Header().Get("X-Promshim-Served-Candidate"); got != "full_local" {
+		t.Fatalf("X-Promshim-Served-Candidate = %q, want full_local", got)
+	}
+	// Routing-decision provenance is preserved: routing selected native, and
+	// the selected-vs-served divergence is the fallback signal.
+	if got := res.Header().Get("X-Promshim-Selected-Strategy"); got != "native_sql" {
+		t.Fatalf("X-Promshim-Selected-Strategy = %q, want native_sql (routing selection preserved)", got)
+	}
 	after := fallbackCounterValue(t, "query", "prefer", "native_sql", "success")
 	if after != before+1 {
 		t.Fatalf("fallback success counter = %v, want %v", after, before+1)
@@ -206,6 +219,22 @@ func TestInstantQueryExplainSurfacesExecutionFallback(t *testing.T) {
 	}
 	if plan["fallbackReason"] != "native_execution_error" {
 		t.Fatalf("expected plan fallbackReason native_execution_error, got: %v", plan)
+	}
+	// Routing metadata in the explain body agrees with what was served: the
+	// served candidate is full_local, while the routing selection is preserved.
+	routing, ok := payload["routing"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected routing metadata in explain body, got: %s", res.Body.String())
+	}
+	candidateDecision, ok := routing["candidateDecision"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected routing.candidateDecision in explain body, got: %v", routing)
+	}
+	if candidateDecision["servedCandidate"] != "full_local" {
+		t.Fatalf("routing.candidateDecision.servedCandidate = %v, want full_local", candidateDecision["servedCandidate"])
+	}
+	if routing["selectedStrategy"] != "native_sql" {
+		t.Fatalf("routing.selectedStrategy = %v, want native_sql (routing selection preserved)", routing["selectedStrategy"])
 	}
 	after := fallbackCounterValue(t, "query", "explain", "native_sql", "success")
 	if after != before+1 {
@@ -428,6 +457,15 @@ func TestRangeQueryPreferModeFallsBackToLocalOnExecutionError(t *testing.T) {
 	payload := decodeJSONBody(t, res)
 	if payload["status"] != "success" {
 		t.Fatalf("status field = %v, want success; body: %s", payload["status"], res.Body.String())
+	}
+	if got := res.Header().Get("X-Promshim-Strategy"); got != "local" {
+		t.Fatalf("X-Promshim-Strategy = %q, want local", got)
+	}
+	if got := res.Header().Get("X-Promshim-Served-Candidate"); got != "full_local" {
+		t.Fatalf("X-Promshim-Served-Candidate = %q, want full_local", got)
+	}
+	if got := res.Header().Get("X-Promshim-Selected-Strategy"); got != "native_sql" {
+		t.Fatalf("X-Promshim-Selected-Strategy = %q, want native_sql (routing selection preserved)", got)
 	}
 	after := fallbackCounterValue(t, "query_range", "prefer", "native_sql", "success")
 	if after != before+1 {

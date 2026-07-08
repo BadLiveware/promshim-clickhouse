@@ -105,6 +105,27 @@ func explainHasClickHouseSideNode(node local.ExplainNode) bool {
 	return false
 }
 
+// markRoutingServedLocal reconciles the routing report with what a successful
+// execution fallback actually served. Routing selected native and committed a
+// native plan; the fallback overrode that at execution time and served full
+// local (tier-4). The served-facing field — CandidateDecision.ServedCandidate
+// — is corrected to the local candidate so it no longer names the native plan
+// that failed. The routing-decision fields (StrictStrategy, SelectedStrategy,
+// WouldSelect, Decision, Reason and the strict/selected candidates) are left
+// intact: they truthfully record why native was attempted, and the resulting
+// selected-vs-served divergence is exactly the fallback signal. The served
+// plan is further reflected by the already-correct top-level
+// X-Promshim-Strategy=local / X-Promshim-Fallback-Reason headers and the
+// explain executionFallback section. Metric labels are untouched.
+func markRoutingServedLocal(routing *httpapi.RoutingInfo) {
+	if routing == nil || routing.CandidateDecision == nil {
+		return
+	}
+	// The fallback always runs full local (tier-4, off mode), so the served
+	// candidate is the full-local candidate regardless of the request mode.
+	routing.CandidateDecision.ServedCandidate = string(cbeCandidateForStrategyInMode("local", local.NativeLoweringModeOff))
+}
+
 func (h *queryService) executionFallbackEligible(ctx context.Context, mode local.NativeLoweringMode, servedExplain local.ExplainNode, evalErr error) bool {
 	return executionFallbackMode(mode) &&
 		explainHasClickHouseSideNode(servedExplain) &&

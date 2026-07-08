@@ -114,7 +114,7 @@ func BuildInstantScalarRangeFunctionSelectorQuerySQLWithFinalTags(cfg QueryConfi
 			Kind:  "INNER",
 			On:    sqlb.RawLit{V: "d.id = series.id"},
 		},
-		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value")},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND d.id IN (SELECT id FROM " + rawSubquerySQL(matchedIDsSQL) + ")"},
 		GroupBy: []sqlb.Expr{sqlb.Ident("d.id")},
 	}
 
@@ -483,7 +483,7 @@ func buildRangeNativeGridSelectorInner(cfg QueryConfig, selector SelectorSource,
 			Kind:  "INNER",
 			On:    sqlb.RawLit{V: "d.id = series.id"},
 		},
-		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value")},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND d.id IN (SELECT id FROM " + rawSubquerySQL(matchedSeriesSQL) + ")"},
 		GroupBy: []sqlb.Expr{sqlb.Ident("series.id")},
 	}
 	return inner, params, resolvedFinalTagsExpr, nil
@@ -1027,7 +1027,7 @@ func buildInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, req
 			Kind:  "INNER",
 			On:    sqlb.RawLit{V: "d.id = series.id"},
 		},
-		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64})"},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND d.id IN (SELECT id FROM " + rawSubquerySQL(matchedSeriesSQL) + ")"},
 		GroupBy: groupBy,
 		Having:  sqlb.RawLit{V: "NOT isNaN(value)"},
 		OrderBy: orderBy,
@@ -1436,7 +1436,7 @@ func buildRangeMatrixSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, r
 			Kind:  "INNER",
 			On:    sqlb.RawLit{V: "d.id = series.id"},
 		},
-		Where: sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value")},
+		Where: sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND d.id IN (SELECT id FROM " + rawSubquerySQL(matchedSeriesSQL) + ")"},
 	}
 	sql, _, err := inner.Build()
 	if err != nil {

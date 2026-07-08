@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -3580,12 +3581,21 @@ func TestLocalSubqueryPlanUsesConfiguredDefaultEvaluationInterval(t *testing.T) 
 // PromQL text unambiguously reveals which one was used; in production both are
 // sourced from the same Options.DefaultEvaluationInterval and cannot differ.
 func TestLocalSubqueryPlanDelegatedPathUsesPlanCapturedInterval(t *testing.T) {
-	var capturedPromQL string
+	// The handler runs on the server goroutine, so the capture is
+	// mutex-guarded for the race detector; errors are reported via Errorf
+	// because Fatalf must not be called outside the test goroutine.
+	var (
+		capturedMu     sync.Mutex
+		capturedPromQL string
+	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseMultipartForm(1 << 20); err != nil {
-			t.Fatalf("parse multipart form: %v", err)
+			t.Errorf("parse multipart form: %v", err)
+			return
 		}
+		capturedMu.Lock()
 		capturedPromQL = r.FormValue("param_promql")
+		capturedMu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintln(w, `{"tags":[["job","api"]],"timestamp":"2026-04-20 11:34:00.000","value":1}`)
 	}))
@@ -3611,13 +3621,17 @@ func TestLocalSubqueryPlanDelegatedPathUsesPlanCapturedInterval(t *testing.T) {
 		t.Fatalf("expected delegated subquery execution, got error: %v", err)
 	}
 
+	capturedMu.Lock()
+	got := capturedPromQL
+	capturedMu.Unlock()
+
 	// The subquery step is the plan-captured 30s (the range carries a 1ms
 	// delegation pad, so match on the step token only).
-	if !strings.Contains(capturedPromQL, ":30s]") {
-		t.Fatalf("expected delegated PromQL to fill the no-step subquery with the plan-captured 30s interval, got %q", capturedPromQL)
+	if !strings.Contains(got, ":30s]") {
+		t.Fatalf("expected delegated PromQL to fill the no-step subquery with the plan-captured 30s interval, got %q", got)
 	}
-	if strings.Contains(capturedPromQL, "1m30s") {
-		t.Fatalf("delegated PromQL used the evaluator-level 90s interval instead of the plan-captured value, got %q", capturedPromQL)
+	if strings.Contains(got, "1m30s") {
+		t.Fatalf("delegated PromQL used the evaluator-level 90s interval instead of the plan-captured value, got %q", got)
 	}
 }
 

@@ -157,13 +157,21 @@ type localSubqueryPlan struct {
 	StartOrEnd              parser.ItemType
 	DelegatedLeafCompatible bool
 	MaxPointsPerSeries      int64
-	Child                   Plan
+	// DefaultEvaluationInterval fills Step when the subquery omits one.
+	// Captured at planning time from PlanContext so nested subqueries keep
+	// the configured server-side default even though child EvalParams are
+	// reconstructed per evaluation step.
+	DefaultEvaluationInterval time.Duration
+	Child                     Plan
 }
 
 func (p *localSubqueryPlan) execute(ctx context.Context, Evaluator *Evaluator, params EvalParams) (model.RuntimeValue, error) {
 	useDelegatedPath := p.DelegatedLeafCompatible && (params.Mode != EvalModeInstant || p.Expr == nil || p.Expr.Type() != parser.ValueTypeMatrix)
 	if useDelegatedPath {
-		value, err := Evaluator.executeDelegated(ctx, p.Expr, params)
+		// Fill no-step subqueries with the plan-captured planning-time interval
+		// so the delegated path agrees with the local executionWindow branch,
+		// rather than the evaluator-level default.
+		value, err := Evaluator.executeDelegatedWithInterval(ctx, p.Expr, params, p.DefaultEvaluationInterval)
 		if err != nil {
 			return nil, WithInternalContext(err, "executing delegated subquery expression %q", p.Expr.String())
 		}
@@ -221,7 +229,13 @@ func (p *localSubqueryPlan) executionWindow(params EvalParams) (time.Time, time.
 	}
 	step := p.Step
 	if step <= 0 {
-		step = defaultSubqueryStep(params)
+		// Prometheus fills a missing subquery step with the server-side
+		// default evaluation interval, never the outer query step
+		// (promql/engine.go: SubqueryExpr.Step == 0 -> noStepSubqueryIntervalFn).
+		step = p.DefaultEvaluationInterval
+	}
+	if step <= 0 {
+		step = DefaultEvaluationInterval
 	}
 	if step <= 0 {
 		return time.Time{}, time.Time{}, 0, NewBadDataErrorf("subquery step must be greater than zero in %q", p.Expr.String())

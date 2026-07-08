@@ -15,7 +15,7 @@ import (
 // aligned scrapes on the right. See harness P1 findings for the root cause.
 const clickHouseRangePadding = time.Millisecond
 
-func resolveDelegatedPromQL(expr parser.Expr, params EvalParams) (string, error) {
+func resolveDelegatedPromQL(expr parser.Expr, params EvalParams, noStepSubqueryInterval time.Duration) (string, error) {
 	parsed, err := logicalpkg.ParseExpression(expr.String())
 	if err != nil {
 		return "", NewExecutionErrorf("re-parsing expression for delegation rewrite: %v", err)
@@ -23,8 +23,46 @@ func resolveDelegatedPromQL(expr parser.Expr, params EvalParams) (string, error)
 	if containsStartEndAtModifier(parsed) {
 		resolveStartEndAtModifierRecursive(parsed, params)
 	}
+	fillNoStepSubqueryIntervals(parsed, noStepSubqueryInterval)
 	padDelegatedRanges(parsed, clickHouseRangePadding)
 	return parsed.String(), nil
+}
+
+// fillNoStepSubqueryIntervals makes the no-step subquery default explicit in
+// delegated PromQL text. Prometheus fills a missing subquery step with the
+// server-side default evaluation interval; without this rewrite the empty
+// step would survive serialization (`up[15m:]`) and ClickHouse would apply
+// its own default instead of promshim's configured one. Explicit steps are
+// never overridden.
+func fillNoStepSubqueryIntervals(expr parser.Expr, interval time.Duration) {
+	if interval <= 0 {
+		interval = DefaultEvaluationInterval
+	}
+	switch node := expr.(type) {
+	case *parser.SubqueryExpr:
+		if node.Step <= 0 {
+			node.Step = interval
+		}
+		fillNoStepSubqueryIntervals(node.Expr, interval)
+	case *parser.Call:
+		for _, arg := range node.Args {
+			fillNoStepSubqueryIntervals(arg, interval)
+		}
+	case *parser.AggregateExpr:
+		if node.Param != nil {
+			fillNoStepSubqueryIntervals(node.Param, interval)
+		}
+		fillNoStepSubqueryIntervals(node.Expr, interval)
+	case *parser.BinaryExpr:
+		fillNoStepSubqueryIntervals(node.LHS, interval)
+		fillNoStepSubqueryIntervals(node.RHS, interval)
+	case *parser.UnaryExpr:
+		fillNoStepSubqueryIntervals(node.Expr, interval)
+	case *parser.ParenExpr:
+		fillNoStepSubqueryIntervals(node.Expr, interval)
+	case *parser.StepInvariantExpr:
+		fillNoStepSubqueryIntervals(node.Expr, interval)
+	}
 }
 
 func padDelegatedRanges(expr parser.Expr, delta time.Duration) {
@@ -195,13 +233,6 @@ func cloneFloat64Pointers(values []*float64) []*float64 {
 		out = append(out, cloneFloat64Pointer(value))
 	}
 	return out
-}
-
-func defaultSubqueryStep(params EvalParams) time.Duration {
-	if params.Step > 0 {
-		return params.Step
-	}
-	return time.Minute
 }
 
 func isBareSelectorExpr(expr parser.Expr) bool {

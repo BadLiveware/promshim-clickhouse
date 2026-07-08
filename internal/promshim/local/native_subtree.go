@@ -102,7 +102,7 @@ func (p *nativeSubtreePlan) execute(ctx context.Context, Evaluator *Evaluator, p
 		RequiredStartMS:  requiredStartMS,
 		RequiredEndMS:    requiredEndMS,
 		ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
-			return resolveDelegatedPromQL(expr, params)
+			return resolveDelegatedPromQL(expr, params, Evaluator.noStepSubqueryInterval())
 		},
 	}
 	applyNativeSubtreeRenderTagHint(&renderParams, p.NativeSubtreeRenderTagHint, p.NativeSubtreeRequireFullTags, p.NativeSubtreeRequiredLabels)
@@ -222,7 +222,7 @@ func renderNativeSubtreeSQL(cfg storage.QueryConfig, renderParams renderer.Rende
 // dispatch in renderSQL.
 func preRenderNativeSubtreePlanSQL(node logicalpkg.Node, analysis *nativeplan.Analysis, optimized *nativeplan.OptimizedFragment, ctx PlanContext) error {
 	renderMode := renderModeForPlanContext(ctx)
-	cfg := storage.QueryConfig{Database: "preview", Table: "preview", EnableNativeGridFunctions: ctx.EnableNativeGridFunctions, EnableCumulativeAvgOverTime: ctx.EnableCumulativeAvgOverTime}
+	cfg := storage.QueryConfig{Database: "preview", Table: "preview", EnableNativeGridFunctions: ctx.EnableNativeGridFunctions, EnableCumulativeAvgOverTime: ctx.EnableCumulativeAvgOverTime, DefaultEvaluationInterval: ctx.DefaultEvaluationInterval}
 	renderParams := renderer.RenderParams{
 		Mode:             renderMode,
 		EvaluationTimeMS: ctx.EvaluationTime.UnixMilli(),
@@ -232,7 +232,7 @@ func preRenderNativeSubtreePlanSQL(node logicalpkg.Node, analysis *nativeplan.An
 		RequiredStartMS:  optimized.Report.RequiredInputStartMS,
 		RequiredEndMS:    optimized.Report.RequiredInputEndMS,
 		ResolveSourcePromQL: func(expr parser.Expr) (string, error) {
-			return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step})
+			return resolveDelegatedPromQL(expr, EvalParams{Mode: ctx.Mode, EvaluationTime: ctx.EvaluationTime, Start: ctx.Start, End: ctx.End, Step: ctx.Step}, ctx.DefaultEvaluationInterval)
 		},
 	}
 	applyNativeSubtreeRenderTagHint(&renderParams, ctx.NativeSubtreeRenderTagHint, ctx.NativeSubtreeRequireFullTags, ctx.NativeSubtreeRequiredTagLabels)

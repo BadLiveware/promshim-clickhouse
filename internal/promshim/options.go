@@ -2,6 +2,7 @@ package promshim
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"strconv"
@@ -41,6 +42,7 @@ type Options struct {
 	ClickHouseMaxRowsToRead             int64
 	ClickHouseMaxResultRows             int64
 	NativeLoweringMode                  local.NativeLoweringMode
+	DefaultEvaluationInterval           time.Duration
 	RoutingPolicy                       RoutingPolicy
 	CostRoutingLocalFamilies            []string
 	MaxRangePointsPerSeries             int64
@@ -90,6 +92,7 @@ func LoadOptionsFromEnv() (Options, error) {
 		ClickHouseMaxRowsToRead:             getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_ROWS_TO_READ", 0),
 		ClickHouseMaxResultRows:             getenvInt64("PROM_SHIM_CLICKHOUSE_MAX_RESULT_ROWS", 0),
 		NativeLoweringMode:                  local.NativeLoweringMode(getenv("PROM_SHIM_NATIVE_LOWERING_MODE", string(local.NativeLoweringModePrefer))),
+		DefaultEvaluationInterval:           secondsToDuration(getenvInt("PROM_SHIM_DEFAULT_EVALUATION_INTERVAL_SECONDS", int(local.DefaultEvaluationInterval/time.Second))),
 		RoutingPolicy:                       RoutingPolicy(getenv("PROM_SHIM_ROUTING_POLICY", string(RoutingPolicyStrict))),
 		CostRoutingLocalFamilies:            splitCSVEnv(getenv("PROM_SHIM_COST_ROUTING_LOCAL_FAMILIES", "")),
 		MaxRangePointsPerSeries:             getenvInt64("PROM_SHIM_MAX_RANGE_POINTS_PER_SERIES", local.DefaultMaxRangePointsPerSeries),
@@ -195,6 +198,19 @@ func getenvInt(key string, fallback int) int {
 	return parsed
 }
 
+// secondsToDuration converts a seconds count into a Duration, guarding against
+// int64 overflow in the nanosecond multiplication. A seconds value large enough
+// to wrap (e.g. 18446744074, which would land on a small positive ~290ms
+// Duration) must not slip past the <= 0 fallback in normalizeOptions; on
+// overflow or a non-positive input it returns 0 so that normalization applies
+// the configured default.
+func secondsToDuration(seconds int) time.Duration {
+	if seconds <= 0 || int64(seconds) > math.MaxInt64/int64(time.Second) {
+		return 0
+	}
+	return time.Duration(seconds) * time.Second
+}
+
 func getenvInt64(key string, fallback int64) int64 {
 	value := os.Getenv(key)
 	if value == "" {
@@ -246,6 +262,9 @@ func normalizeOptions(opts Options) Options {
 	opts.NativeGridFunctions = normalizeNativeGridFunctionsMode(opts.NativeGridFunctions)
 	opts.CumulativeAvgOverTime = normalizePreferOffMode(opts.CumulativeAvgOverTime)
 	opts.NativeLoweringMode = local.NormalizeNativeLoweringMode(opts.NativeLoweringMode)
+	if opts.DefaultEvaluationInterval <= 0 {
+		opts.DefaultEvaluationInterval = local.DefaultEvaluationInterval
+	}
 	opts.RoutingPolicy = NormalizeRoutingPolicy(opts.RoutingPolicy)
 	if opts.MaxRangePointsPerSeries <= 0 {
 		opts.MaxRangePointsPerSeries = local.DefaultMaxRangePointsPerSeries

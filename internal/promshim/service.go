@@ -58,7 +58,7 @@ func (h *queryService) Ready(ctx context.Context) error {
 }
 
 func (h *queryService) queryConfig() storage.QueryConfig {
-	return storage.QueryConfig{Database: h.opts.Database, Table: h.opts.Table, PromotedTagColumns: h.promotedTagColumns, EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxMetadataSeries: h.opts.MaxResponseSeries, MaxMetadataItems: h.opts.MaxMetadataItems}
+	return storage.QueryConfig{Database: h.opts.Database, Table: h.opts.Table, PromotedTagColumns: h.promotedTagColumns, EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxMetadataSeries: h.opts.MaxResponseSeries, MaxMetadataItems: h.opts.MaxMetadataItems, DefaultEvaluationInterval: h.opts.DefaultEvaluationInterval}
 }
 
 func mergePromotedTagColumns(base, extra map[string]struct{}) map[string]struct{} {
@@ -172,7 +172,7 @@ func NewHandler(opts Options) (http.Handler, error) {
 	service := &queryService{
 		opts:               opts,
 		client:             client,
-		evaluator:          local.NewEvaluator(opts.Database, opts.Table, client).WithPromotedTagColumns(promotedTagColumns).WithNativeGridFunctions(opts.NativeGridFunctions == "prefer").WithCumulativeAvgOverTime(opts.CumulativeAvgOverTime == "prefer"),
+		evaluator:          local.NewEvaluator(opts.Database, opts.Table, client).WithPromotedTagColumns(promotedTagColumns).WithNativeGridFunctions(opts.NativeGridFunctions == "prefer").WithCumulativeAvgOverTime(opts.CumulativeAvgOverTime == "prefer").WithDefaultEvaluationInterval(opts.DefaultEvaluationInterval),
 		promotedTagColumns: promotedTagColumns,
 		timeSeriesIDType:   timeSeriesIDType,
 		selectorStats:      newSelectorStatsCache(5 * time.Minute),
@@ -939,7 +939,7 @@ func (h *queryService) buildInstantPlan(req httpapi.InstantQueryRequest) (string
 	if apiErr != nil {
 		return "", time.Time{}, nil, nil, nil, apiErr
 	}
-	ctx := local.PlanContext{Mode: local.EvalModeInstant, EvaluationTime: evaluationTime, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries}
+	ctx := local.PlanContext{Mode: local.EvalModeInstant, EvaluationTime: evaluationTime, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", DefaultEvaluationInterval: h.opts.DefaultEvaluationInterval, MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries}
 	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion)
 	var queryPlan local.Plan
 	var analysis *nativeplan.Analysis
@@ -1001,7 +1001,7 @@ func (h *queryService) buildRangePlan(ctx context.Context, req httpapi.RangeQuer
 	if apiErr != nil {
 		return "", time.Time{}, time.Time{}, 0, nil, nil, nil, apiErr
 	}
-	planCtx := local.PlanContext{Mode: local.EvalModeRange, Start: start, End: end, Step: step, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries, NativeRangeChunkPointsPerSeries: h.opts.NativeRangeChunkPointsPerSeries, NativeRangeChunkMaxDuration: h.opts.NativeRangeChunkMaxDuration, NativeRangeChunkMaxChunks: h.opts.NativeRangeChunkMaxChunks, NativeRangePreflightSeriesThreshold: h.opts.NativeRangePreflightSeriesThreshold, NativeRangePreflightTimeout: h.opts.NativeRangePreflightTimeout, NativeRangePreflightMaxMemoryUsage: h.opts.NativeRangePreflightMaxMemoryUsage}
+	planCtx := local.PlanContext{Mode: local.EvalModeRange, Start: start, End: end, Step: step, ClickHouseVersion: h.opts.ClickHouseVersion, NativeLoweringMode: mode, PreferNativeAggregationPushdown: mode.EnablesNativePlanning(), EnableNativeGridFunctions: h.opts.NativeGridFunctions == "prefer", EnableCumulativeAvgOverTime: h.opts.CumulativeAvgOverTime == "prefer", DefaultEvaluationInterval: h.opts.DefaultEvaluationInterval, MaxRangePointsPerSeries: h.opts.MaxRangePointsPerSeries, RangeChunkPointsPerSeries: h.opts.RangeChunkPointsPerSeries, NativeRangeChunkPointsPerSeries: h.opts.NativeRangeChunkPointsPerSeries, NativeRangeChunkMaxDuration: h.opts.NativeRangeChunkMaxDuration, NativeRangeChunkMaxChunks: h.opts.NativeRangeChunkMaxChunks, NativeRangePreflightSeriesThreshold: h.opts.NativeRangePreflightSeriesThreshold, NativeRangePreflightTimeout: h.opts.NativeRangePreflightTimeout, NativeRangePreflightMaxMemoryUsage: h.opts.NativeRangePreflightMaxMemoryUsage}
 	delegation := local.ClassifyEntireQueryDelegation(expr, h.opts.ClickHouseVersion)
 	var queryPlan local.Plan
 	var analysis *nativeplan.Analysis

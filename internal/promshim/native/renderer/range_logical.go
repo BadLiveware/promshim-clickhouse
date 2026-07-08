@@ -464,7 +464,7 @@ func tryRenderSubqueryRowsSourceLogical(ctx LoweringCtx, n *logicalpkg.SubqueryP
 	if !ok || agg == nil {
 		return "", nil, false, nil
 	}
-	startMS, endMS, stepMS, err := subqueryRenderEnvelopeLogical(n, ctx.Params)
+	startMS, endMS, stepMS, err := subqueryRenderEnvelopeLogical(n, ctx.Params, ctx.Config.DefaultEvaluationInterval.Milliseconds())
 	if err != nil {
 		return "", nil, false, err
 	}

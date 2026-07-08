@@ -111,7 +111,7 @@ func TestDelegatedInstantVectorNormalizesToNonAlignedEvaluationTime(t *testing.T
 	if len(vector.Samples) != 1 {
 		t.Fatalf("expected one sample, got %#v", vector.Samples)
 	}
-	want := float64(evalTime.UnixNano()) / float64(time.Second)
+	want := float64(evalTime.Unix()) + float64(evalTime.Nanosecond())/float64(time.Second)
 	if got := vector.Samples[0].Timestamp; got != want {
 		t.Fatalf("expected fractional evaluation timestamp %v, got %v", want, got)
 	}

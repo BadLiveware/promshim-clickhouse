@@ -152,7 +152,7 @@ func (e *Evaluator) executeDelegated(ctx context.Context, expr parser.Expr, para
 			// sample timestamp (observed on 26.1), so normalize here
 			// regardless of what the endpoint emits — mirroring the
 			// native-subtree instant path.
-			evalTimestamp := float64(params.EvaluationTime.UnixNano()) / float64(time.Second)
+			evalTimestamp := float64(params.EvaluationTime.Unix()) + float64(params.EvaluationTime.Nanosecond())/float64(time.Second)
 			for i := range samples {
 				samples[i].Timestamp = evalTimestamp
 			}

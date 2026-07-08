@@ -628,7 +628,7 @@ func buildRangeWindowSelectorPerStepQuery(cfg QueryConfig, selector SelectorSour
 	windowed := &sqlb.Select{
 		Columns: windowColumns,
 		From:    sqlb.Join{Left: sqlb.SubSelect{S: grid, Alias: "grid"}, Right: sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"}, Kind: "INNER", On: sqlb.RawLit{V: "d.id = grid.id"}},
-		Where:   sqlb.RawLit{V: emit.RangeWindowTimeFilter("d.value")},
+		Where:   sqlb.RawLit{V: emit.RangeWindowTimeFilter("d.value") + " AND d.id IN (SELECT id FROM " + rawSubquerySQL(matchedSeriesSQL) + ")"},
 		GroupBy: groupByWindow,
 	}
 	perStep := &sqlb.Select{
@@ -691,7 +691,7 @@ func buildRangeWindowSelectorDirectAggregatePerStepQuery(cfg QueryConfig, select
 	windowed := &sqlb.Select{
 		Columns: windowColumns,
 		From:    sqlb.Join{Left: sqlb.SubSelect{S: grid, Alias: "grid"}, Right: sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"}, Kind: "INNER", On: sqlb.RawLit{V: "d.id = grid.id"}},
-		Where:   sqlb.RawLit{V: emit.RangeWindowTimeFilter("d.value")},
+		Where:   sqlb.RawLit{V: emit.RangeWindowTimeFilter("d.value") + " AND d.id IN (SELECT id FROM " + rawSubquerySQL(matchedSeriesSQL) + ")"},
 		GroupBy: []sqlb.Expr{sqlb.Ident("grid.id"), sqlb.Ident("grid.eval_ts")},
 	}
 
@@ -746,7 +746,7 @@ func buildRangeWindowSelectorDirectAggregateSparsePerStepQuery(cfg QueryConfig, 
 			Expr:  sqlb.RawLit{V: candidateEvalExpr},
 			Alias: "eval_ms",
 		},
-		Where: sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND eval_ms >= {start_ms:Int64} AND eval_ms <= {end_ms:Int64} AND toUnixTimestamp64Milli(d.timestamp) >= eval_ms - {lookback_ms:Int64} AND toUnixTimestamp64Milli(d.timestamp) <= eval_ms"},
+		Where: sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND eval_ms >= {start_ms:Int64} AND eval_ms <= {end_ms:Int64} AND toUnixTimestamp64Milli(d.timestamp) >= eval_ms - {lookback_ms:Int64} AND toUnixTimestamp64Milli(d.timestamp) <= eval_ms AND d.id IN (SELECT id FROM " + rawSubquerySQL(matchedSeriesSQL) + ")"},
 		GroupBy: []sqlb.Expr{
 			sqlb.Ident("d.id"),
 			sqlb.Ident("eval_ms"),
@@ -830,7 +830,7 @@ func buildRangeWindowSelectorCumulativeAvgPerStepSQL(cfg QueryConfig, selector S
 		"countIf(NOT isNaN(ifNull(toFloat64(d.value), nan))) OVER (PARTITION BY d.id ORDER BY d.timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS finite_count, " +
 		"countIf(isNaN(ifNull(toFloat64(d.value), nan))) OVER (PARTITION BY d.id ORDER BY d.timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS nan_count " +
 		"FROM " + dataRef + " AS d INNER JOIN " + matchedSeries + " AS series ON d.id = series.id " +
-		"WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " " +
+		"WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND d.id IN (SELECT id FROM " + matchedSeries + ") " +
 		"ORDER BY id, timestamp"
 	// Probe upper and lower window boundaries in one ASOF pass so the
 	// cumulative state stream is read once instead of once per boundary.

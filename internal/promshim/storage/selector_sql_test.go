@@ -313,6 +313,63 @@ func TestBuildRangeWindowSelectorDirectAggregateRowsQuerySQLUsesGroupedMaxAliase
 	}
 }
 
+// TestRangeWindowSelectorsPushMatchedIDPredicate locks the query_range twin of
+// the instant-path id pushdown (follow-up to the fix/selector-id-pushdown work,
+// issue #48): the TimeSeries table is ORDER BY (id, timestamp), so a scan that
+// restricts series only through an INNER JOIN (d.id = series.id / d.id = grid.id)
+// never gives the primary-key index a leading-column predicate and full-scans.
+// Every range-window data select must therefore carry
+// `d.id IN (SELECT id FROM <the same matched-series subquery>)`, which is
+// logically redundant with the join (identical id set) but is the predicate the
+// PK index prunes on. Covers all four range-window builders: per-step, dense and
+// sparse direct-aggregate, and cumulative-avg.
+func TestRangeWindowSelectorsPushMatchedIDPredicate(t *testing.T) {
+	cfg := QueryConfig{Database: "observability", Table: "prometheus"}
+	const idPredicate = "d.id IN (SELECT id FROM"
+	t.Run("per_step", func(t *testing.T) {
+		selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, time.Minute, SelectorKindRangeVector)
+		sql, _, err := BuildRangeWindowSelectorQuerySQL(cfg, selector, -360000, 300000, 0, 300000, 30000, "sum_over_time", "arraySum(arrayMap(point -> point.2, window_series))", 0)
+		if err != nil {
+			t.Fatalf("per-step range window SQL: %v", err)
+		}
+		if !strings.Contains(sql, idPredicate) {
+			t.Fatalf("expected per-step range window scan to push %q, got %q", idPredicate, sql)
+		}
+	})
+	t.Run("direct_aggregate_dense", func(t *testing.T) {
+		// lookback (5m) > step (30s): overlapping windows -> dense grid path.
+		selector := selectorSourceFromMatchers("demo_memory_usage_bytes", nil, 5*time.Minute, 0, SelectorKindRangeVector)
+		sql, _, err := BuildRangeWindowSelectorDirectAggregateQuerySQLWithFinalTags(cfg, selector, -300000, 300000, 0, 300000, 30000, "avg_over_time", "", 0)
+		if err != nil {
+			t.Fatalf("dense direct-aggregate range window SQL: %v", err)
+		}
+		if !strings.Contains(sql, idPredicate) {
+			t.Fatalf("expected dense direct-aggregate scan to push %q, got %q", idPredicate, sql)
+		}
+	})
+	t.Run("direct_aggregate_sparse", func(t *testing.T) {
+		// lookback (1h) == step (1h), offset 0: non-overlapping -> sparse bucket path.
+		selector := selectorSourceFromMatchers("demo_memory_usage_bytes", nil, time.Hour, 0, SelectorKindRangeVector)
+		sql, _, err := BuildRangeWindowSelectorDirectAggregateRowsQuerySQLWithFinalTags(cfg, selector, -3600000, 3600000, 0, 3600000, 3600000, "avg_over_time", "", 0)
+		if err != nil {
+			t.Fatalf("sparse direct-aggregate range window SQL: %v", err)
+		}
+		if !strings.Contains(sql, idPredicate) {
+			t.Fatalf("expected sparse direct-aggregate scan to push %q, got %q", idPredicate, sql)
+		}
+	})
+	t.Run("cumulative_avg", func(t *testing.T) {
+		selector := selectorSourceFromMatchers("demo_memory_usage_bytes", nil, 5*time.Minute, 0, SelectorKindRangeVector)
+		sql, _, err := BuildRangeWindowSelectorCumulativeAvgQuerySQLWithFinalTags(cfg, selector, -300000, 300000, 0, 300000, 30000, "", 0)
+		if err != nil {
+			t.Fatalf("cumulative-avg range window SQL: %v", err)
+		}
+		if !strings.Contains(sql, idPredicate) {
+			t.Fatalf("expected cumulative-avg scan to push %q, got %q", idPredicate, sql)
+		}
+	})
+}
+
 func TestBuildRangeSelectorQuerySQLUsesStepGridLookbackAndOffset(t *testing.T) {
 	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, time.Minute, SelectorKindInstantVector)
 

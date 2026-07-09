@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -133,22 +134,38 @@ type httpRows struct {
 	start    time.Time
 	purpose  QueryPurpose
 	once     sync.Once
+	// readErr holds the last non-EOF error seen while streaming the body. A 2xx
+	// response can still fail mid-stream (timeout, reset, truncated body); io.EOF
+	// is normal completion and is not recorded as a failure.
+	readErr error
 }
 
 func (r *httpRows) Read(p []byte) (int, error) {
-	return r.body.Read(p)
+	n, err := r.body.Read(p)
+	if err != nil && !errors.Is(err, io.EOF) {
+		r.readErr = err
+	}
+	return n, err
 }
 
 func (r *httpRows) Close() error {
-	err := r.body.Close()
-	r.observe()
-	return err
+	closeErr := r.body.Close()
+	// Mirror the native transport's queryStatus convention: a Close error takes
+	// precedence, otherwise fall back to the streaming (Read) error, so a
+	// mid-stream failure after a 2xx response is recorded as an error rather than
+	// a hardcoded success.
+	observedErr := closeErr
+	if observedErr == nil {
+		observedErr = r.readErr
+	}
+	r.observe(observedErr)
+	return closeErr
 }
 
-func (r *httpRows) observe() {
+func (r *httpRows) observe(err error) {
 	r.once.Do(func() {
 		duration := time.Since(r.start)
 		obs.FromContext(r.ctx).Observe(duration)
-		observeQuery(TransportHTTP, r.purpose, "success", duration)
+		observeQuery(TransportHTTP, r.purpose, queryStatus(err), duration)
 	})
 }

@@ -1314,6 +1314,10 @@ func (p rangeInstantSelectorRowsPlan) bucketedDataRowsPredicate() sqlb.Predicate
 		timestampLowerBoundPredicate(sqlb.Ident("d.timestamp"), "required_start_ms"),
 		timestampUpperBoundPredicate(sqlb.Ident("d.timestamp"), "required_end_ms"),
 		sparseStepPhasePredicate(sqlb.Ident("d.timestamp")),
+		// d.id (not bare id): the data table is still joined to the series source
+		// here, so id alone would be ambiguous. Pushes the matched-id set into the
+		// scan so the (id, timestamp) primary key can prune, same as the other paths.
+		idInMatchedSeriesPredicate("d.id", p.MatchedSeries),
 	)
 }
 
@@ -1332,7 +1336,7 @@ func (p rangeInstantSelectorRowsPlan) dataRowsPredicate() sqlb.Predicate {
 	if p.UseSparseStepPhaseFilter {
 		predicates = append(predicates, sparseStepPhasePredicate(sqlb.Ident("timestamp")))
 	}
-	predicates = append(predicates, idInMatchedSeriesPredicate(p.MatchedSeries))
+	predicates = append(predicates, idInMatchedSeriesPredicate("id", p.MatchedSeries))
 	return sqlb.And(predicates...)
 }
 
@@ -1385,12 +1389,14 @@ func bucketedArgMaxEvalTimestampExpr(timestamp sqlb.Expr) sqlb.Expr {
 	)
 }
 
-func idInMatchedSeriesPredicate(matched matchedSeriesSourcePlan) sqlb.Predicate {
+func idInMatchedSeriesPredicate(column string, matched matchedSeriesSourcePlan) sqlb.Predicate {
 	// The id-only matched-series subquery already projects DISTINCT src.id, so it
 	// is used directly as the membership set. Wrapping it in an outer
 	// "SELECT id FROM (...)" (and reusing the tags-projecting variant) would only
-	// add a redundant tag-array construction the IN test discards.
-	return sqlb.RawLit{V: "id IN (" + strings.TrimSpace(matched.IDsSQL) + ")"}
+	// add a redundant tag-array construction the IN test discards. The column is
+	// qualified by the caller ("id" where the row set is already flattened,
+	// "d.id" where the data table is still joined to the series source).
+	return sqlb.RawLit{V: column + " IN (" + strings.TrimSpace(matched.IDsSQL) + ")"}
 }
 
 func asofLookbackPredicate() sqlb.Predicate {

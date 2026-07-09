@@ -394,6 +394,10 @@ func TestBuildRangeSelectorQuerySQLUsesBucketedArgMaxWhenRequested(t *testing.T)
 		"positiveModulo(toUnixTimestamp64Milli(d.timestamp) + {offset_ms:Int64} - {start_ms:Int64}, {step_ms:Int64}) = 0",
 		"positiveModulo(toUnixTimestamp64Milli(d.timestamp) + {offset_ms:Int64} - {start_ms:Int64}, {step_ms:Int64}) >= ({step_ms:Int64} - {lookback_ms:Int64})",
 		"HAVING NOT isNaN(value)",
+		// The bucketed-argMax candidate scan must carry the id-pruning predicate
+		// (d.id-qualified, since the data table is still joined to the series
+		// source) so the (id, timestamp) primary key can prune the scan.
+		"d.id IN (SELECT DISTINCT src.id",
 	} {
 		if !strings.Contains(sql, expected) {
 			t.Fatalf("expected %q in SQL, got %q", expected, sql)

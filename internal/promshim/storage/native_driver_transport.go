@@ -99,10 +99,61 @@ func (t *NativeDriverTransport) QueryNativeRows(ctx context.Context, req QueryRe
 	ctx = t.queryContext(ctx, req)
 	start := time.Now()
 	rows, err := t.conn.Query(ctx, driverSQL(req.SQL))
-	duration := time.Since(start)
-	obs.FromContext(ctx).Observe(duration)
-	observeQuery(TransportNative, req.Purpose, queryStatus(err), duration)
-	return rows, err
+	if err != nil {
+		// Query returned before any streaming happened; observe the dispatch
+		// latency now since there are no rows to iterate.
+		duration := time.Since(start)
+		obs.FromContext(ctx).Observe(duration)
+		observeQuery(TransportNative, req.Purpose, queryStatus(err), duration)
+		return rows, err
+	}
+	// With the native protocol conn.Query returns at first-block/dispatch time;
+	// the bulk of a heavy scan streams while the caller iterates rows.Next().
+	// Observe once at Close so ch_millis reflects the full query lifecycle.
+	return &nativeObservedRows{
+		rows:    rows,
+		ctx:     ctx,
+		start:   start,
+		purpose: req.Purpose,
+	}, nil
+}
+
+// nativeObservedRows wraps a native driver Rows and records a single CH
+// round-trip covering the full query lifecycle — from dispatch through the end
+// of row iteration — when the caller closes the rows.
+type nativeObservedRows struct {
+	rows    chdriver.Rows
+	ctx     context.Context
+	start   time.Time
+	purpose QueryPurpose
+	once    sync.Once
+}
+
+func (r *nativeObservedRows) Next() bool                         { return r.rows.Next() }
+func (r *nativeObservedRows) Scan(dest ...any) error             { return r.rows.Scan(dest...) }
+func (r *nativeObservedRows) ScanStruct(dest any) error          { return r.rows.ScanStruct(dest) }
+func (r *nativeObservedRows) ColumnTypes() []chdriver.ColumnType { return r.rows.ColumnTypes() }
+func (r *nativeObservedRows) Totals(dest ...any) error           { return r.rows.Totals(dest...) }
+func (r *nativeObservedRows) Columns() []string                  { return r.rows.Columns() }
+func (r *nativeObservedRows) HasData() bool                      { return r.rows.HasData() }
+func (r *nativeObservedRows) Err() error                         { return r.rows.Err() }
+
+func (r *nativeObservedRows) Close() error {
+	closeErr := r.rows.Close()
+	observedErr := closeErr
+	if observedErr == nil {
+		observedErr = r.rows.Err()
+	}
+	r.observe(observedErr)
+	return closeErr
+}
+
+func (r *nativeObservedRows) observe(err error) {
+	r.once.Do(func() {
+		duration := time.Since(r.start)
+		obs.FromContext(r.ctx).Observe(duration)
+		observeQuery(TransportNative, r.purpose, queryStatus(err), duration)
+	})
 }
 
 func (t *NativeDriverTransport) QueryNativeRow(ctx context.Context, req QueryRequest) chdriver.Row {

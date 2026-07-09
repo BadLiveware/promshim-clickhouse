@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/obs"
@@ -84,17 +87,21 @@ func (t *HTTPJSONTransport) Query(ctx context.Context, req QueryRequest) (Rows, 
 
 	start := time.Now()
 	response, err := t.httpClient.Do(request)
-	duration := time.Since(start)
-	obs.FromContext(ctx).Observe(duration)
 	if err != nil {
+		// No response body to stream; observe the dispatch latency now.
+		duration := time.Since(start)
+		obs.FromContext(ctx).Observe(duration)
 		observeQuery(TransportHTTP, req.Purpose, "error", duration)
 		return nil, err
 	}
 	if response.StatusCode >= 400 {
-		observeQuery(TransportHTTP, req.Purpose, "error", duration)
+		// The error body is read inline here, so time.Since spans it fully.
 		defer func() { _ = response.Body.Close() }()
 		var payload bytes.Buffer
 		_, _ = payload.ReadFrom(response.Body)
+		duration := time.Since(start)
+		obs.FromContext(ctx).Observe(duration)
+		observeQuery(TransportHTTP, req.Purpose, "error", duration)
 		message := strings.TrimSpace(payload.String())
 		if message == "" {
 			message = response.Status
@@ -104,8 +111,15 @@ func (t *HTTPJSONTransport) Query(ctx context.Context, req QueryRequest) (Rows, 
 		}
 		return nil, &QueryError{StatusCode: http.StatusBadGateway, ErrorType: "execution", Message: message}
 	}
-	observeQuery(TransportHTTP, req.Purpose, "success", duration)
-	return &httpRows{response: response}, nil
+	// Do returns as soon as the response headers arrive, but ClickHouse streams
+	// the result while the caller reads the body. Wrap the body so the round-trip
+	// is observed once at Close, making ch_millis span the full query lifecycle
+	// including body streaming. The wrapper is installed on response.Body so
+	// closing the body observes regardless of whether the caller takes the Rows
+	// (Client.Query) or the unwrapped *http.Response (Client.Execute).
+	rows := &httpRows{response: response, body: response.Body, ctx: ctx, start: start, purpose: req.Purpose}
+	response.Body = rows
+	return rows, nil
 }
 
 func (t *HTTPJSONTransport) Close() error {
@@ -115,12 +129,51 @@ func (t *HTTPJSONTransport) Close() error {
 
 type httpRows struct {
 	response *http.Response
+	body     io.ReadCloser
+	ctx      context.Context
+	start    time.Time
+	purpose  QueryPurpose
+	once     sync.Once
+	// mu guards readErr: http.Response.Body permits Close to be called
+	// concurrently with an in-flight Read (to unblock a streaming read), so the
+	// Read write and the Close read must be synchronized.
+	mu sync.Mutex
+	// readErr holds the last non-EOF error seen while streaming the body. A 2xx
+	// response can still fail mid-stream (timeout, reset, truncated body); io.EOF
+	// is normal completion and is not recorded as a failure.
+	readErr error
 }
 
 func (r *httpRows) Read(p []byte) (int, error) {
-	return r.response.Body.Read(p)
+	n, err := r.body.Read(p)
+	if err != nil && !errors.Is(err, io.EOF) {
+		r.mu.Lock()
+		r.readErr = err
+		r.mu.Unlock()
+	}
+	return n, err
 }
 
 func (r *httpRows) Close() error {
-	return r.response.Body.Close()
+	closeErr := r.body.Close()
+	// Mirror the native transport's queryStatus convention: a Close error takes
+	// precedence, otherwise fall back to the streaming (Read) error, so a
+	// mid-stream failure after a 2xx response is recorded as an error rather than
+	// a hardcoded success.
+	observedErr := closeErr
+	if observedErr == nil {
+		r.mu.Lock()
+		observedErr = r.readErr
+		r.mu.Unlock()
+	}
+	r.observe(observedErr)
+	return closeErr
+}
+
+func (r *httpRows) observe(err error) {
+	r.once.Do(func() {
+		duration := time.Since(r.start)
+		obs.FromContext(r.ctx).Observe(duration)
+		observeQuery(TransportHTTP, r.purpose, queryStatus(err), duration)
+	})
 }

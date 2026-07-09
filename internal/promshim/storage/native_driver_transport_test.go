@@ -46,22 +46,31 @@ func TestNativeObservedRowObservesOnce(t *testing.T) {
 		purpose: purpose,
 	}
 
+	// Delta rather than absolute: the counter is a package-global whose state
+	// persists across invocations in the same process (e.g. under -count=2).
+	before := gatherNativeSuccess(t, purpose)
 	if err := row.Scan(new(int)); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
 	if err := row.Scan(new(int)); err != nil {
 		t.Fatalf("second Scan: %v", err)
 	}
+	after := gatherNativeSuccess(t, purpose)
 
+	if got := after - before; got != 1 {
+		t.Fatalf("native QueryRow success delta = %v, want 1 (observe must fire once)", got)
+	}
+}
+
+func gatherNativeSuccess(t *testing.T, purpose QueryPurpose) float64 {
+	t.Helper()
 	registry := prometheus.NewRegistry()
 	RegisterMetrics(registry)
 	families, err := registry.Gather()
 	if err != nil {
 		t.Fatalf("Gather: %v", err)
 	}
-	if got := metricCounterValue(families, "promshim_clickhouse_queries_total", map[string]string{"transport": "native", "purpose": string(purpose), "status": "success"}); got != 1 {
-		t.Fatalf("native QueryRow success counter = %v, want 1", got)
-	}
+	return metricCounterValue(families, "promshim_clickhouse_queries_total", map[string]string{"transport": "native", "purpose": string(purpose), "status": "success"})
 }
 
 func TestDriverParametersStripsHTTPParamPrefix(t *testing.T) {

@@ -134,6 +134,10 @@ type httpRows struct {
 	start    time.Time
 	purpose  QueryPurpose
 	once     sync.Once
+	// mu guards readErr: http.Response.Body permits Close to be called
+	// concurrently with an in-flight Read (to unblock a streaming read), so the
+	// Read write and the Close read must be synchronized.
+	mu sync.Mutex
 	// readErr holds the last non-EOF error seen while streaming the body. A 2xx
 	// response can still fail mid-stream (timeout, reset, truncated body); io.EOF
 	// is normal completion and is not recorded as a failure.
@@ -143,7 +147,9 @@ type httpRows struct {
 func (r *httpRows) Read(p []byte) (int, error) {
 	n, err := r.body.Read(p)
 	if err != nil && !errors.Is(err, io.EOF) {
+		r.mu.Lock()
 		r.readErr = err
+		r.mu.Unlock()
 	}
 	return n, err
 }
@@ -156,7 +162,9 @@ func (r *httpRows) Close() error {
 	// a hardcoded success.
 	observedErr := closeErr
 	if observedErr == nil {
+		r.mu.Lock()
 		observedErr = r.readErr
+		r.mu.Unlock()
 	}
 	r.observe(observedErr)
 	return closeErr

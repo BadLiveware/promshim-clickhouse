@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -51,6 +52,23 @@ func gatherHTTPStatus(t *testing.T, purpose QueryPurpose, status string) float64
 	})
 }
 
+type httpStatusCounts struct {
+	success float64
+	failure float64
+}
+
+// snapshotHTTPStatus captures the success/error counters for a purpose. Tests
+// assert on the delta across an action rather than an absolute value, because
+// the underlying CounterVec is a package-global whose state persists across
+// invocations in the same process (e.g. under go test -count=2).
+func snapshotHTTPStatus(t *testing.T, purpose QueryPurpose) httpStatusCounts {
+	t.Helper()
+	return httpStatusCounts{
+		success: gatherHTTPStatus(t, purpose, "success"),
+		failure: gatherHTTPStatus(t, purpose, "error"),
+	}
+}
+
 func drainAndClose(t *testing.T, rows *httpRows) error {
 	t.Helper()
 	buf := make([]byte, 4)
@@ -78,15 +96,17 @@ func TestHTTPRowsRecordsSuccessOnCleanStream(t *testing.T) {
 		purpose: purpose,
 	}
 
+	before := snapshotHTTPStatus(t, purpose)
 	if err := drainAndClose(t, rows); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
+	after := snapshotHTTPStatus(t, purpose)
 
-	if got := gatherHTTPStatus(t, purpose, "success"); got != 1 {
-		t.Fatalf("http success counter = %v, want 1", got)
+	if got := after.success - before.success; got != 1 {
+		t.Fatalf("http success delta = %v, want 1", got)
 	}
-	if got := gatherHTTPStatus(t, purpose, "error"); got != 0 {
-		t.Fatalf("http error counter = %v, want 0", got)
+	if got := after.failure - before.failure; got != 0 {
+		t.Fatalf("http error delta = %v, want 0", got)
 	}
 }
 
@@ -102,15 +122,17 @@ func TestHTTPRowsRecordsErrorOnStreamFailure(t *testing.T) {
 		purpose: purpose,
 	}
 
+	before := snapshotHTTPStatus(t, purpose)
 	if err := drainAndClose(t, rows); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
+	after := snapshotHTTPStatus(t, purpose)
 
-	if got := gatherHTTPStatus(t, purpose, "error"); got != 1 {
-		t.Fatalf("http error counter = %v, want 1 (mid-stream failure must not count as success)", got)
+	if got := after.failure - before.failure; got != 1 {
+		t.Fatalf("http error delta = %v, want 1 (mid-stream failure must not count as success)", got)
 	}
-	if got := gatherHTTPStatus(t, purpose, "success"); got != 0 {
-		t.Fatalf("http success counter = %v, want 0", got)
+	if got := after.success - before.success; got != 0 {
+		t.Fatalf("http success delta = %v, want 0", got)
 	}
 }
 
@@ -126,15 +148,17 @@ func TestHTTPRowsRecordsErrorOnCloseFailure(t *testing.T) {
 		purpose: purpose,
 	}
 
+	before := snapshotHTTPStatus(t, purpose)
 	if err := drainAndClose(t, rows); err == nil {
 		t.Fatal("Close error = nil, want close failure")
 	}
+	after := snapshotHTTPStatus(t, purpose)
 
-	if got := gatherHTTPStatus(t, purpose, "error"); got != 1 {
-		t.Fatalf("http error counter = %v, want 1", got)
+	if got := after.failure - before.failure; got != 1 {
+		t.Fatalf("http error delta = %v, want 1", got)
 	}
-	if got := gatherHTTPStatus(t, purpose, "success"); got != 0 {
-		t.Fatalf("http success counter = %v, want 0", got)
+	if got := after.success - before.success; got != 0 {
+		t.Fatalf("http success delta = %v, want 0", got)
 	}
 }
 
@@ -149,14 +173,70 @@ func TestHTTPRowsObservesOnce(t *testing.T) {
 		purpose: purpose,
 	}
 
+	before := snapshotHTTPStatus(t, purpose)
 	if err := drainAndClose(t, rows); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	if err := rows.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
 	}
+	after := snapshotHTTPStatus(t, purpose)
 
-	if got := gatherHTTPStatus(t, purpose, "success"); got != 1 {
-		t.Fatalf("http success counter = %v, want 1 (observe must fire once)", got)
+	if got := after.success - before.success; got != 1 {
+		t.Fatalf("http success delta = %v, want 1 (observe must fire once)", got)
 	}
+}
+
+// streamingBody returns bytes until Close is called, after which Read returns a
+// non-EOF error — so a Read racing a Close will write httpRows.readErr while
+// Close reads it.
+type streamingBody struct {
+	mu     sync.Mutex
+	closed bool
+}
+
+func (b *streamingBody) Read(p []byte) (int, error) {
+	b.mu.Lock()
+	closed := b.closed
+	b.mu.Unlock()
+	if closed {
+		return 0, errors.New("read after close")
+	}
+	if len(p) > 0 {
+		p[0] = 'x'
+	}
+	return 1, nil
+}
+
+func (b *streamingBody) Close() error {
+	b.mu.Lock()
+	b.closed = true
+	b.mu.Unlock()
+	return nil
+}
+
+// TestHTTPRowsConcurrentReadClose exercises the readErr synchronization: an
+// http.Response.Body may be Closed while a Read is in flight (to unblock a
+// stream). Run under -race, this fails if readErr access is unguarded.
+func TestHTTPRowsConcurrentReadClose(t *testing.T) {
+	rows := &httpRows{
+		body:    &streamingBody{},
+		ctx:     context.Background(),
+		start:   time.Now(),
+		purpose: QueryPurpose("http_rows_concurrent_test"),
+	}
+	done := make(chan struct{})
+	go func() {
+		buf := make([]byte, 4)
+		for {
+			if _, err := rows.Read(buf); err != nil {
+				break
+			}
+		}
+		close(done)
+	}()
+	if err := rows.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	<-done
 }

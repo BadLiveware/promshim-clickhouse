@@ -113,7 +113,10 @@ func explainHasClickHouseSideNode(node local.ExplainNode) bool {
 // that failed. The routing-decision fields (StrictStrategy, SelectedStrategy,
 // WouldSelect, Decision, Reason and the strict/selected candidates) are left
 // intact: they truthfully record why native was attempted, and the resulting
-// selected-vs-served divergence is exactly the fallback signal. The served
+// selected-vs-served divergence is exactly the fallback signal. The per-candidate
+// Served flags in routing.Candidates are re-derived from the corrected served
+// candidate so the candidates array — and the X-Promshim routing headers built
+// from it — no longer mark the failed native candidate as served. The served
 // plan is further reflected by the already-correct top-level
 // X-Promshim-Strategy=local / X-Promshim-Fallback-Reason headers and the
 // explain executionFallback section. Metric labels are untouched.
@@ -123,7 +126,14 @@ func markRoutingServedLocal(routing *httpapi.RoutingInfo) {
 	}
 	// The fallback always runs full local (tier-4, off mode), so the served
 	// candidate is the full-local candidate regardless of the request mode.
-	routing.CandidateDecision.ServedCandidate = string(cbeCandidateForStrategyInMode("local", local.NativeLoweringModeOff))
+	servedCandidate := string(cbeCandidateForStrategyInMode("local", local.NativeLoweringModeOff))
+	routing.CandidateDecision.ServedCandidate = servedCandidate
+	// Re-derive the per-candidate Served flags so the candidates array (and the
+	// X-Promshim routing headers built from it) agree with ServedCandidate: only
+	// the full-local candidate is served, and the failed native candidate is not.
+	for i := range routing.Candidates {
+		routing.Candidates[i].Served = routing.Candidates[i].ID == servedCandidate
+	}
 }
 
 func (h *queryService) executionFallbackEligible(ctx context.Context, mode local.NativeLoweringMode, servedExplain local.ExplainNode, evalErr error) bool {

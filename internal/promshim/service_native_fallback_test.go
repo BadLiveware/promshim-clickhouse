@@ -233,6 +233,40 @@ func TestInstantQueryExplainSurfacesExecutionFallback(t *testing.T) {
 	if candidateDecision["servedCandidate"] != "full_local" {
 		t.Fatalf("routing.candidateDecision.servedCandidate = %v, want full_local", candidateDecision["servedCandidate"])
 	}
+	// The per-candidate served flags must agree with servedCandidate after the
+	// fallback: the full_local candidate is served=true and every other
+	// candidate — notably the failed native_sql candidate — is served=false.
+	candidates, ok := routing["candidates"].([]any)
+	if !ok || len(candidates) == 0 {
+		t.Fatalf("expected routing.candidates in explain body, got: %v", routing["candidates"])
+	}
+	sawFullLocal, sawNativeSQL := false, false
+	for _, entry := range candidates {
+		candidate, ok := entry.(map[string]any)
+		if !ok {
+			t.Fatalf("unexpected routing.candidates entry shape: %v", entry)
+		}
+		served, _ := candidate["served"].(bool)
+		switch candidate["id"] {
+		case "full_local":
+			sawFullLocal = true
+			if !served {
+				t.Fatalf("full_local candidate served = %v, want true after fallback: %v", candidate["served"], candidate)
+			}
+		case "native_sql":
+			sawNativeSQL = true
+			if served {
+				t.Fatalf("failed native_sql candidate served = %v, want false after fallback: %v", candidate["served"], candidate)
+			}
+		default:
+			if served {
+				t.Fatalf("candidate %v served = true, want only full_local served after fallback: %v", candidate["id"], candidate)
+			}
+		}
+	}
+	if !sawFullLocal || !sawNativeSQL {
+		t.Fatalf("expected both full_local and native_sql candidates in routing.candidates, got: %v", candidates)
+	}
 	if routing["selectedStrategy"] != "native_sql" {
 		t.Fatalf("routing.selectedStrategy = %v, want native_sql (routing selection preserved)", routing["selectedStrategy"])
 	}

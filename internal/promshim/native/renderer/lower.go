@@ -10,6 +10,7 @@ import (
 
 	logicalpkg "github.com/BadLiveware/promshim-clickhouse/internal/promshim/logical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native"
+	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/native/physical"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage"
 	"github.com/BadLiveware/promshim-clickhouse/internal/promshim/storage/schema"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -40,7 +41,7 @@ type LoweringCtx struct {
 func Lower(ctx LoweringCtx, node logicalpkg.Node) (RenderedQuery, error) {
 	root := false
 	if ctx.cse == nil {
-		ctx.cse = newRenderCSEState(node)
+		ctx.cse = newRenderCSEState(ctx.Analysis, node)
 		root = true
 	}
 	ctx.cse.depth++
@@ -134,6 +135,11 @@ type renderCSEState struct {
 	ctes          map[string]renderCSEEntry
 	order         []string
 	subtreeCounts map[string]int
+	// plainOnly holds CTE names that must render as plain (non-MATERIALIZED)
+	// CTEs: ClickHouse rejects references to a MATERIALIZED CTE when the
+	// reference sits behind a value-filtering layer inside a set-operator
+	// join (issue #39). See materializedCTEBlockedNames.
+	plainOnly map[string]struct{}
 }
 
 type renderCSEEntry struct {
@@ -141,10 +147,92 @@ type renderCSEEntry struct {
 	Params map[string]string
 }
 
-func newRenderCSEState(root logicalpkg.Node) *renderCSEState {
+func newRenderCSEState(analysis *logicalpkg.Analysis, root logicalpkg.Node) *renderCSEState {
 	counts := map[string]int{}
 	countCSESubtrees(root, counts)
-	return &renderCSEState{ctes: map[string]renderCSEEntry{}, subtreeCounts: counts}
+	return &renderCSEState{ctes: map[string]renderCSEEntry{}, subtreeCounts: counts, plainOnly: materializedCTEBlockedNames(analysis, root)}
+}
+
+// materializedCTEBlockedNames walks the logical plan and returns the CTE
+// names (selector-reuse and repeated-subtree CTEs) that must NOT be promoted
+// to MATERIALIZED CTEs.
+//
+// Trigger boundary (issue #39, verified against ClickHouse): a CTE candidate
+// referenced from BOTH sides of a set operator (and / or / unless, with or
+// without on()/ignoring() matching) where at least one of those references
+// sits behind a value-filtering layer (a non-bool comparison such as
+// `up == 0`). ClickHouse rejects the filtered reference to a MATERIALIZED
+// CTE at execution; the identical SQL with a plain CTE is valid and returns
+// the correct result. Non-trigger shapes — `up unless up` (no filter),
+// different selectors (no shared CTE), or bool comparisons (value transform,
+// no row filter) — keep the MATERIALIZED promotion.
+//
+// The check is plan-shape only (version-agnostic) and errs toward plain
+// CTEs: demotion only costs the materialization hint, never correctness.
+func materializedCTEBlockedNames(analysis *logicalpkg.Analysis, root logicalpkg.Node) map[string]struct{} {
+	blocked := map[string]struct{}{}
+	var walk func(node logicalpkg.Node)
+	walk = func(node logicalpkg.Node) {
+		if node == nil {
+			return
+		}
+		if bin, ok := node.(*logicalpkg.BinaryPlan); ok && bin.Op.IsSetOperator() {
+			lhsRefs := collectCTEReferences(analysis, bin.LHS)
+			rhsRefs := collectCTEReferences(analysis, bin.RHS)
+			for name, lhsFiltered := range lhsRefs {
+				rhsFiltered, shared := rhsRefs[name]
+				if shared && (lhsFiltered || rhsFiltered) {
+					blocked[name] = struct{}{}
+				}
+			}
+		}
+		for _, child := range logicalChildren(node) {
+			walk(child)
+		}
+	}
+	walk(root)
+	return blocked
+}
+
+// collectCTEReferences returns the CTE candidate names referenced under
+// node, mapped to whether ANY of those references sits behind a
+// value-filtering layer within this subtree.
+func collectCTEReferences(analysis *logicalpkg.Analysis, node logicalpkg.Node) map[string]bool {
+	refs := map[string]bool{}
+	var walk func(node logicalpkg.Node, filtered bool)
+	walk = func(node logicalpkg.Node, filtered bool) {
+		if node == nil {
+			return
+		}
+		if key, ok := cseSubtreeKey(node); ok {
+			name := subtreeReuseCTEName(key)
+			refs[name] = refs[name] || filtered
+		}
+		if leaf, ok := node.(*logicalpkg.LeafExprPlan); ok && analysis != nil {
+			if info := analysis.InfoFor(leaf); info != nil && info.SelectorReuseGroup != "" && info.SelectorReuseBlockedReason == "" {
+				name := selectorReuseCTEName(info.SelectorReuseGroup)
+				refs[name] = refs[name] || filtered
+			}
+		}
+		childFiltered := filtered || isValueFilterLayer(node)
+		for _, child := range logicalChildren(node) {
+			walk(child, childFiltered)
+		}
+	}
+	walk(node, false)
+	return refs
+}
+
+// isValueFilterLayer reports whether lowering node wraps its children in a
+// row-dropping value filter: a comparison operator without the bool
+// modifier (vector-scalar renders a WHERE over the child source; the bool
+// form only rewrites values and keeps every row, so it is not a filter).
+func isValueFilterLayer(node logicalpkg.Node) bool {
+	bin, ok := node.(*logicalpkg.BinaryPlan)
+	if !ok || bin == nil {
+		return false
+	}
+	return bin.Op.IsComparisonOperator() && !bin.ReturnBool
 }
 
 var cseNameSanitizer = regexp.MustCompile(`[^A-Za-z0-9_]`)
@@ -314,16 +402,35 @@ func (s *renderCSEState) apply(rq RenderedQuery) (RenderedQuery, error) {
 		params[key] = value
 	}
 	parts := make([]string, 0, len(s.order))
+	decisions := rq.PhysicalDecisions
+	anyMaterialized := false
 	for _, name := range s.order {
 		entry := s.ctes[name]
-		parts = append(parts, name+" AS MATERIALIZED (\n"+entry.SQL+"\n)")
+		keyword := " AS MATERIALIZED (\n"
+		if _, plain := s.plainOnly[name]; plain {
+			keyword = " AS (\n"
+			decisions = append(decisions, physical.Decision{
+				Kind:     "cse_cte_materialization",
+				Strategy: "plain_cte",
+				Reason:   "shared subexpression " + name + " is referenced behind a value filter inside a set-operator join; ClickHouse rejects filtered references to MATERIALIZED CTEs",
+				Guards:   []string{"set_operator_shared_reference", "value_filtered_reference"},
+				Rejected: []physical.Alternative{{Strategy: "materialized_cte", Reason: "filtered MATERIALIZED CTE reference fails at ClickHouse execution"}},
+			})
+		} else {
+			anyMaterialized = true
+		}
+		parts = append(parts, name+keyword+entry.SQL+"\n)")
 		for key, value := range entry.Params {
 			params[key] = value
 		}
 	}
 	sql := "WITH " + strings.Join(parts, ",\n") + "\n" + rq.SQL
-	sql = strings.Replace(sql, "SETTINGS allow_experimental_time_series_table = 1", "SETTINGS allow_experimental_time_series_table = 1, enable_global_with_statement = 1, enable_materialized_cte = 1", 1)
-	return RenderedQuery{SQL: sql, QueryParams: params, QuerySettings: rq.QuerySettings, PhysicalDecisions: rq.PhysicalDecisions}, nil
+	replacement := "SETTINGS allow_experimental_time_series_table = 1, enable_global_with_statement = 1"
+	if anyMaterialized {
+		replacement += ", enable_materialized_cte = 1"
+	}
+	sql = strings.Replace(sql, "SETTINGS allow_experimental_time_series_table = 1", replacement, 1)
+	return RenderedQuery{SQL: sql, QueryParams: params, QuerySettings: rq.QuerySettings, PhysicalDecisions: decisions}, nil
 }
 
 // IsUnsupportedByLower reports whether err is the Lower fallback

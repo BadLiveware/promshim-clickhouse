@@ -1,6 +1,7 @@
 package local
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -32,6 +33,13 @@ type internalError interface {
 type promshimError struct {
 	kind    internalErrorKind
 	message string
+	// cause preserves the original error so its errors.Is / errors.As
+	// identity survives normalization. Without it, normalizing an
+	// unrecognized error (e.g. context.Canceled) into the default execution
+	// kind would erase the sentinel, and ExecutionFallbackEligible could
+	// misclassify a canceled/timed-out evaluation as retryable. It is nil for
+	// the New*Errorf constructors, which have no underlying cause.
+	cause error
 }
 
 func (e *promshimError) Error() string {
@@ -40,6 +48,10 @@ func (e *promshimError) Error() string {
 
 func (e *promshimError) Kind() internalErrorKind {
 	return e.kind
+}
+
+func (e *promshimError) Unwrap() error {
+	return e.cause
 }
 
 type contextualInternalError struct {
@@ -118,7 +130,7 @@ func NormalizeInternalError(err error) error {
 		}
 	}
 
-	return &promshimError{kind: internalErrorKindExecution, message: err.Error()}
+	return &promshimError{kind: internalErrorKindExecution, message: err.Error(), cause: err}
 }
 
 func normalizeQueryError(err *storage.QueryError) error {
@@ -144,6 +156,43 @@ func internalErrorKindOf(err error) internalErrorKind {
 
 func IsBadDataError(err error) bool {
 	return internalErrorKindOf(err) == internalErrorKindBadData
+}
+
+// ExecutionFallbackEligible reports whether err qualifies for the one-shot
+// execution-time fallback from a committed native plan to full local (tier-4)
+// execution in adaptive native-lowering modes (prefer / explain).
+//
+// Classification rule — execution-class vs client-class:
+//
+//   - Eligible: execution-kind errors (internalErrorKindExecution, the 502
+//     class). These are ClickHouse/server-side failures: storage.QueryError
+//     with ErrorType "execution" (ClickHouse HTTP responses >= 500, e.g. a
+//     rejected filtered MATERIALIZED CTE reference, MEMORY_LIMIT_EXCEEDED
+//     (code 241), TOO_SLOW (code 160)), native-transport ClickHouse
+//     exceptions, and transport/connection failures. NormalizeInternalError
+//     deliberately defaults unknown errors to the execution kind, so an
+//     unrecognized server-side failure retries locally rather than
+//     hard-failing the client.
+//
+//   - Not eligible: client-class errors, which must keep their 4xx status.
+//     bad_data (HTTP 400): invalid parameters, response-limit violations,
+//     ClickHouse HTTP 4xx responses surfaced by the HTTP transport (e.g.
+//     SYNTAX_ERROR code 62, ILLEGAL_TYPE_OF_ARGUMENT code 43), and the
+//     duplicate-series vector-matching normalization from
+//     normalizeQueryError. unsupported (HTTP 422): planner/renderer
+//     capability gaps.
+//
+//   - Not eligible: context cancellation and deadline expiry — the client
+//     went away or the request ran out of time; a local retry cannot serve
+//     it and only adds load.
+func ExecutionFallbackEligible(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	return internalErrorKindOf(NormalizeInternalError(err)) == internalErrorKindExecution
 }
 
 func FromExecError(err error) error {

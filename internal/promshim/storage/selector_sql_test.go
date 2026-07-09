@@ -92,7 +92,7 @@ func TestBuildInstantSelectorQuerySQLMatchesNormalizedBuilderShape(t *testing.T)
 	if err != nil {
 		t.Fatalf("expected instant selector SQL, got error: %v", err)
 	}
-	expected := "SELECT series.tags AS tags, max(d.timestamp) AS timestamp, argMax(d.value, d.timestamp) AS value FROM timeSeriesData(`observability`.`prometheus`) AS d INNER JOIN ( SELECT DISTINCT src.id, arrayConcat([tuple('__name__', src.metric_name)], arrayMap((k, v) -> tuple(k, v), mapKeys(src.tags), mapValues(src.tags))) AS tags FROM timeSeriesTags(`observability`.`prometheus`) AS src WHERE src.metric_name = {instant_matcher_0_value:String} AND src.max_time >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND src.min_time <= fromUnixTimestamp64Milli({required_end_ms:Int64}) ) AS series ON d.id = series.id WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND d.id IN (SELECT id FROM ( SELECT DISTINCT src.id, arrayConcat([tuple('__name__', src.metric_name)], arrayMap((k, v) -> tuple(k, v), mapKeys(src.tags), mapValues(src.tags))) AS tags FROM timeSeriesTags(`observability`.`prometheus`) AS src WHERE src.metric_name = {instant_matcher_0_value:String} AND src.max_time >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND src.min_time <= fromUnixTimestamp64Milli({required_end_ms:Int64}) )) GROUP BY d.id, series.tags HAVING NOT isNaN(value) ORDER BY tags SETTINGS allow_experimental_time_series_table = 1 FORMAT JSONEachRow"
+	expected := "SELECT series.tags AS tags, max(d.timestamp) AS timestamp, argMax(d.value, d.timestamp) AS value FROM timeSeriesData(`observability`.`prometheus`) AS d INNER JOIN ( SELECT DISTINCT src.id, arrayConcat([tuple('__name__', src.metric_name)], arrayMap((k, v) -> tuple(k, v), mapKeys(src.tags), mapValues(src.tags))) AS tags FROM timeSeriesTags(`observability`.`prometheus`) AS src WHERE src.metric_name = {instant_matcher_0_value:String} AND src.max_time >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND src.min_time <= fromUnixTimestamp64Milli({required_end_ms:Int64}) ) AS series ON d.id = series.id WHERE d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND d.id IN ( SELECT DISTINCT src.id FROM timeSeriesTags(`observability`.`prometheus`) AS src WHERE src.metric_name = {instant_matcher_0_value:String} AND src.max_time >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND src.min_time <= fromUnixTimestamp64Milli({required_end_ms:Int64}) ) GROUP BY d.id, series.tags HAVING NOT isNaN(value) ORDER BY tags SETTINGS allow_experimental_time_series_table = 1 FORMAT JSONEachRow"
 	if sqlb.NormalizeSQL(sql) != expected {
 		t.Fatalf("unexpected normalized SQL:\nwant: %s\n got: %s", expected, sqlb.NormalizeSQL(sql))
 	}
@@ -413,7 +413,7 @@ func TestBuildRangeSelectorQuerySQLUsesBucketedArgMaxWhenRequested(t *testing.T)
 func TestRangeInstantSelectorRowsPlanCapturesOptimizationChoices(t *testing.T) {
 	selector := selectorSourceFromMatchers("up", nil, 5*time.Minute, time.Minute, SelectorKindInstantVector)
 
-	plan := newRangeInstantSelectorRowsPlan(QueryConfig{Database: "observability", Table: "prometheus"}, selector, "SELECT DISTINCT src.id FROM tags AS src", int64(time.Hour/time.Millisecond))
+	plan := newRangeInstantSelectorRowsPlan(QueryConfig{Database: "observability", Table: "prometheus"}, selector, "SELECT DISTINCT src.id FROM tags AS src", "SELECT DISTINCT src.id FROM tags AS src", int64(time.Hour/time.Millisecond))
 	if !plan.MatchedSeries.Distinct {
 		t.Fatalf("expected matched-series source to record distinctness")
 	}
@@ -424,7 +424,7 @@ func TestRangeInstantSelectorRowsPlanCapturesOptimizationChoices(t *testing.T) {
 		t.Fatalf("expected sparse step plan to default to ASOF join, got %q", plan.Strategy)
 	}
 	selector.RangeInstantStrategy = RangeInstantSelectorStrategyBucketedArgMax
-	bucketedPlan := newRangeInstantSelectorRowsPlan(QueryConfig{Database: "observability", Table: "prometheus"}, selector, "SELECT DISTINCT src.id FROM tags AS src", int64(time.Hour/time.Millisecond))
+	bucketedPlan := newRangeInstantSelectorRowsPlan(QueryConfig{Database: "observability", Table: "prometheus"}, selector, "SELECT DISTINCT src.id FROM tags AS src", "SELECT DISTINCT src.id FROM tags AS src", int64(time.Hour/time.Millisecond))
 	if bucketedPlan.Strategy != RangeInstantSelectorStrategyBucketedArgMax {
 		t.Fatalf("expected requested sparse step plan to use bucketed argMax, got %q", bucketedPlan.Strategy)
 	}
@@ -439,7 +439,7 @@ func TestRangeInstantSelectorRowsPlanCapturesOptimizationChoices(t *testing.T) {
 		t.Fatalf("unexpected post-ASOF filter: %s", got)
 	}
 
-	overlapping := newRangeInstantSelectorRowsPlan(QueryConfig{}, selector, "SELECT DISTINCT src.id FROM tags AS src", int64(time.Minute/time.Millisecond))
+	overlapping := newRangeInstantSelectorRowsPlan(QueryConfig{}, selector, "SELECT DISTINCT src.id FROM tags AS src", "SELECT DISTINCT src.id FROM tags AS src", int64(time.Minute/time.Millisecond))
 	if overlapping.UseSparseStepPhaseFilter {
 		t.Fatalf("expected overlapping step/lookback plan to skip phase filtering")
 	}

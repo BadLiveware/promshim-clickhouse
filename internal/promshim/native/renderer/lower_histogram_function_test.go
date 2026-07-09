@@ -140,7 +140,7 @@ func TestLowerHistogramFunctionCanUseLateTagNativeGridRows(t *testing.T) {
 	if decision.Strategy != "late_series_join" {
 		t.Fatalf("unexpected histogram native-grid rows strategy: %#v", decision)
 	}
-	for _, expected := range []string{"d.id IN (SELECT id FROM", "INNER JOIN", "series"} {
+	for _, expected := range []string{"d.id IN (", "SELECT DISTINCT src.id FROM", "INNER JOIN", "series"} {
 		if !strings.Contains(rq.SQL, expected) {
 			t.Fatalf("expected late-tag native-grid SQL to contain %q, got:\n%s", expected, rq.SQL)
 		}

@@ -114,7 +114,7 @@ func BuildInstantScalarRangeFunctionSelectorQuerySQLWithFinalTags(cfg QueryConfi
 			Kind:  "INNER",
 			On:    sqlb.RawLit{V: "d.id = series.id"},
 		},
-		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND d.id IN (SELECT id FROM " + rawSubquerySQL(matchedIDsSQL) + ")"},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND d.id IN " + rawSubquerySQL(matchedIDsSQL)},
 		GroupBy: []sqlb.Expr{sqlb.Ident("d.id")},
 	}
 
@@ -329,6 +329,10 @@ func BuildRangeNativeGridSelectorSumAggregationQuerySQLWithFinalTags(cfg QueryCo
 	if err != nil {
 		return "", nil, err
 	}
+	matchedIDsSQL, err := buildMatchedSeriesIDsSQL(cfg, selector, "native_grid_"+fn, requiredStartMS, requiredEndMS, true)
+	if err != nil {
+		return "", nil, err
+	}
 	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
 	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
 	params["param_step_ms"] = strconv.FormatInt(stepMS, 10)
@@ -345,7 +349,7 @@ func BuildRangeNativeGridSelectorSumAggregationQuerySQLWithFinalTags(cfg QueryCo
 			{Expr: sqlb.RawLit{V: chFunction + "(fromUnixTimestamp64Milli({start_ms:Int64}), fromUnixTimestamp64Milli({end_ms:Int64}), toDecimal64({step_ms:Int64}, 3) / 1000, toDecimal64({lookback_ms:Int64}, 3) / 1000)(d.timestamp, d.value)"}, Alias: "values"},
 		},
 		From:    sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"},
-		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND d.id IN (SELECT id FROM " + rawSubquerySQL(matchedSeriesSQL) + ")"},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND d.id IN " + rawSubquerySQL(matchedIDsSQL)},
 		GroupBy: []sqlb.Expr{sqlb.Ident("d.id")},
 	}
 	perSeries := &sqlb.Select{
@@ -462,6 +466,10 @@ func buildRangeNativeGridSelectorInner(cfg QueryConfig, selector SelectorSource,
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	matchedIDsSQL, err := buildMatchedSeriesIDsSQL(cfg, selector, "native_grid_"+fn, requiredStartMS, requiredEndMS, true)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
 	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
 	params["param_step_ms"] = strconv.FormatInt(stepMS, 10)
@@ -483,7 +491,7 @@ func buildRangeNativeGridSelectorInner(cfg QueryConfig, selector SelectorSource,
 			Kind:  "INNER",
 			On:    sqlb.RawLit{V: "d.id = series.id"},
 		},
-		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND d.id IN (SELECT id FROM " + rawSubquerySQL(matchedSeriesSQL) + ")"},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND d.id IN " + rawSubquerySQL(matchedIDsSQL)},
 		GroupBy: []sqlb.Expr{sqlb.Ident("series.id")},
 	}
 	return inner, params, resolvedFinalTagsExpr, nil
@@ -504,6 +512,10 @@ func buildRangeNativeGridSelectorLateTagsInner(cfg QueryConfig, selector Selecto
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	matchedIDsSQL, err := buildMatchedSeriesIDsSQL(cfg, selector, "histogram_native_grid_"+fn, requiredStartMS, requiredEndMS, true)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
 	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
 	params["param_step_ms"] = strconv.FormatInt(stepMS, 10)
@@ -521,7 +533,7 @@ func buildRangeNativeGridSelectorLateTagsInner(cfg QueryConfig, selector Selecto
 			{Expr: sqlb.RawLit{V: chFunction + "(fromUnixTimestamp64Milli({start_ms:Int64}), fromUnixTimestamp64Milli({end_ms:Int64}), toDecimal64({step_ms:Int64}, 3) / 1000, toDecimal64({lookback_ms:Int64}, 3) / 1000)(d.timestamp, d.value)"}, Alias: "values"},
 		},
 		From:    sqlb.RawSource{SQL: schema.TimeSeriesDataRef(timeSeriesTableRef(cfg)), Alias: "d"},
-		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND d.id IN (SELECT id FROM " + matchedSeriesSource + ")"},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND d.id IN " + rawSubquerySQL(matchedIDsSQL)},
 		GroupBy: []sqlb.Expr{sqlb.Ident("d.id")},
 	}
 
@@ -1006,6 +1018,10 @@ func buildInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, req
 	if err != nil {
 		return "", nil, err
 	}
+	matchedIDsSQL, err := buildMatchedSeriesIDsSQL(cfg, selector, "instant", requiredStartMS, requiredEndMS, true)
+	if err != nil {
+		return "", nil, err
+	}
 	columns := []sqlb.ColExpr{
 		{Expr: sqlb.Call{Name: "max", Args: []sqlb.Expr{sqlb.Ident("d.timestamp")}}, Alias: "timestamp"},
 		{Expr: sqlb.Call{Name: "argMax", Args: []sqlb.Expr{sqlb.Ident("d.value"), sqlb.Ident("d.timestamp")}}, Alias: "value"},
@@ -1027,7 +1043,7 @@ func buildInstantSelectorSourceSQL(cfg QueryConfig, selector SelectorSource, req
 			Kind:  "INNER",
 			On:    sqlb.RawLit{V: "d.id = series.id"},
 		},
-		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND d.id IN (SELECT id FROM " + rawSubquerySQL(matchedSeriesSQL) + ")"},
+		Where:   sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND d.id IN " + rawSubquerySQL(matchedIDsSQL)},
 		GroupBy: groupBy,
 		Having:  sqlb.RawLit{V: "NOT isNaN(value)"},
 		OrderBy: orderBy,
@@ -1085,13 +1101,17 @@ func buildRangeInstantSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, 
 	if err != nil {
 		return "", nil, err
 	}
+	matchedIDsSQL, err := buildMatchedSeriesIDsSQL(cfg, selector, matcherPrefix, requiredStartMS, requiredEndMS, true)
+	if err != nil {
+		return "", nil, err
+	}
 	params["param_start_ms"] = strconv.FormatInt(startMS, 10)
 	params["param_end_ms"] = strconv.FormatInt(endMS, 10)
 	params["param_step_ms"] = strconv.FormatInt(stepMS, 10)
 	params["param_lookback_ms"] = strconv.FormatInt(selector.LookbackMS, 10)
 	params["param_offset_ms"] = strconv.FormatInt(selector.OffsetMS, 10)
 
-	plan := newRangeInstantSelectorRowsPlan(cfg, selector, matchedSeriesSQL, stepMS)
+	plan := newRangeInstantSelectorRowsPlan(cfg, selector, matchedSeriesSQL, matchedIDsSQL, stepMS)
 	sql, err := plan.RenderRowsSQL()
 	if err != nil {
 		return "", nil, err
@@ -1113,6 +1133,7 @@ const (
 
 type matchedSeriesSourcePlan struct {
 	SQL      string
+	IDsSQL   string
 	Distinct bool
 }
 
@@ -1132,12 +1153,13 @@ type rangeInstantSelectorRowsPlan struct {
 	StaleMarkerFilterLocation selectorStaleFilterPlacement
 }
 
-func newRangeInstantSelectorRowsPlan(cfg QueryConfig, selector SelectorSource, matchedSeriesSQL string, stepMS int64) rangeInstantSelectorRowsPlan {
+func newRangeInstantSelectorRowsPlan(cfg QueryConfig, selector SelectorSource, matchedSeriesSQL, matchedIDsSQL string, stepMS int64) rangeInstantSelectorRowsPlan {
 	return rangeInstantSelectorRowsPlan{
 		Config:   cfg,
 		Selector: selector,
 		MatchedSeries: matchedSeriesSourcePlan{
 			SQL:      matchedSeriesSQL,
+			IDsSQL:   matchedIDsSQL,
 			Distinct: true,
 		},
 		Timing: rangeSelectorTimingPlan{
@@ -1364,13 +1386,11 @@ func bucketedArgMaxEvalTimestampExpr(timestamp sqlb.Expr) sqlb.Expr {
 }
 
 func idInMatchedSeriesPredicate(matched matchedSeriesSourcePlan) sqlb.Predicate {
-	return sqlb.InSubquery{
-		X: sqlb.Ident("id"),
-		Query: &sqlb.Select{
-			Columns: []sqlb.ColExpr{{Expr: sqlb.Ident("id")}},
-			From:    sqlb.RawSource{SQL: "(" + strings.TrimSpace(matched.SQL) + ")", Alias: "matched_series_ids"},
-		},
-	}
+	// The id-only matched-series subquery already projects DISTINCT src.id, so it
+	// is used directly as the membership set. Wrapping it in an outer
+	// "SELECT id FROM (...)" (and reusing the tags-projecting variant) would only
+	// add a redundant tag-array construction the IN test discards.
+	return sqlb.RawLit{V: "id IN (" + strings.TrimSpace(matched.IDsSQL) + ")"}
 }
 
 func asofLookbackPredicate() sqlb.Predicate {
@@ -1416,6 +1436,10 @@ func buildRangeMatrixSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, r
 	if err != nil {
 		return "", nil, err
 	}
+	matchedIDsSQL, err := buildMatchedSeriesIDsSQL(cfg, selector, "range_matrix", requiredStartMS, requiredEndMS, true)
+	if err != nil {
+		return "", nil, err
+	}
 	selectTagsExpr := sqlb.Expr(sqlb.Ident("series.tags"))
 	if !selector.NeedTags {
 		selectTagsExpr = emit.EmptyTagsArray()
@@ -1436,7 +1460,7 @@ func buildRangeMatrixSelectorRowsSQL(cfg QueryConfig, selector SelectorSource, r
 			Kind:  "INNER",
 			On:    sqlb.RawLit{V: "d.id = series.id"},
 		},
-		Where: sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND d.id IN (SELECT id FROM " + rawSubquerySQL(matchedSeriesSQL) + ")"},
+		Where: sqlb.RawLit{V: "d.timestamp >= fromUnixTimestamp64Milli({required_start_ms:Int64}) AND d.timestamp <= fromUnixTimestamp64Milli({required_end_ms:Int64}) AND " + staleNaNFilterSQL("d.value") + " AND d.id IN " + rawSubquerySQL(matchedIDsSQL)},
 	}
 	sql, _, err := inner.Build()
 	if err != nil {
@@ -1494,6 +1518,24 @@ func selectorTagsExpr(cfg QueryConfig, selector SelectorSource, metricColumn, ta
 		}})
 	}
 	return renderStorageExprNoParams(base)
+}
+
+// buildMatchedSeriesIDsSQL builds the id-only matched-series subquery used as
+// the "d.id IN (...)" scan-pruning predicate. It shares buildMatchedSeriesSQL's
+// source, matcher clauses, and time-overlap bounds byte-for-byte, but projects
+// only src.id (no computed tags array). The matched id set is therefore
+// identical to the tags-projecting variant — both select the distinct ids whose
+// timeSeriesTags row satisfies the same WHERE — while dropping the redundant tag
+// construction that the IN membership test discards anyway. Because the tags
+// expression contributes no query params, this variant's params are identical to
+// the tags-projecting call the caller already made, so it returns SQL only.
+func buildMatchedSeriesIDsSQL(cfg QueryConfig, selector SelectorSource, prefix string, requiredStartMS, requiredEndMS int64, addTimeOverlap bool) (string, error) {
+	idSelector := selector
+	idSelector.NeedTags = false
+	idSelector.RequireFullTags = false
+	idSelector.RequiredTagLabels = nil
+	sql, _, err := buildMatchedSeriesSQL(cfg, idSelector, prefix, requiredStartMS, requiredEndMS, addTimeOverlap)
+	return sql, err
 }
 
 func buildMatchedSeriesSQL(cfg QueryConfig, selector SelectorSource, prefix string, requiredStartMS, requiredEndMS int64, addTimeOverlap bool) (string, map[string]string, error) {
